@@ -165,6 +165,8 @@ rstest = { version = "0.27.0", default-features = false }
 rusqlite = { version = "0.40.2", default-features = false, features = ["backup", "bundled", "serialize"] }
 sqlite-plugin = { version = "0.11.0", default-features = false, features = ["static"] }
 schemars = { version = "1.2.3", default-features = false, features = ["std", "derive"] }
+# Credentials held as `SecretString`, zeroized when dropped (STYLE.md).
+secrecy = { version = "0.10.3", default-features = false }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde-saphyr = { version = "2.0.0", default-features = false, features = ["deserialize"] }
 serde_json = { version = "1.0.154", default-features = false, features = ["std"] }

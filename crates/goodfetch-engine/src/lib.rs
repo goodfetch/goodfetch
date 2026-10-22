@@ -49,6 +49,7 @@ pub mod run;
 mod run_index;
 pub mod run_state;
 pub mod runs;
+pub mod secrets;
 pub mod settings;
 pub mod tasks;
 pub mod transition;

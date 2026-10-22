@@ -31,6 +31,8 @@ hyper-util = { workspace = true, features = ["tokio"] }
 jiff = { workspace = true, features = ["tzdb-zoneinfo", "tzdb-bundle-platform"] }
 rusqlite.workspace = true
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+# Every resolved Secret reference's value, zeroized when dropped (ADR 0015).
+secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # RFC 8785, the canonical JSON each Audit log entry's hash covers (ADR 0016).

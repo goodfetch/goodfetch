@@ -40,6 +40,8 @@ pub mod result_document;
 pub mod routing;
 pub mod run;
 pub mod sample;
+pub mod secret_reference;
+pub mod secrets;
 pub mod settings;
 pub mod usage;
 pub mod versions;

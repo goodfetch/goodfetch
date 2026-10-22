@@ -164,6 +164,7 @@ impl Client {
 /// engine runs on, as the paused `Clock` must be.
 fn dependencies(env: &TestEnv) -> Dependencies {
     Dependencies {
+        environment: std::collections::BTreeMap::new(),
         home: Home::new(env.home().to_owned()),
         clock: Clock::paused(env.start_time()),
         entropy: Entropy::seeded(env.seed()),

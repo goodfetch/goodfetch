@@ -36,6 +36,7 @@ mod page;
 mod parent_death;
 mod private_endpoint;
 mod run;
+mod secrets;
 mod service_manager;
 mod settings_flags;
 mod upgrade_files;

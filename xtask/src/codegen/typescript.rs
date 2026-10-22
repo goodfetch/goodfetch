@@ -113,11 +113,22 @@ fn doc(
     text
 }
 
-/// The layer's exports: each type it defines, never the generator's root,
-/// which holds no value, and every other module whole.
+/// Which package holds each main type (ADR 0117), which every entry file a
+/// package exports opens with: the layer's `index.ts` is one, its package's
+/// `./generated`.
+const PACKAGE_MAP: &str = "\
+// Where the main types live (ADR 0117): `@goodfetch/collie` holds `Collie`;
+// the Collie client package, `@goodfetch/collie-client`, holds `Run`, and
+// will hold `Page`, `Session` and `Locator`; `@goodfetch/foxhound` holds
+// `Foxhound`, `Crawl`, `Label`, `Dataset` and `CrawlContext`.
+";
+
+/// The layer's exports, after the map of where the main types live: each
+/// type it defines, never the generator's root, which holds no value, and
+/// every other module whole.
 fn index(layer: &Layer) -> String {
     let types: Vec<&str> = layer.definitions.keys().map(String::as_str).collect();
-    let mut text = format!("{HEADER}\n");
+    let mut text = format!("{HEADER}\n{PACKAGE_MAP}\n");
     if !types.is_empty() {
         let _ = writeln!(
             text,

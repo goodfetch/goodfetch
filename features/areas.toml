@@ -242,6 +242,23 @@ number = 3
 kind = "error"
 prefix = "not_a_daemon"
 
+# Area 3's logs and traces (#257): a Connection's log level, the log
+# format and the OTLP export of the engine's spans.
+[[area]]
+number = 3
+kind = "operation"
+prefix = "connection."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "log."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "otlp."
+
 # Area 3's foreground Daemon (#228): its drain's Error code.
 [[area]]
 number = 3
@@ -672,6 +689,12 @@ prefix = "run.seeds"
 number = 6
 kind = "error"
 prefix = "attempt_ended"
+
+# Area 6, Collection, Foxhound: the crawl's scope (#840).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.scope."
 
 # Area 6, Collection (spec #580, Collie's part): a Run's Key-value store
 # (#791).

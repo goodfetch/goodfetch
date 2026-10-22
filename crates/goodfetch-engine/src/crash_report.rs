@@ -1,0 +1,85 @@
+//! Crash reports (ADR 0043): a panic in any thread of the process writes a
+//! report into a folder on the machine, its message, where it happened, the
+//! thread and a backtrace, and logs where the report is. Nothing reads the
+//! folder but a person: no report is ever sent.
+
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
+
+use crate::clock::Clock;
+
+/// Writes a crash report into `folder` for each panic of this process,
+/// headed by `executable`, its name and version, and timed by `clock`, in
+/// place of the panic's line on stderr.
+pub fn record_panics(folder: PathBuf, executable: String, clock: Clock) {
+    std::panic::set_hook(Box::new(move |panic| {
+        let report = report(&executable, clock, panic);
+        match write(&folder, &report) {
+            Ok(path) => tracing::error!(
+                report = %path.display(),
+                "the process panicked; its crash report stays on this machine"
+            ),
+            Err(error) => tracing::error!(
+                %error,
+                folder = %folder.display(),
+                "the process panicked, and its crash report cannot be written"
+            ),
+        }
+    }));
+}
+
+/// The report of `panic`.
+fn report(executable: &str, clock: Clock, panic: &std::panic::PanicHookInfo<'_>) -> Report {
+    let at = jiff::Timestamp::try_from(clock.wall()).unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+    let message = panic
+        .payload()
+        .downcast_ref::<&str>()
+        .map(|message| (*message).to_owned())
+        .or_else(|| panic.payload().downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "a panic with no message".to_owned());
+    let mut text = String::new();
+    let _ = writeln!(text, "Crash report of {executable}");
+    let _ = writeln!(text, "time: {at}");
+    let _ = writeln!(
+        text,
+        "thread: {}",
+        std::thread::current().name().unwrap_or("unnamed")
+    );
+    if let Some(location) = panic.location() {
+        let _ = writeln!(text, "location: {location}");
+    }
+    let _ = writeln!(text, "message: {message}");
+    let _ = writeln!(
+        text,
+        "backtrace:\n{}",
+        std::backtrace::Backtrace::force_capture()
+    );
+    Report {
+        name: format!(
+            "crash-{}-{}.txt",
+            at.strftime("%Y%m%dT%H%M%S%.fZ"),
+            std::process::id()
+        ),
+        text,
+    }
+}
+
+/// A crash report: its file's name and its text.
+struct Report {
+    name: String,
+    text: String,
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a panic hook writes its report where it runs, on the panicking thread, outside any await"
+)]
+fn write(folder: &Path, report: &Report) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(folder)?;
+    let path = folder.join(&report.name);
+    std::fs::write(&path, &report.text)?;
+    Ok(path)
+}
+
+#[cfg(test)]
+mod tests;

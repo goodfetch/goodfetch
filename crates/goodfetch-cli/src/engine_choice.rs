@@ -87,6 +87,7 @@ pub fn call_attached(
         token: None,
         needs: Some(needs),
         product_version: engine.identity().product_version.clone(),
+        log_level: None,
     };
     let (network, dialer) = transport::in_memory();
     runtime.block_on(async {

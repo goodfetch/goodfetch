@@ -6,6 +6,16 @@ use url::Url;
 
 use super::{Declared, Hop, TABLES, redirect_hop, redirect_reached, url_key};
 use crate::admit::{Candidate, admit};
+use crate::scope::{self, Patterns, Scope, Strategy as ScopeStrategy};
+
+/// A run file holding the visited set and the scope, in memory.
+fn run_file() -> Connection {
+    let connection = Connection::open_in_memory().unwrap();
+    for statement in TABLES.statements.iter().chain(scope::TABLES.statements) {
+        connection.execute(statement, []).unwrap();
+    }
+    connection
+}
 
 fn key(text: &str) -> String {
     url_key(&Url::parse(text).unwrap())
@@ -68,6 +78,11 @@ fn the_key_makes_one_request_of(#[case] one: &str, #[case] other: &str) {
 #[case::the_www_label("http://a.test/", "http://www.a.test/")]
 #[case::another_scheme("http://a.test/", "https://a.test/")]
 #[case::an_index_file("http://a.test/a/index.html", "http://a.test/a/")]
+#[case::a_stray_percent_sign_before_an_encoded_digit("http://a.test/?%3%30", "http://a.test/?%30")]
+#[case::a_stray_percent_sign_and_an_encoded_percent_sign(
+    "http://a.test/?%3%30",
+    "http://a.test/?%2530"
+)]
 fn the_key_keeps_apart(#[case] one: &str, #[case] other: &str) {
     assert_ne!(key(one), key(other));
 }
@@ -81,6 +96,32 @@ fn the_key_keeps_apart(#[case] one: &str, #[case] other: &str) {
     "http://a.test/~/a%2Fb;v=2?a=2&a=1&b=A"
 )]
 #[case::a_url_with_nothing_to_change("https://a.test:8443/a/b?c=d", "https://a.test:8443/a/b?c=d")]
+#[case::a_stray_percent_sign_and_a_digit_before_an_encoded_digit(
+    "http://a.test/?%3%30",
+    "http://a.test/?%3%30"
+)]
+#[case::a_stray_percent_sign_before_an_encoded_digit("http://a.test/%%30", "http://a.test/%%30")]
+#[case::a_stray_percent_sign_before_an_encoded_digit_and_a_digit(
+    "http://a.test/%%30A",
+    "http://a.test/%%30A"
+)]
+#[case::a_stray_percent_sign_before_two_encoded_digits(
+    "http://a.test/%%30%31",
+    "http://a.test/%%301"
+)]
+#[case::an_encoded_digit_after_a_whole_encoding("http://a.test/%2%35%36", "http://a.test/%2%356")]
+#[case::a_jsessionid_on_a_dot_segment(
+    "http://a.test/a/.;jsessionid=1/b",
+    "http://a.test/a/.;jsessionid=1/b"
+)]
+#[case::a_jsessionid_on_a_double_dot_segment(
+    "http://a.test/a/%2E%2e;JSESSIONID=1/b",
+    "http://a.test/a/..;JSESSIONID=1/b"
+)]
+#[case::a_jsessionid_beside_another_parameter_on_a_dot_segment(
+    "http://a.test/a/.;jsessionid=1;v=2/b",
+    "http://a.test/a/.;v=2/b"
+)]
 fn the_key_of(#[case] url: &str, #[case] expected: &str) {
     assert_eq!(key(url), expected);
 }
@@ -88,7 +129,7 @@ fn the_key_of(#[case] url: &str, #[case] expected: &str) {
 /// `href`s as pages write them: relative and absolute, with the
 /// characters the key's rules read.
 fn href_like() -> impl Strategy<Value = String> {
-    "(https?://[a-z.]{1,8}|//[a-z]{1,4}|\\.{0,2}/)?([a-zA-Z0-9/;=~.%\\-_+é ]|%[0-9a-fA-F]{2}){0,16}(\\?([a-zA-Z0-9_=&%;+.~é ]|%[0-9a-fA-F]{2}){0,16})?(#[a-z]{0,4})?"
+    "(https?://[a-z.]{1,8}|//[a-z]{1,4}|\\.{0,2}/)?([a-zA-Z0-9/;=~.%\\-_+é ]|%[0-9a-fA-F]{2}|;jsessionid=){0,16}(\\?([a-zA-Z0-9_=&%;+.~é ]|%[0-9a-fA-F]{2}){0,16})?(#[a-z]{0,4})?"
 }
 
 proptest! {
@@ -113,15 +154,14 @@ proptest! {
 /// Covers: story:6-220
 #[test]
 fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
-    let connection = Connection::open_in_memory().unwrap();
-    for statement in TABLES.statements {
-        connection.execute(statement, []).unwrap();
-    }
+    let connection = run_file();
     let get = HttpMethod::get();
     let mut added = 0;
+    let scope = Scope::default();
     let mut seed = |url: &str| {
         admit(
             &connection,
+            &scope,
             Candidate::Seed {
                 url,
                 declared: Declared {
@@ -142,6 +182,7 @@ fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
     let hop = |crawl_request: &str, url: &str| {
         redirect_hop(
             &connection,
+            &Scope::read(&connection).unwrap(),
             crawl_request,
             &Url::parse(url).unwrap(),
             &get,
@@ -182,6 +223,69 @@ fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
                 }
             )
         )
+    );
+}
+
+/// A redirect hop leaving the crawl's scope ends the request `skipped`
+/// with `out_of_scope` before any other check, a hop to a key admitted for
+/// another request included, while one inside it is followed (ADR 0093;
+/// pitfall U15).
+///
+/// Covers: story:6-224
+#[test]
+fn a_redirect_hop_leaving_the_scope_is_out_of_scope() {
+    let connection = run_file();
+    let get = HttpMethod::get();
+    let scope = Scope::new(
+        ScopeStrategy::SameHostname,
+        Patterns::default(),
+        Patterns::default(),
+    );
+    let mut added = 0;
+    for url in ["http://shop.test/a", "http://outlet.test/sale"] {
+        let candidate = Candidate::Seed {
+            url,
+            declared: Declared {
+                method: &get,
+                body: None,
+                key: None,
+            },
+        };
+        admit(&connection, &scope, candidate, |_| {
+            added += 1;
+            Ok(added.to_string())
+        })
+        .unwrap();
+    }
+    let hop = |url: &str| {
+        redirect_hop(
+            &connection,
+            &scope,
+            "1",
+            &Url::parse(url).unwrap(),
+            &get,
+            None,
+        )
+        .unwrap()
+    };
+
+    let hops = [
+        hop("https://shop.test/b"),
+        hop("http://www.shop.test/c"),
+        hop("http://blog.shop.test/a"),
+        hop("http://elsewhere.test/"),
+        hop("http://outlet.test/sale"),
+    ];
+
+    assert_eq!(
+        hops,
+        [
+            Hop::Follow,
+            Hop::Follow,
+            Hop::OutOfScope,
+            Hop::OutOfScope,
+            Hop::Duplicate
+        ]
     );
 }
 

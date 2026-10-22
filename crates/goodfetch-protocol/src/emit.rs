@@ -50,6 +50,7 @@ use crate::events::{CreditParams, EventBatch};
 use crate::formats::FORMATS;
 use crate::journey::{Journey, JourneyCatalog};
 use crate::key_value_store::KeyValueStoreKey;
+use crate::log::LogEvent;
 use crate::page::Chunk;
 use crate::releases::ReleasesFile;
 use crate::result_document::ResultDocument;
@@ -100,6 +101,7 @@ pub fn emit() -> Emitted {
         "credit": { "params": generator.subschema_for::<CreditParams>() },
         "events": { "params": generator.subschema_for::<EventBatch>() },
         "chunk": { "params": generator.subschema_for::<Chunk>() },
+        "log": { "params": generator.subschema_for::<LogEvent>() },
         "key": { "params": generator.subschema_for::<KeyValueStoreKey>() },
     });
     let outputs = json!({

@@ -15,6 +15,8 @@ use rusqlite::{Connection, OptionalExtension as _};
 use sha2::{Digest as _, Sha256};
 use url::{Position, Url};
 
+use crate::scope::{Narrowing, Scope};
+
 /// The Frontier's visited set: each identity admitted, with the ID of the
 /// crawl request it was admitted for, or that reached it by a redirect.
 pub const TABLES: RunStateTables = RunStateTables {
@@ -41,6 +43,9 @@ pub struct Declared<'a> {
 /// Where a redirect hop leads a crawl request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hop {
+    /// It leaves the crawl's scope: the request ends `skipped` with
+    /// `out_of_scope`, and its handler does not run.
+    OutOfScope,
     /// It is followed: its key is the request's own, or no other request's.
     Follow,
     /// Its key was admitted for another request: the request ends
@@ -93,20 +98,25 @@ pub(crate) fn visit(
 }
 
 /// Where a redirect hop of the crawl request `crawl_request` to `url`,
-/// sent with `method` and `body`, leads it (ADR 0120): `Duplicate` when
-/// that identity was admitted for another request, else `Follow`, a hop
-/// back to the request's own identity included.
+/// sent with `method` and `body`, leads it within `scope` (ADRs 0093 and
+/// 0120): `OutOfScope` when it leaves the scope, `Duplicate` when that
+/// identity was admitted for another request, else `Follow`, a hop back to
+/// the request's own identity included.
 ///
 /// # Errors
 ///
 /// When the run file cannot be read.
 pub fn redirect_hop(
     connection: &Connection,
+    scope: &Scope,
     crawl_request: &str,
     url: &Url,
     method: &HttpMethod,
     body: Option<&[u8]>,
 ) -> rusqlite::Result<Hop> {
+    if !scope.admits(connection, url, Narrowing::none())? {
+        return Ok(Hop::OutOfScope);
+    }
     let hop = identity(
         url,
         Declared {
@@ -159,8 +169,11 @@ const SESSION_PARAMETER: &str = "jsessionid";
 /// The key of `url`, as parsed: the URL's part of a crawl request's
 /// identity, by ADR 0120's fixed rules, in order. Hexadecimal digits of
 /// the path's and the query's percent-encodings are uppercased and
-/// percent-encoded unreserved characters decoded (RFC 3986 §6.2.2); the
-/// fragment is dropped; a `;jsessionid=` path parameter is dropped; and
+/// percent-encoded unreserved characters decoded (RFC 3986 §6.2.2),
+/// unless decoding would make a new percent-encoding with a `%` written
+/// as is; the
+/// fragment is dropped; a `;jsessionid=` path parameter is dropped, unless
+/// that leaves a dot segment; and
 /// the query's `utm_*`, `gclid` and `fbclid` parameters and empty pairs
 /// are dropped and the rest sorted by name, keeping the order of one
 /// name's values, an empty query dropped. Nothing else changes: the
@@ -200,7 +213,10 @@ fn is_tracking(name: &str) -> bool {
     name.starts_with(TRACKING_PREFIX) || TRACKING.contains(&name)
 }
 
-/// A path segment without its `;jsessionid=` parameters.
+/// A path segment without its `;jsessionid=` parameters, unless dropping
+/// them would leave a dot segment, which the parser would then resolve:
+/// such a segment stays as written, so the key of a key is itself and
+/// `a/.;jsessionid=1/b` keeps apart from `a/b`.
 fn without_session(segment: &str) -> String {
     let mut parameters = segment.split(';');
     let mut kept = parameters.next().unwrap_or_default().to_owned();
@@ -213,13 +229,20 @@ fn without_session(segment: &str) -> String {
             kept.push_str(parameter);
         }
     }
+    if matches!(kept.as_str(), "." | "..") {
+        return segment.to_owned();
+    }
     kept
 }
 
 /// `text` with each percent-encoded unreserved character decoded and every
 /// other percent-encoding's hexadecimal digits uppercased (RFC 3986
 /// §6.2.2.1 and §6.2.2.2); a `%` not followed by two hexadecimal digits
-/// stays as written.
+/// stays as written. Decoding never makes a percent-encoding the text did
+/// not hold: an encoded hexadecimal digit right after such a `%`, or after
+/// it and one digit, stays encoded, so `%3%30` keeps apart from `%30` as
+/// the WHATWG URL Standard's percent-decoding keeps them, and the key of a
+/// key is itself.
 fn normalize_encoding(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut normalized = String::with_capacity(text.len());
@@ -230,7 +253,9 @@ fn normalize_encoding(text: &str) -> String {
             .flatten();
         if let Some((high, low)) = encoded {
             let byte = high * 16 + low;
-            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            let is_unreserved =
+                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~');
+            if is_unreserved && !(byte.is_ascii_hexdigit() && ends_in_stray_percent(&normalized)) {
                 normalized.push(char::from(byte));
             } else {
                 normalized.push('%');
@@ -248,6 +273,19 @@ fn normalize_encoding(text: &str) -> String {
         }
     }
     normalized
+}
+
+/// Whether `normalized` ends in a `%` not followed by two hexadecimal
+/// digits, alone or with one digit, so a hexadecimal digit written next
+/// would start or complete a percent-encoding. Every percent-encoding
+/// `normalize_encoding` writes is whole, so such a `%` is one the text
+/// held as written.
+fn ends_in_stray_percent(normalized: &str) -> bool {
+    match normalized.as_bytes() {
+        [.., b'%'] => true,
+        [.., b'%', digit] => digit.is_ascii_hexdigit(),
+        _ => false,
+    }
 }
 
 /// The fuzz target's body for the URL key (ADR 0067): reads `data` as an

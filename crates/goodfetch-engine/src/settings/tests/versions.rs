@@ -180,3 +180,69 @@ fn a_new_major_refuses_an_older_majors_operator_policy_until_it_has_its_copy(#[c
         }
     }
 }
+
+/// The major an engine of `current` names when its own major's folder holds
+/// no Operator policy and the folders `with_policy` of Goodfetch home each
+/// hold one: `None` when it reads the settings instead.
+fn older_major_named(current: &str, with_policy: &[&str]) -> Option<String> {
+    let home = tempfile::tempdir().unwrap();
+    for folder in with_policy {
+        let folder = home.path().join(folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("operator-policy.toml"), "version = \"0.1\"\n").unwrap();
+    }
+    let home = Home::new(home.path().to_owned());
+
+    match SettingsFiles::of(&home, &version(current)).load(Product::Collie) {
+        Ok(_) => None,
+        Err(SettingsError::OlderMajorPolicy { major, .. }) => Some(major),
+        Err(error) => panic!("{error:?}"),
+    }
+}
+
+/// Without an Operator policy of its own, an engine names the newest older
+/// major's, where each `0.y` preview counts as a major and outranks no
+/// release major (ADR 0030); newer majors' policies and folders that are no
+/// major's never count.
+///
+/// Covers: story:3-94, format:operator-policy
+#[rstest]
+#[case::a_preview_names_the_newest_older_preview("0.3.0", &["0.0", "0.1", "0.4"], Some("0.1"))]
+#[case::a_preview_ignores_newer_majors_and_other_folders("0.3.0", &["0.4", "1", "0.02", "00.1", "policies"], None)]
+#[case::the_first_preview_has_no_older_major("0.0.0", &["0.1"], None)]
+#[case::a_major_names_an_older_major_before_any_preview("3.0.0", &["0.9", "1"], Some("1"))]
+#[case::a_major_names_the_newest_preview_without_an_older_major("2.0.0", &["0.1", "0.9", "2.0"], Some("0.9"))]
+fn an_engine_without_its_own_operator_policy_names_the_newest_older_majors(
+    #[case] current: &str,
+    #[case] with_policy: &[&str],
+    #[case] named: Option<&str>,
+) {
+    assert_eq!(older_major_named(current, with_policy).as_deref(), named);
+}
+
+/// A preview finds the older previews' Operator policies by their folders'
+/// names, never by listing Goodfetch home, which would allocate a directory
+/// stream's buffer at every engine's start: a home it may enter but not list
+/// still yields the older preview's policy.
+///
+/// Covers: story:3-94, format:operator-policy
+#[cfg(unix)]
+#[test]
+fn a_preview_finds_an_older_previews_operator_policy_without_listing_goodfetch_home() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let home = tempfile::tempdir().unwrap();
+    let older = home.path().join("0.1");
+    std::fs::create_dir_all(&older).unwrap();
+    std::fs::write(older.join("operator-policy.toml"), "version = \"0.1\"\n").unwrap();
+    std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(0o311)).unwrap();
+    let files = SettingsFiles::of(&Home::new(home.path().to_owned()), &version("0.2.0"));
+
+    let loaded = files.load(Product::Collie);
+
+    std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        matches!(loaded, Err(SettingsError::OlderMajorPolicy { ref major, .. }) if major == "0.1"),
+        "{loaded:?}"
+    );
+}

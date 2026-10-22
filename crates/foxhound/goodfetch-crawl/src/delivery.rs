@@ -50,78 +50,39 @@
 use std::time::Duration;
 
 use goodfetch_engine::admission::{Admission, Waiting, Wakes};
-use goodfetch_engine::client::{Client, ClientRequestError, Sent};
+use goodfetch_engine::client::Client;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::ledger::Refusal;
-use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, CompletenessReason, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_frontier::{Bounds, completeness_reasons};
-use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
-    CLIENT_GONE, CRAWL_KEEP_ALIVE, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams,
-    CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST, RESPONSE_UNAVAILABLE,
-    WORK_ITEM_LEASED, WORK_ITEM_RETRIED,
+    CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
+    RESPONSE_UNAVAILABLE, WORK_ITEM_RETRIED,
 };
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::run::{
     AxisReason, EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, StopReason,
 };
 use goodfetch_protocol::usage::REQUESTS;
-use goodfetch_session_pool::{Effect, PoolSettings, SessionPool};
+use goodfetch_session_pool::{PoolSettings, SessionPool};
 use rusqlite::Connection;
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
-use crate::lease::{CommitError, Leases, WorkItemLease};
+use crate::lease::{CommitError, Leases};
 use crate::policy::CrawlPolicy;
 use crate::serving::{Crawls, Opened, Server};
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
 
+mod attempt;
 mod politeness;
 
+use attempt::{Answer, Attempt, attempt, block_cause, effect, leased_count};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
-
-/// The Error code of a page the site refused, which Collie's page raises
-/// with the Block cause in its details (ADRs 0035 and 0079); declared with
-/// the page's errors (#711).
-const BLOCKED: &str = "blocked";
-
-/// The Error code of a page that failed its Page check (ADR 0006), which
-/// scores its Session down; declared with the Page check (area 5).
-const PAGE_CHECK_FAILED: &str = "page_check_failed";
-
-/// How an attempt ended, before its outcome is committed.
-enum Answer {
-    /// The handler answered.
-    Handled(CrawlRequestHandled),
-    /// The handler failed, or answered no result.
-    Failed {
-        code: String,
-        retryable: bool,
-        message: String,
-        details: Map<String, Value>,
-    },
-    /// The lease ended with no answer.
-    LeaseEnded,
-    /// The program's Connection ended.
-    ClientGone,
-}
-
-struct Attempt {
-    /// The server, by its place in the delivery's list, its request went to.
-    server: usize,
-    leased: Leased,
-    /// Its count in `goodfetch.work_item.leased`, until it drops.
-    _counted: Counted,
-    /// The Session of the crawl's Session pool that served it.
-    session: ServingSession,
-    lease: WorkItemLease,
-    answer: Answer,
-}
 
 /// A Connection serving the crawl's handler requests, as the delivery
 /// keeps it.
@@ -768,72 +729,6 @@ async fn sleep_until(clock: Clock, moment: Option<Instant>) {
     }
 }
 
-/// One attempt: the handler request, bounded by its lease. When the lease
-/// ends first, the request is cancelled and its answer left to [`late`].
-async fn attempt(
-    run: Run,
-    server: usize,
-    client: Client,
-    (leased, session, counted): (Leased, ServingSession, Counted),
-    lease: WorkItemLease,
-) -> Attempt {
-    let params = CrawlRequestHandleParams {
-        run_id: run.id().clone(),
-        crawl_request: leased.crawl_request.clone(),
-        attempt: leased.attempt,
-        lease_epoch: leased.lease_epoch,
-        session: session.clone(),
-    };
-    let answer = match client
-        .send::<CrawlRequestHandled>(&CRAWL_REQUEST_HANDLE, &params)
-        .await
-    {
-        Err(_) => Answer::ClientGone,
-        Ok(mut sent) => tokio::select! {
-            biased;
-            answer = sent.answer() => match answer {
-                Ok(handled) => Answer::Handled(handled),
-                Err(ClientRequestError::Failed { code, retryable, message, details }) => {
-                    Answer::Failed { code, retryable, message, details }
-                }
-                Err(ClientRequestError::Malformed(message)) => Answer::Failed {
-                    code: HANDLER_FAILED.name.to_owned(),
-                    retryable: false,
-                    message,
-                    details: Map::new(),
-                },
-                Err(_) => Answer::ClientGone,
-            },
-            _ = lease.ended() => {
-                sent.cancel().await;
-                run.spawn(late(run.clone(), lease.clone(), sent));
-                Answer::LeaseEnded
-            }
-        },
-    };
-    Attempt {
-        server,
-        leased,
-        _counted: counted,
-        session,
-        lease,
-        answer,
-    }
-}
-
-/// One more attempt in `goodfetch.work_item.leased`, until the answer
-/// drops.
-fn leased_count(run: &Run) -> Counted {
-    let counter = run
-        .metrics()
-        .meter()
-        .i64_up_down_counter(WORK_ITEM_LEASED.name)
-        .with_description(WORK_ITEM_LEASED.description)
-        .with_unit(WORK_ITEM_LEASED.unit)
-        .build();
-    Counted::new(counter, Vec::new())
-}
-
 /// One more retry in `goodfetch.work_item.retried`.
 fn count_retry(run: &Run) {
     run.metrics()
@@ -843,24 +738,6 @@ fn count_retry(run: &Run) {
         .with_unit(WORK_ITEM_RETRIED.unit)
         .build()
         .add(1, &[]);
-}
-
-/// The answer of an attempt whose lease ended first: a result is a late
-/// commit, refused with `lease_lost` and its Records discarded; a failure,
-/// such as the cancel the Client honoured, changes nothing.
-async fn late(run: Run, lease: WorkItemLease, mut sent: Sent<CrawlRequestHandled>) {
-    tokio::select! {
-        biased;
-        () = run.cancellation().cancelled() => {}
-        answer = sent.answer() => {
-            if let Ok(handled) = answer
-                && let Err(CommitError::LeaseLost) =
-                    lease.commit(run.state(), handled.records, run.point_in_time()).await
-            {
-                run.record_outcome(LEASE_LOST.name);
-            }
-        }
-    }
 }
 
 /// Commits an attempt's outcome: its Records once while its lease holds,
@@ -985,37 +862,6 @@ fn retried_or_failed(
     } else {
         Unsuccessful::Failed(failure)
     }
-}
-
-/// What an attempt's answer says of the Session that served it: a
-/// committed answer is a success, a block or a failed Page check scores it
-/// down, and any other ending, a skip or the handler's own failure, says
-/// nothing of it.
-fn effect(answer: &Answer) -> Effect {
-    match answer {
-        Answer::Handled(CrawlRequestHandled { skipped: None, .. }) => Effect::Success,
-        Answer::Failed { code, details, .. } => match block_cause(code, details) {
-            Some(cause) => Effect::Blocked(cause),
-            None if code == PAGE_CHECK_FAILED => Effect::PageCheckFailed,
-            None => Effect::Neutral,
-        },
-        Answer::Handled(CrawlRequestHandled {
-            skipped: Some(_), ..
-        })
-        | Answer::LeaseEnded
-        | Answer::ClientGone => Effect::Neutral,
-    }
-}
-
-/// The Block cause of a handler's failure with the Error code `blocked`,
-/// which its details name.
-fn block_cause(code: &str, details: &Map<String, Value>) -> Option<BlockCause> {
-    if code != BLOCKED {
-        return None;
-    }
-    details
-        .get("cause")
-        .and_then(|cause| serde_json::from_value(cause.clone()).ok())
 }
 
 /// Returns the leased work items to pending, without counting them.

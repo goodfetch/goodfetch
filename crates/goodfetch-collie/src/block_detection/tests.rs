@@ -29,6 +29,7 @@ const INTERSTITIAL_HEADERS: &[(&str, &str)] =
 #[case::rate_limit(429, &[("retry-after", "120")], include_str!("fixtures/rate-limit.html"), Some((BlockCause::RateLimit, "too_many_requests")))]
 #[case::vendor_script_only(200, &[], include_str!("fixtures/vendor-script.html"), None)]
 #[case::captcha_widget_on_a_contact_form(200, &[], "<form><div class=\"g-recaptcha\"></div><button>Send</button></form>", None)]
+#[case::captcha_widget_on_a_login_form(200, &[], "<h1>Sign in</h1><form action=\"/login\" method=\"post\"><input type=\"email\" name=\"email\"><input type=\"password\" name=\"password\"><p>Verify you are human</p><div class=\"g-recaptcha\"></div><button>Sign in</button></form>", None)]
 #[case::ordinary_article(200, &[], include_str!("fixtures/article.html"), None)]
 #[case::not_found(404, &[], include_str!("fixtures/not-found.html"), None)]
 #[case::interstitial_words_served_as_content(200, &[], include_str!("fixtures/interstitial.html"), None)]

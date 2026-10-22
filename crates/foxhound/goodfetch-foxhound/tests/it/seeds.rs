@@ -176,24 +176,27 @@ fn a_seed_added_through_a_handlers_context_is_bound_to_its_attempt() {
                     "lease_epoch": handle["lease_epoch"],
                 })
             });
-            let url = format!(
-                "{}-seeded",
-                handle["crawl_request"]["url"].as_str().unwrap()
-            );
-            let reply = inside.call(
-                "run.add_seed",
-                &json!({
-                    "run_id": "bound",
-                    "seed": { "url": url, "label": "page" },
-                    "attempt": attempt,
-                }),
-            );
-            answers.push(
-                reply
-                    .get("result")
-                    .unwrap_or_else(|| &reply["error"]["data"]["code"])
-                    .clone(),
-            );
+            if answers.len() < 2 {
+                let url = if answers.is_empty() {
+                    "https://shop.test/a-seeded"
+                } else {
+                    "https://shop.test/late"
+                };
+                let reply = inside.call(
+                    "run.add_seed",
+                    &json!({
+                        "run_id": "bound",
+                        "seed": { "url": url, "label": "page" },
+                        "attempt": attempt,
+                    }),
+                );
+                answers.push(
+                    reply
+                        .get("result")
+                        .unwrap_or_else(|| &reply["error"]["data"]["code"])
+                        .clone(),
+                );
+            }
             record_the_page(handle)
         },
     );

@@ -2522,6 +2522,54 @@
       ],
       "type": "object"
     },
+    "RunAddSeedParams": {
+      "additionalProperties": false,
+      "description": "What `run.add_seed` takes: one seed for a running crawl.",
+      "properties": {
+        "attempt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SeedAttempt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The attempt that adds it, when a handler adds it through its\ncontext's `run`; absent, the program adds it from outside any\nattempt."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        },
+        "seed": {
+          "$ref": "#/$defs/Seed",
+          "arrived_in": "0.1",
+          "description": "The seed."
+        }
+      },
+      "required": [
+        "run_id",
+        "seed"
+      ],
+      "type": "object"
+    },
+    "RunAddSeedsParams": {
+      "additionalProperties": false,
+      "description": "What `run.add_seeds` takes: the running crawl its Client streams seeds\nto.",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunAxes": {
       "description": "A Run's three axes as they are now (ADR 0029): what\n`run.axes_changed` reports, and what a resync gives of each Run.",
       "properties": {
@@ -2919,6 +2967,30 @@
       ],
       "type": "object"
     },
+    "RunSeedsAdded": {
+      "description": "What `run.add_seeds` answers once its stream ended: how many of the\nseeds it took were added, and how many were not.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "The seeds added.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "not_added": {
+          "arrived_in": "0.1",
+          "description": "The seeds not added, each with its reason in its answer.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "added",
+        "not_added"
+      ],
+      "type": "object"
+    },
     "RunSeedsParams": {
       "additionalProperties": false,
       "description": "What `run.seeds` takes.",
@@ -3212,6 +3284,11 @@
           "arrived_in": "0.1",
           "description": "The body it is sent with, if any."
         },
+        "forefront": {
+          "arrived_in": "0.1",
+          "description": "Whether it goes ahead of every request its domain holds pending,\nwhatever their priority, as Crawlee's `forefront` (ADR 0005): of two\nsuch requests, the later goes first; `false` by default.",
+          "type": "boolean"
+        },
         "key": {
           "arrived_in": "0.1",
           "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
@@ -3249,6 +3326,29 @@
       "required": [
         "url",
         "label"
+      ],
+      "type": "object"
+    },
+    "SeedAttempt": {
+      "additionalProperties": false,
+      "description": "The attempt a seed is added from: a handler's `ctx.run`, which is bound\nto its attempt (ADR 0093).",
+      "properties": {
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt adds the seed.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "crawl_request_id",
+        "lease_epoch"
       ],
       "type": "object"
     },
@@ -5209,6 +5309,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl fails with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.add_seed",
+      "params": {
+        "$ref": "#/$defs/RunAddSeedParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Enqueued"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl fails with `run_not_found`.",
+      "events": [],
+      "kind": "sequence",
+      "name": "run.add_seeds",
+      "params": {
+        "$ref": "#/$defs/RunAddSeedsParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunSeedsAdded"
       },
       "stability": "experimental"
     },

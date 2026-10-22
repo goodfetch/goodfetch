@@ -27,7 +27,9 @@
 //! of room waits for the wake of a Permit given back. Once every work item
 //! is done, it finishes the Run; with `crawl.keep_alive` (RT-12) it waits
 //! for new work instead until `run.finish` lets the Run finish, so its idle
-//! time counts toward its `timeout.run`. When the Run is asked to stop at its next safe point,
+//! time counts toward its `timeout.run`. A seed added to the running crawl
+//! (`run.add_seed`, `run.add_seeds`) wakes it, idle or not, to key the new
+//! work items and queue them under their domains. When the Run is asked to stop at its next safe point,
 //! such as once its `timeout.run` passed, it admits nothing new, lets each
 //! attempt in flight commit or be abandoned under its lease, and then stops
 //! the Run. When the Run stops at once, by an abort, the attempts in flight
@@ -55,13 +57,13 @@ use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_protocol::usage::REQUESTS;
 use goodfetch_session_pool::{Effect, PoolSettings, SessionPool};
 use serde_json::{Map, Value};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::CrawlPolicy;
-use crate::serving::{Crawls, Server};
+use crate::serving::{Crawls, Opened, Server};
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -134,8 +136,9 @@ impl Serving {
 }
 
 /// Drives `run`'s work items to the handler of `client`, and of each
-/// Connection that `joined` brings, until each is done or the Run stops;
-/// then closes the crawl in `crawls`.
+/// Connection that `arrivals` brings, keying the seeds added since whenever
+/// it says so, until each is done or the Run stops; then closes the crawl
+/// in `crawls`.
 ///
 /// # Cancel safety
 ///
@@ -144,7 +147,7 @@ impl Serving {
 pub(crate) async fn drive(
     run: Run,
     client: Client,
-    mut joined: mpsc::UnboundedReceiver<Server>,
+    mut arrivals: Opened,
     crawls: Crawls,
     settings: RunSettings,
 ) {
@@ -154,7 +157,7 @@ pub(crate) async fn drive(
         in_flight: 0,
         gone: false,
     }];
-    deliver(&run, &mut servers, &mut joined, &settings).await;
+    deliver(&run, &mut servers, &mut arrivals, &settings).await;
     crawls.close(run.id()).await;
 }
 
@@ -162,7 +165,7 @@ pub(crate) async fn drive(
 async fn deliver(
     run: &Run,
     servers: &mut Vec<Serving>,
-    joined: &mut mpsc::UnboundedReceiver<Server>,
+    arrivals: &mut Opened,
     settings: &RunSettings,
 ) {
     let run_leases = Leases::new(run.clock(), run.id().as_str(), run.state().epoch());
@@ -201,7 +204,7 @@ async fn deliver(
                 return;
             }
             if !servers.iter_mut().any(Serving::serves) {
-                match waited(run, &mut admission, servers, joined, false).await {
+                match waited(run, &mut admission, servers, arrivals, false).await {
                     Waited::Ended => return,
                     Waited::Stop(reason) => stop = Some(reason),
                     Waited::Again => {}
@@ -212,7 +215,7 @@ async fn deliver(
                 Ok(Idle::Admit) => continue,
                 Ok(Idle::Wait) => {}
                 Ok(Idle::Done) => {
-                    match drained(run, &resolved, &mut admission, servers, joined).await {
+                    match drained(run, &resolved, &mut admission, servers, arrivals).await {
                         Waited::Ended => return,
                         Waited::Stop(reason) => stop = Some(reason),
                         Waited::Again => {}
@@ -244,8 +247,13 @@ async fn deliver(
             reason = run.stopping(), if stop.is_none() => {
                 stop = Some(reason);
             }
-            Some(server) = joined.recv() => {
+            Some(server) = arrivals.joined.recv() => {
                 servers.push(Serving::joined(server));
+            }
+            () = arrivals.seeded.notified() => {
+                if let Err(error) = key_new(run, &mut admission).await {
+                    tracing::warn!(%error, run_id = %run.id(), "the seeds added were not keyed yet");
+                }
             }
             Some(ended) = attempts.join_next() => {
                 if let Ok(attempt) = ended {
@@ -296,8 +304,8 @@ pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings, craw
         run.end(Ending::Failed).await;
         return;
     }
-    let joined = crawls.open(&run).await;
-    drive(run, client, joined, crawls, settings).await;
+    let opened = crawls.open(&run).await;
+    drive(run, client, opened, crawls, settings).await;
 }
 
 /// The crawl's Session pool under the Run's settings now.
@@ -393,8 +401,8 @@ enum Waited {
     Ended,
     /// The Run is asked to stop at its next safe point.
     Stop(StopReason),
-    /// `run.finish` let it finish, or a Connection joined to serve it:
-    /// look for work once more.
+    /// `run.finish` let it finish, a Connection joined to serve it, or a
+    /// seed was added: look for work once more.
     Again,
 }
 
@@ -407,7 +415,7 @@ async fn drained(
     resolved: &Resolved,
     admission: &mut Admission,
     servers: &mut Vec<Serving>,
-    joined: &mut mpsc::UnboundedReceiver<Server>,
+    arrivals: &mut Opened,
 ) -> Waited {
     let keeps_alive = resolved
         .boolean(CRAWL_KEEP_ALIVE.name)
@@ -416,17 +424,17 @@ async fn drained(
         end(run, admission, Ending::Finished).await;
         return Waited::Ended;
     }
-    waited(run, admission, servers, joined, true).await
+    waited(run, admission, servers, arrivals, true).await
 }
 
 /// Waits, with nothing to deliver now, until the Run stops at once, is
-/// asked to stop at its next safe point, a Connection joins to serve it
-/// or, `until_finish`, `run.finish` lets it finish.
+/// asked to stop at its next safe point, a Connection joins to serve it, a
+/// seed is added or, `until_finish`, `run.finish` lets it finish.
 async fn waited(
     run: &Run,
     admission: &mut Admission,
     servers: &mut Vec<Serving>,
-    joined: &mut mpsc::UnboundedReceiver<Server>,
+    arrivals: &mut Opened,
     until_finish: bool,
 ) -> Waited {
     tokio::select! {
@@ -438,10 +446,11 @@ async fn waited(
         }
         reason = run.stopping() => Waited::Stop(reason),
         () = run.let_finish(), if until_finish => Waited::Again,
-        Some(server) = joined.recv() => {
+        Some(server) = arrivals.joined.recv() => {
             servers.push(Serving::joined(server));
             Waited::Again
         }
+        () = arrivals.seeded.notified() => Waited::Again,
     }
 }
 
@@ -558,12 +567,34 @@ async fn open(run: &Run, settings: &RunSettings) -> Result<(Admission, SessionPo
     Ok((admission, pool))
 }
 
-/// Keys each work item not keyed yet, the seeds at the start and those a
-/// handler enqueued since, and offers it to its domain's queue, which
-/// takes it unless full; one it refuses waits in run state until its queue
-/// fills again.
+/// How many work items not keyed yet [`key_new`] reads at a time, so a
+/// stream of added seeds never sits in memory whole.
+const KEYED_AT_ONCE: usize = 1024;
+
+/// Keys each work item not keyed yet, the seeds at the start, those a
+/// handler enqueued since and those added to the running crawl, and offers
+/// it to its domain's queue, which takes it unless full; one it refuses
+/// waits in run state until its queue fills again.
 async fn key_new(run: &Run, admission: &mut Admission) -> Result<(), RunStateError> {
-    let unkeyed = run.state().read(work_items::unkeyed).await?;
+    loop {
+        let unkeyed = run
+            .state()
+            .read(|connection| work_items::unkeyed(connection, KEYED_AT_ONCE))
+            .await?;
+        let read = unkeyed.len();
+        key(run, admission, unkeyed).await?;
+        if read < KEYED_AT_ONCE {
+            return Ok(());
+        }
+    }
+}
+
+/// Keys each of `unkeyed`, as [`key_new`] does.
+async fn key(
+    run: &Run,
+    admission: &mut Admission,
+    unkeyed: Vec<(String, Waiting)>,
+) -> Result<(), RunStateError> {
     if unkeyed.is_empty() {
         return Ok(());
     }

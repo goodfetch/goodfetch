@@ -152,6 +152,8 @@ mod tests {
                 "crawl.start",
                 "crawl.serve",
                 "run.seeds",
+                "run.add_seed",
+                "run.add_seeds",
                 "crawl_request.enqueue",
                 "run.outcomes",
                 "run.failed_requests"

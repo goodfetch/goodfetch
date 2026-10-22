@@ -70,6 +70,47 @@ export type DaemonEndpoint =
  */
 export type EngineInstance = string;
 /**
+ * The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
+ * value, never an error, since a request is one among many.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Enqueued".
+ */
+export type Enqueued =
+  | {
+      /**
+       * The crawl request's ID within the Run.
+       */
+      id: string;
+      kind: "added";
+      /**
+       * Its URL as the WHATWG URL Standard parsed it, resolved against
+       * its base: the URL its handler receives.
+       */
+      url: string;
+    }
+  | {
+      kind: "not_added";
+      /**
+       * Why.
+       */
+      reason:
+        | "duplicate"
+        | "out_of_scope"
+        | "domain_policy"
+        | "max_depth"
+        | "max_requests"
+        | "unsupported_scheme"
+        | "invalid_url"
+        | "max_url_length"
+        | "max_path_segments"
+        | "max_segment_repeats";
+      /**
+       * Its URL as it was given.
+       */
+      url: string;
+    };
+/**
  * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -108,6 +149,20 @@ export type WaitUntil = "commit" | "domcontentloaded" | "load";
  * via the `definition` "LogLevel".
  */
 export type LogLevel = "off" | "error" | "warn" | "info" | "debug" | "trace";
+/**
+ * The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HttpBody".
+ */
+export type HttpBody = string;
+/**
+ * The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HttpMethod".
+ */
+export type HttpMethod = string;
 /**
  * Where a Run is (ADR 0029).
  *
@@ -150,6 +205,23 @@ export type MainContent = "found" | "none";
  * via the `definition` "MarkdownContent".
  */
 export type MarkdownContent = "main";
+/**
+ * Why the Frontier did not add a request (ADRs 0093 and 0120).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotAddedReason".
+ */
+export type NotAddedReason =
+  | "duplicate"
+  | "out_of_scope"
+  | "domain_policy"
+  | "max_depth"
+  | "max_requests"
+  | "unsupported_scheme"
+  | "invalid_url"
+  | "max_url_length"
+  | "max_path_segments"
+  | "max_segment_repeats";
 /**
  * A page of a Run, named by the engine when it opens it.
  *
@@ -541,14 +613,16 @@ export interface ConsoleFailure1 {
   message: string;
 }
 /**
- * What `$/credit` grants: more events, or chunks, for a streaming call.
+ * What `$/credit` grants: more events, or chunks, for a streaming call;
+ * sent by the engine, more seeds a `run.add_seeds` call takes.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "CreditParams".
  */
 export interface CreditParams {
   /**
-   * How many more events, or chunks, the Client takes.
+   * How many more events, or chunks, the Client takes; sent by the
+   * engine, how many more seeds the call takes.
    */
   credits: number;
   /**
@@ -702,6 +776,23 @@ export interface EngineInfo {
  * via the `definition` "EngineInfoParams".
  */
 export interface EngineInfoParams {}
+/**
+ * What `$/enqueued` carries: the answer of each seed of one `$/seeds`
+ * batch, in the batch's order.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EnqueuedBatch".
+ */
+export interface EnqueuedBatch {
+  /**
+   * Each seed's answer.
+   */
+  answers: Enqueued[];
+  /**
+   * The id of the `run.add_seeds` call.
+   */
+  id: number | string;
+}
 /**
  * What `$/events` carries: a batch of one subscription's events, in the
  * order of their positions.
@@ -2087,6 +2178,77 @@ export interface SampleStorePutResult {
    * Whether a value was already kept under the key.
    */
   replaced: boolean;
+}
+/**
+ * One request a crawl starts from (ADR 0093): a URL, the Label that picks
+ * its handler and its Payload, and how it is sent and identified.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Seed".
+ */
+export interface Seed {
+  /**
+   * The body it is sent with, if any.
+   */
+  body?: HttpBody | null;
+  /**
+   * Whether it goes ahead of every request its domain holds pending,
+   * whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+   * such requests, the later goes first; `false` by default.
+   */
+  forefront?: boolean;
+  /**
+   * Its identity in the Frontier, declared by the program in place of
+   * its method, its URL's key and its body's hash: a canonicalization
+   * of the program's own, which always wins (ADR 0005).
+   */
+  key?: string | null;
+  /**
+   * Its Label.
+   */
+  label: string;
+  /**
+   * The method it is sent with: `GET` by default.
+   */
+  method?: string;
+  /**
+   * The data the program attaches for its handler.
+   */
+  payload?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Its priority among the requests of its domain: higher goes first,
+   * and a priority never orders requests of different domains (ADR
+   * 0004); 0 by default.
+   */
+  priority?: number;
+  /**
+   * Its URL.
+   */
+  url: string;
+}
+/**
+ * What `$/seeds` carries: the next seeds a Client streams to a
+ * `run.add_seeds` call, never more than the credits the call granted.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SeedBatch".
+ */
+export interface SeedBatch {
+  /**
+   * Whether they are the stream's last: the call answers once it
+   * answered them.
+   */
+  end?: boolean;
+  /**
+   * The id of the `run.add_seeds` call.
+   */
+  id: number | string;
+  /**
+   * The seeds, in order.
+   */
+  seeds?: Seed[];
 }
 /**
  * What `connection.set_log_level` takes.

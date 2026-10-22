@@ -383,10 +383,14 @@ pub struct RecipeManifest {
 /// `GOODFETCH_` variables, each a value that differs by machine, read from
 /// the environment map and never a setting. Both engine-path variables are
 /// on it, so neither is unknown to either Product; each SDK and crate reads
-/// only its own Product's.
+/// only its own Product's. `GOODFETCH_DAEMON_ADDRESS` and
+/// `GOODFETCH_DAEMON_DRAIN_GRACE` are the foreground Daemon's own process
+/// configuration (ADRs 0049 and 0083), which only `daemon run` reads.
 pub const DEPLOYMENT_VARIABLES: &[&str] = &[
     "GOODFETCH_BROWSERS_PATH",
     "GOODFETCH_COLLIE_ENGINE_PATH",
+    "GOODFETCH_DAEMON_ADDRESS",
+    "GOODFETCH_DAEMON_DRAIN_GRACE",
     "GOODFETCH_FOXHOUND_ENGINE_PATH",
     "GOODFETCH_HOME",
     "GOODFETCH_LOG",

@@ -6,6 +6,8 @@ address = "example"
 
 [settings.daemon]
 idle_timeout = 30000
+address = "example"
+drain_grace = 30000
 
 [settings.browser_cache]
 max_unused_age = 30000
@@ -98,6 +100,8 @@ address = "example"
 
 [lock.daemon]
 idle_timeout = 30000
+address = "example"
+drain_grace = 30000
 
 [lock.browser_cache]
 max_unused_age = 30000
@@ -187,6 +191,7 @@ report_guarantee_class = true
 
 [cap.daemon]
 idle_timeout = 30000
+drain_grace = 30000
 
 [cap.browser_cache]
 max_unused_age = 30000

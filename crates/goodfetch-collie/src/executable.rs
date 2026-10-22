@@ -3,7 +3,7 @@
 //! codes, and one start, from the composition and Product its `main` passes.
 //! Today the command line holds `--version`, the hidden Attached-engine
 //! entry, which an SDK starts, `browsers install`, `browsers clean`,
-//! `config explain`, `daemon start|stop|restart|status|install|uninstall|rotate-token`,
+//! `config explain`, `daemon start|stop|restart|status|install|uninstall|rotate-token|run`,
 //! with the hidden `daemon launched` a start or the installed service
 //! runs, `runs reindex` and `upgrade-files`, beside the commands `goodfetch-cli` generates
 //! from the catalog for every other namespace, such as `run start` and
@@ -24,7 +24,8 @@
 //!
 //! Logs go to stderr through the `tracing` subscriber, filtered by
 //! `GOODFETCH_LOG` in `EnvFilter`'s syntax (`info` when unset); stdout is
-//! the protocol's alone (STYLE.md). With `GOODFETCH_LOG_OUTPUT=file` they
+//! the protocol's alone (STYLE.md), but in `daemon run`, the foreground
+//! Daemon, whose logs are JSON lines on stdout (ADR 0049). With `GOODFETCH_LOG_OUTPUT=file` they
 //! also go, as JSON lines, to a file of its own in the Goodfetch home's log
 //! folder, which test support turns on for ADR 0072's exercise audit (ADR
 //! 0122). Both variables stand in for the `log.*` settings until the engine
@@ -209,6 +210,16 @@ enum DaemonCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Runs the Daemon in the foreground, for Docker, Kubernetes and
+    /// systemd: as this executable's Product, listening on
+    /// `daemon.address`, with no runtime file and no idle stop, logging
+    /// JSON lines to stdout; on `SIGTERM` it takes no run, checkpoints each
+    /// run as resumable and exits within `daemon.drain_grace`.
+    Run {
+        /// Runs under the reaper of a `daemon run` on Linux, which started it.
+        #[arg(long, hide = true)]
+        reaped: bool,
+    },
     /// Runs as the Daemon a start or the installed service launched, from a
     /// versioned copy.
     #[command(hide = true)]
@@ -345,18 +356,11 @@ pub fn main(start: &Start) -> ExitCode {
     let human = Human::new(colour, &environment);
     let home = home(&environment);
     let filter = environment.get(OsStr::new(LOG_VARIABLE));
-    // A Daemon a start launched has no terminal: it logs to its file
-    // (ADR 0122).
-    let launched = matches!(
-        parsed,
-        Parsed::HandWritten(Command::Daemon {
-            command: DaemonCommand::Launched { .. }
-        })
-    );
+    let (launched, to) = logs_of(&parsed);
     match log_file(&binary, &environment, home.as_ref(), launched) {
-        Ok(file) => install_logs(filter, file),
+        Ok(file) => install_logs(filter, file, to),
         Err(problem) => {
-            install_logs(filter, None);
+            install_logs(filter, None, to);
             tracing::error!(%problem, "the logs cannot go where {LOG_OUTPUT_VARIABLE} says");
             return ExitCode::FAILURE;
         }
@@ -521,6 +525,7 @@ fn run(
             DaemonCommand::Install { json } => service::install(&machine, json),
             DaemonCommand::Uninstall { json } => service::uninstall(&machine, json),
             DaemonCommand::RotateToken { json } => service::rotate_token(&machine, json),
+            DaemonCommand::Run { reaped } => daemon::run(engine, dependencies, &machine, reaped),
             DaemonCommand::Launched {
                 copy,
                 keep_alive,
@@ -707,18 +712,61 @@ fn log_file(
     }
 }
 
-/// Installs the `tracing` subscriber: text on stderr, and JSON lines in
-/// `file` when there is one, both filtered by `filter`.
-fn install_logs(filter: Option<&OsString>, file: Option<File>) {
+/// Where `parsed`'s logs go: whether to their file by default, as a Daemon
+/// a start launched does, which has no terminal (ADR 0122); and to stdout
+/// as JSON lines, as the foreground Daemon does, whose stdout no protocol
+/// uses (ADR 0049), or to stderr.
+fn logs_of(parsed: &Parsed) -> (bool, LogsTo) {
+    match parsed {
+        Parsed::HandWritten(Command::Daemon {
+            command: DaemonCommand::Launched { .. },
+        }) => (true, LogsTo::Stderr),
+        Parsed::HandWritten(Command::Daemon {
+            command: DaemonCommand::Run { .. },
+        }) => (false, LogsTo::StdoutAsJson),
+        _ => (false, LogsTo::Stderr),
+    }
+}
+
+/// Where the logs go besides their file.
+#[derive(Clone, Copy)]
+enum LogsTo {
+    /// Text on stderr: every command but `daemon run`.
+    Stderr,
+    /// JSON lines on stdout: `daemon run` (ADR 0049).
+    StdoutAsJson,
+}
+
+/// Installs the `tracing` subscriber: text on stderr, or JSON lines on
+/// stdout as `to` says, and JSON lines in `file` when there is one, all
+/// filtered by `filter`.
+fn install_logs(filter: Option<&OsString>, file: Option<File>, to: LogsTo) {
     let filter = filter
         .and_then(|filter| filter.to_str())
         .and_then(|filter| tracing_subscriber::EnvFilter::try_new(filter).ok())
         .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("info"));
     #[expect(
         clippy::disallowed_methods,
-        reason = "the tracing subscriber's writer is one of the three writers of stderr (STYLE.md)"
+        reason = "the tracing subscriber's writer is one of the three writers of stderr and, in `daemon run`, of stdout (STYLE.md)"
     )]
-    let writer = std::io::stderr;
+    let (text, json) = match to {
+        LogsTo::Stderr => (
+            Some(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(std::io::stderr)
+                    .with_ansi(false),
+            ),
+            None,
+        ),
+        LogsTo::StdoutAsJson => (
+            None,
+            Some(
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_writer(std::io::stdout),
+            ),
+        ),
+    };
     let file = file.map(|file| {
         tracing_subscriber::fmt::layer()
             .json()
@@ -726,11 +774,8 @@ fn install_logs(filter: Option<&OsString>, file: Option<File>) {
     });
     tracing_subscriber::registry()
         .with(filter)
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(writer)
-                .with_ansi(false),
-        )
+        .with(text)
+        .with(json)
         .with(file)
         .init();
 }

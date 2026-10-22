@@ -587,6 +587,19 @@ class StopReason4(BaseModel):
     kind: Literal["timeout"]
 
 
+class StopReason5(BaseModel):
+    """
+    Its foreground Daemon drained on `SIGTERM`: checkpointed and
+    stopped, to be resumed by its Run ID on the Daemon's next start
+    (ADR 0049).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["drain"]
+
+
 class StoppedBy(StrEnum):
     """Who stopped a call (ADR 0113)."""
 
@@ -1215,7 +1228,7 @@ class StopReason1(BaseModel):
     kind: Literal["abort"]
 
 
-class StopReason5(BaseModel):
+class StopReason6(BaseModel):
     """
     It could not take another Slice of a Limit, and stopped at its next
     safe point, resumable once the period starts again or a person
@@ -1239,9 +1252,23 @@ class StopReason5(BaseModel):
 
 
 class StopReason(
-    RootModel[StopReason1 | StopReason2 | StopReason3 | StopReason4 | StopReason5]
+    RootModel[
+        StopReason1
+        | StopReason2
+        | StopReason3
+        | StopReason4
+        | StopReason5
+        | StopReason6
+    ]
 ):
-    root: StopReason1 | StopReason2 | StopReason3 | StopReason4 | StopReason5
+    root: (
+        StopReason1
+        | StopReason2
+        | StopReason3
+        | StopReason4
+        | StopReason5
+        | StopReason6
+    )
     """
     Why a Run stopped (ADR 0102); the other causes join with the tickets that
     stop Runs for them.

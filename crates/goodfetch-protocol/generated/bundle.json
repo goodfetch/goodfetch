@@ -5353,6 +5353,19 @@
           "type": "object"
         },
         {
+          "description": "Its foreground Daemon drained on `SIGTERM`: checkpointed and\nstopped, to be resumed by its Run ID on the Daemon's next start\n(ADR 0049).",
+          "properties": {
+            "kind": {
+              "const": "drain",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
           "$ref": "#/$defs/ReachedLimit",
           "description": "It could not take another Slice of a Limit, and stopped at its next\nsafe point, resumable once the period starts again or a person\nraises the Limit (ADR 0041).",
           "properties": {
@@ -5982,6 +5995,11 @@
               "daemon": {
                 "additionalProperties": false,
                 "properties": {
+                  "drain_grace": {
+                    "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "idle_timeout": {
                     "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
@@ -6222,6 +6240,15 @@
               "daemon": {
                 "additionalProperties": false,
                 "properties": {
+                  "address": {
+                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                    "type": "string"
+                  },
+                  "drain_grace": {
+                    "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "idle_timeout": {
                     "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
@@ -6691,6 +6718,15 @@
               "daemon": {
                 "additionalProperties": false,
                 "properties": {
+                  "address": {
+                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                    "type": "string"
+                  },
+                  "drain_grace": {
+                    "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "idle_timeout": {
                     "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
@@ -7185,6 +7221,15 @@
               "daemon": {
                 "additionalProperties": false,
                 "properties": {
+                  "address": {
+                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                    "type": "string"
+                  },
+                  "drain_grace": {
+                    "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "idle_timeout": {
                     "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,

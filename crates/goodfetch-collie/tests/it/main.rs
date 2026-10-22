@@ -16,6 +16,7 @@ mod commands;
 mod config;
 mod console;
 mod daemon;
+mod daemon_run;
 mod events;
 mod help;
 mod human_output;

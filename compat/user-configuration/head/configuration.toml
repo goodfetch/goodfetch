@@ -6,6 +6,8 @@ address = "example"
 
 [settings.daemon]
 idle_timeout = 30000
+address = "example"
+drain_grace = 30000
 
 [settings.browser_cache]
 max_unused_age = 30000

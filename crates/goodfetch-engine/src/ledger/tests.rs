@@ -255,6 +255,19 @@ fn an_engine_that_opens_the_ledger_reclaims_the_slices_of_dead_runs(
 }
 
 #[test]
+fn reclaiming_a_ledger_no_engine_created_leaves_it_uncreated() {
+    let env = TestEnv::new();
+    let ledger = ledger(&env);
+
+    let reclaimed = ledger.reclaim(&|_| Probed::Unreadable).unwrap();
+
+    assert_eq!(
+        (reclaimed, ledger.path().exists()),
+        (super::Reclaimed::default(), false)
+    );
+}
+
+#[test]
 fn a_slice_reclaimed_before_its_run_gives_it_back_is_charged_once() {
     let env = TestEnv::new();
     let ledger = ledger(&env);

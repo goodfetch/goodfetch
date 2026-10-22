@@ -166,3 +166,13 @@ fn upgrade_files_keeps_the_new_majors_own_rows_over_the_older_ones() {
         ((0, 1), vec![managed("3", 300, 0)])
     );
 }
+
+#[test]
+fn an_engine_whose_policy_names_no_install_limit_leaves_an_uncreated_ledger_uncreated() {
+    let env = TestEnv::new();
+    let ledger = ledger(&env);
+
+    ledger.write_managed("2", &[], now()).unwrap();
+
+    assert!(!ledger.path().exists());
+}

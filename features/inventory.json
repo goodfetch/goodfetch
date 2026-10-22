@@ -1028,6 +1028,39 @@
       ]
     },
     {
+      "id": "error:secret_domain_not_allowed",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:secret_unavailable",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:secret_unbound",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:session_bound_to_machine",
       "kind": "error",
       "area": 3,
@@ -3965,6 +3998,17 @@
       ]
     },
     {
+      "id": "setting:run_state.key_reference",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:run_state.layout",
       "kind": "setting",
       "area": 3,
@@ -4104,6 +4148,17 @@
     },
     {
       "id": "setting:timeout.run",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:timeout.secret",
       "kind": "setting",
       "area": 3,
       "milestone": null,

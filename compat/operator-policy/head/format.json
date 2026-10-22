@@ -349,6 +349,11 @@
                   }
                 ],
                 "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
+              },
+              "secret": {
+                "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "type": "object"
@@ -682,6 +687,19 @@
                   "fast"
                 ]
               },
+              "key_reference": {
+                "anyOf": [
+                  {
+                    "description": "A Secret reference, such as `env:NAME`.",
+                    "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The Secret reference of the key-encryption key that wraps each Run's data key, resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration; none by default."
+              },
               "layout": {
                 "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
                 "enum": [
@@ -802,6 +820,11 @@
                   }
                 ],
                 "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
+              },
+              "secret": {
+                "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "type": "object"
@@ -1228,6 +1251,19 @@
                   "fast"
                 ]
               },
+              "key_reference": {
+                "anyOf": [
+                  {
+                    "description": "A Secret reference, such as `env:NAME`.",
+                    "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The Secret reference of the key-encryption key that wraps each Run's data key, resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration; none by default."
+              },
               "layout": {
                 "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
                 "enum": [
@@ -1348,6 +1384,11 @@
                   }
                 ],
                 "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
+              },
+              "secret": {
+                "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "type": "object"

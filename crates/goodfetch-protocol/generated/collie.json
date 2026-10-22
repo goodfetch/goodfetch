@@ -2944,6 +2944,36 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Secret placeholder's value would go to a domain outside its binding's `domains`: the field's frame or the request's URL. The details name the placeholder, the reference and the domain, never a value.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "secret_domain_not_allowed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "secret_unavailable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No scope binds the Secret placeholder a call names. `bound` lists the placeholders bound, never a value.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "secret_unbound",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Run is bound to the machine its Session source is on, and this is another machine: its login would reach sites from a new IP under the same cookies. Resume it on its own machine, or serve its Session source through a Browser host.",
       "exit_code": null,
       "group": "refused",
@@ -4180,6 +4210,25 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": true,
+      "default": null,
+      "description": "The Secret reference of the key-encryption key that wraps each Run's data key, resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration; none by default.",
+      "name": "run_state.key_reference",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A Secret reference, such as `env:NAME`.",
+        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "machine",
       "clearable": false,
       "default": "per_run",
@@ -4331,6 +4380,25 @@
       "default": null,
       "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default.",
       "name": "timeout.run",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+      "name": "timeout.secret",
       "product": "collie",
       "products": [
         "collie",

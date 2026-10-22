@@ -23,9 +23,18 @@ headless = true
 location = "example"
 durability = "full"
 layout = "per_run"
+key_reference = "env:EXAMPLE"
 
 [settings.checkpoint]
 interval = 30000
+
+[settings.timeout]
+secret = 30000
+run = 30000
+action = 30000
+navigation = 30000
+first_byte = 30000
+handler = 30000
 
 [settings.sample]
 echo_repeats = 4
@@ -65,13 +74,6 @@ by_reference = true
 
 [settings.webhook]
 signing = true
-
-[settings.timeout]
-run = 30000
-action = 30000
-navigation = 30000
-first_byte = 30000
-handler = 30000
 
 [settings.admission]
 max_requests_per_minute = 4
@@ -130,9 +132,18 @@ headless = true
 location = "example"
 durability = "full"
 layout = "per_run"
+key_reference = "env:EXAMPLE"
 
 [lock.checkpoint]
 interval = 30000
+
+[lock.timeout]
+secret = 30000
+run = 30000
+action = 30000
+navigation = 30000
+first_byte = 30000
+handler = 30000
 
 [lock.sample]
 echo_repeats = 4
@@ -172,13 +183,6 @@ by_reference = true
 
 [lock.webhook]
 signing = true
-
-[lock.timeout]
-run = 30000
-action = 30000
-navigation = 30000
-first_byte = 30000
-handler = 30000
 
 [lock.admission]
 max_requests_per_minute = 4
@@ -229,15 +233,16 @@ attempt_delay = 30000
 [cap.checkpoint]
 interval = 30000
 
-[cap.sample]
-echo_repeats = 4
-
 [cap.timeout]
+secret = 30000
 run = 30000
 action = 30000
 navigation = 30000
 first_byte = 30000
 handler = 30000
+
+[cap.sample]
+echo_repeats = 4
 
 [cap.admission]
 max_requests_per_minute = 4

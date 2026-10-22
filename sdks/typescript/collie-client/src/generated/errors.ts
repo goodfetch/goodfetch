@@ -438,6 +438,33 @@ export class SampleRefusedError extends RefusedError {
 }
 
 /**
+ * A Secret placeholder's value would go to a domain outside its binding's `domains`: the field's frame or the request's URL. The details name the placeholder, the reference and the domain, never a value.
+ */
+export class SecretDomainNotAllowedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "secret_domain_not_allowed", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.
+ */
+export class SecretUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "secret_unavailable", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * No scope binds the Secret placeholder a call names. `bound` lists the placeholders bound, never a value.
+ */
+export class SecretUnboundError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "secret_unbound", group: "program", retryable: false });
+  }
+}
+
+/**
  * The Run is bound to the machine its Session source is on, and this is another machine: its login would reach sites from a new IP under the same cookies. Resume it on its own machine, or serve its Session source through a Browser host.
  */
 export class SessionBoundToMachineError extends RefusedError {
@@ -557,6 +584,9 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   run_not_owned: RunNotOwnedError,
   run_state_unavailable: RunStateUnavailableError,
   sample_refused: SampleRefusedError,
+  secret_domain_not_allowed: SecretDomainNotAllowedError,
+  secret_unavailable: SecretUnavailableError,
+  secret_unbound: SecretUnboundError,
   session_bound_to_machine: SessionBoundToMachineError,
   setting_invalid: SettingInvalidError,
   setting_locked: SettingLockedError,

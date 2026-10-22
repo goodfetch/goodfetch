@@ -1,6 +1,12 @@
 version = "0.1"
 lowest_minor = 0
 
+[settings.log]
+format = "text"
+
+[settings.otlp]
+traces_endpoint = "example"
+
 [settings.console]
 address = "example"
 

@@ -36,7 +36,7 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 
 use crate::daemon::{DAEMON_DEADLINE, Daemon, DaemonError};
-use crate::env::{TestEnv, command};
+use crate::env::TestEnv;
 use crate::exercise::{COMMAND_TARGET, command_record};
 use crate::locales::{table_lang, table_zone};
 use crate::snapshot::{SnapshotValues, snapshot_settings};
@@ -57,11 +57,54 @@ const DAEMON_FLAG: &str = "--daemon";
 /// The byte every ANSI escape sequence starts with.
 const ESCAPE: u8 = 0x1B;
 
+/// A command line of a Product's executable as a test builds it: the
+/// command, and the arguments its command record names. [`cli`] and
+/// [`pty`](crate::pty) build theirs through it, so each records exactly the
+/// arguments its child got, the ones they add themselves (`--daemon`,
+/// `--color always`) among them.
+pub(crate) struct Invocation {
+    command: std::process::Command,
+    arguments: Vec<String>,
+}
+
+impl Invocation {
+    /// The command line of `program` in the test's folder, with its cleared
+    /// environment and these variables over the test's map.
+    pub(crate) fn of(
+        env: &TestEnv,
+        program: impl AsRef<OsStr>,
+        variables: &[(&str, &str)],
+    ) -> Self {
+        let mut command = env.process_command(program);
+        command.envs(variables.iter().copied());
+        Self {
+            command,
+            arguments: Vec::new(),
+        }
+    }
+
+    /// Adds one argument.
+    pub(crate) fn arg(&mut self, argument: &str) {
+        self.command.arg(argument);
+        self.arguments.push(argument.to_owned());
+    }
+
+    /// Sets one more variable.
+    pub(crate) fn env(&mut self, name: impl AsRef<OsStr>, value: impl AsRef<OsStr>) {
+        self.command.env(name, value);
+    }
+
+    /// The command to start, and the arguments to record once it ended.
+    pub(crate) fn into_parts(self) -> (std::process::Command, Vec<String>) {
+        (self.command, self.arguments)
+    }
+}
+
 /// One run of a Product's executable, which [`Cli::run`] starts.
 pub struct Cli<'env> {
     env: &'env TestEnv,
-    command: assert_cmd::Command,
-    arguments: Vec<String>,
+    invocation: Invocation,
+    stdin: Option<Vec<u8>>,
     refused: Option<CliError>,
     executable: PathBuf,
     mode: Mode,
@@ -88,15 +131,14 @@ pub enum Mode {
 /// in the test's folder with its cleared environment, `NO_COLOR=1`,
 /// `COLUMNS=100` and `TERM=dumb`.
 pub fn cli(env: &TestEnv, executable: impl AsRef<OsStr>) -> Cli<'_> {
-    let mut command = command(env, &executable);
-    command
-        .env("NO_COLOR", "1")
-        .env("COLUMNS", "100")
-        .env("TERM", "dumb");
     Cli {
         env,
-        command,
-        arguments: Vec::new(),
+        invocation: Invocation::of(
+            env,
+            &executable,
+            &[("NO_COLOR", "1"), ("COLUMNS", "100"), ("TERM", "dumb")],
+        ),
+        stdin: None,
         refused: None,
         executable: PathBuf::from(executable.as_ref()),
         mode: Mode::Attached,
@@ -107,9 +149,7 @@ impl Cli<'_> {
     /// Adds one argument.
     #[must_use]
     pub fn arg(mut self, argument: impl AsRef<str>) -> Self {
-        let argument = argument.as_ref();
-        self.command.arg(argument);
-        self.arguments.push(argument.to_owned());
+        self.invocation.arg(argument.as_ref());
         self
     }
 
@@ -127,14 +167,14 @@ impl Cli<'_> {
     /// otherwise, as `--settings -` reads it.
     #[must_use]
     pub fn stdin(mut self, input: impl Into<Vec<u8>>) -> Self {
-        self.command.write_stdin(input);
+        self.stdin = Some(input.into());
         self
     }
 
     /// Sets one more variable, over the test's map and the helper's own.
     #[must_use]
     pub fn env(mut self, name: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> Self {
-        self.command.env(name, value);
+        self.invocation.env(name, value);
         self
     }
 
@@ -146,7 +186,7 @@ impl Cli<'_> {
     pub fn with_locale(mut self, tag: &str) -> Self {
         match table_lang(tag) {
             Ok(lang) => {
-                self.command.env("LANG", lang);
+                self.invocation.env("LANG", lang);
             }
             Err(_) => {
                 self.refused.get_or_insert(CliError::LocaleUnknown {
@@ -164,7 +204,7 @@ impl Cli<'_> {
     #[must_use]
     pub fn with_time_zone(mut self, zone: &str) -> Self {
         if table_zone(zone).is_ok() {
-            self.command.env("TZ", zone);
+            self.invocation.env("TZ", zone);
         } else {
             self.refused.get_or_insert(CliError::TimeZoneUnknown {
                 zone: zone.to_owned(),
@@ -237,13 +277,18 @@ impl Cli<'_> {
                 )?)
             }
         };
-        let output = self.command.output().map_err(CliError::Start);
+        let (command, arguments) = self.invocation.into_parts();
+        let mut command = assert_cmd::Command::from_std(command);
+        if let Some(input) = self.stdin {
+            command.write_stdin(input);
+        }
+        let output = command.output().map_err(CliError::Start);
         if let Some(daemon) = daemon {
             daemon.stop(self.env)?;
         }
         let output = output?;
         let exit = output.status.code();
-        record_command(self.env, &self.arguments, exit)?;
+        record_command(self.env, &arguments, exit)?;
         let stdout = text(Stream::Stdout, output.stdout)?;
         let stderr = text(Stream::Stderr, output.stderr)?;
         Ok(CliOutput {

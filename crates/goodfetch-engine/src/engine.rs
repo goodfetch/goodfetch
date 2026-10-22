@@ -15,7 +15,10 @@ use std::sync::Arc;
 use goodfetch_protocol::connection::EngineInstance;
 use goodfetch_protocol::connection::PrivateEndpoint;
 use goodfetch_protocol::console::ConsoleState;
+use goodfetch_protocol::governor::{SYSTEM_INFO, SystemInfo};
 use goodfetch_protocol::run::{RunKind, RunOwner};
+use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
 use crate::admission::Gates;
 use crate::attached::{ParentWatch, PrivateFiles, relay};
@@ -26,6 +29,7 @@ use crate::daemon::{self, DaemonConsole, DaemonEnd, DaemonOptions};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
+use crate::governor::{Governor, System};
 use crate::home::{Home, RunStateLocation};
 use crate::log::LogEvents;
 use crate::metrics::Metrics;
@@ -60,6 +64,7 @@ pub struct Engine {
     events: EventsOptions,
     console: Option<&'static ConsoleBuild>,
     metrics: Metrics,
+    system: Option<System>,
 }
 
 /// What an engine runs on, which `main` builds once (the system versions)
@@ -101,6 +106,7 @@ impl Engine {
             events: EventsOptions::default(),
             console: composition.console(),
             metrics: Metrics::none(),
+            system: None,
         })
     }
 
@@ -108,6 +114,15 @@ impl Engine {
     #[must_use]
     pub fn with_metrics(mut self, metrics: Metrics) -> Self {
         self.metrics = metrics;
+        self
+    }
+
+    /// The same, its Resource governor sampling `system` (ADR 0040), as
+    /// each Product's executable reads the OS it runs on; without it, the
+    /// governor holds each kind of work at its default ceiling.
+    #[must_use]
+    pub fn with_governor(mut self, system: System) -> Self {
+        self.system = Some(system);
         self
     }
 
@@ -263,6 +278,20 @@ impl Engine {
             self.identity().product,
             owner.child(),
         );
+        let governor = match &self.system {
+            Some(system) => {
+                let governor =
+                    Governor::start(system.clone(), settings.clone(), dependencies.clock, owner);
+                owner.spawn(report_samples(
+                    governor.system_info(),
+                    events.clone(),
+                    self.metrics.clone(),
+                    owner.token().clone(),
+                ));
+                governor
+            }
+            None => Governor::unsampled(),
+        };
         let forwarder = Arc::new(ToOwner {
             home: dependencies.home.clone(),
             version: self.identity().product_version.clone(),
@@ -297,6 +326,7 @@ impl Engine {
                 entropy: dependencies.entropy,
                 events: events.clone(),
                 metrics: self.metrics.clone(),
+                governor,
                 environment: dependencies.environment,
             },
             owner,
@@ -417,6 +447,30 @@ impl Engine {
         owner.stop().await;
         drop(private_files);
         Ok(())
+    }
+}
+
+/// Sends each of the Resource governor's samples as `engine.system_info`
+/// to the subscriptions that take it, and records it in the runtime's
+/// metrics, until `token` is cancelled.
+async fn report_samples(
+    mut samples: watch::Receiver<Option<SystemInfo>>,
+    events: Events,
+    metrics: Metrics,
+    token: CancellationToken,
+) {
+    loop {
+        tokio::select! {
+            () = token.cancelled() => return,
+            changed = samples.changed() => if changed.is_err() {
+                return;
+            },
+        }
+        let sample = samples.borrow_and_update().clone();
+        if let Some(sample) = sample {
+            metrics.governor(&sample);
+            events.publish(&SYSTEM_INFO, None, &sample).await;
+        }
     }
 }
 

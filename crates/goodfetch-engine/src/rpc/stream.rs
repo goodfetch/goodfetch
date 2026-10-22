@@ -32,7 +32,11 @@ async fn subscribe(
     context: CallContext,
 ) -> Result<SubscriptionEnded, CallError> {
     let stream = context.stream();
-    let Some(mut subscription) = context.events().subscribe(params.after).await else {
+    let Some(mut subscription) = context
+        .events()
+        .subscribe(params.after, params.system_info)
+        .await
+    else {
         return Ok(SubscriptionEnded {});
     };
     loop {

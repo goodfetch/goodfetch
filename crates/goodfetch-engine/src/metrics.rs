@@ -10,6 +10,9 @@
 use std::sync::Arc;
 
 use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::governor::{
+    PRESSURE_SOURCE, PressureSource, SATURATION, SystemInfo, TARGET, WorkKind,
+};
 use goodfetch_protocol::ops::{
     BROWSER_RUNNING, CLIENT_CONNECTED, DAEMON_DRAINING, RUN_ACTIVE, RUN_ENDED,
 };
@@ -34,6 +37,9 @@ struct Instruments {
     run_ended: Counter<u64>,
     client_connected: UpDownCounter<i64>,
     daemon_draining: Gauge<u64>,
+    governor_saturation: Gauge<f64>,
+    governor_target: Gauge<u64>,
+    governor_pressure_source: Gauge<u64>,
 }
 
 impl Default for Metrics {
@@ -71,6 +77,21 @@ impl Metrics {
                 .u64_gauge(DAEMON_DRAINING.name)
                 .with_description(DAEMON_DRAINING.description)
                 .with_unit(DAEMON_DRAINING.unit)
+                .build(),
+            governor_saturation: meter
+                .f64_gauge(SATURATION.name)
+                .with_description(SATURATION.description)
+                .with_unit(SATURATION.unit)
+                .build(),
+            governor_target: meter
+                .u64_gauge(TARGET.name)
+                .with_description(TARGET.description)
+                .with_unit(TARGET.unit)
+                .build(),
+            governor_pressure_source: meter
+                .u64_gauge(PRESSURE_SOURCE.name)
+                .with_description(PRESSURE_SOURCE.description)
+                .with_unit(PRESSURE_SOURCE.unit)
                 .build(),
         }))
     }
@@ -129,6 +150,31 @@ impl Metrics {
     /// Whether the Daemon drains.
     pub(crate) fn draining(&self, draining: bool) {
         self.0.daemon_draining.record(u64::from(draining), &[]);
+    }
+
+    /// The Resource governor's sample `info`: each kind's target, what
+    /// holds it above normal, and its saturation, the highest share of a
+    /// kind's target in use.
+    pub(crate) fn governor(&self, info: &SystemInfo) {
+        let mut saturation: f64 = 0.0;
+        for kind in WorkKind::ALL {
+            let concurrency = info.concurrency.of(kind);
+            self.0.governor_target.record(
+                u64::from(concurrency.target),
+                &[KeyValue::new("kind", kind.as_str())],
+            );
+            if concurrency.target > 0 {
+                saturation =
+                    saturation.max(f64::from(concurrency.in_use) / f64::from(concurrency.target));
+            }
+        }
+        self.0.governor_saturation.record(saturation.min(1.0), &[]);
+        for source in PressureSource::ALL {
+            self.0.governor_pressure_source.record(
+                u64::from(info.pressure_source == Some(source)),
+                &[KeyValue::new("source", source.as_str())],
+            );
+        }
     }
 }
 

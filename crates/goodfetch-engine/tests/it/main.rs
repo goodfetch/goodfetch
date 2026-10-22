@@ -20,6 +20,7 @@ mod children;
 mod dns;
 mod downloads;
 mod egress;
+mod governor;
 mod happy_eyeballs;
 mod held_clock;
 mod name_server;

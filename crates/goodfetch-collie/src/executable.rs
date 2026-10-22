@@ -54,6 +54,7 @@ use goodfetch_engine::browser_cache::BROWSERS_PATH_VARIABLE;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::crash_report;
 use goodfetch_engine::entropy::{Entropy, NoSeed};
+use goodfetch_engine::governor::System;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::log::LogEvents;
 use goodfetch_engine::run_state::RunStateOptions;
@@ -496,7 +497,7 @@ pub fn main(start: &Start) -> ExitCode {
         channel: Channel::CratesIo,
     };
     let engine = match Engine::new(identity, &(start.composition)()) {
-        Ok(engine) => engine.with_log_events(log_events),
+        Ok(engine) => instrumented(engine, log_events),
         Err(error) => {
             tracing::error!(%error, "the composition cannot start an engine");
             return ExitCode::FAILURE;
@@ -534,6 +535,14 @@ pub fn main(start: &Start) -> ExitCode {
         &environment,
         &human,
     )
+}
+
+/// `engine`, its Connections receiving `log_events` and its Resource
+/// governor reading the OS it runs on (ADR 0040).
+fn instrumented(engine: Engine, log_events: LogEvents) -> Engine {
+    engine
+        .with_log_events(log_events)
+        .with_governor(System::os())
 }
 
 /// Installs the `tracing` subscriber of `parsed`'s process, with

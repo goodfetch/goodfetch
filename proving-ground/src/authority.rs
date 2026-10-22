@@ -93,17 +93,17 @@ impl Authority {
         let mut by_name = HashMap::new();
         for host in hosts {
             let defect = Defect::of(host);
-            let named = match defect {
+            let subject = match defect {
                 Some(Defect::NameMismatch) => MISMATCHED_NAME,
                 _ => host,
             };
-            let names = std::iter::once(named)
+            let names = std::iter::once(subject)
                 .chain(raw_site::also_named(host).iter().copied())
                 .map(str::to_owned)
                 .collect::<Vec<_>>();
             let mut params = CertificateParams::new(names)
                 .with_context(|| format!("naming the leaf certificate of {host}"))?;
-            params.distinguished_name = name(named);
+            params.distinguished_name = name(subject);
             params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
             params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
             let valid_from = match defect {

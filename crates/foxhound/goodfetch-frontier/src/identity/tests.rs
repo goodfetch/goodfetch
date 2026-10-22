@@ -6,6 +6,16 @@ use url::Url;
 
 use super::{Declared, Hop, TABLES, redirect_hop, redirect_reached, url_key};
 use crate::admit::{Candidate, admit};
+use crate::scope::{self, Patterns, Scope, Strategy as ScopeStrategy};
+
+/// A run file holding the visited set and the scope, in memory.
+fn run_file() -> Connection {
+    let connection = Connection::open_in_memory().unwrap();
+    for statement in TABLES.statements.iter().chain(scope::TABLES.statements) {
+        connection.execute(statement, []).unwrap();
+    }
+    connection
+}
 
 fn key(text: &str) -> String {
     url_key(&Url::parse(text).unwrap())
@@ -144,15 +154,14 @@ proptest! {
 /// Covers: story:6-220
 #[test]
 fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
-    let connection = Connection::open_in_memory().unwrap();
-    for statement in TABLES.statements {
-        connection.execute(statement, []).unwrap();
-    }
+    let connection = run_file();
     let get = HttpMethod::get();
     let mut added = 0;
+    let scope = Scope::default();
     let mut seed = |url: &str| {
         admit(
             &connection,
+            &scope,
             Candidate::Seed {
                 url,
                 declared: Declared {
@@ -173,6 +182,7 @@ fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
     let hop = |crawl_request: &str, url: &str| {
         redirect_hop(
             &connection,
+            &Scope::read(&connection).unwrap(),
             crawl_request,
             &Url::parse(url).unwrap(),
             &get,
@@ -213,6 +223,69 @@ fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
                 }
             )
         )
+    );
+}
+
+/// A redirect hop leaving the crawl's scope ends the request `skipped`
+/// with `out_of_scope` before any other check, a hop to a key admitted for
+/// another request included, while one inside it is followed (ADR 0093;
+/// pitfall U15).
+///
+/// Covers: story:6-224
+#[test]
+fn a_redirect_hop_leaving_the_scope_is_out_of_scope() {
+    let connection = run_file();
+    let get = HttpMethod::get();
+    let scope = Scope::new(
+        ScopeStrategy::SameHostname,
+        Patterns::default(),
+        Patterns::default(),
+    );
+    let mut added = 0;
+    for url in ["http://shop.test/a", "http://outlet.test/sale"] {
+        let candidate = Candidate::Seed {
+            url,
+            declared: Declared {
+                method: &get,
+                body: None,
+                key: None,
+            },
+        };
+        admit(&connection, &scope, candidate, |_| {
+            added += 1;
+            Ok(added.to_string())
+        })
+        .unwrap();
+    }
+    let hop = |url: &str| {
+        redirect_hop(
+            &connection,
+            &scope,
+            "1",
+            &Url::parse(url).unwrap(),
+            &get,
+            None,
+        )
+        .unwrap()
+    };
+
+    let hops = [
+        hop("https://shop.test/b"),
+        hop("http://www.shop.test/c"),
+        hop("http://blog.shop.test/a"),
+        hop("http://elsewhere.test/"),
+        hop("http://outlet.test/sale"),
+    ];
+
+    assert_eq!(
+        hops,
+        [
+            Hop::Follow,
+            Hop::Follow,
+            Hop::OutOfScope,
+            Hop::OutOfScope,
+            Hop::Duplicate
+        ]
     );
 }
 

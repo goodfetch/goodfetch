@@ -51,6 +51,18 @@ pub trait Scrape: Send + Sync {
     fn text(&self) -> String;
 }
 
+/// What a Daemon checks its health with, and its ops listener, as its
+/// starter set them up; none of either by default.
+#[derive(Default)]
+pub struct Ops {
+    /// Its ops listener, when its starter opened one, as `daemon run` does
+    /// at `ops.address`.
+    pub listener: Option<OpsOptions>,
+    /// Whether the browsers its configuration uses are installed, which its
+    /// readiness checks; none when it uses no browser its starter knows of.
+    pub browsers: Option<Arc<dyn ConfiguredBrowsers>>,
+}
+
 /// A Daemon's ops listener, as its starter set it up.
 pub struct OpsOptions {
     /// The listener, bound at `ops.address`.

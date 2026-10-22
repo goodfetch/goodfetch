@@ -1,6 +1,13 @@
 version = "0.1"
 lowest_minor = 0
 
+[settings.log]
+format = "text"
+
+[settings.otlp]
+traces_endpoint = "example"
+metrics_endpoint = "example"
+
 [settings.console]
 address = "example"
 
@@ -11,9 +18,6 @@ drain_grace = 30000
 
 [settings.ops]
 address = "example"
-
-[settings.otlp]
-metrics_endpoint = "example"
 
 [settings.browser_cache]
 max_unused_age = 30000
@@ -29,9 +33,18 @@ headless = true
 location = "example"
 durability = "full"
 layout = "per_run"
+key_reference = "env:EXAMPLE"
 
 [settings.checkpoint]
 interval = 30000
+
+[settings.timeout]
+secret = 30000
+run = 30000
+action = 30000
+navigation = 30000
+first_byte = 30000
+handler = 30000
 
 [settings.sample]
 echo_repeats = 4
@@ -72,13 +85,6 @@ by_reference = true
 [settings.webhook]
 signing = true
 
-[settings.timeout]
-run = 30000
-action = 30000
-navigation = 30000
-first_byte = 30000
-handler = 30000
-
 [settings.admission]
 max_requests_per_minute = 4
 
@@ -103,6 +109,11 @@ handler_failed = true
 
 [settings.crawl.handler]
 concurrency = 4
+
+[settings.crawl.scope]
+strategy = "same_hostname"
+include = ["example"]
+exclude = ["example"]
 
 [settings.paid_fetch]
 domains = ["example"]

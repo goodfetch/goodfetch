@@ -2,8 +2,10 @@
 //! operator chose, with no pick (ADR 0098), under Docker, Kubernetes or
 //! systemd. It writes no runtime file and never stops idle; it listens on
 //! `daemon.address`, a loopback address until the Daemon terminates TLS
-//! (area 4), and Clients open with the persistent token of the major's
-//! `daemon.token`; it reads `daemon.address` and `daemon.drain_grace` from
+//! (area 4), with newline-delimited JSON-RPC and the protocol over
+//! WebSocket, whose handshake must name that address or `localhost` with
+//! its port as its `Host` and `Origin`; Clients open with the persistent
+//! token of the major's `daemon.token`; it reads `daemon.address` and `daemon.drain_grace` from
 //! user configuration and the Operator policy, which
 //! `GOODFETCH_DAEMON_ADDRESS` and `GOODFETCH_DAEMON_DRAIN_GRACE` override
 //! unless the policy locks them; and its logs are JSON lines on stdout,
@@ -32,17 +34,16 @@ use goodfetch_engine::browser_cache::{
 };
 use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Drain, Holds, Succession};
-use goodfetch_engine::ops::{ConfiguredBrowsers, OpsOptions};
+use goodfetch_engine::ops::{ConfiguredBrowsers, Ops, OpsOptions};
+use goodfetch_engine::rpc::Authorities;
 use goodfetch_engine::settings::{Resolved, SettingsError};
 use goodfetch_engine::transport::{Network, listen_ops};
 use goodfetch_engine::{Dependencies, Engine, Identity};
 use goodfetch_protocol::browser_cache::PinnedBy;
-use goodfetch_protocol::daemon::{ADDRESS, DRAIN_GRACE, IDLE_TIMEOUT};
+use goodfetch_protocol::daemon::{ADDRESS, DRAIN_GRACE, DaemonEndpoint, IDLE_TIMEOUT};
 use goodfetch_protocol::ops::{ADDRESS as OPS_ADDRESS, OTLP_METRICS_ENDPOINT};
 use goodfetch_protocol::settings::{SETTING_INVALID, SETTING_LOCKED, SettingsLayer};
 use tokio_util::sync::CancellationToken;
-
-use goodfetch_protocol::daemon::DaemonEndpoint;
 
 use super::{Failure, Machine, Reach, multi_thread_runtime};
 use crate::executable::browsers;
@@ -112,16 +113,9 @@ pub(in crate::executable) fn run(
         Ok(tokens) => tokens,
         Err(exit) => return exit,
     };
-    let export = match Export::start(
-        configured.ops.is_some(),
-        configured.otlp_metrics.as_deref(),
-        identity.product,
-    ) {
+    let export = match export(&configured, identity) {
         Ok(export) => export,
-        Err(error) => {
-            tracing::error!(code = SETTING_INVALID.name, %error, "the metrics' export cannot start");
-            return ExitCode::FAILURE;
-        }
+        Err(exit) => return exit,
     };
     let engine = engine.clone().with_metrics(export.metrics());
     let browsers = Arc::new(PinnedBrowser::of(identity, machine));
@@ -160,8 +154,14 @@ pub(in crate::executable) fn run(
                 grace: configured.drain_grace,
             }),
             install,
-            ops,
-            browsers: Some(browsers),
+            ops: Ops {
+                listener: ops,
+                browsers: Some(browsers),
+            },
+            websocket: match &endpoint {
+                DaemonEndpoint::Tcp(bound) => Some(Authorities::loopback(*bound)),
+                DaemonEndpoint::Unix(_) => None,
+            },
         };
         tracing::info!(
             %endpoint,
@@ -222,6 +222,19 @@ fn tokens(configured: &Configured, files: &DaemonFiles) -> Result<Tokens, ExitCo
             ExitCode::FAILURE
         })?;
     Ok(Tokens { token, ops_token })
+}
+
+/// The metrics' export `configured` asks for.
+fn export(configured: &Configured, identity: &Identity) -> Result<Export, ExitCode> {
+    Export::start(
+        configured.ops.is_some(),
+        configured.otlp_metrics.as_deref(),
+        identity.product,
+    )
+    .map_err(|error| {
+        tracing::error!(code = SETTING_INVALID.name, %error, "the metrics' export cannot start");
+        ExitCode::FAILURE
+    })
 }
 
 /// The ops listener at `address`, if any, serving `/metrics` to
@@ -332,6 +345,10 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
 pub(super) fn reach(machine: &Machine<'_>) -> Result<Option<Reach>, Failure> {
     let configured = configured(machine).map_err(|refused| Failure::Refused {
         code: refused.code.to_owned(),
+        group: [&SETTING_INVALID, &SETTING_LOCKED]
+            .into_iter()
+            .find(|definition| definition.name == refused.code)
+            .map_or(SETTING_INVALID.group, |definition| definition.group),
         message: refused.message,
         fix: String::new(),
     })?;

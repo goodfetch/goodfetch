@@ -13,6 +13,7 @@ autobenches = false
 [dependencies]
 data-encoding.workspace = true
 goodfetch-engine.workspace = true
+goodfetch-page.workspace = true
 goodfetch-protocol.workspace = true
 psl.workspace = true
 rusqlite.workspace = true

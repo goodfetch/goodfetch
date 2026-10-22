@@ -74,7 +74,7 @@ pub(super) fn raise(
             tracing::error!("{problem}");
             ExitCode::from(exit_codes::unanswered())
         }
-        Answer::Interrupted => ExitCode::from(exit_codes::INTERRUPTED),
+        Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
     }
 }
 

@@ -303,6 +303,34 @@ class LimitStanding(StrEnum):
     """It cannot evaluate it: a newer engine wrote it."""
 
 
+class LogLevel(StrEnum):
+    """
+    The level of the engine's log events a Connection receives: those at
+    it and above; `off`, the default, receives none.
+    """
+
+    off = "off"
+    """No log event."""
+    error = "error"
+    """Errors only."""
+    warn = "warn"
+    """Warnings and errors."""
+    info = "info"
+    """State changes, warnings and errors: what `info` logs."""
+    debug = "debug"
+    """Also a line per request, fetch or command."""
+    trace = "trace"
+    """Everything the engine logs."""
+
+
+class LogLevelSet(BaseModel):
+    """What `connection.set_log_level` answers: nothing more."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
 class MainContent(StrEnum):
     """Whether the extractor found the document's main content."""
 
@@ -635,6 +663,16 @@ class SampleStorePutResult(BaseModel):
 class SessionId(RootModel[str]):
     root: str
     """A Session of a Run, named by the engine when it opens it."""
+
+
+class SetLogLevelParams(BaseModel):
+    """What `connection.set_log_level` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    log_level: LogLevel
+    """The Connection's new level."""
 
 
 class SettingsLayer(StrEnum):
@@ -1107,6 +1145,12 @@ class HelloParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    log_level: LogLevel | None = None
+    """
+    The level of the engine's log events the Client receives as `$/log`
+    notifications, until `connection.set_log_level` changes it; none,
+    as `off`, receives none (ADR 0078).
+    """
     needs: Product | None = None
     """
     The Product the Client needs, which every surface but a Browser
@@ -1236,6 +1280,30 @@ class Locator(BaseModel):
     """The page it looks on."""
     selector: str
     """A CSS selector, which also matches inside open shadow roots."""
+
+
+class LogEvent(BaseModel):
+    """What `$/log` carries: one log event of the engine."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dropped: Annotated[int | None, Field(ge=0)] = None
+    """
+    How many log events the Connection was too slow to receive since the
+    one before: logs are telemetry, and never slow a Run.
+    """
+    fields: dict[str, Any] | None = None
+    """Its fields, by name: Experimental (ADR 0132)."""
+    level: LogLevel
+    """Its level, never `off`."""
+    message: str
+    """Its message."""
+    target: str
+    """
+    Where in the engine it comes from, such as `goodfetch::rpc::dispatch`:
+    Experimental (ADR 0132).
+    """
 
 
 class MarkdownFormat(RootModel[Asked | MarkdownOptions]):

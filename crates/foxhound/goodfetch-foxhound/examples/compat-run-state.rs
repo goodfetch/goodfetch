@@ -4,8 +4,9 @@
 //! `Clock` and a fixed `Entropy` seed, in a home of its own: under an
 //! install Limit, whose Slices its run state journals, a tagged crawl of
 //! five seeds, one with a Payload, one the Frontier answers `duplicate`
-//! and one sent as a `POST` with a body under a declared key, whose
-//! handler enqueues a `forefront` request on another domain from the
+//! and one sent as a `POST` with a body under a declared key, under a
+//! scope of every host narrowed by an `include` and an `exclude` pattern,
+//! whose handler enqueues a `forefront` request on another domain from the
 //! first, pushes Records for the first, the `POST` and that request and
 //! fails on the second, whose first byte never came, so its
 //! domain still backs off when `run.finish` ends it, and whose last site
@@ -78,6 +79,7 @@ fn scenario() -> Vec<Value> {
                     { "url": "https://api.test/search", "label": "home", "method": "POST", "body": "eyJwYWdlIjoxfQ==", "key": "search-1" },
                     { "url": "https://guarded.test/", "label": "guarded" },
                 ],
+                "settings": { "crawl": { "scope": { "strategy": "all", "include": ["**/sale"], "exclude": ["**/admin/**"] } } },
             }),
         ),
         call(2, "run.finish", json!({ "run_id": "crawl" })),
@@ -220,6 +222,7 @@ fn handle(request: &Value) -> Value {
 
 fn dependencies(home: &Path) -> Dependencies {
     Dependencies {
+        environment: std::collections::BTreeMap::new(),
         home: Home::new(home.to_owned()),
         // 2026-01-05T09:00:00Z, test support's `START_TIME`.
         clock: Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001)),

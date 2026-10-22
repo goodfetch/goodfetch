@@ -1,0 +1,52 @@
+{
+  "description": "The CLI built from this commit opens a Connection to the Daemon and asks config.explain, and the Daemon answers it with an Error code, here run_not_found of the program group; a test of the exit-code table plays it with another code and group in their place.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "cli",
+          "token": "scripted-daemon-token",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "config.explain",
+        "params": {
+          "keys": ["daemon"],
+          "origin": "flag"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32001,
+          "message": "No Run has this Run ID: the Run index does not list it.",
+          "data": {
+            "code": "run_not_found",
+            "retryable": false,
+            "fix": "Start the Run first."
+          }
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

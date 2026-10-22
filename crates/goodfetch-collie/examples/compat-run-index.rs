@@ -19,6 +19,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::{DaemonConsole, DaemonOptions, Holds, Succession};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::ops::Ops;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
@@ -116,6 +117,7 @@ async fn play(
 
 fn dependencies(home: &Path) -> Dependencies {
     Dependencies {
+        environment: std::collections::BTreeMap::new(),
         home: Home::new(home.to_owned()),
         // 2026-01-05T09:00:00Z, test support's `START_TIME`.
         clock: Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001)),
@@ -179,8 +181,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             console: DaemonConsole::Absent,
             drain: None,
             install: None,
-            ops: None,
-            browsers: None,
+            ops: Ops::default(),
+            websocket: None,
         };
         let serving = engine.run_daemon(listener, dependencies(home.path()), options);
         tokio::select! {

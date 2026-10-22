@@ -24,6 +24,7 @@ use super::{Client, attached_on, dependencies, engine_with, hello};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::daemon::{DaemonConsole, DaemonOptions, Holds, Succession};
 use crate::engine::Engine;
+use crate::ops::Ops;
 use crate::run_state::install::{INSTALL_FILE, InstallDatabase};
 use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::transport::{self, InMemoryDialer, Network};
@@ -179,8 +180,8 @@ where
             console: DaemonConsole::Absent,
             drain: None,
             install: Some(install),
-            ops: None,
-            browsers: None,
+            ops: Ops::default(),
+            websocket: None,
         };
         let (network, dialer) = transport::in_memory();
         let (listener, _) = Network::InMemory(network)

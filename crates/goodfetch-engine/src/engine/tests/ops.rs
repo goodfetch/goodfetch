@@ -22,7 +22,7 @@ use super::run::{call, run_folder};
 use super::{engine, engine_with};
 use crate::daemon::DaemonOptions;
 use crate::metrics::{METER, Metrics};
-use crate::ops::ConfiguredBrowsers;
+use crate::ops::{ConfiguredBrowsers, Ops};
 
 const MINUTE: Duration = Duration::from_secs(60);
 
@@ -38,7 +38,10 @@ impl ConfiguredBrowsers for Browsers {
 /// `options`, its configured browsers `installed` or not.
 fn with_browsers(installed: bool, options: DaemonOptions) -> DaemonOptions {
     DaemonOptions {
-        browsers: Some(Arc::new(Browsers(installed))),
+        ops: Ops {
+            listener: None,
+            browsers: Some(Arc::new(Browsers(installed))),
+        },
         ..options
     }
 }

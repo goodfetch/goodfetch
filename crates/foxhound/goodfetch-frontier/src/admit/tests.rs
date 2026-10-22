@@ -4,29 +4,36 @@ use url::Url;
 
 use super::{Candidate, admit};
 use crate::identity::{Declared, TABLES};
+use crate::scope::{self, Narrowing, Patterns, Scope, Strategy};
 
 /// A run file holding the Frontier's visited set, in memory, whose crawl
 /// requests the test numbers from 1.
 struct Frontier {
     connection: Connection,
+    scope: Scope,
     added: u32,
 }
 
 impl Frontier {
     fn new() -> Self {
+        Self::of(Strategy::SameHostname)
+    }
+
+    fn of(strategy: Strategy) -> Self {
         let connection = Connection::open_in_memory().unwrap();
-        for statement in TABLES.statements {
+        for statement in TABLES.statements.iter().chain(scope::TABLES.statements) {
             connection.execute(statement, []).unwrap();
         }
         Self {
             connection,
+            scope: Scope::new(strategy, Patterns::default(), Patterns::default()),
             added: 0,
         }
     }
 
     fn admit(&mut self, candidate: Candidate<'_>) -> Enqueued {
         let added = &mut self.added;
-        admit(&self.connection, candidate, |_| {
+        admit(&self.connection, &self.scope, candidate, |_| {
             *added += 1;
             Ok(added.to_string())
         })
@@ -113,6 +120,7 @@ fn an_enqueue_resolves_against_its_documents_base_and_is_answered_as_a_seed_is()
                 url,
                 base: &base,
                 declared: get(),
+                narrowing: Narrowing::none(),
             })
         })
         .collect();
@@ -248,6 +256,58 @@ fn a_declared_key_replaces_the_identity() {
             added("4", "http://shop.test/item/3"),
             added("5", "http://shop.test/item/4"),
         ]
+    );
+}
+
+/// Seeds define the scope and an enqueue is measured against every seed:
+/// a link off every seed's host is not added with `out_of_scope`, before
+/// any other check, and a seed is never out of scope (ADR 0093).
+///
+/// Covers: story:6-224
+#[test]
+fn an_enqueue_outside_every_seeds_scope_is_out_of_scope() {
+    let base = Url::parse("http://shop.test/").unwrap();
+    let mut frontier = Frontier::of(Strategy::SameHostname);
+    let seeds = [
+        frontier.seed("http://shop.test/"),
+        frontier.seed("http://www.outlet.test/"),
+    ];
+
+    let answers: Vec<Enqueued> = [
+        "/cart",
+        "http://outlet.test/sale",
+        "http://blog.shop.test/",
+        "http://elsewhere.test/",
+        "http://elsewhere.test/",
+        "ftp://elsewhere.test/",
+    ]
+    .into_iter()
+    .map(|url| {
+        frontier.admit(Candidate::Enqueue {
+            url,
+            base: &base,
+            declared: get(),
+            narrowing: Narrowing::none(),
+        })
+    })
+    .collect();
+
+    assert_eq!(
+        (seeds.to_vec(), answers),
+        (
+            vec![
+                added("1", "http://shop.test/"),
+                added("2", "http://www.outlet.test/"),
+            ],
+            vec![
+                added("3", "http://shop.test/cart"),
+                added("4", "http://outlet.test/sale"),
+                not_added(NotAddedReason::OutOfScope, "http://blog.shop.test/"),
+                not_added(NotAddedReason::OutOfScope, "http://elsewhere.test/"),
+                not_added(NotAddedReason::OutOfScope, "http://elsewhere.test/"),
+                not_added(NotAddedReason::UnsupportedScheme, "ftp://elsewhere.test/"),
+            ]
+        )
     );
 }
 

@@ -5,13 +5,14 @@
 use crate::catalog::{Entries, Operation, Product, SharedType};
 use crate::{
     audit, block, browser_cache, checkpoint, connection, console, daemon, dns, engine, events,
-    executables, foxhound, key_value_store, ops, page, politeness, run, sample, settings, usage,
-    versions,
+    executables, foxhound, key_value_store, log, ops, page, politeness, run, sample, secrets,
+    settings, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 28] = [
+pub const MODULES: [&Entries; 30] = [
     &connection::ENTRIES,
+    &log::ENTRIES,
     &console::ENTRIES,
     &daemon::ENTRIES,
     &ops::ENTRIES,
@@ -25,6 +26,7 @@ pub const MODULES: [&Entries; 28] = [
     &checkpoint::ENTRIES,
     &key_value_store::ENTRIES,
     &audit::ENTRIES,
+    &secrets::ENTRIES,
     &sample::ENTRIES,
     &settings::ENTRIES,
     &usage::ENTRIES,
@@ -76,6 +78,7 @@ mod tests {
         assert_eq!(
             collie,
             [
+                "connection.set_log_level",
                 "daemon.status",
                 "daemon.stop",
                 "daemon.health",
@@ -114,6 +117,7 @@ mod tests {
         assert_eq!(
             foxhound,
             [
+                "connection.set_log_level",
                 "daemon.status",
                 "daemon.stop",
                 "daemon.health",

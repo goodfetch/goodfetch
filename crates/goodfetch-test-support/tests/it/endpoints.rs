@@ -137,9 +137,81 @@ fn an_ops_listener_refusing_the_valid_request_fails_the_control() {
     );
 }
 
+fn websocket(address: std::net::SocketAddr) -> Listener {
+    Listener::new(
+        ListenerKind::DaemonWebsocket,
+        Endpoint::WebSocket {
+            address,
+            hello: hello(),
+        },
+        TOKEN,
+    )
+    .with_other_listener_token(OTHER_TOKEN)
+}
+
+#[test]
+fn a_permissive_websocket_listener_fails_every_row_of_its_column() {
+    let (address, log) = listeners::websocket(Behaviour::Permissive);
+    let listener = websocket(address);
+
+    let result = EndpointRunner::new(verifier(log)).run(&listener);
+
+    let forbidden = Expected::Status { status: 403 };
+    assert_eq!(
+        failures(result),
+        vec![
+            unexpected(Rule::TokenMissing, Expected::Closed, Observed::Replied),
+            unexpected(Rule::TokenWrong, Expected::Closed, Observed::Replied),
+            unexpected(
+                Rule::TokenFromAnotherListener,
+                Expected::Closed,
+                Observed::Replied
+            ),
+            unexpected(
+                Rule::TokenInQueryString,
+                Expected::Closed,
+                Observed::Replied
+            ),
+            unexpected(Rule::HostForeign, forbidden, Observed::Replied),
+            unexpected(Rule::OriginForeign, forbidden, Observed::Replied),
+            unexpected(Rule::OriginMissing, forbidden, Observed::Replied),
+            unexpected(Rule::HelloNotFirst, Expected::Closed, Observed::Replied),
+        ]
+    );
+}
+
+#[test]
+fn a_strict_websocket_listener_passes() {
+    let (address, log) = listeners::websocket(Behaviour::Strict);
+    let listener = websocket(address);
+
+    let result = EndpointRunner::new(verifier(log)).run(&listener);
+
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn a_websocket_listener_refusing_the_valid_handshake_fails_the_control() {
+    let (address, log) = listeners::websocket(Behaviour::RefuseAll);
+    let listener = websocket(address);
+
+    let result = EndpointRunner::new(verifier(log)).run(&listener);
+
+    assert_eq!(
+        result,
+        Err(EndpointRunError::ControlRefused {
+            observed: Observed::Answered {
+                status: 403,
+                body_length: 0
+            }
+        })
+    );
+}
+
 #[rstest]
 #[case::daemon_socket(ListenerKind::DaemonSocket)]
 #[case::private_endpoint(ListenerKind::PrivateEndpoint)]
+#[case::exposed_daemon(ListenerKind::ExposedDaemon)]
 fn a_strict_json_rpc_listener_on_tcp_passes(#[case] kind: ListenerKind) {
     let (address, log) = listeners::json_rpc_on_tcp(Behaviour::Strict);
     let listener = json_rpc(kind, ListenerAddress::Tcp(address));

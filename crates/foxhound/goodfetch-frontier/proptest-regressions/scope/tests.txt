@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0fdf6bffada3a7c401f2ab1d2a6481d541ad4a3747b2d1cecce5e6893b9b3c9e # shrinks to domain = "a", sub = "a", sister = "a0", scheme = "http", port = None
+cc f850c276794ad73aa7d0b13c84296aa35c1064f695f651276a4131b2459ee205 # shrinks to seed = Url { scheme: "http", cannot_be_a_base: false, username: "", password: None, host: Some(Domain("a.test")), port: None, path: "/", query: None, fragment: None }, link = Url { scheme: "http", cannot_be_a_base: false, username: "", password: None, host: Some(Domain("a.test")), port: None, path: "/", query: None, fragment: None }, include = [], exclude = ["**/**"], strategy = SameHostname

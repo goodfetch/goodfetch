@@ -92,6 +92,7 @@ fn idle_attached_engine(needs: Product, mut stdin: ChildStdin, stdout: ChildStdo
             needs: Some(needs),
             product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
                 .context("xtask's version is a Product version")?,
+            log_level: None,
         })?),
     });
     let mut line = serde_json::to_vec(&hello)?;

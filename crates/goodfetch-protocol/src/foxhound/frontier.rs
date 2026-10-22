@@ -6,7 +6,8 @@
 //! handler's attempt, resolving a relative URL against the document's base
 //! URL. A crawl request is sent with a method and a body, which with its
 //! URL's key make its identity, unless the program declares its `key`.
-//! Foxhound's own.
+//! The `crawl.scope.*` settings say which links a crawl may follow, fixed
+//! for the Run's life. Foxhound's own.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -16,7 +17,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::catalog::{
-    Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Stability, schema_of,
+    Authority, Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting,
+    Stability, ValueKind, schema_of,
 };
 use crate::run::RunId;
 
@@ -374,6 +376,53 @@ pub const CRAWL_REQUEST_ENQUEUE: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// The words of `crawl.scope.strategy`.
+pub const SCOPE_STRATEGIES: &[&str] = &["same_hostname", "same_domain", "same_origin", "all"];
+
+/// `crawl.scope.strategy` (ADRs 0093 and 0120).
+pub const CRAWL_SCOPE_STRATEGY: Setting = Setting {
+    name: "crawl.scope.strategy",
+    description: "What a crawl's links are measured by against every seed, on every enqueue, redirect and Hook rewrite: `same_hostname` (Crawlee's default), `same_domain` (the registrable domain under the Public Suffix List), `same_origin` or `all`. One leading `www.` label is ignored, and under `same_origin` an `http` seed also admits its host's `https` origin on the same port. A link outside it is not added with `out_of_scope`. Fixed for a Run's life.",
+    kind: ValueKind::Choice(SCOPE_STRATEGIES),
+    default: same_hostname,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.scope.include` (ADRs 0081 and 0093).
+pub const CRAWL_SCOPE_INCLUDE: Setting = Setting {
+    name: "crawl.scope.include",
+    description: "URL patterns, each a glob read as Playwright reads one and matched in the engine, of which a link must match one when there are any, besides `crawl.scope.strategy`, which they never replace. None by default. Fixed for a Run's life.",
+    kind: ValueKind::List(&ValueKind::Text),
+    default: no_patterns,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.scope.exclude` (ADRs 0081 and 0093).
+pub const CRAWL_SCOPE_EXCLUDE: Setting = Setting {
+    name: "crawl.scope.exclude",
+    description: "URL patterns, each a glob read as Playwright reads one and matched in the engine, none of which a link may match, besides `crawl.scope.strategy` and `crawl.scope.include`. None by default. Fixed for a Run's life.",
+    kind: ValueKind::List(&ValueKind::Text),
+    default: no_patterns,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn same_hostname() -> Value {
+    Value::from("same_hostname")
+}
+
+fn no_patterns() -> Value {
+    Value::Array(Vec::new())
+}
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -383,7 +432,11 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[],
+    settings: &[
+        CRAWL_SCOPE_STRATEGY,
+        CRAWL_SCOPE_INCLUDE,
+        CRAWL_SCOPE_EXCLUDE,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

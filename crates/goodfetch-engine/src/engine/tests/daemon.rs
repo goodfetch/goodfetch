@@ -25,10 +25,11 @@ use super::{Client, attached_on, dependencies, engine, engine_with};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use crate::engine::Engine;
+use crate::ops::Ops;
 use crate::runs::{EndedBy, Start, Started};
 use crate::transport::{self, InMemoryDialer, Network};
 
-const TOKEN: &str = "the-launch-token";
+pub(super) const TOKEN: &str = "the-launch-token";
 
 const MINUTE: Duration = Duration::from_secs(60);
 
@@ -39,9 +40,9 @@ struct Fixed {
 }
 
 /// How many handovers began.
-type Handovers = Arc<watch::Sender<u32>>;
+pub(super) type Handovers = Arc<watch::Sender<u32>>;
 
-fn no_handover() -> Handovers {
+pub(super) fn no_handover() -> Handovers {
     Arc::new(watch::Sender::new(0))
 }
 
@@ -60,7 +61,7 @@ impl Succession for Fixed {
     }
 }
 
-fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
+pub(super) fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
     DaemonOptions {
         token: TOKEN.to_owned(),
         endpoint: DaemonEndpoint::Unix("daemon.sock".into()),
@@ -75,8 +76,8 @@ fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
         console: DaemonConsole::Absent,
         drain: None,
         install: None,
-        ops: None,
-        browsers: None,
+        ops: Ops::default(),
+        websocket: None,
     }
 }
 
@@ -122,7 +123,7 @@ where
     })
 }
 
-async fn connect(dialer: &InMemoryDialer) -> Client {
+pub(super) async fn connect(dialer: &InMemoryDialer) -> Client {
     let (reader, writer) = dialer.connect().await.unwrap().split();
     Client {
         lines: BufReader::new(reader).lines(),

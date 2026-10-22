@@ -1,13 +1,14 @@
 //! A handler's enqueue (ADRs 0093 and 0120): `crawl_request.enqueue` adds
 //! one request to a live crawl from inside an attempt, while its lease
 //! holds, through the Frontier, which resolves a relative URL against the
-//! document's base URL and answers added or not added with its reason. The
+//! document's base URL, measures it against the crawl's scope the run file
+//! holds, and answers added or not added with its reason. The
 //! request is one level deeper than the attempt's, and is committed at once
 //! in the Run's state; the crawl's delivery keys it and queues it under its
 //! domain once the attempt settles.
 
 use goodfetch_engine::{CallContext, CallError, Handler};
-use goodfetch_frontier::{Candidate, Declared, admit, document_base};
+use goodfetch_frontier::{Candidate, Declared, Narrowing, Scope, admit, document_base};
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::frontier::{
     CRAWL_REQUEST_ENQUEUE, CrawlRequestEnqueueParams, Enqueued, HttpBody,
@@ -102,8 +103,9 @@ fn add(
             body: params.body.as_ref().map(HttpBody::bytes),
             key: params.key.as_deref(),
         },
+        narrowing: Narrowing::none(),
     };
-    admit(connection, candidate, |url| {
+    admit(connection, &Scope::read(connection)?, candidate, |url| {
         work_items::add(
             connection,
             url,
@@ -120,3 +122,6 @@ fn add(
     })
     .map(Some)
 }
+
+#[cfg(test)]
+mod tests;

@@ -252,6 +252,7 @@ fn run_state_location_puts_the_run_folders_where_it_names() {
     attached_with(
         &engine_with(Product::Collie, None),
         || Dependencies {
+            environment: std::collections::BTreeMap::new(),
             run_state_location: RunStateLocation::Folder(elsewhere.clone()),
             ..dependencies(&env)
         },

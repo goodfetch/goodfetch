@@ -67,7 +67,7 @@ fn hello(socket: &str, token: &str, product: &str) -> Option<Value> {
             "surface": "sdk_typescript",
             "token": token,
             "needs": product,
-            "product_version": "0.0.0",
+            "product_version": env!("CARGO_PKG_VERSION"),
         },
     });
     writeln!(writer, "{request}").unwrap();
@@ -270,7 +270,8 @@ fn a_daemon_that_leaves_its_runtime_file_fails_the_teardown() {
 fn a_stopped_daemon_leaves_no_runtime_file_in_the_home() {
     let env = TestEnv::new();
     let daemon = Daemon::start(&env, Product::Collie).unwrap();
-    let runtime_file = RuntimeFile::path(env.home(), "0.0.0");
+    // The workspace's version, which every executable of the commit reports.
+    let runtime_file = RuntimeFile::path(env.home(), env!("CARGO_PKG_VERSION"));
     let published = runtime_file.is_file();
 
     daemon.stop(&env).unwrap();

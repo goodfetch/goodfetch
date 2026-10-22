@@ -125,6 +125,8 @@ pub(in crate::executable) fn run(
                 grace: configured.drain_grace,
             }),
             install,
+            ops: None,
+            browsers: None,
         };
         tracing::info!(
             %endpoint,

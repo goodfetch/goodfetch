@@ -179,6 +179,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             console: DaemonConsole::Absent,
             drain: None,
             install: None,
+            ops: None,
+            browsers: None,
         };
         let serving = engine.run_daemon(listener, dependencies(home.path()), options);
         tokio::select! {

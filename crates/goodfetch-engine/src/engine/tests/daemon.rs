@@ -75,11 +75,13 @@ fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
         console: DaemonConsole::Absent,
         drain: None,
         install: None,
+        ops: None,
+        browsers: None,
     }
 }
 
 /// The pick's options.
-fn the_pick() -> DaemonOptions {
+pub(super) fn the_pick() -> DaemonOptions {
     options(true, &no_handover())
 }
 
@@ -87,7 +89,7 @@ fn the_pick() -> DaemonOptions {
 /// on the tests' paused runtime, and answers how it ended and what `body`
 /// answered. As in `attached_with`, the test `tracing` subscriber writes the
 /// dispatch records into the test's exercise record (ADR 0072).
-fn daemon<F, Fut, T>(
+pub(super) fn daemon<F, Fut, T>(
     engine: &Engine,
     env: &TestEnv,
     options: DaemonOptions,
@@ -128,7 +130,12 @@ async fn connect(dialer: &InMemoryDialer) -> Client {
     }
 }
 
-fn hello_with(product: &str, protocol_version: &str, surface: &str, token: Option<&str>) -> Value {
+pub(super) fn hello_with(
+    product: &str,
+    protocol_version: &str,
+    surface: &str,
+    token: Option<&str>,
+) -> Value {
     let mut params = json!({
         "protocol_version": protocol_version,
         "surface": surface,
@@ -141,12 +148,12 @@ fn hello_with(product: &str, protocol_version: &str, surface: &str, token: Optio
     json!({ "jsonrpc": "2.0", "id": 0, "method": "hello", "params": params })
 }
 
-fn cli_hello() -> Value {
+pub(super) fn cli_hello() -> Value {
     hello_with("collie", "0.1", "cli", Some(TOKEN))
 }
 
 /// A Client that said `hello` with the token.
-async fn opened(dialer: &InMemoryDialer, hello: Value) -> Client {
+pub(super) async fn opened(dialer: &InMemoryDialer, hello: Value) -> Client {
     let mut client = connect(dialer).await;
     client.send(&[hello]).await;
     let answer = client.next().await.unwrap();
@@ -545,7 +552,7 @@ const STUCK: goodfetch_protocol::catalog::Operation = goodfetch_protocol::catalo
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
 };
 
-fn stuck() -> Contribution {
+pub(super) fn stuck() -> Contribution {
     Contribution::new("test-stuck").with_handler(Handler::new(
         &STUCK,
         |params: Value, context: CallContext| async move {
@@ -580,7 +587,7 @@ fn stuck() -> Contribution {
 
 /// The pick, kept alive as `daemon run` is, draining once `asked` is
 /// cancelled, with the default drain grace.
-fn draining(asked: &CancellationToken) -> DaemonOptions {
+pub(super) fn draining(asked: &CancellationToken) -> DaemonOptions {
     DaemonOptions {
         keep_alive: true,
         drain: Some(Drain {

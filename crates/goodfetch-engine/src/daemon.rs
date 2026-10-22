@@ -15,6 +15,11 @@
 //! (the start lock, the runtime file), is the [`Succession`] its starter
 //! gives it; [`files`] holds the machine's side: the runtime file, the
 //! locks and the token.
+//!
+//! It answers `daemon.health` from the checks its ops listener's probes
+//! make, and serves that listener when its starter opened one (ADR 0050);
+//! it records its connected Clients and whether it drains in the runtime's
+//! metrics.
 
 pub mod files;
 pub mod service;
@@ -28,8 +33,8 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{ProductVersion, Surface};
 use goodfetch_protocol::console::{ConsoleFailure, ConsoleState};
 use goodfetch_protocol::daemon::{
-    DaemonEndpoint, DaemonParams, DaemonStatus, DaemonStopping, NOT_A_DAEMON, NotADaemonDetails,
-    STATUS, STOP,
+    DaemonEndpoint, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, HEALTH, NOT_A_DAEMON,
+    NotADaemonDetails, STATUS, STOP,
 };
 use tokio::sync::{Mutex, mpsc, watch};
 use tokio_util::sync::CancellationToken;
@@ -37,6 +42,8 @@ use tokio_util::sync::CancellationToken;
 use crate::clock::Clock;
 use crate::composition::{Answering, CallContext, CallError, DaemonSide, Handler};
 use crate::events::Events;
+use crate::metrics::Metrics;
+use crate::ops::{self, ConfiguredBrowsers, Health, OpsOptions};
 use crate::product::{Channel, Identity};
 use crate::rpc::{self, Dispatch};
 use crate::run_state::install::InstallDatabase;
@@ -77,6 +84,12 @@ pub struct DaemonOptions {
     /// per-install layout (`run_state.layout`, ADR 0002); none in the
     /// per-run layout.
     pub install: Option<InstallDatabase>,
+    /// Its ops listener (ADR 0050), when its starter opened one, as
+    /// `daemon run` does at `ops.address`.
+    pub ops: Option<OpsOptions>,
+    /// Whether the browsers its configuration uses are installed, which its
+    /// readiness checks; none when it uses no browser its starter knows of.
+    pub browsers: Option<Arc<dyn ConfiguredBrowsers>>,
 }
 
 /// How a foreground Daemon drains (ADR 0049): once `asked` is cancelled it
@@ -195,6 +208,8 @@ pub(crate) struct Serving {
     pub(crate) clock: Clock,
     /// Where its Console is served, or why it is not.
     pub(crate) console: ConsoleState,
+    /// The runtime's metrics.
+    pub(crate) metrics: Metrics,
 }
 
 /// The Clients connected now.
@@ -223,6 +238,8 @@ struct Shared {
     console: ConsoleState,
     presence: watch::Sender<Presence>,
     runs: Runs,
+    health: Health,
+    metrics: Metrics,
     blocking: TaskOwner,
     endings: mpsc::Sender<Ending>,
     /// Where the Daemon is, which only the engine's table changes; held
@@ -237,6 +254,11 @@ impl Shared {
         blocking: TaskOwner,
         endings: mpsc::Sender<Ending>,
     ) -> Self {
+        let health = Health {
+            runs: serving.runs.clone(),
+            browsers: options.browsers,
+            blocking: Arc::new(blocking.child()),
+        };
         Self {
             identity: Arc::clone(&serving.dispatch.identity),
             token: options.token,
@@ -249,6 +271,8 @@ impl Shared {
             console: serving.console.clone(),
             presence: watch::Sender::new(Presence::default()),
             runs: serving.runs.clone(),
+            health,
+            metrics: serving.metrics.clone(),
             blocking,
             endings,
             state: Mutex::new(EngineState::Serving),
@@ -327,12 +351,14 @@ struct ConnectionSide {
 /// A Client counted while it is open.
 struct Opened {
     presence: watch::Sender<Presence>,
-    console: bool,
+    metrics: Metrics,
+    surface: Surface,
 }
 
 impl Drop for Opened {
     fn drop(&mut self) {
-        let console = u32::from(self.console);
+        self.metrics.clients(self.surface, -1);
+        let console = u32::from(self.surface == Surface::Console);
         self.presence.send_modify(|presence| {
             presence.clients = presence.clients.saturating_sub(1);
             presence.consoles = presence.consoles.saturating_sub(console);
@@ -351,9 +377,11 @@ impl DaemonSide for ConnectionSide {
             presence.clients += 1;
             presence.consoles += u32::from(console);
         });
+        self.shared.metrics.clients(surface, 1);
         Box::new(Opened {
             presence: self.shared.presence.clone(),
-            console,
+            metrics: self.shared.metrics.clone(),
+            surface,
         })
     }
 
@@ -377,6 +405,10 @@ impl DaemonSide for ConnectionSide {
                 console: shared.console.clone(),
             }
         })
+    }
+
+    fn health(&self) -> Answering<'_, DaemonHealth> {
+        Box::pin(self.shared.health.check())
     }
 
     fn stop(&self) -> Answering<'_, DaemonStopping> {
@@ -405,6 +437,7 @@ pub(crate) async fn serve(
     owner: &TaskOwner,
 ) -> DaemonEnd {
     let drain = options.drain.take();
+    let ops = options.ops.take();
     let asked = async {
         match &drain {
             Some(drain) => drain.asked.cancelled().await,
@@ -414,6 +447,10 @@ pub(crate) async fn serve(
     tokio::pin!(asked);
     let (endings, mut ending) = mpsc::channel(1);
     let shared = Arc::new(Shared::new(&serving, options, owner.child(), endings));
+    serving.metrics.draining(false);
+    if let Some(ops) = ops {
+        owner.spawn(ops::serve(ops, shared.health.clone(), owner.child()));
+    }
     let connections_owner = owner.child();
     let (ended, mut endings_of_connections) = mpsc::unbounded_channel::<ConnectionId>();
     let mut open: BTreeMap<ConnectionId, CancellationToken> = BTreeMap::new();
@@ -461,6 +498,7 @@ pub(crate) async fn serve(
                 drain_asked = true;
                 // A drain once a handover is decided changes nothing.
                 if let Ok(EngineState::Draining) = shared.transition(EngineEvent::Drain).await {
+                    serving.metrics.draining(true);
                     let grace = drain.as_ref().map_or(Duration::ZERO, |drain| drain.grace);
                     drain_runs(&serving, grace).await;
                     drop(listener);
@@ -675,7 +713,7 @@ pub fn refusal_fix(client: &RefusedClient<'_>) -> String {
 }
 
 /// The `daemon.*` handlers.
-pub(crate) fn handlers() -> [Handler; 2] {
+pub(crate) fn handlers() -> [Handler; 3] {
     [
         Handler::new(
             &STATUS,
@@ -686,6 +724,12 @@ pub(crate) fn handlers() -> [Handler; 2] {
         Handler::new(&STOP, |_: DaemonParams, context: CallContext| async move {
             Ok::<_, CallError>(daemon_of(&context, STOP.name)?.stop().await)
         }),
+        Handler::new(
+            &HEALTH,
+            |_: DaemonParams, context: CallContext| async move {
+                Ok::<_, CallError>(daemon_of(&context, HEALTH.name)?.health().await)
+            },
+        ),
     ]
 }
 

@@ -209,6 +209,8 @@ pub(in crate::executable) fn launched(
             console,
             drain: None,
             install,
+            ops: None,
+            browsers: None,
         };
         Ok::<_, Failure>((
             engine.run_daemon(listener, dependencies, options).await,

@@ -60,6 +60,8 @@ selection=$(cargo run --quiet -p xtask -- affected "${change[@]}")
 targets=$(sed -n 's/^bench-targets=//p' <<<"$selection")
 cargo run --quiet -p xtask -- perf build --base "$base" --bench-targets "$targets"
 # `just merge` saves the pull request's acceptance (ci/merge-pr.sh); without
-# it, every figure past its threshold fails.
+# it, every figure past its threshold is reported. Until M1's optimization
+# pass, each is a note that fails nothing, and only a broken measurement
+# fails (`xtask perf`'s `GATING`, ADR 0134 as amended on 2026-10-22).
 cargo run --quiet -p xtask -- perf run \
   ${GOODFETCH_PERF_PULL_REQUEST:+--pull-request "$GOODFETCH_PERF_PULL_REQUEST"}

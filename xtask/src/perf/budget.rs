@@ -4,6 +4,41 @@
 
 use super::figure::Figure;
 
+/// Whether the budget's findings fail a change: a figure past its threshold
+/// that the pull request does not accept, and a figure over its ceiling.
+/// A broken measurement (a benchmark that fails its admission, a ceiling
+/// whose figure the head lost) fails either way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Gating {
+    /// Each is a note in the gate's log, and fails nothing.
+    Informational,
+    /// Each fails the change.
+    #[expect(
+        dead_code,
+        reason = "M1's optimization pass sets `GATING` to it (ADR 0134, as amended on 2026-10-22)"
+    )]
+    Enforced,
+}
+
+impl Gating {
+    /// What a finding of the budget says after its figure: `enforced`, the
+    /// remedy, while the budget gates.
+    pub(crate) fn remedy(self, enforced: &'static str) -> &'static str {
+        match self {
+            Self::Informational => {
+                "noted only: until M1's optimization pass, no figure past its threshold or over its ceiling fails a change (ADR 0134, as amended on 2026-10-22)"
+            }
+            Self::Enforced => enforced,
+        }
+    }
+}
+
+/// ADR 0134, as amended on 2026-10-22 (owner decision): informational until
+/// M1's optimization pass (#1577). The pull request of that pass, which sets
+/// the tuned ceilings, sets this to `Gating::Enforced`, and the per-change
+/// budget and the ceilings gate again.
+pub(crate) const GATING: Gating = Gating::Informational;
+
 /// ADR 0071: a benchmark's figure trips at +5% over the base's.
 pub(crate) const INCREASE_PERCENT: u64 = 5;
 

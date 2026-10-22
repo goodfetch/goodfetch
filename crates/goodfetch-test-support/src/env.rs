@@ -18,6 +18,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::crash_dumps::{self, CRASH_DUMP_VARIABLE, CrashDumps};
 use crate::exercise::{DISPATCH_TARGET, ExerciseRecord, OUTCOME_TARGET};
+use crate::locales::{LocaleTableError, table_lang, table_zone};
 use crate::process::{Process, ProcessTracker, ProcessesAlive};
 use crate::runtime_file::{
     DaemonEndpoint, RUNTIME_FILE, RuntimeFile, SOCKET_FOLDER_PREFIX, major_folder,
@@ -157,19 +158,26 @@ impl TestEnv {
         })
     }
 
-    /// The same setup with `LANG` for this locale tag (`tr-TR` becomes
-    /// `tr_TR.UTF-8`).
-    #[must_use]
-    pub fn with_locale(mut self, tag: &str) -> Self {
-        self.env.insert("LANG".to_owned(), posix_locale(tag));
-        self
+    /// The same setup with `LANG` for this locale of the shared table
+    /// (ADR 0073), given by its BCP 47 tag (`tr-TR` becomes `tr_TR.UTF-8`).
+    ///
+    /// # Errors
+    ///
+    /// [`LocaleTableError::LocaleUnknown`] for a tag outside the table.
+    pub fn with_locale(mut self, tag: &str) -> Result<Self, LocaleTableError> {
+        self.env.insert("LANG".to_owned(), table_lang(tag)?);
+        Ok(self)
     }
 
-    /// The same setup with `TZ` for this time zone.
-    #[must_use]
-    pub fn with_time_zone(mut self, zone: &str) -> Self {
-        self.env.insert("TZ".to_owned(), zone.to_owned());
-        self
+    /// The same setup with `TZ` for this time zone of the shared table.
+    ///
+    /// # Errors
+    ///
+    /// [`LocaleTableError::TimeZoneUnknown`] for a zone outside the table.
+    pub fn with_time_zone(mut self, zone: &str) -> Result<Self, LocaleTableError> {
+        self.env
+            .insert("TZ".to_owned(), table_zone(zone)?.to_owned());
+        Ok(self)
     }
 
     /// The same setup with one more variable in the map every child gets,
@@ -358,11 +366,6 @@ fn remove_socket_folders_outside(home: &Path) {
 /// applied, run in the test's folder.
 pub fn command(env: &TestEnv, program: impl AsRef<OsStr>) -> assert_cmd::Command {
     assert_cmd::Command::from_std(env.process_command(program))
-}
-
-/// The `LANG` value of a BCP 47 locale tag: `tr-TR` is `tr_TR.UTF-8`.
-pub(crate) fn posix_locale(tag: &str) -> String {
-    format!("{}.UTF-8", tag.replace('-', "_"))
 }
 
 /// The test's name as a folder name every OS accepts.

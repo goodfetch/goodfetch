@@ -123,7 +123,7 @@ pub use journey_run::{
 pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_within};
 #[cfg(target_os = "linux")]
 pub use lazyfs::{LAZYFS_DEADLINE, LazyFs, LazyFsError};
-pub use locales::{TimeZoneCase, locales, time_zones};
+pub use locales::{LocaleTableError, TimeZoneCase, locales, time_zones};
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")

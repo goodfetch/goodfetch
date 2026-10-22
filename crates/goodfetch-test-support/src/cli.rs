@@ -36,9 +36,9 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 
 use crate::daemon::{DAEMON_DEADLINE, Daemon, DaemonError};
-use crate::env::{TestEnv, command, posix_locale};
+use crate::env::{TestEnv, command};
 use crate::exercise::{COMMAND_TARGET, command_record};
-use crate::locales::{locales, time_zones};
+use crate::locales::{table_lang, table_zone};
 use crate::snapshot::{SnapshotValues, snapshot_settings};
 
 /// The Feature inventory, whose `command:` Features name the commands.
@@ -144,12 +144,15 @@ impl Cli<'_> {
     /// fails the run with [`CliError::LocaleUnknown`].
     #[must_use]
     pub fn with_locale(mut self, tag: &str) -> Self {
-        if locales().iter().any(|locale| locale == tag) {
-            self.command.env("LANG", posix_locale(tag));
-        } else {
-            self.refused.get_or_insert(CliError::LocaleUnknown {
-                tag: tag.to_owned(),
-            });
+        match table_lang(tag) {
+            Ok(lang) => {
+                self.command.env("LANG", lang);
+            }
+            Err(_) => {
+                self.refused.get_or_insert(CliError::LocaleUnknown {
+                    tag: tag.to_owned(),
+                });
+            }
         }
         self
     }
@@ -160,7 +163,7 @@ impl Cli<'_> {
     /// [`CliError::TimeZoneUnknown`].
     #[must_use]
     pub fn with_time_zone(mut self, zone: &str) -> Self {
-        if time_zones().iter().any(|case| case.name == zone) {
+        if table_zone(zone).is_ok() {
             self.command.env("TZ", zone);
         } else {
             self.refused.get_or_insert(CliError::TimeZoneUnknown {

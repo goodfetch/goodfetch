@@ -475,6 +475,7 @@ fn fabricated_hello(
         needs: Some(hello.product),
         product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
             .expect("invariant: the workspace's version is a Product version"),
+        log_level: None,
     };
     let refused = (|| {
         let id = other.request(

@@ -80,6 +80,7 @@ impl Forwarder for ToOwner {
                 token: Some(token),
                 needs: Some(Product::Collie),
                 product_version: self.version.clone(),
+                log_level: None,
             };
             let answered = call(&endpoint, &hello, &params, self.clock).await;
             match answered {

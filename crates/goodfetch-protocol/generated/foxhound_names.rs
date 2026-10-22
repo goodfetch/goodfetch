@@ -13,6 +13,9 @@ pub const ERROR_GROUPS: &[&str] = &[];
 /// The events only Foxhound carries.
 pub const EVENTS: &[&str] = &["sample.crawled"];
 
+/// The exit codes only Foxhound carries.
+pub const EXIT_CODES: &[&str] = &[];
+
 /// The handler requests only Foxhound carries.
 pub const HANDLER_REQUESTS: &[&str] = &["crawl_request.handle"];
 

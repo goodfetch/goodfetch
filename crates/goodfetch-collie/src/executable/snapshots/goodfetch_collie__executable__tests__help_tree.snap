@@ -405,9 +405,10 @@ Arguments:
   <RUN_ID>  The Run's ID
 
 Options:
-      --json          Prints the result as JSON
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
+      --json              Prints the result as JSON
+      --require-verified  Exits 21 when the Run ended with a Verdict other than `verified`
+      --color <WHEN>      When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help              Print help
 
 $ goodfetch-collie run abort --help
 Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
@@ -418,10 +419,11 @@ Arguments:
   <RUN_ID>  The Run's ID
 
 Options:
-      --forwarded     Set by an engine that forwards the abort to the owner the Run index names (ADR 0031): an engine that does not own the Run then answers `run_not_owned` instead of taking its writer role
-      --json          Prints the result as JSON
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
+      --forwarded         Set by an engine that forwards the abort to the owner the Run index names (ADR 0031): an engine that does not own the Run then answers `run_not_owned` instead of taking its writer role
+      --json              Prints the result as JSON
+      --require-verified  Exits 21 when the Run ended with a Verdict other than `verified`
+      --color <WHEN>      When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help              Print help
 
 $ goodfetch-collie run checkpoint --help
 Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file
@@ -446,9 +448,10 @@ Arguments:
   <RUN_ID>  The Run's ID
 
 Options:
-      --json          Prints the result as JSON
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
+      --json              Prints the result as JSON
+      --require-verified  Exits 21 when the Run ended with a Verdict other than `verified`
+      --color <WHEN>      When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help              Print help
 
 $ goodfetch-collie run migrate --help
 Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint
@@ -461,6 +464,7 @@ Arguments:
 Options:
       --location <LOCATION>  Where to write the Checkpoint, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder
       --json                 Prints the result as JSON
+      --require-verified     Exits 21 when the Run ended with a Verdict other than `verified`
       --color <WHEN>         When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                 Print help
 

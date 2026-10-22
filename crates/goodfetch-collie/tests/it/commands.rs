@@ -158,7 +158,7 @@ fn run_finish_reads_the_report_of_the_run_the_attached_engine_stopped() {
         .unwrap();
 
     assert_cli_snapshot!(checked.output, @r#"
-    exit: 0
+    exit: 20
     ----- stdout -----
     {
       "completeness": "incomplete",
@@ -190,7 +190,7 @@ fn run_abort_prints_the_report_of_an_ended_run_one_field_per_line() {
         .unwrap();
 
     assert_cli_snapshot!(output, @r#"
-    exit: 0
+    exit: 20
     ----- stdout -----
     completeness: incomplete
     ended_at: [INSTANT]

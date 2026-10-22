@@ -18,6 +18,7 @@ mod events;
 mod key_value_store;
 mod layout;
 mod lifecycle;
+mod log;
 mod progress;
 mod refusals;
 mod run;
@@ -668,6 +669,31 @@ fn dispatch_records_each_requests_method_and_its_error_code() {
             ": request answered method=\"engine.info\"",
             ": request answered method=\"hello\"",
             ": request failed method=\"sample.crawl\" error_code=\"not_in_product\"",
+        ]
+    );
+}
+
+/// A method no catalog holds is a value its Client wrote, which may hold a
+/// Secret: its record names none (ADR 0132's bounded values).
+///
+/// Covers: story:3-105
+#[test]
+fn dispatch_records_a_method_no_catalog_holds_without_its_name() {
+    let records = dispatch_records(|| {
+        let engine = engine(Product::Collie);
+        exchange(&engine, &[request(1, "token=GFCANARY-hunter2")]);
+        exchange(
+            &engine,
+            &[hello("collie", "0.1"), request(2, "token=GFCANARY-hunter2")],
+        )
+    });
+
+    assert_eq!(
+        records,
+        [
+            ": request answered method=\"hello\"",
+            ": request failed method=\"(unknown)\" error_code=\"invalid_request\"",
+            ": request failed method=\"(unknown)\" error_code=\"method_not_found\"",
         ]
     );
 }

@@ -919,6 +919,17 @@ pub const RUN_STATE_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A Run its engine's resource governor stopped, or refused at its start,
+/// for want of memory or storage (ADRs 0040 and 0122).
+pub const RESOURCES_EXHAUSTED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "resources_exhausted",
+    description: "The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: Some(15),
+    arrived_in: ARRIVED_IN,
+};
+
 /// What `run_not_found`, `run_in_use`, `run_busy`, `run_not_owned` and
 /// `run_state_unavailable` detail.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1157,6 +1168,7 @@ pub const ENTRIES: Entries = Entries {
         RUN_BUSY,
         RUN_NOT_OWNED,
         RUN_STATE_UNAVAILABLE,
+        RESOURCES_EXHAUSTED,
     ],
     plugin_kinds: &[],
     metrics: &[],

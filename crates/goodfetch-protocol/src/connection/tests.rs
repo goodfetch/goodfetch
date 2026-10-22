@@ -3,6 +3,40 @@ use serde_json::json;
 
 use super::{HelloParams, ProductVersion, Surface};
 use crate::catalog::{Product, ProtocolVersion};
+use crate::log::LogLevel;
+
+#[rstest]
+#[case::off("off", LogLevel::Off)]
+#[case::error("error", LogLevel::Error)]
+#[case::warn("warn", LogLevel::Warn)]
+#[case::info("info", LogLevel::Info)]
+#[case::debug("debug", LogLevel::Debug)]
+#[case::trace("trace", LogLevel::Trace)]
+fn a_hello_reads_the_log_level_its_client_receives(#[case] word: &str, #[case] level: LogLevel) {
+    let hello: HelloParams = serde_json::from_value(json!({
+        "protocol_version": "0.1",
+        "surface": "sdk_typescript",
+        "needs": "collie",
+        "product_version": "0.0.0",
+        "log_level": word,
+    }))
+    .unwrap();
+
+    assert_eq!(hello.log_level, Some(level));
+}
+
+#[test]
+fn a_hello_with_a_log_level_no_engine_knows_is_refused() {
+    let hello = serde_json::from_value::<HelloParams>(json!({
+        "protocol_version": "0.1",
+        "surface": "sdk_typescript",
+        "needs": "collie",
+        "product_version": "0.0.0",
+        "log_level": "verbose",
+    }));
+
+    assert!(hello.is_err());
+}
 
 #[rstest]
 #[case::release("1.4.0", 1)]
@@ -42,6 +76,7 @@ fn a_clients_hello_reads_with_the_product_it_needs() {
             token: None,
             needs: Some(Product::Foxhound),
             product_version: ProductVersion::parse("0.0.0").unwrap(),
+            log_level: None,
         }
     );
 }
@@ -70,5 +105,5 @@ fn every_field_records_the_minor_that_added_it() {
         .values()
         .map(|field| &field["arrived_in"])
         .collect();
-    assert_eq!(minors, vec![&json!("0.1"); 5]);
+    assert_eq!(minors, vec![&json!("0.1"); 6]);
 }

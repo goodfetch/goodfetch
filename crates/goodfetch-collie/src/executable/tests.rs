@@ -116,3 +116,54 @@ fn color_is_taken_wherever_it_is_given(
         Some(expected)
     );
 }
+
+/// Every argument of `command` and of each command below it.
+fn arguments(command: &clap::Command) -> Vec<&clap::Arg> {
+    command
+        .get_arguments()
+        .chain(command.get_subcommands().flat_map(arguments))
+        .collect()
+}
+
+/// Story 4-31: no flag of either executable turns certificate verification
+/// off. No flag reads a variable either: clap's `env` feature is off.
+/// Covers: story:4-31
+#[rstest]
+fn no_flag_switches_certificate_verification_off(
+    #[values(Product::Collie, Product::Foxhound)] product: Product,
+) {
+    // Words naming certificates or turning their checks off; not `verif`
+    // alone, which `--require-verified` (a Verdict's) holds.
+    const WORDS: [&str; 7] = [
+        "insecure",
+        "no-verify",
+        "skip-verif",
+        "cert",
+        "tls",
+        "ssl",
+        "danger",
+    ];
+    let command = command(product);
+    let every = arguments(&command);
+
+    let switches: Vec<String> = every
+        .iter()
+        .flat_map(|argument| {
+            argument
+                .get_long_and_visible_aliases()
+                .into_iter()
+                .flatten()
+                .map(str::to_owned)
+        })
+        .filter(|name| {
+            let name = name.to_ascii_lowercase();
+            WORDS.iter().any(|word| name.contains(word))
+        })
+        .collect();
+
+    assert!(
+        every.iter().any(|argument| argument.get_id() == COLOR),
+        "the enumeration reaches the executable's flags"
+    );
+    assert_eq!(switches, Vec::<String>::new());
+}

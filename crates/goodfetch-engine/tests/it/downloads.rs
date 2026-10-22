@@ -47,6 +47,10 @@ struct StandIn {
 }
 
 impl StandIn {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the stand-in server, outside the engine, runs its accept loop and connections on the test's runtime (ADR 0062)"
+    )]
     async fn serve(files: BTreeMap<&'static str, Vec<u8>>) -> Self {
         let authority_key =
             rcgen::KeyPair::generate().expect("invariant: the stand-in and its fixtures set up");
@@ -162,6 +166,10 @@ struct Build {
     digest: Digest,
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test lays out a build's files by hand, outside any async worker"
+)]
 fn build(env: &TestEnv, marker: &str) -> Build {
     let tree = env.folder().join(format!("build {marker}"));
     std::fs::create_dir_all(tree.join("resources"))
@@ -250,6 +258,10 @@ fn launch_path(cache: &BrowserCache, id: &ArtifactId) -> std::path::PathBuf {
     entry_folder(cache, id).join("files").join("chrome")
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads a file the engine wrote, outside any async worker"
+)]
 fn read(path: &Path) -> String {
     std::fs::read_to_string(path).expect("invariant: the stand-in and its fixtures set up")
 }

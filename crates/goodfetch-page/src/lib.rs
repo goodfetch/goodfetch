@@ -11,6 +11,7 @@
 
 mod driver;
 mod errors;
+mod guard;
 mod launch;
 mod pages;
 pub mod robots_txt;

@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Checkpoint, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, GotoParams, LimitUsage, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageOpened, PageParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
+from .models import Acted, Checkpoint, ClickParams, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, LimitUsage, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
 
 
 class AsyncCaller(Protocol):
@@ -64,12 +64,40 @@ class AsyncCollieOperations:
         """
         return SubscriptionEnded.model_construct(**_fields(await self._caller.call("events.subscribe", params)))
 
+    async def locator_click(self, params: ClickParams) -> Acted:
+        """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(await self._caller.call("locator.click", params)))
+
+    async def locator_fill(self, params: FillParams) -> Acted:
+        """Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(await self._caller.call("locator.fill", params)))
+
+    async def locator_press(self, params: PressParams) -> Acted:
+        """Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(await self._caller.call("locator.press", params)))
+
     async def page_body(self, params: PageBodyParams) -> PageBodyRead:
         """Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageBodyRead.model_construct(**_fields(await self._caller.call("page.body", params)))
+
+    async def page_formats(self, params: FormatsParams) -> PageFormats:
+        """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageFormats.model_construct(**_fields(await self._caller.call("page.formats", params)))
 
     async def page_go_back(self, params: PageParams) -> Navigated:
         """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
@@ -210,12 +238,40 @@ class CollieOperations:
         """
         return SubscriptionEnded.model_construct(**_fields(self._caller.call("events.subscribe", params)))
 
+    def locator_click(self, params: ClickParams) -> Acted:
+        """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(self._caller.call("locator.click", params)))
+
+    def locator_fill(self, params: FillParams) -> Acted:
+        """Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(self._caller.call("locator.fill", params)))
+
+    def locator_press(self, params: PressParams) -> Acted:
+        """Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(self._caller.call("locator.press", params)))
+
     def page_body(self, params: PageBodyParams) -> PageBodyRead:
         """Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageBodyRead.model_construct(**_fields(self._caller.call("page.body", params)))
+
+    def page_formats(self, params: FormatsParams) -> PageFormats:
+        """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageFormats.model_construct(**_fields(self._caller.call("page.formats", params)))
 
     def page_go_back(self, params: PageParams) -> Navigated:
         """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).

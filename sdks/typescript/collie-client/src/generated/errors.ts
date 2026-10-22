@@ -186,6 +186,15 @@ export class ConsolePortInUseError extends UnavailableError {
 }
 
 /**
+ * The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.
+ */
+export class DaemonDrainingError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "daemon_draining", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.
  */
 export class EngineExitedError extends UnavailableError {
@@ -456,6 +465,15 @@ export class SettingUnknownError extends ProgramError {
 }
 
 /**
+ * The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.
+ */
+export class TargetNotUniqueError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "target_not_unique", group: "page", retryable: false });
+  }
+}
+
+/**
  * `upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.
  */
 export class UpgradeSourceUnsupportedError extends RefusedError {
@@ -475,6 +493,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   call_cancelled: CallCancelledError,
   closed: ClosedError,
   console_port_in_use: ConsolePortInUseError,
+  daemon_draining: DaemonDrainingError,
   engine_exited: EngineExitedError,
   engine_not_found: EngineNotFoundError,
   engine_output_invalid: EngineOutputInvalidError,
@@ -505,5 +524,6 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   setting_locked: SettingLockedError,
   setting_not_applicable: SettingNotApplicableError,
   setting_unknown: SettingUnknownError,
+  target_not_unique: TargetNotUniqueError,
   upgrade_source_unsupported: UpgradeSourceUnsupportedError,
 };

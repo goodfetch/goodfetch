@@ -1,9 +1,11 @@
 # The watchlist job (spec #598, story 61; ADR 0035), weekly on `main`'s head,
 # on GitHub-hosted Linux: webappanalyzer (GPL-3.0) and Scrapfly's
 # Antibot-Detector (NPOSL-3.0) are watchlists, never sources. The job checks
-# out the two public lists, reads only the vendor names they list
-# (webappanalyzer's "Security" technologies, Antibot-Detector's `antibot` and
-# `captcha` detectors) and compares them with the vendors Collie's
+# out the two public lists, reads only the names of the bot-protection,
+# challenge and CAPTCHA vendors they list (webappanalyzer's "Security"
+# technologies whose name or description says bot, CAPTCHA or Turing test;
+# Antibot-Detector's `antibot` and `captcha` detectors) and compares them
+# with the vendors Collie's
 # block-detection rules cover
 # (`crates/goodfetch-collie/src/block_detection/vendors.toml`). For each
 # vendor no rule covers it opens one `watchlist` and `needs-triage` issue,

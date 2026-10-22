@@ -74,6 +74,7 @@ fn base_and_head_mode_selects_what_the_head_changed() {
     sinks-touched=
     bench-targets=goodfetch-engine/engine
     models=
+    gate=full
     "#);
 }
 
@@ -133,6 +134,7 @@ fn local_mode_reads_uncommitted_and_untracked_changes() {
     sinks-touched=
     bench-targets=
     models=
+    gate=full
     "#);
 }
 

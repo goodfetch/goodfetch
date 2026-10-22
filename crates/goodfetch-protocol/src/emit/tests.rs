@@ -23,7 +23,7 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
     let emitted = emit();
     let mut formats = emitted.bundle["formats"].as_array().unwrap().clone();
     let settings_files: Vec<serde_json::Value> = formats
-        .drain(6..)
+        .drain(7..)
         .map(|format| {
             json!({
                 "name": format["name"],
@@ -107,6 +107,14 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
                 "rule": "frozen_major",
                 "hello_from": [],
                 "schema": { "$ref": "#/$defs/Limit" },
+            },
+            {
+                "name": "politeness-file",
+                "version": "0.1",
+                "storage": "sqlite",
+                "rule": "frozen_major",
+                "hello_from": [],
+                "schema": { "$ref": "#/$defs/PermitRow" },
             },
         ])
     );

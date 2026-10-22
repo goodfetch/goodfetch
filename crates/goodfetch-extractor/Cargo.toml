@@ -1,0 +1,25 @@
+[package]
+name = "goodfetch-extractor"
+description = "The page formats read from a serialized document: its main content found by the extractor and written as Markdown, pure over its input (spec #580; ADRs 0007, 0033 and 0088)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+dom_query.workspace = true
+dom_smoothie.workspace = true
+goodfetch-protocol.workspace = true
+htmd.workspace = true
+markup5ever_rcdom.workspace = true
+
+[dev-dependencies]
+goodfetch-test-support.workspace = true
+proptest.workspace = true
+rstest.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

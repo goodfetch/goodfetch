@@ -9,6 +9,7 @@
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
 
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use schemars::JsonSchema;
@@ -64,6 +65,81 @@ pub const IDLE_TIMEOUT: Setting = Setting {
     weakens: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// The foreground Daemon's ports: a release major's is this plus the major.
+const RELEASE_PORT_BASE: u16 = 7900;
+/// A `0.y` preview's is this plus the minor: each preview minor counts as a
+/// major (ADR 0030).
+const PREVIEW_PORT_BASE: u16 = 7600;
+
+/// Where `daemon run` of `version`'s major listens by default: `127.0.0.1`
+/// on port 7900 plus the major, or 7600 plus the minor during `0.y`
+/// previews, so the foreground Daemons of two majors never share a port.
+pub fn default_address(version: &ProductVersion) -> SocketAddr {
+    let mut numbers = version.as_str().split(['.', '-']);
+    let major = numbers.next().and_then(|number| number.parse::<u16>().ok());
+    let minor = numbers.next().and_then(|number| number.parse::<u16>().ok());
+    let port = match (major, minor) {
+        (Some(0), Some(minor)) => PREVIEW_PORT_BASE.saturating_add(minor),
+        (Some(major), _) => RELEASE_PORT_BASE.saturating_add(major),
+        (None, _) => RELEASE_PORT_BASE,
+    };
+    SocketAddr::from((Ipv4Addr::LOCALHOST, port))
+}
+
+fn address_of_this_version() -> serde_json::Value {
+    let address = ProductVersion::parse(env!("CARGO_PKG_VERSION")).map_or_else(
+        |_| SocketAddr::from((Ipv4Addr::LOCALHOST, RELEASE_PORT_BASE)),
+        |version| default_address(&version),
+    );
+    serde_json::Value::String(address.to_string())
+}
+
+/// `daemon.address` (ADR 0049): where the foreground Daemon listens.
+pub const ADDRESS: Setting = Setting {
+    name: "daemon.address",
+    description: "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+    kind: ValueKind::Text,
+    default: address_of_this_version,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn hundred_and_ten_seconds() -> serde_json::Value {
+    serde_json::json!(110_u64 * 1000)
+}
+
+/// `daemon.drain_grace` (ADR 0049): how long the foreground Daemon drains.
+pub const DRAIN_GRACE: Setting = Setting {
+    name: "daemon.drain_grace",
+    description: "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+    kind: ValueKind::Duration,
+    default: hundred_and_ten_seconds,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A run started or resumed on a draining foreground Daemon.
+pub const DAEMON_DRAINING: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "daemon_draining",
+    description: "The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `daemon_draining` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DaemonDrainingDetails {
+    /// The Run ID of the run refused, when the call named one.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: Option<String>,
+}
 
 /// A `daemon.*` operation called on an engine that is no Daemon.
 pub const NOT_A_DAEMON: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -275,10 +351,10 @@ pub const ENTRIES: Entries = Entries {
     operations: &[STATUS, STOP],
     events: &[],
     handler_requests: &[],
-    error_codes: &[NOT_A_DAEMON],
+    error_codes: &[NOT_A_DAEMON, DAEMON_DRAINING],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[IDLE_TIMEOUT],
+    settings: &[IDLE_TIMEOUT, ADDRESS, DRAIN_GRACE],
     hook_stages: &[],
     shared_type_values: &[],
 };

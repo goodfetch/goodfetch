@@ -7,14 +7,18 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
+# benches/scenarios.rs is a module of the bench targets, not a target.
+autobenches = false
 
 [dependencies]
 goodfetch-cdp.workspace = true
 goodfetch-engine.workspace = true
+goodfetch-extractor.workspace = true
 goodfetch-protocol.workspace = true
 jiff.workspace = true
 regex.workspace = true
 regex-syntax.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["process", "sync", "time", "macros"] }
@@ -29,9 +33,20 @@ tokio = { workspace = true, features = ["net"] }
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true
+gungraun.workspace = true
+mimalloc.workspace = true
 proptest.workspace = true
 rstest.workspace = true
 tokio = { workspace = true, features = ["io-util", "rt"] }
+
+# ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
+[[bench]]
+name = "instructions"
+harness = false
+
+[[bench]]
+name = "heap"
+harness = false
 
 [lints]
 workspace = true

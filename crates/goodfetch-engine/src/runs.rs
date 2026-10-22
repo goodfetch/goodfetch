@@ -50,6 +50,7 @@ use goodfetch_protocol::checkpoint::{
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::page::BodyHandle;
+use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
     Checkpoint, Completeness, Lifecycle, PointInTime, Presence, ReachedLimit, RunAxes, RunId,
     RunIndexRow, RunKind, RunOwner, RunReport, RunStarted, StartInput, StartedAs, StopReason, Tags,
@@ -83,6 +84,7 @@ use crate::entropy::Entropy;
 use crate::events::Events;
 use crate::home::{Home, RunStateLocation, major_name};
 use crate::ledger::{Charging, Ledger, Refusal};
+use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::run_index;
 use crate::run_state::{self, RunState, RunStateError, RunStateOptions, RunStateTables};
 use crate::settings::{Resolved, RunSettings, Settings};
@@ -116,6 +118,10 @@ pub(crate) struct RunsSetup {
     pub(crate) tables: Vec<RunStateTables>,
     /// The gate in admission the composition passes in, if any.
     pub(crate) gates: Option<Arc<dyn Gates>>,
+    /// How the per-user Politeness file opens.
+    pub(crate) politeness: PolitenessOptions,
+    /// The tables the composition adds to the Politeness file.
+    pub(crate) politeness_tables: Vec<PolitenessTables>,
     /// The engine's clock.
     pub(crate) clock: Clock,
     /// The engine's entropy, from which Run IDs draw.
@@ -300,6 +306,12 @@ pub enum StartError {
         /// this engine.
         install: Option<String>,
     },
+    /// The engine drains (ADR 0049): it takes no Run.
+    #[error("the engine drains and takes no Run")]
+    Draining {
+        /// The Run ID asked for, when the start named one.
+        run_id: Option<RunId>,
+    },
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
@@ -399,6 +411,9 @@ pub enum RunError {
         /// What failed.
         message: String,
     },
+    /// The engine drains (ADR 0049): it resumes no Run.
+    #[error("the engine drains and resumes no Run")]
+    Draining(RunId),
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
@@ -524,6 +539,7 @@ enum Command {
     ),
     Machine(oneshot::Sender<Result<String, RunError>>),
     Reader(RunId, oneshot::Sender<RunReader>),
+    Drain(oneshot::Sender<Vec<watch::Receiver<Option<RunReport>>>>),
 }
 
 /// Whether an abort came forwarded from another engine, which counts on
@@ -566,7 +582,7 @@ pub struct Run {
     folder: PathBuf,
     state: RunState,
     clock: Clock,
-    gates: Option<Arc<dyn Gates>>,
+    admitting: Arc<Admitting>,
     shared: Arc<Shared>,
     owner: Arc<TaskOwner>,
     runs: Runs,
@@ -680,18 +696,24 @@ impl Run {
     }
 
     /// Its admission under `settings`: the gate in admission the
-    /// composition passes in, opened from what its run file journaled, and
-    /// its rate cap; `None` when the composition passes in no gate.
+    /// composition passes in, opened from what its run file journaled, its
+    /// rate cap, and, when the gate names a rule for its keys, the
+    /// Politeness `politeness.sharing` says it shares: the per-user
+    /// Politeness file for `shared` and `per_daemon`, a file of its own in
+    /// memory for `run`. `None` when the composition passes in no gate.
     ///
     /// # Errors
     ///
-    /// When its run file cannot be read.
+    /// When its run file cannot be read, or the Politeness file opened.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses only the answer.
-    pub async fn admission(&self, settings: &Resolved) -> Result<Option<Admission>, RunStateError> {
-        let Some(gates) = self.gates.clone() else {
+    pub async fn admission(
+        &self,
+        settings: &Resolved,
+    ) -> Result<Option<Admission>, AdmissionError> {
+        let Some(gates) = self.admitting.gates.clone() else {
             return Ok(None);
         };
         let opening = settings.clone();
@@ -700,7 +722,23 @@ impl Run {
             .state
             .read(move |connection| gates.open(&opening, connection, wall, now))
             .await?;
-        Ok(Some(Admission::new(gate, settings)))
+        let admission = Admission::new(gate, settings);
+        if !admission.shares(settings) {
+            return Ok(Some(admission));
+        }
+        let politeness = if settings.value(POLITENESS_SHARING.name).as_str() == Some("run") {
+            Politeness::in_memory(self.admitting.politeness.tables.clone(), &self.owner).await?
+        } else {
+            self.admitting.politeness.file().await?
+        };
+        let holder = Holder {
+            run_id: self.id.to_string(),
+            epoch: self.state.epoch(),
+            run_folder: self.folder.clone(),
+        };
+        Ok(Some(
+            admission.sharing(politeness, holder, self.clock, settings),
+        ))
     }
 
     /// Its owner, whose tasks and blocking work stop with the Run.
@@ -855,8 +893,21 @@ impl Runs {
             limits: Arc::new(limits),
             drivers: Arc::new(setup.drivers.clone()),
         };
+        let politeness = SharedPoliteness {
+            file: Arc::new(tokio::sync::OnceCell::new()),
+            path: setup.home.politeness_file(),
+            options: setup.politeness.clone(),
+            tables: setup.politeness_tables.clone(),
+            engine: format!("{:016x}", setup.entropy.next_u64()),
+            owner: Arc::new(owner.child()),
+        };
+        let admitting = Arc::new(Admitting {
+            gates: setup.gates.clone(),
+            politeness,
+        });
         let registry = Registry {
             setup,
+            admitting,
             owner: owner.child(),
             ending_owner: owner.child(),
             readers,
@@ -866,6 +917,7 @@ impl Runs {
             limits: Arc::clone(&runs.limits),
             drivers: Arc::clone(&runs.drivers),
             machine: None,
+            draining: false,
         };
         owner.spawn(registry.run(mailbox));
         runs
@@ -1187,6 +1239,24 @@ impl Runs {
         answered.await.unwrap_or(0)
     }
 
+    /// Drains the engine (ADR 0049): from now on it takes no Run, starting
+    /// or resuming, and each live Run stops at its next safe point with a
+    /// Checkpoint, `stopped` and resumable by its Run ID; answers once the
+    /// engine takes no Run, with the [`Draining`] Runs, whose ends
+    /// [`Draining::ended`] waits for.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after it was sent still drains: the Runs stop,
+    /// and only the answer is lost.
+    pub(crate) async fn drain(&self) -> Draining {
+        let (answer, answered) = oneshot::channel();
+        if self.commands.send(Command::Drain(answer)).await.is_err() {
+            return Draining(Vec::new());
+        }
+        Draining(answered.await.unwrap_or_default())
+    }
+
     /// Stops every live Run as aborted by its Client, as an Attached engine
     /// does when its Connection ends (ADR 0078), and waits for their ends.
     ///
@@ -1199,6 +1269,27 @@ impl Runs {
             return;
         }
         for report in answered.await.unwrap_or_default() {
+            let _ = wait_for(report).await;
+        }
+    }
+}
+
+/// The Runs a drain stops (ADR 0049).
+pub(crate) struct Draining(Vec<watch::Receiver<Option<RunReport>>>);
+
+impl Draining {
+    /// How many Runs it stops.
+    pub(crate) fn count(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Answers once every one ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the wait.
+    pub(crate) async fn ended(self) {
+        for report in self.0 {
             let _ = wait_for(report).await;
         }
     }
@@ -1246,6 +1337,8 @@ struct Live {
 
 struct Registry {
     setup: RunsSetup,
+    /// The gate in admission and the Politeness the engine's Runs share.
+    admitting: Arc<Admitting>,
     owner: TaskOwner,
     ending_owner: TaskOwner,
     /// Where readers of run state run their blocking reads.
@@ -1258,13 +1351,29 @@ struct Registry {
     drivers: Arc<BTreeMap<RunKind, Driver>>,
     /// The machine's identity, once read.
     machine: Option<String>,
+    /// Whether the engine drains, taking no Run (ADR 0049).
+    draining: bool,
 }
 
 impl Registry {
     async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
+        // No command is answered before the reclaim ends, so a Run starts
+        // on a ledger rid of dead runs' Slices, and an answered Run call
+        // says the engine's startup writes are done.
         self.reclaim().await;
         while let Some(command) = mailbox.recv().await {
             match command {
+                Command::Start(start, _, answer) if self.draining => {
+                    let _ = answer.send(Err(StartError::Draining {
+                        run_id: start.run_id,
+                    }));
+                }
+                Command::Resume(resume, _, answer) if self.draining => {
+                    let _ = answer.send(Err(RunError::Draining(resume.run_id)));
+                }
+                Command::Drain(answer) => {
+                    let _ = answer.send(self.drain().await);
+                }
                 Command::Start(start, connection, answer) => {
                     let started = self.start(*start, connection).await;
                     let _ = answer.send(started);
@@ -1296,6 +1405,11 @@ impl Registry {
                 Command::StopAll(answer) => {
                     let ids: Vec<RunId> = self.live.keys().cloned().collect();
                     let _ = answer.send(self.stop_by_client(ids).await);
+                }
+                // A draining engine leaves each Run to its drain, which a
+                // Client's leaving does not abort.
+                Command::StopConnection(_, answer) if self.draining => {
+                    let _ = answer.send(Vec::new());
                 }
                 Command::StopConnection(connection, answer) => {
                     let ids: Vec<RunId> = self
@@ -1345,6 +1459,20 @@ impl Registry {
         self.readers.wait().await;
         self.ending_owner.wait().await;
         self.owner.wait().await;
+    }
+
+    /// Takes no Run from now on, stops each live Run for the drain with a
+    /// Checkpoint, and answers the waits for their reports.
+    async fn drain(&mut self) -> Vec<watch::Receiver<Option<RunReport>>> {
+        self.draining = true;
+        let ids: Vec<RunId> = self.live.keys().cloned().collect();
+        let mut reports = Vec::new();
+        for run_id in ids {
+            if let Ok(report) = self.stop(&run_id, StopReason::Drain, None).await {
+                reports.push(report);
+            }
+        }
+        reports
     }
 
     /// Stops each of `ids` as aborted by its Client, and answers the waits
@@ -1732,7 +1860,7 @@ impl Registry {
             folder: folder.to_owned(),
             state,
             clock: self.setup.clock,
-            gates: self.setup.gates.clone(),
+            admitting: Arc::clone(&self.admitting),
             shared: Arc::new(Shared {
                 stop: watch::Sender::new(None),
                 charging: tokio::sync::Mutex::new(Some(self.limits.charging(
@@ -2211,6 +2339,7 @@ impl Registry {
                 StartError::Conflict { .. }
                 | StartError::LimitReached(_)
                 | StartError::LimitNotUnderstood(_)
+                | StartError::Draining { .. }
                 | StartError::Stopped => RunError::Stopped,
             })?;
         let mut after = 0;
@@ -2496,3 +2625,66 @@ mod reindex;
 mod slices;
 mod takeover;
 mod writer;
+
+/// Why a Run's admission did not open.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum AdmissionError {
+    /// Its run file could not be read.
+    #[error(transparent)]
+    RunState(#[from] RunStateError),
+    /// The Politeness it shares could not be opened.
+    #[error(transparent)]
+    Politeness(#[from] PolitenessError),
+}
+
+/// What a Run's admission opens from: the gate in admission the
+/// composition passes in, if any, and the Politeness the engine's Runs
+/// share.
+struct Admitting {
+    gates: Option<Arc<dyn Gates>>,
+    politeness: SharedPoliteness,
+}
+
+/// The per-user Politeness file the engine's Runs share, opened the first
+/// time one shares it (ADR 0053), as one engine of the user.
+struct SharedPoliteness {
+    file: Arc<tokio::sync::OnceCell<Politeness>>,
+    path: PathBuf,
+    options: PolitenessOptions,
+    tables: Vec<PolitenessTables>,
+    engine: String,
+    owner: Arc<TaskOwner>,
+}
+
+impl SharedPoliteness {
+    /// The file, opened now if it is not yet.
+    async fn file(&self) -> Result<Politeness, PolitenessError> {
+        self.file
+            .get_or_try_init(|| {
+                Politeness::open(
+                    self.path.clone(),
+                    &self.options,
+                    self.tables.clone(),
+                    holder_gone,
+                    self.engine.clone(),
+                    &self.owner,
+                )
+            })
+            .await
+            .cloned()
+    }
+}
+
+/// Whether the Run in `folder` that took Permits under `epoch` is gone
+/// (ADRs 0041 and 0053): its writer lock free, or held while its run file
+/// holds a later epoch. It blocks.
+fn holder_gone(folder: &Path, epoch: u64) -> bool {
+    match test_writer(folder) {
+        Ok(Writer::None) => true,
+        Ok(Writer::Live) => {
+            crate::run_state::epoch_of(&folder.join(RUN_FILE)).is_some_and(|found| found > epoch)
+        }
+        Err(_) => false,
+    }
+}

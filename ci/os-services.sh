@@ -29,6 +29,8 @@
 #     job's container gets the capability from ci/vm/start.sh; on a runner's
 #     own system, `tc` gets it as a file capability, so the tests, run as the
 #     runner's user, shape only their own network namespace's loopback.
+#   - Linux also: Xvfb installed, which Collie's `virtual_display` tests
+#     start for a headful browser on a display of their own.
 #   - Windows and Linux: 127.0.0.0/8 answers already; the check confirms it.
 #   - Linux also: systemd's user manager, which `daemon install`'s tests
 #     register services with for real in the Pre-merge suite (spec #213). A
@@ -68,6 +70,9 @@ setup_linux() {
   command -v gnome-keyring-daemon >/dev/null || missing+=(gnome-keyring)
   command -v secret-tool >/dev/null || missing+=(libsecret-tools)
   PATH="$PATH:/usr/sbin:/sbin" command -v tc >/dev/null || missing+=(iproute2)
+  # Xvfb, the virtual display Collie's `virtual_display` tests start for a
+  # headful browser.
+  command -v Xvfb >/dev/null || missing+=(xvfb)
   if [[ "$(id -u)" -ne 0 ]]; then
     PATH="$PATH:/usr/sbin:/sbin" command -v setcap >/dev/null || missing+=(libcap2-bin)
   fi

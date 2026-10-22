@@ -38,6 +38,7 @@ pub mod lease;
 pub mod ledger;
 pub mod lowest_minor;
 pub mod pinned_download;
+pub mod politeness;
 mod product;
 pub mod rpc;
 pub mod run;

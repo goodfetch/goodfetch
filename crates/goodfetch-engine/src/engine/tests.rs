@@ -164,6 +164,7 @@ fn dependencies(env: &TestEnv) -> Dependencies {
         blocking: BlockingPolicy::Inline,
         run_state_location: RunStateLocation::PerMajor,
         run_state: RunStateOptions::default(),
+        politeness: crate::politeness::PolitenessOptions::default(),
     }
 }
 

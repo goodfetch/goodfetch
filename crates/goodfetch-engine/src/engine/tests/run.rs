@@ -94,7 +94,7 @@ pub(super) async fn call(client: &mut Client, id: i64, method: &str, params: Val
     }
 }
 
-fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {
+pub(super) fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {
     env.home().join("1").join("runs").join(run_id)
 }
 
@@ -112,7 +112,7 @@ pub(super) fn index_row(env: &TestEnv, run_id: &str) -> Value {
     serde_json::from_str(&row).unwrap()
 }
 
-fn run_row(folder: &Path) -> Value {
+pub(super) fn run_row(folder: &Path) -> Value {
     let file = Connection::open(folder.join("run.sqlite")).unwrap();
     let row: String = file
         .query_row(

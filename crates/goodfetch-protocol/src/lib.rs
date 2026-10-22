@@ -31,6 +31,7 @@ pub mod journey;
 pub mod jsonrpc;
 pub mod key_value_store;
 pub mod page;
+pub mod politeness;
 pub mod refusals;
 pub mod releases;
 pub mod result_document;

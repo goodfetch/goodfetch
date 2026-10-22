@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Merges a pull request on the local gate (AGENTS.md, "Merging"). GitHub
-# Actions is off, so no required check can block a merge: this command is the
-# lock instead. It runs `just pre-merge all`, which starts with `just quick
-# all`'s lint and Quick suite, in a clean checkout of the pull request's
-# exact head, and merges only when it passes.
+# Actions runs only the Release suite, so no required check can block a
+# merge: this command is the lock instead. In a clean checkout of the pull
+# request's exact head it runs `just pre-merge all`, which starts with `just
+# quick all`'s lint and Quick suite, or `just pre-merge quick` when `xtask
+# affected` finds that no test, benchmark, model, container or Evaluation
+# reads the change (`gate=quick`, ADR 0135), and merges only when it passes.
 set -euo pipefail
 
 number=${1:?usage: ci/merge-pr.sh <pull request number>}
@@ -82,20 +84,34 @@ if [[ -n "$(git -C "$worktree" status --porcelain)" || $(git -C "$worktree" rev-
   exit 1
 fi
 
-echo "Running the local gate on #$number at $head in $worktree"
+# The head's own `xtask affected` decides, so a head from before `gate=`
+# existed prints no such line and gets the full gate.
+gate=$(cd "$worktree" && cargo run --quiet --locked -p xtask -- affected --base "origin/$base" --head "$head" |
+  sed -n 's/^gate=//p')
+if [[ $gate == quick ]]; then
+  ran="\`just pre-merge quick\` (no test, benchmark, model, container or Evaluation reads the change)"
+else
+  gate=all
+  ran="\`just pre-merge all\`, which starts with \`just quick all\`'s lint and Quick suite,"
+fi
+echo "Running the local gate ($gate) on #$number at $head in $worktree"
 (
   cd "$worktree"
   just fetch
-  # What the pull request's "Performance change" section and its owner's
-  # acceptance comment accept, read at this head for `just perf` (ADR 0134).
-  GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet -p xtask -- \
-    perf pull-request --number "$number" --save target/perf-pull-request.json
-  GOODFETCH_PERF_PULL_REQUEST="$worktree/target/perf-pull-request.json" just pre-merge all
+  if [[ $gate == quick ]]; then
+    just pre-merge quick
+  else
+    # What the pull request's "Performance change" section and its owner's
+    # acceptance comment accept, read at this head for `just perf` (ADR 0134).
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet -p xtask -- \
+      perf pull-request --number "$number" --save target/perf-pull-request.json
+    GOODFETCH_PERF_PULL_REQUEST="$worktree/target/perf-pull-request.json" just pre-merge all
+  fi
 )
 
 gh pr merge "$number" --merge --match-head-commit "$head" \
   --subject "$title (#$number)" \
-  --body "Merged on the local gate: \`just pre-merge all\`, which starts with \`just quick all\`'s lint and Quick suite, passed at $head.
+  --body "Merged on the local gate: $ran passed at $head.
 
 Signed-off-by: $(git config user.name) <$(git config user.email)>"
 echo "Merged #$number at $head"
@@ -106,10 +122,20 @@ echo "Merged #$number at $head"
 # only then; otherwise the next stress run lists its base from a checkout of
 # it, as it does without them. The head's test binaries are built, so listing
 # them takes seconds.
+base_tip=$(git rev-parse "origin/$base")
 git fetch --quiet origin "$base" || true
 merged=$(git rev-parse "origin/$base")
 listings="$worktree/target/stress-listings"
-if [[ $(git rev-parse "$merged^{tree}") == $(git rev-parse "$head^{tree}") ]] &&
+if [[ $gate == quick ]]; then
+  # No test reads a quick gate's change, so the base's listings, when saved,
+  # are the merge's too, and no test binary was built to list.
+  if [[ -d "$listings/$base_tip" ]] && mv "$listings/$base_tip" "$listings/$merged"; then
+    echo "Kept the stress listings of $base_tip for $merged"
+  else
+    rm -rf "$listings"
+    echo "warning: no stress listings of $merged were saved; the next stress run lists its base from a checkout" >&2
+  fi
+elif [[ $(git rev-parse "$merged^{tree}") == $(git rev-parse "$head^{tree}") ]] &&
   (cd "$worktree" && rm -rf "$listings" &&
     cargo run --quiet --locked -p xtask -- stress listings --cargo-profile test --out "$listings" &&
     mv "$listings/$head" "$listings/$merged"); then

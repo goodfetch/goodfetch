@@ -237,6 +237,12 @@ number = 3
 kind = "error"
 prefix = "not_a_daemon"
 
+# Area 3's foreground Daemon (#228): its drain's Error code.
+[[area]]
+number = 3
+kind = "error"
+prefix = "daemon_draining"
+
 [[area]]
 number = 3
 kind = "setting"
@@ -246,6 +252,11 @@ prefix = "daemon."
 number = 3
 kind = "format"
 prefix = "installed-executables"
+
+[[area]]
+number = 3
+kind = "format"
+prefix = "politeness-file"
 
 [[area]]
 number = 3
@@ -350,6 +361,11 @@ number = 3
 kind = "setting"
 prefix = "admission."
 
+[[area]]
+number = 3
+kind = "setting"
+prefix = "politeness."
+
 # The keys #225 declares for the areas that build what they shape, each with
 # its area first (ADR 0083): Security and egress (4), Site access (5),
 # Collection (6).
@@ -393,6 +409,11 @@ number = 5
 kind = "setting"
 prefix = "paid_fetch."
 
+[[area]]
+number = 5
+kind = "setting"
+prefix = "browser."
+
 # Area 5, Site access (specs #576 to #579): a Run's pages, their navigations
 # and the Error codes of their browsers (#695, #698).
 [[area]]
@@ -416,6 +437,12 @@ number = 5
 kind = "operation"
 prefix = "page.go_"
 
+# Area 6, Collection (spec #580): the page formats (#783).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "page.formats"
+
 [[area]]
 number = 5
 kind = "error"
@@ -430,6 +457,17 @@ prefix = "page_crashed"
 number = 5
 kind = "error"
 prefix = "browser_launch_failed"
+
+# The guard's locator actions and their refusal (#700).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "locator."
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "target_not_unique"
 
 [[area]]
 number = 5
@@ -542,6 +580,11 @@ prefix = "events."
 number = 11
 kind = "command"
 prefix = "page."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "locator."
 
 # Area 8, Stealth and Challenge solving (specs #599 and #600): every Block
 # cause, the closed list both Products share (#849).

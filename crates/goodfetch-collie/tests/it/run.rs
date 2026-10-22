@@ -291,12 +291,12 @@ fn a_collie_run_leaves_the_politeness_files_domain_limits_untouched() {
 
     assert_eq!(
         (
-            &report["result"]["weakened_by"],
+            &report["result"]["weakened"],
             exited,
             std::fs::read(&file).unwrap() == before,
         ),
         (
-            &json!([{ "key": "politeness.sharing", "value": "per_daemon", "layer": "run" }]),
+            &json!([{ "key": "politeness.sharing", "value": "per_daemon", "layer": "run", "origin": "settings" }]),
             true,
             true,
         )

@@ -410,10 +410,7 @@ impl StateMachineTest for Subject {
                                 connection,
                                 &id,
                                 epoch,
-                                Unsuccessful::Retried(Failure {
-                                    code: "handler_lost".to_owned(),
-                                    message: "no answer".to_owned(),
-                                }),
+                                Unsuccessful::Retried(Failure::new("handler_lost", "no answer")),
                                 &ended_at(),
                             )
                         }))

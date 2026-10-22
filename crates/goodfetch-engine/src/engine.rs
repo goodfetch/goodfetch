@@ -34,7 +34,7 @@ use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
-use crate::runs::{Driver, Runs, RunsSetup};
+use crate::runs::{Driver, ReportPart, Runs, RunsSetup};
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use crate::transition::{
@@ -50,6 +50,7 @@ pub struct Engine {
     tables: Vec<RunStateTables>,
     politeness_tables: Vec<PolitenessTables>,
     drivers: BTreeMap<RunKind, Driver>,
+    report_parts: Vec<Arc<dyn ReportPart>>,
     gates: Option<Arc<dyn Gates>>,
     events: EventsOptions,
     console: Option<&'static ConsoleBuild>,
@@ -90,6 +91,7 @@ impl Engine {
             tables: composition.run_state_tables(),
             politeness_tables: composition.politeness_tables(),
             drivers: composition.drivers(),
+            report_parts: composition.report_parts(),
             gates: composition.admission_gates()?,
             events: EventsOptions::default(),
             console: composition.console(),
@@ -175,11 +177,16 @@ impl Engine {
     ) -> DaemonEnd {
         let owner = TaskOwner::root(dependencies.blocking);
         let clock = dependencies.clock;
+        let console_url = match (&self.console, &options.console) {
+            (Some(_), DaemonConsole::Listening { url, .. }) => Some(url.clone()),
+            _ => None,
+        };
         let (runs, events) = self.start_runs(
             dependencies,
             &owner,
             Some(RunOwner::Daemon(options.endpoint.clone())),
             options.install.take(),
+            console_url,
         );
         let console = match (
             self.console,
@@ -231,6 +238,7 @@ impl Engine {
         owner: &TaskOwner,
         reached_at: Option<RunOwner>,
         install: Option<InstallDatabase>,
+        console: Option<String>,
     ) -> (Runs, Events) {
         let instance = EngineInstance::new(format!("{:016x}", dependencies.entropy.next_u64()));
         let events = Events::start(self.events, instance, owner);
@@ -264,6 +272,8 @@ impl Engine {
                 install: install.map(Arc::new),
                 tables: self.tables.clone(),
                 drivers: self.drivers.clone(),
+                report_parts: self.report_parts.clone(),
+                console,
                 gates: self.gates.clone(),
                 politeness: dependencies.politeness,
                 politeness_tables: self.politeness_tables.clone(),
@@ -341,6 +351,7 @@ impl Engine {
             private
                 .as_ref()
                 .map(|(_, endpoint, _)| RunOwner::Attached(endpoint.clone())),
+            None,
             None,
         );
         let connection_owner = owner.child();

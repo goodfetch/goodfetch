@@ -60,13 +60,13 @@ use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
-    Checkpoint, Completeness, Lifecycle, NotUnderstoodLimit, PointInTime, Presence,
-    ProgressMessage, RUN_IN_USE, RUN_PROGRESS, RUN_STATE_DURABILITY, ReachedLimit, RunAxes, RunId,
-    RunIndexRow, RunKind, RunOwner, RunProgress, RunReport, RunStarted, StartInput, StartedAs,
-    StopReason, Tags, Verdict,
+    AppliedLimit, AxisReason, Checkpoint, EndingError, Lifecycle, NotUnderstoodLimit, NothingDone,
+    PointInTime, Presence, ProgressMessage, RUN_IN_USE, RUN_PROGRESS, RUN_STATE_DURABILITY,
+    ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunOwner, RunProgress, RunReport,
+    RunStarted, RunUsage, RunWarning, StartInput, StartedAs, StopReason, Tags,
 };
 use goodfetch_protocol::secrets::{RUN_STATE_KEY_REFERENCE, TIMEOUT_SECRET};
-use goodfetch_protocol::settings::SettingLimit;
+use goodfetch_protocol::settings::WeakenedSetting;
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
 use serde_json::Value;
@@ -76,6 +76,7 @@ use tokio_util::sync::CancellationToken;
 pub use self::import::fuzz_run_state_import;
 pub use self::reader::RunReader;
 pub use self::reindex::{Reindexed, reindex};
+pub use self::report::ReportPart;
 pub use self::writer::{Writer, test_writer};
 
 use self::folder::{
@@ -84,6 +85,7 @@ use self::folder::{
 };
 use self::lifecycle::{InvalidRunTransition, Next, RunEvent};
 use self::reader::Following;
+use self::report::EndFacts;
 pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
@@ -177,6 +179,11 @@ pub(crate) struct RunsSetup {
     pub(crate) drivers: BTreeMap<RunKind, Driver>,
     /// The runtime's metrics, which count the live Runs and their ends.
     pub(crate) metrics: Metrics,
+    /// What the composition's areas add to each Run's report (ADR 0102).
+    pub(crate) report_parts: Vec<Arc<dyn ReportPart>>,
+    /// The Console's address, when this engine serves one (ADR 0031): each
+    /// Run's report names its page there.
+    pub(crate) console: Option<String>,
 }
 
 /// What drives a kind of Run, such as Foxhound's crawl's delivery, given
@@ -234,7 +241,7 @@ pub struct Start {
     pub policy_version: Option<String>,
     /// The settings it runs with that weaken a guarantee or switch off a
     /// costly control, which its Run report is marked with (ADR 0028).
-    pub weakened_by: Vec<SettingLimit>,
+    pub weakened: Vec<WeakenedSetting>,
     /// What binds it to a machine or a Browser host (ADR 0056), which a
     /// resume elsewhere checks.
     pub binding: Option<RunBinding>,
@@ -549,8 +556,14 @@ enum Waiting {
 pub enum Ending {
     /// Its work is done: `finished`.
     Finished,
-    /// An error in the engine ended it: `failed`.
-    Failed,
+    /// Its work is done, but part of it could not be, such as requests a
+    /// site held unsent further away than the Run waits (ADR 0118):
+    /// `finished` and `incomplete` (ADR 0029), for the reason the driver
+    /// gives.
+    FinishedIncomplete(AxisReason),
+    /// An error in the engine ended it: `failed`, the calls that end it
+    /// raising `error` (ADR 0102).
+    Failed(EndingError),
     /// It reached the safe point a stop asked for: `stopped`, for the
     /// reason [`Run::stopping`] gave.
     Stopped(StopReason),
@@ -560,7 +573,8 @@ pub enum Ending {
 #[derive(Clone, Debug)]
 enum End {
     Finished,
-    Failed,
+    FinishedIncomplete(AxisReason),
+    Failed(EndingError),
     Stopped(StopReason),
 }
 
@@ -568,8 +582,8 @@ impl End {
     /// The event of the Run's table it is.
     fn event(&self) -> RunEvent {
         match self {
-            Self::Finished => RunEvent::Finish,
-            Self::Failed => RunEvent::Fail,
+            Self::Finished | Self::FinishedIncomplete(_) => RunEvent::Finish,
+            Self::Failed(_) => RunEvent::Fail,
             Self::Stopped(reason) => match reason {
                 StopReason::Abort { .. } => RunEvent::Abort,
                 StopReason::Pause => RunEvent::Pause,
@@ -578,6 +592,8 @@ impl End {
                 StopReason::Limit(_) => RunEvent::Limit,
                 StopReason::LimitNotUnderstood(_) => RunEvent::LimitNotUnderstood,
                 StopReason::Drain => RunEvent::Drain,
+                StopReason::EngineLost => RunEvent::EngineLost,
+                StopReason::Resources { .. } => RunEvent::ResourcesExhausted,
             },
         }
     }
@@ -638,6 +654,7 @@ enum Command {
         oneshot::Sender<Result<Resumed, RunError>>,
     ),
     Machine(oneshot::Sender<Result<String, RunError>>),
+    SafeStop(RunId, StoppedBy, oneshot::Sender<Result<Waiting, RunError>>),
     Reader(RunId, oneshot::Sender<RunReader>),
     Drain(oneshot::Sender<Vec<watch::Receiver<Option<RunReport>>>>),
 }
@@ -857,6 +874,71 @@ impl Run {
         }
     }
 
+    /// Asks the Run to stop at its next safe point for `reason`, such as
+    /// the resource governor's `resources` (ADRs 0040 and 0122) or its
+    /// engine's loss; the first reason asked stays.
+    pub fn stop(&self, reason: StopReason) {
+        self.stop_at_safe_point(reason);
+    }
+
+    /// Hands `warning` over to the Run's report (ADR 0102): kept in its run
+    /// state, in the order handed over, so a resume keeps it. A code of the
+    /// warning table, or any other, is kept as it is.
+    ///
+    /// # Errors
+    ///
+    /// When its run state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the write was queued still writes it.
+    pub async fn warn(&self, warning: RunWarning) -> Result<(), RunStateError> {
+        self.state
+            .write(move |connection| report::warn(connection, &warning))
+            .await
+    }
+
+    /// Records why the Run did nothing (ADR 0102), as its driver found it:
+    /// no seed reached a handler, or a resume found nothing left. Its
+    /// report says so.
+    ///
+    /// # Errors
+    ///
+    /// When its run state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the write was queued still writes it.
+    pub async fn nothing_done(&self, nothing_done: NothingDone) -> Result<(), RunStateError> {
+        self.state
+            .write(move |connection| report::record_nothing_done(connection, &nothing_done))
+            .await
+    }
+
+    /// What the Run used so far, as its run state counted it, with each
+    /// Limit that applies to it and what is left of it (ADR 0101).
+    ///
+    /// # Errors
+    ///
+    /// `Refused` when the Usage ledger cannot be read, `State` when its run
+    /// state cannot.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn usage(&self) -> Result<RunUsage, ChargeError> {
+        let charging = self.shared.charging.lock().await.clone();
+        let now = self.runs.limits.now();
+        let limits = match charging {
+            Some(charging) => self.owner.blocking(move || charging.applied(now)).await?,
+            None => Vec::new(),
+        };
+        Ok(self
+            .state
+            .read(move |connection| report::usage(connection, limits))
+            .await?)
+    }
+
     /// Asks the Run to stop at its next safe point for `reason`; the first
     /// reason asked stays.
     fn stop_at_safe_point(&self, reason: StopReason) {
@@ -892,9 +974,10 @@ impl Run {
         };
         let opening = settings.clone();
         let (wall, now) = (self.clock.wall(), self.clock.now());
+        let entropy = self.fork_entropy().await;
         let gate = self
             .state
-            .read(move |connection| gates.open(&opening, connection, wall, now))
+            .read(move |connection| gates.open(&opening, connection, wall, now, entropy))
             .await?;
         let admission = Admission::new(gate, settings);
         if !admission.shares(settings) {
@@ -944,7 +1027,8 @@ impl Run {
     pub async fn end(&self, ending: Ending) {
         let end = match ending {
             Ending::Finished => End::Finished,
-            Ending::Failed => End::Failed,
+            Ending::FinishedIncomplete(reason) => End::FinishedIncomplete(reason),
+            Ending::Failed(error) => End::Failed(error),
             Ending::Stopped(reason) => End::Stopped(reason),
         };
         let _ = self
@@ -1057,7 +1141,7 @@ impl Run {
         &self,
         usage_kind: &str,
         currency: &str,
-    ) -> Result<Option<goodfetch_protocol::usage::LimitSetter>, ChargeError> {
+    ) -> Result<Option<goodfetch_protocol::run::LimitSetter>, ChargeError> {
         let (kind, currency) = (usage_kind.to_owned(), currency.to_owned());
         self.charged(move |charging, _| {
             charging
@@ -1109,11 +1193,20 @@ impl Run {
         *held = Some(charging);
         match changed {
             Ok((value, journaled)) => {
-                if !journaled.used.is_empty() || uncapped {
+                if !journaled.used.is_empty() || journaled.counted.is_some() || uncapped {
                     let epoch = self.state.epoch();
                     self.state
                         .write(move |connection| {
-                            slices::journal(connection, epoch, &journaled.used, uncapped)
+                            slices::journal(connection, epoch, &journaled.used, uncapped)?;
+                            match &journaled.counted {
+                                Some(counted) => report::count(
+                                    connection,
+                                    &counted.usage_kind,
+                                    counted.currency.as_deref(),
+                                    counted.delta,
+                                ),
+                                None => Ok(()),
+                            }
                         })
                         .await?;
                 }
@@ -1217,6 +1310,7 @@ impl Runs {
             drivers: Arc::clone(&runs.drivers),
             machine: None,
             draining: false,
+            found_ended: std::collections::BTreeSet::new(),
         };
         owner.spawn(registry.run(mailbox));
         runs
@@ -1247,6 +1341,11 @@ impl Runs {
     /// engine, whose one Connection is its Client's.
     pub(crate) fn connection(&self) -> Option<ConnectionId> {
         self.connection
+    }
+
+    /// The engine's clock, which a call's wait on a Run reads.
+    pub fn clock(&self) -> Clock {
+        self.limits.clock
     }
 
     /// The Goodfetch home the engine runs in.
@@ -1473,6 +1572,58 @@ impl Runs {
             .await
             .map_err(|_| RunError::Stopped)?;
         wait_for(answered.await.map_err(|_| RunError::Stopped)??).await
+    }
+
+    /// Stops the Run `run_id` at its next safe point with a Checkpoint,
+    /// `stopped` and `incomplete` as an abort by `by`, resumable by its Run
+    /// ID, and answers its Run report once it ended (ADR 0102); an ended
+    /// Run's report is answered as it is, and a Run no engine runs is
+    /// stopped as [`Runs::abort`] stops it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Runs::abort`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the stop was sent still stops the Run.
+    pub async fn stop_at_safe_point(
+        &self,
+        run_id: RunId,
+        by: StoppedBy,
+    ) -> Result<RunReport, RunError> {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::SafeStop(run_id, by, answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        match answered.await.map_err(|_| RunError::Stopped)?? {
+            Waiting::Report(report) => wait_for(report).await,
+            Waiting::TakeOver(taken) => taken.await.map_err(|_| RunError::Stopped)?,
+        }
+    }
+
+    /// What the Run `run_id` used, as [`Run::usage`] gives it; an ended
+    /// Run's report's.
+    ///
+    /// # Errors
+    ///
+    /// `NotFound` when no Run has this Run ID, `Unavailable` when its state
+    /// or the Usage ledger cannot be read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn usage(&self, run_id: RunId) -> Result<RunUsage, RunError> {
+        match self.live(run_id.clone()).await {
+            Ok(run) => run.usage().await.map_err(|error| RunError::Unavailable {
+                folder: run.folder.clone(),
+                run_id,
+                error: error.to_string(),
+            }),
+            Err(RunError::NotFound(_)) => self.ended(run_id).await.map(|report| report.usage),
+            Err(error) => Err(error),
+        }
     }
 
     /// Resumes an interrupted Run from its run file, or from the
@@ -1716,7 +1867,7 @@ struct Live {
     ended_by: EndedBy,
     started_at: PointInTime,
     policy_version: Option<String>,
-    weakened_by: Vec<SettingLimit>,
+    weakened: Vec<WeakenedSetting>,
     report: watch::Sender<Option<RunReport>>,
     writer: Arc<TaskOwner>,
     lock: Arc<File>,
@@ -1749,6 +1900,9 @@ struct Registry {
     machine: Option<String>,
     /// Whether the engine drains, taking no Run (ADR 0049).
     draining: bool,
+    /// The Runs a start found finished: a later call that ends one did
+    /// nothing, which its report says (ADR 0102).
+    found_ended: std::collections::BTreeSet<RunId>,
 }
 
 impl Registry {
@@ -1839,6 +1993,9 @@ impl Registry {
                 }
                 Command::Machine(answer) => {
                     let _ = answer.send(self.machine().await);
+                }
+                Command::SafeStop(run_id, by, answer) => {
+                    let _ = answer.send(self.safe_stop(&run_id, by).await);
                 }
                 Command::Reader(run_id, answer) => {
                     let _ = answer.send(self.reader(&run_id));
@@ -2062,6 +2219,9 @@ impl Registry {
                     },
                 });
             }
+            if found.lifecycle == Lifecycle::Finished {
+                self.found_ended.insert(run_id.clone());
+            }
             return Ok(Started::Existing(RunStarted {
                 run_id,
                 started_as: StartedAs::Existing,
@@ -2181,7 +2341,7 @@ impl Registry {
             inputs: inputs.clone(),
             started_at: started_at.clone(),
             policy_version: start.policy_version.clone(),
-            weakened_by: start.weakened_by.clone(),
+            weakened: start.weakened.clone(),
             binding: start.binding.as_ref().map(|binding| {
                 serde_json::to_string(binding).expect("invariant: a binding encodes")
             }),
@@ -2216,7 +2376,7 @@ impl Registry {
             ended_by: start.ended_by,
             started_at,
             policy_version: start.policy_version,
-            weakened_by: start.weakened_by,
+            weakened: start.weakened,
             report: watch::Sender::new(None),
             writer,
             lock: Arc::new(lock),
@@ -2324,7 +2484,7 @@ impl Registry {
         letting: Letting,
     ) -> Result<watch::Receiver<Option<RunReport>>, RunError> {
         let Some(live) = self.live.get(run_id) else {
-            return self.report_of(run_id).await;
+            return self.ended_report(run_id).await;
         };
         match (live.ended_by, letting) {
             (EndedBy::Finish, Letting::Finish) => self.end_or_report(run_id, End::Finished).await,
@@ -2472,7 +2632,7 @@ impl Registry {
         };
         let stopping = match &end {
             End::Stopped(cause) => Some(cause.clone()),
-            End::Finished | End::Failed => None,
+            End::Finished | End::FinishedIncomplete(_) | End::Failed(_) => None,
         };
         if let Some(cause) = &stopping {
             announce_stop(&events, run_id, cause).await;
@@ -2493,18 +2653,25 @@ impl Registry {
             nonce,
             events: events.clone(),
         });
+        let console_url = self
+            .setup
+            .console
+            .as_ref()
+            .map(|console| format!("{}/runs/{run_id}", console.trim_end_matches('/')));
         let closing = Closing {
             run,
             writer: Arc::clone(&live.writer),
             lock: Arc::clone(&live.lock),
             started_at: live.started_at.clone(),
             policy_version: live.policy_version.clone(),
-            weakened_by: live.weakened_by.clone(),
+            weakened: live.weakened.clone(),
             clock,
             end,
             lifecycle: next,
             checkpoint_to,
             last_checkpoint: live.checkpoint.clone(),
+            parts: self.setup.report_parts.clone(),
+            console_url,
         };
         let index = self.setup.home.run_index(&self.setup.version);
         let version = self.setup.version.clone();
@@ -2559,6 +2726,41 @@ impl Registry {
         }
     }
 
+    /// The report of an ended Run as [`Registry::report_of`] gives it, saying
+    /// the call did nothing when a start found the Run finished (ADR 0102).
+    async fn ended_report(
+        &self,
+        run_id: &RunId,
+    ) -> Result<watch::Receiver<Option<RunReport>>, RunError> {
+        let answered = self.report_of(run_id).await?;
+        if !self.found_ended.contains(run_id) {
+            return Ok(answered);
+        }
+        let mut report = answered.borrow().clone();
+        if let Some(report) = &mut report {
+            report.nothing_done = Some(NothingDone::AlreadyEnded {
+                ended_at: report.ended_at.clone(),
+            });
+        }
+        Ok(watch::Sender::new(report).subscribe())
+    }
+
+    /// Asks a live Run of this engine's to stop at its next safe point as an
+    /// abort by `by`, answers the report of an ended one, and stops one no
+    /// engine of its own runs as an abort does.
+    async fn safe_stop(&mut self, run_id: &RunId, by: StoppedBy) -> Result<Waiting, RunError> {
+        if let Some(live) = self.live.get(run_id) {
+            if let Some(run) = &live.run {
+                run.stop_at_safe_point(StopReason::Abort { by });
+            }
+            return Ok(Waiting::Report(live.report.subscribe()));
+        }
+        if self.ended.contains_key(run_id) || self.found_ended.contains(run_id) {
+            return self.ended_report(run_id).await.map(Waiting::Report);
+        }
+        self.abort(run_id, by, Forwarded::No).await
+    }
+
     /// Stops a live Run of this engine's, answers the report of one it
     /// ended, or, unless the abort came forwarded, takes the writer role of
     /// one no engine of its own runs, in a task of its own, since a held
@@ -2594,6 +2796,7 @@ impl Registry {
             events: self.setup.events.clone(),
             forwarder: Arc::clone(&self.setup.forwarder),
             owner: Arc::new(self.ending_owner.child()),
+            parts: self.setup.report_parts.clone(),
         };
         let (answer, answered) = oneshot::channel();
         self.ending_owner.spawn(async move {
@@ -2764,7 +2967,7 @@ impl Registry {
             },
             started_at: recorded.started_at,
             policy_version: recorded.policy_version,
-            weakened_by: recorded.weakened_by,
+            weakened: recorded.weakened,
             report: watch::Sender::new(None),
             writer,
             lock: Arc::new(lock),
@@ -3027,6 +3230,20 @@ async fn periodic_checkpoints(run: Run, interval: Duration) {
         }
         if let Err(error) = run.runs.checkpoint(run.id.clone(), None).await {
             tracing::warn!(%error, run_id = %run.id, "a periodic Checkpoint was not written");
+            if let RunError::WriteFailed {
+                folder, message, ..
+            } = &error
+            {
+                let warning = RunWarning {
+                    code: goodfetch_protocol::run::warning::FILE_WRITE_FAILED.to_owned(),
+                    message: format!("A periodic Checkpoint could not be written ({message})."),
+                    sessions: Vec::new(),
+                    folder: Some(folder.display().to_string()),
+                };
+                if let Err(error) = run.warn(warning).await {
+                    tracing::warn!(%error, run_id = %run.id, "the warning of a failed periodic Checkpoint was not kept");
+                }
+            }
         }
     }
 }
@@ -3105,6 +3322,28 @@ impl Taking {
     }
 }
 
+/// Gives back what is left of the Slices `run` holds, under `writer`'s
+/// blocking work, and answers the Limits that then apply to it, with what
+/// is left of each (ADR 0101).
+async fn given_back(run: &Run, writer: &TaskOwner) -> Vec<AppliedLimit> {
+    let Some(mut charging) = run.shared.charging.lock().await.take() else {
+        return Vec::new();
+    };
+    let now = run.runs.limits.now();
+    writer
+        .blocking(move || {
+            if let Err(error) = charging.give_back() {
+                tracing::warn!(%error, "the Run's Slices were not given back; the next engine to open the Usage ledger reclaims them");
+            }
+            charging.applied(now)
+        })
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "the Limits that apply to the Run could not be read; its report goes without them");
+            Vec::new()
+        })
+}
+
 /// Where a stopping Run's Checkpoint goes, and what writes it.
 struct CheckpointTo {
     destination: PathBuf,
@@ -3120,7 +3359,7 @@ struct Closing {
     lock: Arc<File>,
     started_at: PointInTime,
     policy_version: Option<String>,
-    weakened_by: Vec<SettingLimit>,
+    weakened: Vec<WeakenedSetting>,
     clock: Clock,
     end: End,
     /// The Lifecycle the Run's table gave its end.
@@ -3129,10 +3368,15 @@ struct Closing {
     checkpoint_to: Option<CheckpointTo>,
     /// The last Checkpoint written before.
     last_checkpoint: Option<Checkpoint>,
+    /// What the composition's areas add to its report.
+    parts: Vec<Arc<dyn ReportPart>>,
+    /// Its page in the Console, when the engine serves one.
+    console_url: Option<String>,
 }
 
 impl Closing {
-    /// Stops the Run's tasks, writes its end into run state, a stop's
+    /// Stops the Run's tasks, gives back its Slices, writes its end into
+    /// run state with its report, assembled there (ADR 0102), a stop's
     /// Checkpoint after it, closes its writer and frees its lock.
     async fn end(self) -> RunReport {
         let Self {
@@ -3141,51 +3385,62 @@ impl Closing {
             lock,
             started_at,
             policy_version,
-            weakened_by,
+            weakened,
             clock,
             end,
             lifecycle,
             checkpoint_to,
             last_checkpoint,
+            parts,
+            console_url,
         } = self;
         run.owner.stop().await;
-        let (stop_reason, completeness) = match end {
-            End::Finished => (None, Completeness::Complete),
-            End::Failed => (None, Completeness::Incomplete),
-            End::Stopped(reason) => (Some(reason), Completeness::Incomplete),
+        let (stop_reason, error, incomplete) = match end {
+            End::Finished => (None, None, None),
+            End::FinishedIncomplete(reason) => (None, None, Some(reason)),
+            End::Failed(error) => (None, Some(error), None),
+            End::Stopped(reason) => (Some(reason), None, None),
         };
-        let charging = run.shared.charging.lock().await.take();
-        let mut report = RunReport {
+        let limits = given_back(&run, &writer).await;
+        let facts = EndFacts {
             run_id: run.id.clone(),
             lifecycle,
             stop_reason,
-            verdict: Verdict::Verified,
-            completeness,
             started_at,
             ended_at: point_in_time(&clock),
             policy_version,
-            weakened_by,
-            checkpoint: last_checkpoint,
-            uncapped: charging.as_ref().is_some_and(Charging::uncapped),
+            weakened,
+            settings: run
+                .settings()
+                .map(|settings| settings.resolved().explain(&[], Vec::new()).settings),
+            checkpoint: None,
+            console_url,
+            limits,
+            error,
+            incomplete,
         };
-        let written = report.clone();
         let state = run.state.clone();
         let (run_id, folder) = (run.id.clone(), run.folder.clone());
         drop(run);
-        if let Some(mut charging) = charging {
-            let given = writer.blocking(move || charging.give_back()).await;
-            if let Err(error) = given {
-                tracing::warn!(%error, "the Run's Slices were not given back; the next engine to open the Usage ledger reclaims them");
-            }
-        }
+        let bare = facts.bare();
         let ended = state
-            .write(move |connection| write_end(connection, &written))
+            .write(move |connection| {
+                let report = report::assemble(connection, &facts, &parts)?;
+                write_end(connection, &report)?;
+                Ok(report)
+            })
             .await;
-        if let Err(error) = &ended {
-            tracing::warn!(%error, "the Run's end was not written to its run state");
-        }
+        let written = ended.is_ok();
+        let mut report = match ended {
+            Ok(report) => report,
+            Err(error) => {
+                tracing::warn!(%error, "the Run's end was not written to its run state");
+                bare
+            }
+        };
+        report.checkpoint = last_checkpoint;
         if let Some(to) = checkpoint_to
-            && ended.is_ok()
+            && written
         {
             let taking = Taking {
                 run_id,
@@ -3217,6 +3472,7 @@ pub mod lifecycle;
 pub mod outcome;
 mod reader;
 mod reindex;
+mod report;
 mod slices;
 mod takeover;
 mod writer;

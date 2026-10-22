@@ -16,8 +16,9 @@ use std::collections::BTreeMap;
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
+use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{LimitScope, RunId, RunKind, Tags};
-use goodfetch_protocol::usage::{Limit, LimitSetter};
+use goodfetch_protocol::usage::Limit;
 use goodfetch_test_support::TestEnv;
 use jiff::Timestamp;
 use rstest::rstest;
@@ -70,7 +71,7 @@ async fn started(params: &Value, context: &CallContext) -> Result<crate::runs::R
             ended_by: EndedBy::Finish,
             initialize: None,
             policy_version: None,
-            weakened_by: Vec::new(),
+            weakened: Vec::new(),
             binding: None,
             clean_up_digest: None,
             checkpoint_interval: None,
@@ -533,7 +534,10 @@ fn a_run_that_can_spend_money_no_limit_caps_is_marked_uncapped(
 
     let replies = replies(&env, Product::Collie, &calls);
 
-    assert_eq!(replies.last().unwrap()["result"]["uncapped"], uncapped);
+    assert_eq!(
+        replies.last().unwrap()["result"]["usage"]["uncapped"],
+        uncapped
+    );
 }
 
 /// Covers: story:3-74

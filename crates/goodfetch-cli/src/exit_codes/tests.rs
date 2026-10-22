@@ -10,7 +10,9 @@ use std::collections::BTreeMap;
 use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::cli::exit_code_table;
 use goodfetch_protocol::entries::MODULES;
-use goodfetch_protocol::run::{Completeness, Lifecycle, PointInTime, RunId, RunReport, Verdict};
+use goodfetch_protocol::run::{
+    Completeness, Lifecycle, PointInTime, RunId, RunReport, RunUsage, Verdict,
+};
 use rstest::rstest;
 
 use super::{of_error, of_report};
@@ -119,13 +121,25 @@ fn report(lifecycle: Lifecycle, verdict: Verdict) -> RunReport {
         lifecycle,
         stop_reason: None,
         verdict,
+        verdict_reasons: Vec::new(),
         completeness: Completeness::Complete,
+        completeness_reasons: Vec::new(),
         started_at: PointInTime::from_rfc3339("2026-10-22T06:00:00Z".to_owned()),
         ended_at: PointInTime::from_rfc3339("2026-10-22T06:00:01Z".to_owned()),
+        usage: RunUsage::default(),
+        weakened: Vec::new(),
+        plan: None,
         policy_version: None,
-        weakened_by: Vec::new(),
+        settings: None,
+        plugins: None,
+        warnings: Vec::new(),
+        recording: None,
         checkpoint: None,
-        uncapped: false,
+        nothing_done: None,
+        console_url: None,
+        uncertain_effects: None,
+        error: None,
+        kind_parts: serde_json::Map::new(),
     }
 }
 

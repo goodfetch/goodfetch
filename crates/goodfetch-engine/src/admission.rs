@@ -31,6 +31,7 @@ use tokio::sync::broadcast;
 use tokio::time::Instant;
 
 use crate::clock::Clock;
+use crate::entropy::Entropy;
 use crate::politeness::{Ending, Holder, Permit, PermitRule, Politeness, Taken, Wake};
 use crate::settings::Resolved;
 
@@ -67,6 +68,10 @@ pub struct Admitted {
     /// Whether its key's queue holds nothing more, so the Run may give it
     /// the next requests of that key it keeps.
     pub drained: bool,
+    /// The time its key's site asked for, when that is further away than
+    /// its Run waits: it is not sent, and ends (ADR 0118). Always `None`
+    /// from a gate; the Politeness its Run shares sets it.
+    pub refused_until: Option<SystemTime>,
 }
 
 /// How an admitted request ended, for its key's readiness.
@@ -74,10 +79,11 @@ pub struct Admitted {
 pub enum Ended {
     /// Its key may go again at once.
     Done,
-    /// Its response asked its key to back off.
-    BackOff,
+    /// Its response asked its key to back off, and to wait until the
+    /// moment its `Retry-After` names, if any, when that is later.
+    BackOff(Option<Instant>),
     /// Its response asked its key to wait until this moment, such as a
-    /// `Retry-After`.
+    /// redirect's `Retry-After`.
     Until(Instant),
     /// The site answered that too many requests came, a 429: its key's
     /// concurrency is halved and it backs off, until the moment its
@@ -139,7 +145,8 @@ pub trait Gate: Send {
 pub trait Gates: Send + Sync {
     /// The gate of a Run with the settings `settings`, from what its run
     /// file `journal` holds, read at `wall` when the monotonic clock read
-    /// `now`.
+    /// `now`, drawing its random choices, such as a backoff's jitter, from
+    /// `entropy`.
     ///
     /// # Errors
     ///
@@ -150,6 +157,7 @@ pub trait Gates: Send + Sync {
         journal: &Connection,
         wall: SystemTime,
         now: Instant,
+        entropy: Entropy,
     ) -> rusqlite::Result<Box<dyn Gate>>;
 }
 
@@ -321,7 +329,10 @@ impl Admission {
 
     /// The request it admits at `now`, if one may go: when it shares
     /// Politeness, holding a Permit of its key, and each key the
-    /// Politeness refuses held meanwhile.
+    /// Politeness refuses held meanwhile. A request of a key whose site
+    /// asked for a time further away than the Run waits comes with
+    /// [`Admitted::refused_until`] and no Permit: it is not sent, takes no
+    /// share of the rate cap, and its Run ends it.
     ///
     /// # Cancel safety
     ///
@@ -355,6 +366,11 @@ impl Admission {
                 Ok(Taken::Wait(Some(until))) => {
                     let until = now + until.duration_since(wall).unwrap_or_default();
                     self.gate.hold(&key, until);
+                }
+                Ok(Taken::Refused(until)) => {
+                    let mut admitted = self.gate.admit(now)?;
+                    admitted.refused_until = Some(until);
+                    return Some(admitted);
                 }
                 Ok(Taken::Wait(None)) => {
                     shared.waiting.insert(key.clone());
@@ -396,7 +412,9 @@ impl Admission {
         let wall = self.wall();
         let ending = match ended {
             Ended::Done => Ending::Done,
-            Ended::BackOff => Ending::BackOff,
+            Ended::BackOff(until) => {
+                Ending::BackOff(until.map(|until| wall + until.saturating_duration_since(now)))
+            }
             Ended::Until(until) => Ending::Until(wall + until.saturating_duration_since(now)),
             Ended::TooManyRequests(until) => Ending::TooManyRequests(
                 until.map(|until| wall + until.saturating_duration_since(now)),

@@ -23,8 +23,15 @@
 //! its user, given back once its attempt ended, with what the attempt met:
 //! a site that did not answer in time backs the domain off, and a handler
 //! failing with `blocked` for a `rate_limit` (a 429) halves its concurrency,
-//! for every sharing run (ADR 0053). A domain the Politeness holds for want
-//! of room waits for the wake of a Permit given back. Once every work item
+//! for every sharing run (ADR 0053), as one failing with
+//! `response_unavailable` for a 502, 503 or 504 backs it off; the time a
+//! failure's `retryAfter` names holds the domain until then (ADR 0118). A
+//! domain the Politeness holds for want of room waits for the wake of a
+//! Permit given back. When that time is further away than the Run waits
+//! (`politeness.retry_after.max`), the request whose response asked ends
+//! `failed` with no retry spent, and each request of the domain admitted
+//! meanwhile ends `failed` with `response_unavailable`, unsent: no handler
+//! request goes for it. Once every work item
 //! is done, it finishes the Run; with `crawl.keep_alive` (RT-12) it waits
 //! for new work instead until `run.finish` lets the Run finish, so its idle
 //! time counts toward its `timeout.run`. A seed added to the running crawl
@@ -40,7 +47,9 @@
 //! counts in `goodfetch.work_item.leased` until it ends, and each retry in
 //! `goodfetch.work_item.retried`, on the meter the Run hands out (ADR 0050).
 
-use goodfetch_engine::admission::{Admission, Ended, Waiting, Wakes};
+use std::time::Duration;
+
+use goodfetch_engine::admission::{Admission, Waiting, Wakes};
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::ledger::Refusal;
@@ -49,15 +58,15 @@ use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_protocol::block::BlockCause;
-use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams,
-    CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST, WORK_ITEM_LEASED,
-    WORK_ITEM_RETRIED,
+    CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST, RESPONSE_UNAVAILABLE,
+    WORK_ITEM_LEASED, WORK_ITEM_RETRIED,
 };
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
-use goodfetch_protocol::run::StopReason;
-use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
+use goodfetch_protocol::run::{
+    AxisReason, EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, StopReason,
+};
 use goodfetch_protocol::usage::REQUESTS;
 use goodfetch_session_pool::{Effect, PoolSettings, SessionPool};
 use serde_json::{Map, Value};
@@ -69,6 +78,10 @@ use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::CrawlPolicy;
 use crate::serving::{Crawls, Opened, Server};
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
+
+mod politeness;
+
+use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
 
 /// The Error code of a page the site refused, which Collie's page raises
 /// with the Block cause in its details (ADRs 0035 and 0079); declared with
@@ -201,7 +214,7 @@ async fn deliver(
             .await
         {
             tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be leased");
-            end(run, &mut admission, Ending::Failed).await;
+            end(run, &mut admission, failed(run, &error)).await;
             return;
         }
         if attempts.is_empty() {
@@ -230,7 +243,7 @@ async fn deliver(
                 }
                 Err(error) => {
                     tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
-                    end(run, &mut admission, Ending::Failed).await;
+                    end(run, &mut admission, failed(run, &error)).await;
                     return;
                 }
             }
@@ -272,6 +285,23 @@ async fn deliver(
     }
 }
 
+/// The ending of a crawl whose state or admission failed with `error`:
+/// `failed`, its ending calls raising `run_state_unavailable` (ADR 0102).
+fn failed(run: &Run, error: &dyn std::fmt::Display) -> Ending {
+    let details = RunDetails {
+        run_id: run.id().clone(),
+        path: Some(run.folder().display().to_string()),
+    };
+    Ending::Failed(EndingError {
+        code: RUN_STATE_UNAVAILABLE.name.to_owned(),
+        message: format!("The crawl `{}` failed: {error}", run.id()),
+        details: match serde_json::to_value(details) {
+            Ok(Value::Object(details)) => details,
+            _ => Map::new(),
+        },
+    })
+}
+
 /// Ends the Run as `ending` says, once its admission gave back what it held.
 async fn end(run: &Run, admission: &mut Admission, ending: Ending) {
     admission.close().await;
@@ -299,16 +329,25 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
 pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings, crawls: Crawls) {
     let policy = CrawlPolicy::of(&settings.at_admission().await);
     let retry_max = policy.retry_max;
-    if let Err(error) = run
+    let left = run
         .state()
         .write(move |connection| {
-            work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)
+            work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)?;
+            work_items::left(connection)
         })
-        .await
-    {
-        tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
-        run.end(Ending::Failed).await;
-        return;
+        .await;
+    match left {
+        Err(error) => {
+            tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
+            run.end(failed(&run, &error)).await;
+            return;
+        }
+        Ok(0) => {
+            if let Err(error) = run.nothing_done(NothingDone::NothingPending).await {
+                tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's `nothingDone` was not kept");
+            }
+        }
+        Ok(_) => {}
     }
     let opened = crawls.open(&run).await;
     drive(run, client, opened, crawls, settings).await;
@@ -374,33 +413,6 @@ async fn lease_to_servers(
     Ok(())
 }
 
-/// What an attempt's answer says of its domain: a handler's failure that
-/// says the site did not answer in time (a `deadline_exceeded` whose
-/// `limit` is the response's first byte or the navigation) backs the domain
-/// off like a refused or timed-out connection (ADR 0086); one that says the
-/// site refused for too many requests (`blocked` for a `rate_limit`, a 429)
-/// halves its concurrency (ADR 0021). A `Retry-After` and a 503 join with
-/// the fetch tiers (area 5).
-fn domain_ending(answer: &Answer) -> Ended {
-    let Answer::Failed { code, details, .. } = answer else {
-        return Ended::Done;
-    };
-    if block_cause(code, details) == Some(BlockCause::RateLimit) {
-        return Ended::TooManyRequests(None);
-    }
-    let timed_out = code == DEADLINE_EXCEEDED.name
-        && details
-            .get("limit")
-            .and_then(|limit| limit.get("key"))
-            .and_then(Value::as_str)
-            .is_some_and(|key| [TIMEOUT_FIRST_BYTE.name, TIMEOUT_NAVIGATION.name].contains(&key));
-    if timed_out {
-        Ended::BackOff
-    } else {
-        Ended::Done
-    }
-}
-
 /// What a crawl with nothing to deliver now does next.
 enum Waited {
     /// It ended the Run, or the Run stopped at once.
@@ -427,10 +439,32 @@ async fn drained(
         .boolean(CRAWL_KEEP_ALIVE.name)
         .expect("invariant: `crawl.keep_alive` resolves to a boolean");
     if !keeps_alive || run.is_let_finish() {
-        end(run, admission, Ending::Finished).await;
+        let unavailable = run
+            .state()
+            .read(|connection| work_items::any_failed_with(connection, RESPONSE_UNAVAILABLE.name))
+            .await;
+        let ending = match unavailable {
+            Ok(false) => Ending::Finished,
+            Ok(true) => Ending::FinishedIncomplete(unavailable_reason()),
+            Err(error) => {
+                tracing::warn!(%error, run_id = %run.id(), "the crawl's failed requests were not read; it finishes incomplete");
+                Ending::FinishedIncomplete(unavailable_reason())
+            }
+        };
+        end(run, admission, ending).await;
         return Waited::Ended;
     }
     waited(run, admission, servers, arrivals, true).await
+}
+
+/// Why a crawl that ends with requests `failed` with
+/// `response_unavailable` is `incomplete` (ADR 0118).
+fn unavailable_reason() -> AxisReason {
+    AxisReason {
+        code: RESPONSE_UNAVAILABLE.name.to_owned(),
+        message: "A site asked to wait longer than `politeness.retry_after.max` allows, so some of its requests failed with `response_unavailable`; `retryFailed()` re-admits them.".to_owned(),
+        call_id: None,
+    }
 }
 
 /// Waits, with nothing to deliver now, until the Run stops at once, is
@@ -505,7 +539,7 @@ async fn settled(
         server.gone = true;
     }
     let waiting = attempt.leased.waiting.clone();
-    let domain = domain_ending(&attempt.answer);
+    let domain = domain_ending(&attempt.answer, run.clock().now(), run.clock().wall());
     let resolved = settings.at_admission().await;
     pool.settle(
         &attempt.session,
@@ -522,7 +556,13 @@ async fn settled(
     {
         tracing::warn!(%error, run_id = %run.id(), "the crawl's Session pool was not written");
     }
-    let retried = settle(run, CrawlPolicy::of(&resolved), attempt).await;
+    let retried = settle(
+        run,
+        CrawlPolicy::of(&resolved),
+        goodfetch_frontier::longest_wait(&resolved),
+        attempt,
+    )
+    .await;
     admission
         .ended(&waiting.id, &waiting.key, run.clock().now(), domain)
         .await;
@@ -543,7 +583,7 @@ async fn opened(run: &Run, settings: &RunSettings) -> Option<(Admission, Session
         Ok(opened) => Some(opened),
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's admission could not open");
-            run.end(Ending::Failed).await;
+            run.end(failed(run, &error)).await;
             None
         }
     }
@@ -656,10 +696,18 @@ async fn admit(
     let now = run.clock().now();
     let mut ids = Vec::new();
     let mut drained = Vec::new();
+    let mut refused = Vec::new();
     while ids.len() < room {
         let Some(admitted) = admission.admit(now).await else {
             break;
         };
+        if let Some(until) = admitted.refused_until {
+            if admitted.drained {
+                drained.push(admitted.key.clone());
+            }
+            refused.push((admitted, until));
+            continue;
+        }
         match run.charge(REQUESTS, 1).await {
             Ok(()) => {}
             Err(ChargeError::Refused(Refusal::Reached(_) | Refusal::NotUnderstood(_))) => break,
@@ -670,13 +718,16 @@ async fn admit(
         }
         ids.push(admitted.id);
     }
-    if ids.is_empty() {
-        return Ok(Vec::new());
+    if !refused.is_empty() {
+        end_unsent(run, admission, refused).await?;
     }
-    let leased = run
-        .state()
-        .write(move |connection| work_items::lease(connection, &ids))
-        .await?;
+    let leased = if ids.is_empty() {
+        Vec::new()
+    } else {
+        run.state()
+            .write(move |connection| work_items::lease(connection, &ids))
+            .await?
+    };
     for key in drained {
         fill(run, admission, Some(key)).await?;
     }
@@ -802,7 +853,12 @@ async fn late(run: Run, lease: WorkItemLease, mut sent: Sent<CrawlRequestHandled
 /// its handler's skip, its block, or its work item retried or failed; then
 /// releases its lease. Answers whether its work item waits again for a
 /// retry.
-async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
+async fn settle(
+    run: &Run,
+    policy: CrawlPolicy,
+    longest_wait: Option<Duration>,
+    attempt: Attempt,
+) -> bool {
     let Attempt {
         leased,
         lease,
@@ -811,19 +867,8 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
     } = attempt;
     let id = leased.crawl_request.id.clone();
     let epoch = leased.lease_epoch;
-    let failure = |code: String, retryable: bool, message: String| {
-        let retryable = if code == HANDLER_FAILED.name {
-            policy.retry_handler_failed
-        } else {
-            retryable
-        };
-        let failure = Failure { code, message };
-        if retryable && policy.may_retry(leased.attempt) {
-            Unsuccessful::Retried(failure)
-        } else {
-            Unsuccessful::Failed(failure)
-        }
-    };
+    let failure =
+        |failure, retryable| retried_or_failed(policy, leased.attempt, failure, retryable);
     let unsuccessful = match answer {
         Answer::Handled(CrawlRequestHandled {
             skipped: Some(skip),
@@ -839,9 +884,8 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
                     return false;
                 }
                 Err(CommitError::LeaseLost) => failure(
-                    LEASE_LOST.name.to_owned(),
+                    Failure::new(LEASE_LOST.name, LEASE_LOST.description),
                     LEASE_LOST.retryable,
-                    LEASE_LOST.description.to_owned(),
                 ),
                 Err(CommitError::RunState(error)) => {
                     tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
@@ -850,24 +894,31 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
             }
         }
         Answer::ClientGone => failure(
-            CLIENT_GONE.name.to_owned(),
+            Failure::new(CLIENT_GONE.name, CLIENT_GONE.description),
             CLIENT_GONE.retryable,
-            CLIENT_GONE.description.to_owned(),
         ),
         Answer::LeaseEnded => failure(
-            HANDLER_LOST.name.to_owned(),
+            Failure::new(HANDLER_LOST.name, HANDLER_LOST.description),
             HANDLER_LOST.retryable,
-            HANDLER_LOST.description.to_owned(),
         ),
         Answer::Failed {
             code,
             retryable,
             message,
             details,
-        } => match block_cause(&code, &details) {
-            Some(cause) => Unsuccessful::Blocked(cause),
-            None => failure(code, retryable, message),
-        },
+        } => {
+            let held = held_past_bound(&details, run.clock().wall(), longest_wait).is_some();
+            let failed = Failure {
+                code,
+                message,
+                details,
+            };
+            match block_cause(&failed.code, &failed.details) {
+                Some(cause) => Unsuccessful::Blocked(cause),
+                None if held => Unsuccessful::Failed(failed.with_fix(RETRY_AFTER_FIX)),
+                None => failure(failed, retryable),
+            }
+        }
     };
     let retried = matches!(unsuccessful, Unsuccessful::Retried(_));
     let recorded = match &unsuccessful {
@@ -897,6 +948,28 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
             tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
             false
         }
+    }
+}
+
+/// How `failure` on a work item's `attempt`th attempt ends it under
+/// `policy`: retried while it is `retryable` and retries are left, failed
+/// otherwise; a handler's own failure is retryable only as
+/// `crawl.retry.handler_failed` says.
+fn retried_or_failed(
+    policy: CrawlPolicy,
+    attempt: u32,
+    failure: Failure,
+    retryable: bool,
+) -> Unsuccessful {
+    let retryable = if failure.code == HANDLER_FAILED.name {
+        policy.retry_handler_failed
+    } else {
+        retryable
+    };
+    if retryable && policy.may_retry(attempt) {
+        Unsuccessful::Retried(failure)
+    } else {
+        Unsuccessful::Failed(failure)
     }
 }
 

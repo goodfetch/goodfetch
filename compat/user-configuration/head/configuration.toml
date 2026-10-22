@@ -41,6 +41,7 @@ interval = 30000
 [settings.timeout]
 secret = 30000
 run = 30000
+close = 30000
 action = 30000
 navigation = 30000
 first_byte = 30000
@@ -97,6 +98,14 @@ sharing = "shared"
 [settings.politeness.domain]
 concurrency = 4
 delay = 30000
+
+[settings.politeness.backoff]
+enabled = true
+initial = 30000
+max = 30000
+
+[settings.politeness.retry_after]
+max = 30000
 
 [settings.crawl]
 sample_pages = 4

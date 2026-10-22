@@ -68,6 +68,7 @@ fn failure() -> Failure {
     Failure {
         code: "response_not_ok".to_owned(),
         message: "404".to_owned(),
+        details: serde_json::Map::new(),
     }
 }
 

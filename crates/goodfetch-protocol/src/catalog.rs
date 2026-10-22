@@ -616,6 +616,8 @@ pub enum SharedType {
     BlockCause,
     /// What an Audit log entry records (ADR 0016).
     AuditKind,
+    /// What a Run report's warning says (ADR 0102).
+    RunWarningCode,
 }
 
 impl SharedType {
@@ -627,6 +629,7 @@ impl SharedType {
             Self::NotificationEvent => "notification_event",
             Self::BlockCause => "block_cause",
             Self::AuditKind => "audit_kind",
+            Self::RunWarningCode => "run_warning_code",
         }
     }
 }

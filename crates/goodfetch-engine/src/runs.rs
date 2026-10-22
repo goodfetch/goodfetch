@@ -878,6 +878,29 @@ impl Run {
             .map(Option::unwrap_or_default)
     }
 
+    /// Who allows the Run to pay for `usage_kind` in `currency`, as
+    /// [`Charging::allowed_by`] answers (ADR 0045): a person or a managed
+    /// Operator policy, or none, when the Run must not pay. A refusal asks
+    /// the Run to stop as [`Run::charge`]'s does.
+    ///
+    /// # Errors
+    ///
+    /// As [`Run::charge`].
+    pub async fn allowed_by(
+        &self,
+        usage_kind: &str,
+        currency: &str,
+    ) -> Result<Option<goodfetch_protocol::usage::LimitSetter>, ChargeError> {
+        let (kind, currency) = (usage_kind.to_owned(), currency.to_owned());
+        self.charged(move |charging, _| {
+            charging
+                .allowed_by(&kind, &currency)
+                .map(|setter| (setter, Charged::default()))
+        })
+        .await
+        .map(Option::flatten)
+    }
+
     /// Settles `reservation` at `cost`, what the Run paid, which its worst
     /// case bounds: the rest is the Run's to use again, journaled as such.
     ///

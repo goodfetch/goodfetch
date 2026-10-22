@@ -7,7 +7,7 @@
 //! and stops at its next safe point.
 
 use goodfetch_protocol::run::ReachedLimit;
-use goodfetch_protocol::usage::Limit;
+use goodfetch_protocol::usage::{Limit, LimitSetter};
 use jiff::Timestamp;
 
 use super::{
@@ -183,6 +183,41 @@ impl Charging {
         }
         tracing::trace!(target: TARGET, transition = "settle", cost, refund, run_id = %self.holder.run_id, epoch = self.holder.epoch, "a run settled a reservation at what it cost");
         charged
+    }
+
+    /// Who allows the run to pay for `usage_kind` in `currency` (ADRs 0041
+    /// and 0045): the setter of the tightest Limit on it holding the run
+    /// that a person or a managed Operator policy set, the only ones that
+    /// allow paying; none when no such Limit holds it, whatever Limits a
+    /// Client set for its own work, which cap payments but never allow
+    /// them. Run and Schedule Limits are run parameters, not rows of the
+    /// ledger, so they never allow paying either.
+    ///
+    /// # Errors
+    ///
+    /// `NotUnderstood` when a Limit the run cannot be placed outside of
+    /// appeared, `Ledger` when the ledger cannot be read.
+    pub fn allowed_by(
+        &self,
+        usage_kind: &str,
+        currency: &str,
+    ) -> Result<Option<LimitSetter>, Refusal> {
+        let limits = self.ledger.limits()?;
+        let holding = self
+            .placement
+            .holding(&limits)
+            .map_err(|stored| Refusal::NotUnderstood(Box::new(stored.limit())))?;
+        Ok(holding
+            .into_iter()
+            .filter(|stored| {
+                stored.usage_kind == usage_kind && stored.currency.as_deref() == Some(currency)
+            })
+            .map(|stored| (stored.amount, stored.limit().set_by))
+            .filter(|(_, set_by)| {
+                matches!(set_by, LimitSetter::Person | LimitSetter::ManagedPolicy)
+            })
+            .min_by_key(|(amount, _)| *amount)
+            .map(|(_, set_by)| set_by))
     }
 
     /// Whether a reservation of this run found a currency no Limit caps.

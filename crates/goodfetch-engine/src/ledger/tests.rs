@@ -16,6 +16,7 @@ use rstest::rstest;
 
 use super::{Charging, Holder, Ledger, LedgerError, Placement, Probed, Refusal, SliceSizing};
 
+mod allowance;
 mod managed;
 mod model;
 mod reserve;

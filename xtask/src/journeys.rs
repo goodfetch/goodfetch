@@ -68,7 +68,17 @@ mod report;
 mod select;
 mod variants;
 
-pub(crate) use report::ManualException;
+pub(crate) use report::{ManualException, VariantOutcome, VariantTests};
+
+/// Each variant's outcome on `main`'s latest Release run in the store at
+/// `store`, judged as the Journey report judges it, by the variant's ID.
+pub(crate) fn variant_outcomes(
+    root: &Path,
+    store: &Path,
+    variant_tests: Option<&VariantTests>,
+) -> Result<BTreeMap<String, VariantOutcome>> {
+    report::variant_outcomes(&working_journeys(root)?, store, variant_tests)
+}
 
 /// The catalog's folder, from the root.
 const FOLDER: &str = "journeys";
@@ -107,9 +117,10 @@ pub(crate) enum Command {
     /// latest Release run in the results store, by milestone, area and
     /// Product: `proved` or `failed` as its result documents give,
     /// `rejected` when the reader refuses one, `unproved` when none was
-    /// kept. With `--out`, also writes `journeys.json` and `journeys.md`
-    /// there. With `--owner-test`, prints instead that milestone's owner
-    /// test's "Journeys to try".
+    /// kept. With `--listings`, a variant whose test ran in a cell that kept
+    /// no document of it is `failed`. With `--out`, also writes
+    /// `journeys.json` and `journeys.md` there. With `--owner-test`, prints
+    /// instead that milestone's owner test's "Journeys to try".
     Report(Report),
     /// Prints, one `<runner>\t<argument>` line each, the runners' filters
     /// that select the variants of active Journeys the flags choose: values
@@ -145,6 +156,10 @@ pub(crate) struct Report {
     /// The results store's checkout; without it, no variant is proved.
     #[arg(long)]
     store: Option<PathBuf>,
+    /// The folder of the runners' listings that `listings` writes, which
+    /// name the tests that carry each variant.
+    #[arg(long)]
+    listings: Option<PathBuf>,
     /// The folder to write `journeys.json` and `journeys.md` to.
     #[arg(long)]
     out: Option<PathBuf>,
@@ -245,7 +260,12 @@ pub(crate) fn run(
                 .store
                 .as_ref()
                 .map(|store| environment.path(store));
-            let built = report::build(&journeys, store.as_deref())?;
+            let variant_tests = arguments
+                .listings
+                .as_ref()
+                .map(|folder| variant_tests(&environment.root, &environment.path(folder)))
+                .transpose()?;
+            let built = report::build(&journeys, store.as_deref(), variant_tests.as_ref())?;
             let markdown = report::markdown(&built);
             if let Some(out) = &arguments.out {
                 write_report(&environment.path(out), &built, &markdown)?;

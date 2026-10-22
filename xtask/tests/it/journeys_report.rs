@@ -219,6 +219,86 @@ fn each_variant_gets_its_outcome_from_the_documents_of_mains_latest_release_run(
     assert_eq!(outcomes(&report), expected);
 }
 
+/// The runners' listings, as `xtask journeys listings` writes them, in
+/// which `sample::it journeys::j001::cli` carries J-001@cli.
+fn write_listings(workspace: &Workspace) {
+    workspace.write(
+        "listings/nextest.json",
+        br#"{ "rust-suites": { "sample::it": { "testcases": { "journeys::j001::cli": {} } } } }"#,
+    );
+    workspace.write("listings/vitest.json", b"[]");
+    workspace.write("listings/pytest.json", br#"{ "tests": [] }"#);
+    workspace.write(
+        "listings/playwright.json",
+        br#"{ "config": { "rootDir": "." }, "suites": [] }"#,
+    );
+}
+
+/// A Release test run of `c1` of J-001@cli's test, in the cell of `os` and
+/// `arch`.
+fn j001_cli_run(os: &str, arch: &str) -> Value {
+    let run = with(
+        test_run("sample::it journeys::j001::cli", "passed", "1"),
+        "suite",
+        json!("release"),
+    );
+    let run = with(run, "tier", json!("dispatch"));
+    with(with(run, "os", json!(os)), "arch", json!(arch))
+}
+
+/// A cell that ran a variant's test but kept no document, as when the test
+/// panics before `finish`, leaves the variant `failed`, even when another
+/// cell's document proves it (ADR 0063: every automated variant `proved`).
+#[test]
+fn a_variant_whose_test_ran_in_a_cell_that_kept_no_document_is_failed() {
+    let workspace = Workspace::from_fixture("journeys-report");
+    write_listings(&workspace);
+    let latest = Attempt {
+        test_runs: vec![j001_cli_run("linux", "x64"), j001_cli_run("macos", "arm64")],
+        kept: vec![kept(
+            LINUX,
+            "J-001@cli",
+            j001("J-001@cli", "passed", "passed", "proved"),
+        )],
+        ..release_attempt(10, "2026-10-18T03:00:00Z", "c1")
+    };
+    write_store(&workspace, &[latest]);
+
+    let (outcome, report) = report(&workspace, &["--store", STORE, "--listings", "listings"]);
+
+    assert_eq!(outcomes(&report)["J-001@cli"], "failed");
+    assert!(outcome.stdout.contains("macos arm64"), "{}", outcome.stdout);
+}
+
+/// With every cell that ran the variant's test keeping its document, the
+/// documents decide.
+#[test]
+fn a_variant_every_cell_that_ran_it_kept_a_proving_document_for_is_proved() {
+    let workspace = Workspace::from_fixture("journeys-report");
+    write_listings(&workspace);
+    let latest = Attempt {
+        test_runs: vec![j001_cli_run("linux", "x64"), j001_cli_run("macos", "arm64")],
+        kept: vec![
+            kept(
+                LINUX,
+                "J-001@cli",
+                j001("J-001@cli", "passed", "passed", "proved"),
+            ),
+            kept(
+                MACOS,
+                "J-001@cli",
+                j001("J-001@cli", "passed", "passed", "proved"),
+            ),
+        ],
+        ..release_attempt(10, "2026-10-18T03:00:00Z", "c1")
+    };
+    write_store(&workspace, &[latest]);
+
+    let (_, report) = report(&workspace, &["--store", STORE, "--listings", "listings"]);
+
+    assert_eq!(outcomes(&report)["J-001@cli"], "proved");
+}
+
 #[test]
 fn a_document_the_reader_refuses_is_rejected_never_proved() {
     let workspace = Workspace::from_fixture("journeys-report");

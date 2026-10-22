@@ -1006,7 +1006,7 @@ reports store milestone="M1":
     cargo run --quiet --locked -p xtask -- features report --milestone "{{ milestone }}" \
       --store "$store" --listings target/journey-listings --out "$out/features" >"$out/features.txt"
     cargo run --quiet --locked -p xtask -- journeys report --store "$store" \
-      --out "$out/journeys" >"$out/journeys.md"
+      --listings target/journey-listings --out "$out/journeys" >"$out/journeys.md"
     cargo run --quiet --locked -p xtask -- journeys report --owner-test "{{ milestone }}" \
       >"$out/journeys/journeys-to-try.md"
     {{ just_executable() }} leaks "$out"

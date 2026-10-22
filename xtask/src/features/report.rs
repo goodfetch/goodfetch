@@ -36,13 +36,14 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::journey::Milestone;
+use goodfetch_protocol::result_document::{self, CaseOutcome, LoadedDocument};
 use serde::Serialize;
 
 use super::files::{
     self, Evidence, Exception, ExceptionsFile, Feature, Kind, Status, StoryFile, Unreadable,
 };
 use super::scan::{Declaration, Level, Source};
-use crate::journeys::{CatalogVariant, ManualException};
+use crate::journeys::{self, CatalogVariant, ManualException, VariantOutcome};
 use crate::quarantine;
 use crate::results::{self, Outcome};
 
@@ -306,12 +307,19 @@ pub(crate) fn build(sources: &Sources<'_>) -> Result<Report> {
         Some(store) => release_outcomes(store)?,
         None => (None, BTreeMap::new()),
     };
+    // Journey variants as the Journey report judges them, from the result
+    // documents the cells kept (ADR 0072's rules 3 and 4).
+    let variant_outcomes = match sources.store {
+        Some(store) => journeys::variant_outcomes(root, store, sources.variant_tests)?,
+        None => BTreeMap::new(),
+    };
     let judge = Judge {
         gate: sources.gate,
         variants: sources.variants,
         variant_tests: sources.variant_tests,
         quarantined: &quarantined,
         outcomes: &outcomes,
+        variant_outcomes: &variant_outcomes,
     };
 
     let mut declared: BTreeMap<&str, Vec<&Declaration>> = BTreeMap::new();
@@ -423,8 +431,56 @@ fn release_outcomes(store: &Path) -> Result<(Option<String>, BTreeMap<TestKey, T
         let combined = outcomes.entry(test).or_insert(outcome);
         *combined = worst(*combined, outcome);
     }
+    for (test, outcome) in conformance_outcomes(store, &latest)? {
+        let combined = outcomes.entry(test).or_insert(outcome);
+        *combined = worst(*combined, outcome);
+    }
     Ok((Some(latest), outcomes))
 }
+
+/// Each conformance case's outcome in the `conformance` result documents
+/// the cells of `main`'s latest Release run, of `latest`, kept under
+/// `result-documents/`, keyed as its declaration names it, `<suite> <case
+/// id>`, the worst across cells. Each document goes through
+/// `goodfetch-protocol`'s reader, which recomputes its outcomes; one it
+/// refuses proves no case.
+fn conformance_outcomes(store: &Path, latest: &str) -> Result<BTreeMap<TestKey, TestOutcome>> {
+    let kept = results::read_kept(store, |file| {
+        file.strip_prefix(DOCUMENTS)
+            .is_some_and(|name| !name.contains('/'))
+    })?;
+    let mut outcomes: BTreeMap<TestKey, TestOutcome> = BTreeMap::new();
+    for kept in kept.iter().filter(|kept| {
+        kept.run.branch.as_deref() == Some(results::MAIN)
+            && kept.configuration.suite == results::RELEASE_SUITE
+            && kept.commit == latest
+    }) {
+        let Ok(LoadedDocument::Conformance(document)) = result_document::read(&kept.contents)
+        else {
+            continue;
+        };
+        let suite = &document.header().suite.name;
+        for capability in document.capabilities() {
+            for case in capability.cases() {
+                let outcome = match case.outcome() {
+                    CaseOutcome::Passed => TestOutcome::Passed,
+                    CaseOutcome::Failed => TestOutcome::Failed,
+                    CaseOutcome::NotReached => TestOutcome::NotRun,
+                };
+                let key = (
+                    Source::Conformance.as_str().to_owned(),
+                    format!("{suite} {}", case.facts().id),
+                );
+                let combined = outcomes.entry(key).or_insert(outcome);
+                *combined = worst(*combined, outcome);
+            }
+        }
+    }
+    Ok(outcomes)
+}
+
+/// The folder of a JUnit artifact that holds its result documents.
+const DOCUMENTS: &str = "result-documents/";
 
 /// The milestone `feature` is due at: none for a generated one, due with
 /// its code, and for a declared one with no milestone yet. A flagged story
@@ -513,6 +569,7 @@ struct Judge<'a> {
     variant_tests: Option<&'a BTreeMap<String, Vec<(String, String)>>>,
     quarantined: &'a BTreeSet<TestKey>,
     outcomes: &'a BTreeMap<TestKey, TestOutcome>,
+    variant_outcomes: &'a BTreeMap<String, VariantOutcome>,
 }
 
 impl Judge<'_> {
@@ -576,7 +633,13 @@ impl Judge<'_> {
                 );
                 vec![entry(declaration.test.clone(), self.outcome(&key))]
             }
-            Source::Conformance => vec![entry(declaration.test.clone(), TestOutcome::NotRun)],
+            Source::Conformance => {
+                let key = (
+                    Source::Conformance.as_str().to_owned(),
+                    declaration.test.clone(),
+                );
+                vec![entry(declaration.test.clone(), self.outcome(&key))]
+            }
             Source::Journey => self
                 .variants
                 .iter()
@@ -600,17 +663,25 @@ impl Judge<'_> {
         }
     }
 
-    /// A variant is proved when every test that carries it passed.
+    /// A variant's outcome is the Journey report's, from its kept result
+    /// documents: `proved` passes, `failed` and `rejected` fail, and
+    /// `unproved` has not run; one a quarantined test carries is
+    /// quarantined.
     fn variant_outcome(&self, variant: &str) -> TestOutcome {
         let carriers = self
             .variant_tests
             .and_then(|tests| tests.get(variant))
             .map_or(&[][..], Vec::as_slice);
-        carriers
-            .iter()
-            .map(|key| self.outcome(key))
-            .reduce(worst)
-            .unwrap_or(TestOutcome::NotRun)
+        let judged = match self.variant_outcomes.get(variant) {
+            Some(VariantOutcome::Proved) => TestOutcome::Passed,
+            Some(VariantOutcome::Failed | VariantOutcome::Rejected) => TestOutcome::Failed,
+            Some(VariantOutcome::Unproved) | None => TestOutcome::NotRun,
+        };
+        if carriers.iter().any(|key| self.quarantined.contains(key)) {
+            worst(judged, TestOutcome::Quarantined)
+        } else {
+            judged
+        }
     }
 
     /// The first cause that keeps a Feature due at the gate untested. The

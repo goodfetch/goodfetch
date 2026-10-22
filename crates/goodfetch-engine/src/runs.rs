@@ -852,9 +852,10 @@ impl Run {
         };
         let opening = settings.clone();
         let (wall, now) = (self.clock.wall(), self.clock.now());
+        let entropy = self.fork_entropy().await;
         let gate = self
             .state
-            .read(move |connection| gates.open(&opening, connection, wall, now))
+            .read(move |connection| gates.open(&opening, connection, wall, now, entropy))
             .await?;
         let admission = Admission::new(gate, settings);
         if !admission.shares(settings) {

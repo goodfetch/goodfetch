@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 
 use goodfetch_engine::admission::{Ended, Gate as _};
+use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::run_state::{RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_frontier::{
@@ -236,7 +237,7 @@ impl Subject {
         let connection = after_crash(&self.vfs, &self.path).unwrap();
         super::recover_leases(&connection, "handler_lost", u32::MAX).unwrap();
         let now = tokio::time::Instant::now();
-        let mut queues = DomainQueues::new(DomainKeys::default(), BOUND);
+        let mut queues = DomainQueues::new(DomainKeys::default(), BOUND, Entropy::seeded(1));
         for waiting in super::waiting(&connection, None, BOUND).unwrap() {
             queues.enqueue(waiting);
         }

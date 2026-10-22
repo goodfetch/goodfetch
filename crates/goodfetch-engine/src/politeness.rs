@@ -105,6 +105,9 @@ pub enum Verdict {
     Go,
     /// Not before this moment, such as a delay's or a backoff's end.
     Until(SystemTime),
+    /// Not before this moment, the time a site asked for, further away than
+    /// the run waits: the request is not sent, and ends (ADR 0118).
+    Refused(SystemTime),
     /// Not until a request in flight under it ends.
     Busy,
 }
@@ -114,10 +117,11 @@ pub enum Verdict {
 pub enum Ending {
     /// Its key may go on.
     Done,
-    /// Its response asked its key to back off.
-    BackOff,
+    /// Its response asked its key to back off, and to wait until the
+    /// moment its `Retry-After` names, if any, when that is later.
+    BackOff(Option<SystemTime>),
     /// Its response asked its key to wait until this moment, such as a
-    /// `Retry-After`.
+    /// redirect's `Retry-After`.
     Until(SystemTime),
     /// The site answered that too many requests came, a 429, with the
     /// moment its `Retry-After` names, if any.
@@ -198,6 +202,9 @@ pub enum Taken {
     Granted(Permit),
     /// Not now: try again at this moment, or, when `None`, once woken.
     Wait(Option<SystemTime>),
+    /// Not before this moment, further away than the run waits: the request
+    /// is not sent (see [`Verdict::Refused`]).
+    Refused(SystemTime),
 }
 
 /// A wake a waiter of this engine received: its Run may try `key` again.
@@ -846,6 +853,7 @@ fn take_in(
             })
         }
         Verdict::Until(until) => Taken::Wait(Some(until)),
+        Verdict::Refused(until) => Taken::Refused(until),
         Verdict::Busy => {
             if let Some(endpoint) = &context.endpoint {
                 turn = wait_in_turn(&transaction, key, &holder.run_id, endpoint, now)

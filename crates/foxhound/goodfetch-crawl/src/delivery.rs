@@ -381,7 +381,7 @@ fn domain_ending(answer: &Answer) -> Ended {
             .and_then(Value::as_str)
             .is_some_and(|key| [TIMEOUT_FIRST_BYTE.name, TIMEOUT_NAVIGATION.name].contains(&key));
     if timed_out {
-        Ended::BackOff
+        Ended::BackOff(None)
     } else {
         Ended::Done
     }

@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::admission::{Admitted, Ended, Gate, Gates, Journal, Waiting};
+use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::PermitRule;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::settings::Resolved;
@@ -33,7 +34,7 @@ use rusqlite::Connection;
 use tokio::time::Instant;
 
 use crate::domain_key::DomainKeys;
-use crate::politeness::{DomainRule, backoff};
+use crate::politeness::{DomainRule, SharedEntropy};
 
 /// How many requests one domain's queue holds at most; the rest wait in
 /// the run file until it drains.
@@ -122,11 +123,13 @@ pub struct DomainQueues {
     idle: BTreeSet<String>,
     ids: BTreeSet<String>,
     changed: BTreeSet<String>,
+    entropy: SharedEntropy,
 }
 
 impl DomainQueues {
-    /// Empty queues keyed by `keys`, each holding at most `bound`.
-    pub fn new(keys: DomainKeys, bound: usize) -> Self {
+    /// Empty queues keyed by `keys`, each holding at most `bound`, whose
+    /// Politeness rule draws its backoffs from `entropy`.
+    pub fn new(keys: DomainKeys, bound: usize, entropy: Entropy) -> Self {
         Self {
             keys,
             bound,
@@ -135,6 +138,7 @@ impl DomainQueues {
             idle: BTreeSet::new(),
             ids: BTreeSet::new(),
             changed: BTreeSet::new(),
+            entropy: Arc::new(tokio::sync::Mutex::new(entropy)),
         }
     }
 
@@ -236,7 +240,10 @@ impl Gate for DomainQueues {
     }
 
     fn rule(&self, settings: &Resolved) -> Option<Arc<dyn PermitRule>> {
-        Some(Arc::new(DomainRule::of(settings)))
+        Some(Arc::new(DomainRule::of(
+            settings,
+            Arc::clone(&self.entropy),
+        )))
     }
 
     fn admit(&mut self, now: Instant) -> Option<Admitted> {
@@ -257,7 +264,12 @@ impl Gate for DomainQueues {
             self.turns.push_back(key.clone());
         }
         self.ids.remove(&id);
-        Some(Admitted { id, key, drained })
+        Some(Admitted {
+            id,
+            key,
+            drained,
+            refused_until: None,
+        })
     }
 
     fn ended(&mut self, key: &str, now: Instant, ended: Ended) {
@@ -272,9 +284,10 @@ impl Gate for DomainQueues {
                 domain.backoffs = 0;
                 None
             }
-            Ended::BackOff => {
+            Ended::BackOff(until) => {
                 domain.backoffs = domain.backoffs.saturating_add(1);
-                Some(now + backoff(domain.backoffs))
+                let backoff = now + backoff(domain.backoffs);
+                Some(until.map_or(backoff, |until| until.max(backoff)))
             }
             Ended::Until(until) => Some(until),
             Ended::TooManyRequests(until) => {
@@ -331,6 +344,24 @@ impl Gate for DomainQueues {
     }
 }
 
+/// The first backoff of a domain the queues back off themselves.
+const BACKOFF_INITIAL: Duration = Duration::from_secs(2);
+
+/// The longest backoff of a domain the queues back off themselves.
+const BACKOFF_MAX: Duration = Duration::from_mins(1);
+
+/// How long a domain the queues back off themselves waits after
+/// `backoffs` backoffs in a row: 2 s, then doubling up to 60 s. Only a Run
+/// that shares no Politeness ends requests here with a backoff; a crawl's
+/// Run always shares it, where the backoff is jittered
+/// ([`crate::politeness::Backoff`]).
+fn backoff(backoffs: u32) -> Duration {
+    let doublings = backoffs.saturating_sub(1).min(31);
+    BACKOFF_INITIAL
+        .saturating_mul(1 << doublings)
+        .min(BACKOFF_MAX)
+}
+
 /// A domain's key and its journal row: its wait's end in milliseconds of
 /// wall time and its backoffs in a row, or none once released.
 type JournalRow = (String, Option<(Option<i64>, u32)>);
@@ -354,6 +385,7 @@ impl Gates for DomainGates {
         journal: &Connection,
         wall: SystemTime,
         now: Instant,
+        entropy: Entropy,
     ) -> rusqlite::Result<Box<dyn Gate>> {
         let overrides = settings
             .value(CRAWL_DOMAIN_KEYS.name)
@@ -361,7 +393,7 @@ impl Gates for DomainGates {
             .into_iter()
             .flatten()
             .filter_map(|(host, key)| Some((host.clone(), key.as_str()?.to_owned())));
-        let mut queues = DomainQueues::new(DomainKeys::new(overrides), BOUND);
+        let mut queues = DomainQueues::new(DomainKeys::new(overrides), BOUND, entropy);
         let wall = milliseconds(wall);
         let mut rows = journal.prepare("SELECT key, ready_at, backoffs FROM domains")?;
         let rows = rows.query_map([], |row| {

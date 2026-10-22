@@ -7,8 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rstest::rstest;
 
-use super::plan::{Action, Head, Outcome, Planned, Record, Step, Touched, gate_input, plan, unit};
-use super::record;
+use super::plan::{Action, GateRun, Head, Outcome, Planned, Step, Touched, gate_input, plan, unit};
+use super::runs;
 use crate::affected::{Job, RepoPath};
 
 const BASE: &str = "base";
@@ -35,7 +35,7 @@ fn green(origin: &str) -> Outcome {
 }
 
 /// A full green run on `EARLIER`: every unit of every step.
-fn full_green_run() -> Record {
+fn full_green_run() -> GateRun {
     let mut units = BTreeMap::new();
     for step in Step::ALL {
         if step.per_member() {
@@ -46,7 +46,7 @@ fn full_green_run() -> Record {
             units.insert(unit(step, None), green(EARLIER));
         }
     }
-    Record {
+    GateRun {
         head: EARLIER.to_owned(),
         base: BASE.to_owned(),
         units,
@@ -57,7 +57,7 @@ fn touched_since_earlier(touched: Touched) -> BTreeMap<String, Touched> {
     BTreeMap::from([(EARLIER.to_owned(), touched)])
 }
 
-fn planned(record: Option<&Record>, touched: &BTreeMap<String, Touched>) -> Vec<Planned> {
+fn planned(record: Option<&GateRun>, touched: &BTreeMap<String, Touched>) -> Vec<Planned> {
     let members = members();
     let head = Head {
         base: BASE,
@@ -331,7 +331,7 @@ fn a_record_reads_back_as_written_and_its_last_line_for_a_unit_wins() {
     let text =
         "base\tb4se\nperf\tpass\tc0ffee\tt1\nquick:xtask\tpass\tc0ffee\tt1\nperf\tfail\tfeed\tt2\n";
 
-    let record = record::parse("feed", text).unwrap();
+    let record = runs::parse("feed", text).unwrap();
 
     assert_eq!(record.base, "b4se");
     assert_eq!(
@@ -342,8 +342,5 @@ fn a_record_reads_back_as_written_and_its_last_line_for_a_unit_wins() {
             tree: "t2".to_owned()
         })
     );
-    assert_eq!(
-        record::parse("feed", &record::render(&record)).unwrap(),
-        record
-    );
+    assert_eq!(runs::parse("feed", &runs::render(&record)).unwrap(), record);
 }

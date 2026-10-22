@@ -73,11 +73,11 @@ pub(crate) enum Kind {
 /// The members of the repository's three workspaces, each named as `just
 /// test` takes it and as the selection lists it: a crate by its name, a
 /// pnpm or uv package by its folder.
-pub(crate) struct Members {
+pub(crate) struct WorkspaceMembers {
     workspace: Workspace,
 }
 
-impl Members {
+impl WorkspaceMembers {
     pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Self> {
         Ok(Self {
             workspace: workspace::read(cargo, root)?,

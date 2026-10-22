@@ -16,7 +16,7 @@
 )]
 
 mod plan;
-mod record;
+mod runs;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -25,10 +25,10 @@ use std::process::{Command as Process, ExitCode};
 
 use anyhow::{Context as _, Result, bail};
 
-use crate::affected::{self, Members, Range};
+use crate::affected::{self, Range, WorkspaceMembers};
 use crate::environment::Environment;
 use crate::output;
-use plan::{Action, Head, Outcome, Planned, Record, Step, Touched, short, unit};
+use plan::{Action, GateRun, Head, Outcome, Planned, Step, Touched, short, unit};
 
 /// The branch whose merge base with the head is the change's base.
 const BASE_BRANCH: &str = "origin/main";
@@ -117,7 +117,7 @@ struct Options {
 fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Result<()> {
     let root = environment.root.as_path();
     let head = commit(root, "HEAD")?;
-    let plan_file = record::plan_file(records, &head);
+    let plan_file = runs::plan_file(records, &head);
     let dirty = !git(root, &["status", "--porcelain"])?.is_empty();
     if dirty && !options.dry_run {
         // Nothing this run gives holds for HEAD, so nothing is recorded.
@@ -132,7 +132,7 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
         return Ok(());
     }
     let base = commit(root, &git(root, &["merge-base", BASE_BRANCH, "HEAD"])?)?;
-    let members_read = Members::read(&environment.cargo, root)?;
+    let members_read = WorkspaceMembers::read(&environment.cargo, root)?;
     let members: BTreeSet<String> = members_read.all().map(|(name, _)| name).collect();
     let (previous, no_previous) = if options.full {
         (
@@ -184,7 +184,7 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
         return Ok(());
     }
     std::fs::create_dir_all(records).with_context(|| format!("creating {}", records.display()))?;
-    let carried = Record {
+    let carried = GateRun {
         head: head.clone(),
         base,
         units: planned
@@ -192,8 +192,8 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
             .flat_map(|planned| planned.carried.clone())
             .collect(),
     };
-    let record_file = record::file(records, &head);
-    std::fs::write(&record_file, record::render(&carried))
+    let record_file = runs::file(records, &head);
+    std::fs::write(&record_file, runs::render(&carried))
         .with_context(|| format!("writing {}", record_file.display()))?;
     std::fs::write(&plan_file, machine)
         .with_context(|| format!("writing {}", plan_file.display()))?;
@@ -202,7 +202,7 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
 
 /// What the change from `origin` to `head` reaches; a change git cannot
 /// read reruns whatever ran on `origin`.
-fn touched_since(root: &Path, members: &Members, origin: &str, head: &str) -> Touched {
+fn touched_since(root: &Path, members: &WorkspaceMembers, origin: &str, head: &str) -> Touched {
     let range = Range::Commits {
         base: origin.to_owned(),
         head: head.to_owned(),
@@ -222,7 +222,7 @@ fn assumed_green(
     assumed: &str,
     base: &str,
     members: &BTreeSet<String>,
-) -> Result<Record> {
+) -> Result<GateRun> {
     let tree = git(
         root,
         &["rev-parse", "--verify", &format!("{assumed}^{{tree}}")],
@@ -242,7 +242,7 @@ fn assumed_green(
             units.insert(unit(step, None), outcome.clone());
         }
     }
-    Ok(Record {
+    Ok(GateRun {
         head: assumed.to_owned(),
         base: base.to_owned(),
         units,
@@ -251,9 +251,9 @@ fn assumed_green(
 
 /// The record of the nearest run on `head` or one of its ancestors: the
 /// fewest commits away.
-fn nearest(root: &Path, records: &Path, head: &str) -> Result<Option<Record>> {
+fn nearest(root: &Path, records: &Path, head: &str) -> Result<Option<GateRun>> {
     let mut nearest: Option<(u64, String)> = None;
-    for candidate in record::heads(records)? {
+    for candidate in runs::heads(records)? {
         let ancestor = Process::new("git")
             .args([
                 "merge-base",
@@ -281,7 +281,7 @@ fn nearest(root: &Path, records: &Path, head: &str) -> Result<Option<Record>> {
         }
     }
     nearest
-        .map(|(_, candidate)| record::read(records, &candidate))
+        .map(|(_, candidate)| runs::read(records, &candidate))
         .transpose()
 }
 
@@ -358,7 +358,7 @@ fn origins(carried: &BTreeMap<String, Outcome>) -> String {
 /// its plan ran.
 fn record_run(root: &Path, records: &Path, step: Step, status: Status) -> Result<()> {
     let head = commit(root, "HEAD")?;
-    let plan_file = record::plan_file(records, &head);
+    let plan_file = runs::plan_file(records, &head);
     let Ok(plan) = std::fs::read_to_string(&plan_file) else {
         output::error(&format!(
             "Gate: no plan for {head}, so {} is not recorded",
@@ -404,9 +404,9 @@ fn record_run(root: &Path, records: &Path, step: Step, status: Status) -> Result
     };
     let text: String = units
         .iter()
-        .map(|unit| record::line(unit, &outcome))
+        .map(|unit| runs::line(unit, &outcome))
         .collect();
-    output::append(&record::file(records, &head), &text)
+    output::append(&runs::file(records, &head), &text)
 }
 
 /// The commit `revision` names, in full.

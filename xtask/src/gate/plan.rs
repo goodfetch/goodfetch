@@ -206,7 +206,7 @@ pub(crate) struct Outcome {
 /// What one gate run recorded: its head, the base its steps compared with,
 /// and each unit's result, run there or carried from an earlier run.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Record {
+pub(crate) struct GateRun {
     pub(crate) head: String,
     pub(crate) base: String,
     pub(crate) units: BTreeMap<String, Outcome>,
@@ -258,7 +258,7 @@ pub(crate) struct Planned {
 /// carried result ran on reaches (`touched`, by that head).
 pub(crate) fn plan(
     head: &Head<'_>,
-    previous: Option<&Record>,
+    previous: Option<&GateRun>,
     no_previous: &str,
     touched: &BTreeMap<String, Touched>,
 ) -> Vec<Planned> {
@@ -338,7 +338,7 @@ fn judge(
     step: Step,
     member: Option<&str>,
     head: &Head<'_>,
-    previous: &Record,
+    previous: &GateRun,
     touched: &BTreeMap<String, Touched>,
 ) -> Result<Outcome, String> {
     if matches!(step.reach(), Reach::Always) {

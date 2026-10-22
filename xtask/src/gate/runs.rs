@@ -15,12 +15,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 
-use super::plan::{Outcome, Record};
+use super::plan::{GateRun, Outcome};
 
 const PASS: &str = "pass";
 const FAIL: &str = "fail";
 
-pub(crate) fn parse(head: &str, text: &str) -> Result<Record> {
+pub(crate) fn parse(head: &str, text: &str) -> Result<GateRun> {
     let mut base = None;
     let mut units = BTreeMap::new();
     for line in text.lines().filter(|line| !line.is_empty()) {
@@ -45,14 +45,14 @@ pub(crate) fn parse(head: &str, text: &str) -> Result<Record> {
             _ => bail!("a record line is `<unit>\\t<status>\\t<origin>\\t<tree>`, not {line:?}"),
         }
     }
-    Ok(Record {
+    Ok(GateRun {
         head: head.to_owned(),
         base: base.context("a record names its base on a `base` line")?,
         units,
     })
 }
 
-pub(crate) fn render(record: &Record) -> String {
+pub(crate) fn render(record: &GateRun) -> String {
     let mut text = format!("base\t{}\n", record.base);
     for (unit, outcome) in &record.units {
         text.push_str(&line(unit, outcome));
@@ -104,7 +104,7 @@ pub(crate) fn heads(folder: &Path) -> Result<Vec<String>> {
     Ok(heads)
 }
 
-pub(crate) fn read(folder: &Path, head: &str) -> Result<Record> {
+pub(crate) fn read(folder: &Path, head: &str) -> Result<GateRun> {
     let path = file(folder, head);
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;

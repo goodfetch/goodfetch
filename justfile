@@ -608,7 +608,7 @@ repeat count *selection:
 # that many times. Nothing skips it and no count is lowered; it counts
 # against the Pre-merge budget.
 #
-# The incremental gate (ADR 0135) narrows it: with `within` members (crates
+# The incremental gate (ADR 0135) narrows it: with `within` workspace members (crates
 # by name, pnpm and uv packages by folder), only their new and changed
 # tests run, plus each test whose file changed `since` the earlier gate
 # run's head.

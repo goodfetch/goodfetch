@@ -25,7 +25,7 @@ use std::process::{Command as Process, ExitCode};
 
 use anyhow::{Context as _, Result, bail};
 
-use crate::affected::{Kind, Members};
+use crate::affected::{Kind, WorkspaceMembers};
 use crate::environment::Environment;
 use crate::metadata::{self, Package};
 use crate::output;
@@ -106,7 +106,7 @@ struct Narrowing {
     /// runs too. Such a file lies in a member the change reaches, so its
     /// runner lists.
     since: Option<String>,
-    members: Members,
+    members: WorkspaceMembers,
 }
 
 impl Narrowing {
@@ -555,7 +555,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 Some(Narrowing {
                     within: within.into_iter().collect(),
                     since,
-                    members: Members::read(&environment.cargo, root)?,
+                    members: WorkspaceMembers::read(&environment.cargo, root)?,
                 })
             };
             for selected in select(root, &runners, &base, saved.as_deref(), narrowing.as_ref())? {

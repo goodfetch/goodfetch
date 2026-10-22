@@ -68,6 +68,11 @@ fn the_key_makes_one_request_of(#[case] one: &str, #[case] other: &str) {
 #[case::the_www_label("http://a.test/", "http://www.a.test/")]
 #[case::another_scheme("http://a.test/", "https://a.test/")]
 #[case::an_index_file("http://a.test/a/index.html", "http://a.test/a/")]
+#[case::a_stray_percent_sign_before_an_encoded_digit("http://a.test/?%3%30", "http://a.test/?%30")]
+#[case::a_stray_percent_sign_and_an_encoded_percent_sign(
+    "http://a.test/?%3%30",
+    "http://a.test/?%2530"
+)]
 fn the_key_keeps_apart(#[case] one: &str, #[case] other: &str) {
     assert_ne!(key(one), key(other));
 }
@@ -81,6 +86,32 @@ fn the_key_keeps_apart(#[case] one: &str, #[case] other: &str) {
     "http://a.test/~/a%2Fb;v=2?a=2&a=1&b=A"
 )]
 #[case::a_url_with_nothing_to_change("https://a.test:8443/a/b?c=d", "https://a.test:8443/a/b?c=d")]
+#[case::a_stray_percent_sign_and_a_digit_before_an_encoded_digit(
+    "http://a.test/?%3%30",
+    "http://a.test/?%3%30"
+)]
+#[case::a_stray_percent_sign_before_an_encoded_digit("http://a.test/%%30", "http://a.test/%%30")]
+#[case::a_stray_percent_sign_before_an_encoded_digit_and_a_digit(
+    "http://a.test/%%30A",
+    "http://a.test/%%30A"
+)]
+#[case::a_stray_percent_sign_before_two_encoded_digits(
+    "http://a.test/%%30%31",
+    "http://a.test/%%301"
+)]
+#[case::an_encoded_digit_after_a_whole_encoding("http://a.test/%2%35%36", "http://a.test/%2%356")]
+#[case::a_jsessionid_on_a_dot_segment(
+    "http://a.test/a/.;jsessionid=1/b",
+    "http://a.test/a/.;jsessionid=1/b"
+)]
+#[case::a_jsessionid_on_a_double_dot_segment(
+    "http://a.test/a/%2E%2e;JSESSIONID=1/b",
+    "http://a.test/a/..;JSESSIONID=1/b"
+)]
+#[case::a_jsessionid_beside_another_parameter_on_a_dot_segment(
+    "http://a.test/a/.;jsessionid=1;v=2/b",
+    "http://a.test/a/.;v=2/b"
+)]
 fn the_key_of(#[case] url: &str, #[case] expected: &str) {
     assert_eq!(key(url), expected);
 }
@@ -88,7 +119,7 @@ fn the_key_of(#[case] url: &str, #[case] expected: &str) {
 /// `href`s as pages write them: relative and absolute, with the
 /// characters the key's rules read.
 fn href_like() -> impl Strategy<Value = String> {
-    "(https?://[a-z.]{1,8}|//[a-z]{1,4}|\\.{0,2}/)?([a-zA-Z0-9/;=~.%\\-_+é ]|%[0-9a-fA-F]{2}){0,16}(\\?([a-zA-Z0-9_=&%;+.~é ]|%[0-9a-fA-F]{2}){0,16})?(#[a-z]{0,4})?"
+    "(https?://[a-z.]{1,8}|//[a-z]{1,4}|\\.{0,2}/)?([a-zA-Z0-9/;=~.%\\-_+é ]|%[0-9a-fA-F]{2}|;jsessionid=){0,16}(\\?([a-zA-Z0-9_=&%;+.~é ]|%[0-9a-fA-F]{2}){0,16})?(#[a-z]{0,4})?"
 }
 
 proptest! {

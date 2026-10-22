@@ -50,12 +50,14 @@ Decided in [URL identity and crawl-space rules beyond ADR 0005's learned rules](
 - **The fixed rules, in order.** None merges URLs that RFC 3986 or HTTP says may differ. The path keeps its case, since paths are case-sensitive (R 1.10).
   1. **The parser's own work**, above.
   2. **Percent-encoding** (RFC 3986 §6.2.2). In the path and the query, hexadecimal digits are uppercased, and percent-encoded unreserved characters (`A`–`Z`, `a`–`z`, `0`–`9`, `-`, `.`, `_`, `~`) are decoded. A reserved character such as `%2F` stays encoded, and `+` stays apart from `%20`.
+     > Note (agent decision, pending owner review), 2026-10-22: a `%` not followed by two hexadecimal digits stays as written, as the browsers' parser keeps it, and an encoded hexadecimal digit right after such a `%`, or after it and one digit, stays encoded, so decoding never makes a percent-encoding the URL did not hold. `?%3%30` then keeps apart from `?%30`, as the WHATWG URL Standard's one-pass percent-decoding keeps them (`%30` against `0`), and the key of a key is itself. Writing such a `%` as `%25` instead was declined: it would merge `?%3%30` with `?%2530`, which a server reading the request target as sent may tell apart.
   3. **The fragment is dropped**, unless the request's Label keeps it (below).
   4. **ADR 0005's parameter rules:**
      - Crawlee's `utm_*` and Crawl4AI's `gclid` and `fbclid` are dropped;
      - the remaining pairs are sorted by name, a stable sort that keeps the order of values within one name, so `?a=2&a=1` stays apart from `?a=1&a=2`;
      - empty pairs (`&&`, a leading or trailing `&`) and an empty query are dropped, as Crawlee's sort and Nutch's normalizer drop them.
   5. **The Servlet session parameter.** A `;jsessionid=…` path parameter, its name matched in any case, is dropped, since the Servlet specification reserves that name for session IDs. Every other `;` parameter stays part of the path. Query-string session IDs are ADR 0005's learned no-effect parameters, so `sid=`, which names a story on some sites, is merged only on evidence.
+     > Note (agent decision, pending owner review), 2026-10-22: a segment that dropping the parameter would leave as `.` or `..` keeps it, so `a/.;jsessionid=1/b` stays apart from `a/b` rather than becoming a dot segment the parser resolves, and the key of a key is itself.
 - **Firecrawl's merges are learned per host, on evidence.** One leading `www.` label against the bare host, `http` against `https`, a trailing slash, and a final `index.html` or `index.php` against the folder: each is merged once evidence shows the two forms are one resource, as ADR 0005 learns no-effect parameters.
   - **The evidence:**
     - a redirect from one form to the other, the evidence RFC 3986 §6.2.4 names;

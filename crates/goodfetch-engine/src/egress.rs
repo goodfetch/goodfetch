@@ -13,9 +13,17 @@
 //! read as the WHATWG URL parser reads a host, so `2130706433`,
 //! `0x7f000001` and `127.0.0.1` are one address, and `bücher.test` and
 //! `xn--bcher-kva.test` one name.
+//!
+//! The resolved-address check is [`judge_addresses`], on the addresses a
+//! connection may try once a request is allowed: every answer must be one
+//! a page may reach ([`classify`]), or lie in a range the Session lists
+//! (`egress.private_ranges`), a cloud-metadata address only when listed by
+//! its exact address. A URL whose host carries a zone ID is refused as a
+//! private address by [`judge`] itself, since the URL parser reads no host
+//! from it.
 
 use std::collections::HashSet;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use goodfetch_protocol::egress::{
     EGRESS_ALLOWED_DOMAINS, EGRESS_BLOCKED_DOMAINS, EGRESS_REFUSED, EVERY_HOST,
@@ -40,6 +48,14 @@ mod tests;
 pub struct Policy {
     allowed: Entries,
     blocked: Entries,
+    private_ranges: Vec<PrivateRange>,
+}
+
+/// A range of private addresses a page may reach.
+#[derive(Clone, Copy, Debug)]
+struct PrivateRange {
+    first: IpAddr,
+    prefix: u8,
 }
 
 /// One domain list, each entry as the URL parser reads a host.
@@ -75,6 +91,7 @@ impl Policy {
         Ok(Self {
             allowed: Entries::read(allowed, EGRESS_ALLOWED_DOMAINS.name)?,
             blocked: Entries::read(blocked, EGRESS_BLOCKED_DOMAINS.name)?,
+            private_ranges: Vec::new(),
         })
     }
 
@@ -259,6 +276,113 @@ impl std::fmt::Display for Refused {
     }
 }
 
+impl Policy {
+    /// The policy that also lets a page reach `ranges`, each a CIDR block
+    /// or one address, IPv4 or IPv6: the value of `egress.private_ranges`.
+    /// A cloud-metadata address is reached only through an entry that is
+    /// that address alone, never through a range that covers it.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidEntry`] for the first entry that is neither, such as a host
+    /// name: the setting's host names come with its declaration (#622).
+    pub fn with_private_ranges(mut self, ranges: &[impl AsRef<str>]) -> Result<Self, InvalidEntry> {
+        for entry in ranges {
+            let entry = entry.as_ref();
+            let range = PrivateRange::parse(entry).ok_or_else(|| InvalidEntry {
+                setting: PRIVATE_RANGES,
+                entry: entry.to_owned(),
+            })?;
+            self.private_ranges.push(range);
+        }
+        Ok(self)
+    }
+
+    /// Whether a range lets a page reach `address`, whose class is `class`.
+    fn lists(&self, address: IpAddr, class: AddressClass) -> bool {
+        self.private_ranges.iter().any(|range| {
+            range.contains(address) && (class != AddressClass::Metadata || range.is_one(address))
+        })
+    }
+}
+
+impl PrivateRange {
+    fn parse(entry: &str) -> Option<Self> {
+        let (address, prefix) = match entry.split_once('/') {
+            Some((address, prefix)) => (address, Some(prefix)),
+            None => (entry, None),
+        };
+        let first: IpAddr = address.parse().ok()?;
+        let bits = if first.is_ipv4() { 32 } else { 128 };
+        let prefix = match prefix {
+            Some(prefix) => prefix.parse().ok().filter(|prefix| *prefix <= bits)?,
+            None => bits,
+        };
+        Some(Self { first, prefix })
+    }
+
+    fn contains(self, address: IpAddr) -> bool {
+        match (self.first, address) {
+            (IpAddr::V4(first), IpAddr::V4(address)) => {
+                let mask = u32::MAX
+                    .checked_shl(32 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                first.to_bits() & mask == address.to_bits() & mask
+            }
+            (IpAddr::V6(first), IpAddr::V6(address)) => {
+                let mask = u128::MAX
+                    .checked_shl(128 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                first.to_bits() & mask == address.to_bits() & mask
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether the range is `address` alone.
+    fn is_one(self, address: IpAddr) -> bool {
+        self.first == address && self.prefix == if address.is_ipv4() { 32 } else { 128 }
+    }
+}
+
+/// The setting that lists the private ranges a page may reach. #622
+/// declares its key with who may set it; until then a [`Policy`] gets its
+/// ranges from [`Policy::with_private_ranges`] alone.
+pub const PRIVATE_RANGES: &str = "egress.private_ranges";
+
+/// Judges the addresses a connection for `url` may try, every answer its
+/// host has, before it tries any (ADR 0017): one a page may not reach
+/// refuses the connection, so a name with a public and a private answer is
+/// reached through neither (ADR 0067). A connection judged here tries only
+/// these addresses, so an answer that changes after the judgment
+/// (rebinding) reaches nothing.
+///
+/// # Errors
+///
+/// [`Refused`] with [`EgressRule::PrivateAddress`] and the first address a
+/// page may not reach, naming `egress.private_ranges` unless no range could
+/// allow it (an address with a zone ID).
+pub fn judge_addresses(
+    url: &str,
+    addresses: &[SocketAddr],
+    session: &Policy,
+) -> Result<(), Refused> {
+    for address in addresses {
+        let class = classify_socket(*address);
+        let listed = class != AddressClass::ZoneId && session.lists(address.ip(), class);
+        if class.is_global() || listed {
+            continue;
+        }
+        return Err(Refused {
+            url: url.to_owned(),
+            rule: EgressRule::PrivateAddress,
+            address: Some(address.ip()),
+            setting: (class != AddressClass::ZoneId).then_some(PRIVATE_RANGES),
+        });
+    }
+    Ok(())
+}
+
 /// The schemes a request may use; every other is refused (ADR 0017).
 const SCHEMES: [&str; 4] = ["http", "https", "ws", "wss"];
 
@@ -276,6 +400,14 @@ pub fn judge(request: &Request<'_>, session: &Policy) -> Judgment {
         return refused(EgressRule::DomainPolicy, None);
     }
     let Ok(url) = Url::parse(request.url) else {
+        if let Some(address) = zone_id_address(request.url) {
+            return Judgment::Refused(Refused {
+                url: request.url.to_owned(),
+                rule: EgressRule::PrivateAddress,
+                address: Some(IpAddr::V6(address)),
+                setting: None,
+            });
+        }
         return refused(EgressRule::DomainPolicy, None);
     };
     if !SCHEMES.contains(&url.scheme()) {
@@ -291,4 +423,17 @@ pub fn judge(request: &Request<'_>, session: &Policy) -> Judgment {
         return refused(EgressRule::DomainPolicy, Some(EGRESS_ALLOWED_DOMAINS.name));
     }
     Judgment::Allowed(url)
+}
+
+/// The address of a URL whose host is an IPv6 address with a zone ID, such
+/// as `http://[fe80::1%25eth0]/`, which the WHATWG parser refuses: a zone
+/// names a link, so the request is to a private address (ADR 0067).
+fn zone_id_address(url: &str) -> Option<Ipv6Addr> {
+    let (_, rest) = url.split_once("://")?;
+    let host = rest.strip_prefix('[')?.split_once(']')?.0;
+    let (address, zone) = host.split_once('%')?;
+    if zone.is_empty() {
+        return None;
+    }
+    address.parse().ok()
 }

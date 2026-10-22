@@ -53,7 +53,7 @@ use goodfetch_engine::age_notice::AgeNotice;
 use goodfetch_engine::browser_cache::BROWSERS_PATH_VARIABLE;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::crash_report;
-use goodfetch_engine::entropy::Entropy;
+use goodfetch_engine::entropy::{Entropy, NoSeed};
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::log::LogEvents;
 use goodfetch_engine::run_state::RunStateOptions;
@@ -434,7 +434,7 @@ pub fn main(start: &Start) -> ExitCode {
     let clock = Clock::system();
     let log_events = LogEvents::new();
     let (launched, _) = logs::logs_of(&parsed);
-    let _logs = match observe(
+    let (_logs, entropy) = match observe(
         start,
         &binary,
         &environment,
@@ -482,7 +482,7 @@ pub fn main(start: &Start) -> ExitCode {
     if !launched {
         age_notice(start.release_date, &home, engine.identity());
     }
-    let entropy = match Entropy::from_os() {
+    let entropy = match entropy {
         Ok(entropy) => entropy,
         Err(error) => {
             tracing::error!(%error, "the engine has no seed for its random choices");
@@ -510,8 +510,10 @@ pub fn main(start: &Start) -> ExitCode {
 }
 
 /// Installs the `tracing` subscriber of `parsed`'s process, with
-/// `log_events`, and its crash reports; fails once it has logged why the
-/// logs cannot go where `GOODFETCH_LOG_OUTPUT` says.
+/// `log_events`, and its crash reports, and answers it with the process's
+/// `Entropy` from the OS, a fork of which draws its export's trace and span
+/// IDs; fails once it has logged why the logs cannot go where
+/// `GOODFETCH_LOG_OUTPUT` says.
 fn observe(
     start: &Start,
     binary: &str,
@@ -520,7 +522,12 @@ fn observe(
     parsed: &Parsed,
     clock: Clock,
     log_events: &LogEvents,
-) -> Result<logs::Installed, ExitCode> {
+) -> Result<(logs::Installed, Result<Entropy, NoSeed>), ExitCode> {
+    let mut entropy = Entropy::from_os();
+    let handles = logs::Handles {
+        clock,
+        trace_ids: entropy.as_mut().ok().map(Entropy::fork),
+    };
     let settings = home.and_then(|home| {
         let version = ProductVersion::parse(start.version).ok()?;
         browsers::machine_settings(home, start.product, &version).ok()
@@ -535,7 +542,7 @@ fn observe(
         settings: settings.as_ref(),
         events: log_events,
         product: start.product,
-        clock,
+        handles,
     });
     if let Some(problem) = failed_file {
         tracing::error!(%problem, "the logs cannot go where {LOG_OUTPUT_VARIABLE} says");
@@ -548,7 +555,7 @@ fn observe(
             clock,
         );
     }
-    Ok(installed)
+    Ok((installed, entropy))
 }
 
 /// What the command line asks for: a hand-written command, or one

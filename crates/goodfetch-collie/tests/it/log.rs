@@ -234,9 +234,8 @@ fn a_client_whose_hello_names_a_log_level_receives_the_engines_log_events_as_log
 /// The spans of one OTLP export: each one's name and string attributes.
 type Exported = Vec<(String, Vec<(String, String)>)>;
 
-/// The spans of an export's protobuf body.
-fn spans_of(body: &[u8]) -> Exported {
-    let request = ExportTraceServiceRequest::decode(body).unwrap();
+/// The spans of an export.
+fn spans_of(request: &ExportTraceServiceRequest) -> Exported {
     request
         .resource_spans
         .iter()
@@ -262,7 +261,7 @@ fn spans_of(body: &[u8]) -> Exported {
 
 /// Serves one Connection of the collector stand-in: each request's body,
 /// answered `200` with nothing.
-fn serve_exports(stream: std::net::TcpStream, exports: &mpsc::Sender<Exported>) {
+fn serve_exports(stream: std::net::TcpStream, exports: &mpsc::Sender<ExportTraceServiceRequest>) {
     let mut writer = stream.try_clone().unwrap();
     let mut reader = BufReader::new(stream);
     loop {
@@ -284,7 +283,7 @@ fn serve_exports(stream: std::net::TcpStream, exports: &mpsc::Sender<Exported>) 
         }
         let mut body = vec![0; length];
         reader.read_exact(&mut body).unwrap();
-        let _ = exports.send(spans_of(&body));
+        let _ = exports.send(ExportTraceServiceRequest::decode(body.as_slice()).unwrap());
         let _ = writer.write_all(
             b"HTTP/1.1 200 OK\r\ncontent-type: application/x-protobuf\r\ncontent-length: 0\r\n\r\n",
         );
@@ -293,7 +292,7 @@ fn serve_exports(stream: std::net::TcpStream, exports: &mpsc::Sender<Exported>) 
 
 /// An OTLP/HTTP collector stand-in on loopback, on a thread of its own: its
 /// traces endpoint, and the spans of each export it receives.
-fn collector() -> (String, mpsc::Receiver<Exported>) {
+fn collector() -> (String, mpsc::Receiver<ExportTraceServiceRequest>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}/v1/traces", listener.local_addr().unwrap());
     let (exports, received) = mpsc::channel();
@@ -327,7 +326,7 @@ fn with_otlp_traces_endpoint_set_the_collector_receives_each_runs_span_with_its_
 
     let runs: Exported = exports
         .try_iter()
-        .flatten()
+        .flat_map(|request| spans_of(&request))
         .filter(|(name, _)| name == "run")
         .collect();
     assert_eq!(
@@ -340,6 +339,53 @@ fn with_otlp_traces_endpoint_set_the_collector_receives_each_runs_span_with_its_
                     ("target".to_owned(), "goodfetch_engine::runs".to_owned()),
                     ("run_id".to_owned(), "traced".to_owned())
                 ]
+            )]
+        )
+    );
+}
+
+/// The caller's span a Client's request names, in W3C Trace Context's
+/// example `traceparent`.
+const TRACEPARENT: &str = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+
+/// Covers: story:3-146, setting:otlp.traces_endpoint
+#[test]
+fn with_otlp_traces_endpoint_set_a_requests_server_span_continues_the_trace_its_meta_names() {
+    let env = TestEnv::new();
+    let (endpoint, exports) = collector();
+    env.user_configuration(&format!("otlp.traces_endpoint = \"{endpoint}\""));
+    let mut engine = Attached::start(&env);
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 1, "method": "engine.info",
+        "params": { "_meta": { "traceparent": TRACEPARENT } },
+    }));
+    let reply = engine.next().unwrap();
+
+    let (_, succeeded) = engine.finish();
+
+    let served: Vec<(Vec<u8>, Vec<u8>, i32)> = exports
+        .try_iter()
+        .flat_map(|request| request.resource_spans)
+        .flat_map(|resource| resource.scope_spans)
+        .flat_map(|scope| scope.spans)
+        .filter(|span| span.name == "engine.info")
+        .map(|span| (span.trace_id, span.parent_span_id, span.kind))
+        .collect();
+    assert!(reply.get("result").is_some(), "{reply}");
+    assert_eq!(
+        (succeeded, served),
+        (
+            true,
+            vec![(
+                vec![
+                    0x0a, 0xf7, 0x65, 0x19, 0x16, 0xcd, 0x43, 0xdd, 0x84, 0x48, 0xeb, 0x21, 0x1c,
+                    0x80, 0x31, 0x9c
+                ],
+                vec![0xb7, 0xad, 0x6b, 0x71, 0x69, 0x20, 0x33, 0x31],
+                // OTLP's `SPAN_KIND_SERVER`.
+                2,
             )]
         )
     );

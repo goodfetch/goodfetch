@@ -4,7 +4,8 @@
 //! `log.format` names, and as JSON lines in a file of the Goodfetch home's
 //! log folder when `GOODFETCH_LOG_OUTPUT` asks for one; each Connection's
 //! `$/log` events at its own level; the spans exported over OTLP/HTTP once
-//! `otlp.traces_endpoint` names a collector, and never otherwise. Every
+//! `otlp.traces_endpoint` names a collector, and never otherwise, their
+//! trace and span IDs drawn from an `Entropy` of their own. Every
 //! timestamp reads the `Clock`.
 
 use std::collections::BTreeMap;
@@ -15,9 +16,11 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::log::{ClockTime, LogEvents};
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::trace::EntropyIds;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::log::{LOG_FORMAT, OTLP_TRACES_ENDPOINT};
 use opentelemetry::trace::TracerProvider as _;
@@ -109,8 +112,17 @@ pub(super) struct Logs<'a> {
     pub(super) events: &'a LogEvents,
     /// The Product whose spans an export names.
     pub(super) product: Product,
+    /// Where its time and its trace and span IDs come from.
+    pub(super) handles: Handles,
+}
+
+/// The handles the subscriber reads (ADR 0059).
+pub(super) struct Handles {
     /// Where every timestamp is read.
     pub(super) clock: Clock,
+    /// Where an export draws its trace and span IDs: an `Entropy` of their
+    /// own, none when the OS gave no seed, which ends the process anyway.
+    pub(super) trace_ids: Option<Entropy>,
 }
 
 /// The installed subscriber's export, which sends the spans still waiting
@@ -144,7 +156,8 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
         (_, Some("json")) | (LogsTo::Stdout, None) => true,
         (_, Some(_)) | (LogsTo::Stderr, None) => false,
     };
-    let timer = ClockTime(logs.clock);
+    let Handles { clock, trace_ids } = logs.handles;
+    let timer = ClockTime(clock);
     #[expect(
         clippy::disallowed_methods,
         reason = "the tracing subscriber's writer is one of the three writers of stderr and, in `daemon run`, of stdout (STYLE.md)"
@@ -191,7 +204,8 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
         .settings
         .and_then(|settings| settings.get(OTLP_TRACES_ENDPOINT.name))
         .and_then(|endpoint| endpoint.value.as_str().map(str::to_owned));
-    let (export, failed) = match endpoint.map(|endpoint| export(&endpoint, logs.product)) {
+    let (export, failed) = match endpoint.map(|endpoint| export(&endpoint, logs.product, trace_ids))
+    {
         Some(Ok(export)) => (Some(export), None),
         Some(Err(error)) => (None, Some(error)),
         None => (None, None),
@@ -220,8 +234,13 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
     Installed { export }
 }
 
-/// The export of every span to the OTLP/HTTP collector at `endpoint`.
-fn export(endpoint: &str, product: Product) -> Result<SdkTracerProvider, String> {
+/// The export of every span to the OTLP/HTTP collector at `endpoint`, its
+/// trace and span IDs drawn from `trace_ids` (ADR 0132).
+fn export(
+    endpoint: &str,
+    product: Product,
+    trace_ids: Option<Entropy>,
+) -> Result<SdkTracerProvider, String> {
     let agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .timeout_global(Some(EXPORT_TIMEOUT))
@@ -237,10 +256,14 @@ fn export(endpoint: &str, product: Product) -> Result<SdkTracerProvider, String>
     let resource = opentelemetry_sdk::Resource::builder_empty()
         .with_service_name(format!("goodfetch-{}", product.as_str()))
         .build();
-    Ok(SdkTracerProvider::builder()
+    let provider = SdkTracerProvider::builder()
         .with_batch_exporter(exporter)
-        .with_resource(resource)
-        .build())
+        .with_resource(resource);
+    Ok(match trace_ids {
+        Some(entropy) => provider.with_id_generator(EntropyIds::new(entropy)),
+        None => provider,
+    }
+    .build())
 }
 
 /// The OTLP export's HTTP client: ureq, blocking, on the batch processor's

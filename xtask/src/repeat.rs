@@ -1,22 +1,32 @@
 //! Running chosen tests a set number of times, whatever each run's result
-//! (ADR 0064): the diagnostic run's 20 runs of a failed test, and the daily
-//! test-health job's 50 runs of each of the 10 oldest quarantined tests.
-//! This is no retry: every run counts, and a pass changes no verdict. Each
-//! runner gets the arguments that select the tests and repeat them; the
-//! `justfile`'s `repeat` recipe appends them to the runner's command:
-//! - nextest: `--stress-count`, with a filterset of the tests;
+//! (ADR 0064): the diagnostic run's 20 runs of a failed test, the daily
+//! test-health job's 50 runs of each of the 10 oldest quarantined tests, and
+//! the stress run's 20 runs of each new or changed test. This is no retry:
+//! every run counts, and a pass changes no verdict. Each runner gets the
+//! arguments that select the tests and repeat them; the `justfile`'s
+//! `repeat` recipe appends them to the runner's command:
+//! - nextest: `--stress-count`, with filtersets of the tests, of which a
+//!   test matches any;
 //! - Vitest: `--repeats`, one less than the count, since it counts the runs
 //!   after the first, and a name pattern. Its JUnit file reports the test
 //!   once, with one `<failure>` per failed run;
 //! - Playwright: `--repeat-each`, with a pattern of the tests;
 //! - pytest: pytest-repeat's `--count`, with the tests' node IDs (a
 //!   parameterized case's, one per run).
+//!
+//! A runner's command runs in batches when its arguments would pass the
+//! operating system's limits ([`Limits`]): each batch has the same counts
+//! and a part of the tests, and every test is in exactly one batch.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
+)]
 
 use std::num::NonZeroU32;
 use std::path::Path;
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail, ensure};
 
 use crate::environment::Environment;
 use crate::output;
@@ -29,22 +39,156 @@ pub(crate) enum Selection {
     Quarantined(usize),
 }
 
-/// A `--test` value, `<runner>=<test ID>`.
-fn parse_test(value: &str) -> Result<(Runner, TestId)> {
-    let (runner, id) = value
-        .split_once('=')
-        .with_context(|| format!("`{value}` is not `<runner>=<test ID>`"))?;
-    let runner = Runner::from_name(runner)
-        .with_context(|| format!("`{runner}` is not nextest, vitest, playwright or pytest"))?;
-    Ok((runner, TestId::parse(runner, id)?))
+/// What one runner command's arguments may take, so that the operating
+/// system starts it (`execve` fails with "Argument list too long" beyond).
+#[derive(Clone, Copy)]
+pub(crate) struct Limits {
+    /// The bytes one argument may hold.
+    pub(crate) argument: usize,
+    /// The bytes one command's arguments may take in all, each counted with
+    /// its terminating NUL and its pointer ([`footprint`]).
+    pub(crate) command: usize,
 }
 
-/// Each runner's arguments, as `(runner, argument)` pairs in order.
+impl Limits {
+    /// Half of Linux's limit on one argument, 128 KiB (`MAX_ARG_STRLEN`;
+    /// macOS has none), and half of what `getconf ARG_MAX` leaves after this
+    /// process's environment. The other halves cover the command's own words
+    /// and the variables that Cargo, pnpm and uv add before the runner starts.
+    fn of_host() -> Result<Self> {
+        let output = Command::new("getconf")
+            .arg("ARG_MAX")
+            .output()
+            .context("running `getconf ARG_MAX`")?;
+        ensure!(
+            output.status.success(),
+            "`getconf ARG_MAX` exited with {}",
+            output.status
+        );
+        let maximum: usize = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse()
+            .context("reading `getconf ARG_MAX`")?;
+        let environment: usize = std::env::vars_os()
+            .map(|(name, value)| name.len() + value.len() + 2 + size_of::<usize>())
+            .sum();
+        Ok(Self {
+            argument: 64 * 1024,
+            command: maximum.saturating_sub(environment) / 2,
+        })
+    }
+}
+
+/// The bytes `argument` takes in the area `execve` copies: its text, its
+/// terminating NUL and its pointer.
+fn footprint(argument: &str) -> usize {
+    argument.len() + 1 + size_of::<usize>()
+}
+
+/// How a runner's arguments select its tests.
+enum Selecting<'a> {
+    /// Patterns, each `before`, the tests' alternatives joined by
+    /// `separator`, then `after`; a test runs when it matches one. A command
+    /// takes at most `per_command` of them (nextest takes several
+    /// filtersets, Vitest and Playwright one pattern).
+    Patterns {
+        before: &'a str,
+        separator: &'static str,
+        after: &'static str,
+        per_command: Option<usize>,
+    },
+    /// Each alternative is an argument (pytest's node IDs).
+    Each,
+}
+
+/// The patterns that join `alternatives`, in order, each at most `room`
+/// bytes long.
+fn patterns(
+    alternatives: Vec<String>,
+    (before, separator, after): (&str, &str, &str),
+    room: usize,
+) -> Result<Vec<String>> {
+    let mut patterns = Vec::new();
+    let mut open = String::new();
+    for alternative in alternatives {
+        if !open.is_empty() {
+            if open.len() + separator.len() + alternative.len() + after.len() <= room {
+                open.push_str(separator);
+                open.push_str(&alternative);
+                continue;
+            }
+            open.push_str(after);
+            patterns.push(std::mem::take(&mut open));
+        }
+        if before.len() + alternative.len() + after.len() > room {
+            bail!("`{alternative}` alone passes the {room} bytes one argument may hold");
+        }
+        open.push_str(before);
+        open.push_str(&alternative);
+    }
+    if !open.is_empty() {
+        open.push_str(after);
+        patterns.push(open);
+    }
+    Ok(patterns)
+}
+
+/// A runner's commands' arguments: each `fixed`, then the arguments that
+/// select a part of the tests, every test in exactly one, within `limits`.
+fn batches(
+    fixed: &[String],
+    alternatives: Vec<String>,
+    selecting: &Selecting<'_>,
+    limits: Limits,
+) -> Result<Vec<Vec<String>>> {
+    let base: usize = fixed.iter().map(|argument| footprint(argument)).sum();
+    let (selecting_arguments, per_command) = match *selecting {
+        Selecting::Each => (alternatives, None),
+        Selecting::Patterns {
+            before,
+            separator,
+            after,
+            per_command,
+        } => {
+            let room = limits
+                .argument
+                .min(limits.command.saturating_sub(base + 1 + size_of::<usize>()));
+            (
+                patterns(alternatives, (before, separator, after), room)?,
+                per_command,
+            )
+        }
+    };
+    let mut commands = Vec::new();
+    let mut current: Vec<String> = Vec::new();
+    let mut size = base;
+    for argument in selecting_arguments {
+        let full = per_command.is_some_and(|most| current.len() == most);
+        if !current.is_empty() && (full || size + footprint(&argument) > limits.command) {
+            commands.push([fixed, &current].concat());
+            current.clear();
+            size = base;
+        }
+        if size + footprint(&argument) > limits.command {
+            bail!("`{argument}` alone passes what one command's arguments may take");
+        }
+        size += footprint(&argument);
+        current.push(argument);
+    }
+    if !current.is_empty() {
+        commands.push([fixed, &current].concat());
+    }
+    Ok(commands)
+}
+
+/// Each runner's commands' arguments, as `(runner, batch, argument)` in
+/// order, the batches numbered from 1 within each runner.
 pub(crate) fn arguments(
     root: &Path,
     selection: Selection,
     count: NonZeroU32,
-) -> Result<Vec<(&'static str, String)>> {
+    limits: Limits,
+) -> Result<Vec<(&'static str, usize, String)>> {
     let tests = match selection {
         Selection::Tests(tests) => tests,
         Selection::Quarantined(limit) => {
@@ -65,50 +209,83 @@ pub(crate) fn arguments(
             .map(|(_, test)| test)
             .collect()
     };
-    let mut arguments = Vec::new();
-
-    let nextest = of(Runner::Nextest);
-    if !nextest.is_empty() {
-        let filter = nextest
-            .iter()
-            .map(|test| {
-                format!(
-                    "(binary_id(={}) & test(={}))",
-                    test.nextest_binary(),
-                    test.nextest_name()
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" | ");
-        arguments.push(("nextest", "--no-fail-fast".to_owned()));
-        arguments.push(("nextest", format!("--stress-count={count}")));
-        arguments.push(("nextest", format!("--filterset={filter}")));
-    }
-
-    let vitest = of(Runner::Vitest);
-    if !vitest.is_empty() {
-        let names = alternation(vitest.iter().map(|test| test.as_str().to_owned()));
-        arguments.push(("vitest", format!("--repeats={}", count.get() - 1)));
-        arguments.push(("vitest", format!("--testNamePattern=^(?:{names})$")));
-    }
-
-    let playwright = of(Runner::Playwright);
-    if !playwright.is_empty() {
-        arguments.push(("playwright", format!("--repeat-each={count}")));
-        arguments.push((
+    let (playwright_before, playwright_after) = quarantine::PLAYWRIGHT_AROUND;
+    let playwright_before = format!("--grep={playwright_before}");
+    let runners: [(&'static str, Vec<String>, Vec<String>, Selecting<'_>); 4] = [
+        (
+            "nextest",
+            vec![
+                "--no-fail-fast".to_owned(),
+                format!("--stress-count={count}"),
+            ],
+            of(Runner::Nextest)
+                .iter()
+                .map(|test| {
+                    format!(
+                        "(binary_id(={}) & test(={}))",
+                        test.nextest_binary(),
+                        test.nextest_name()
+                    )
+                })
+                .collect(),
+            Selecting::Patterns {
+                before: "--filterset=",
+                separator: " | ",
+                after: "",
+                per_command: None,
+            },
+        ),
+        (
+            "vitest",
+            vec![format!("--repeats={}", count.get() - 1)],
+            of(Runner::Vitest)
+                .iter()
+                .map(|test| alternation(std::iter::once(test.as_str().to_owned())))
+                .collect(),
+            Selecting::Patterns {
+                before: "--testNamePattern=^(?:",
+                separator: "|",
+                after: ")$",
+                per_command: Some(1),
+            },
+        ),
+        (
             "playwright",
-            format!("--grep={}", quarantine::playwright_pattern(&playwright)),
-        ));
-    }
+            vec![format!("--repeat-each={count}")],
+            of(Runner::Playwright)
+                .iter()
+                .map(|test| quarantine::playwright_alternative(test))
+                .collect(),
+            Selecting::Patterns {
+                before: &playwright_before,
+                separator: "|",
+                after: playwright_after,
+                per_command: Some(1),
+            },
+        ),
+        (
+            "pytest",
+            vec![format!("--count={count}")],
+            of(Runner::Pytest)
+                .iter()
+                .flat_map(|test| pytest_node_ids(test.as_str(), count))
+                .collect(),
+            Selecting::Each,
+        ),
+    ];
 
-    let pytest = of(Runner::Pytest);
-    if !pytest.is_empty() {
-        arguments.push(("pytest", format!("--count={count}")));
-        for test in pytest {
+    let mut arguments = Vec::new();
+    for (runner, fixed, alternatives, selecting) in runners {
+        if alternatives.is_empty() {
+            continue;
+        }
+        let commands = batches(&fixed, alternatives, &selecting, limits)
+            .with_context(|| format!("dividing {runner}'s tests into commands"))?;
+        for (index, command) in commands.into_iter().enumerate() {
             arguments.extend(
-                pytest_node_ids(test.as_str(), count)
+                command
                     .into_iter()
-                    .map(|id| ("pytest", id)),
+                    .map(|argument| (runner, index + 1, argument)),
             );
         }
     }
@@ -129,27 +306,62 @@ fn pytest_node_ids(id: &str, count: NonZeroU32) -> Vec<String> {
     }
 }
 
-/// `xtask repeat`'s arguments: `--test`, repeatable, or `--quarantined`.
+/// `xtask repeat`'s arguments: `--test`, repeatable, `--tests-file` or
+/// `--quarantined`.
 #[derive(clap::Args)]
-#[command(group(clap::ArgGroup::new("tests").required(true).args(["test", "quarantined"])))]
+#[command(group(
+    clap::ArgGroup::new("tests")
+        .required(true)
+        .args(["test", "tests_file", "quarantined"])
+))]
 pub(crate) struct Arguments {
     #[arg(long)]
     count: NonZeroU32,
     /// A test, as `<runner>=<test ID>` (the quarantine list's IDs).
     #[arg(long, value_parser = parse_test)]
     test: Vec<(Runner, TestId)>,
+    /// A file of tests, one `<runner>=<test ID>` a line: a selection longer
+    /// than a command line holds (the stress run's).
+    #[arg(long)]
+    tests_file: Option<std::path::PathBuf>,
     /// The quarantine list's oldest entries, at most this many.
     #[arg(long)]
     quarantined: Option<usize>,
 }
 
+/// The tests a `--tests-file` lists, one `<runner>=<test ID>` a line.
+fn read_tests(path: &Path) -> Result<Vec<(Runner, TestId)>> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("reading the tests in {}", path.display()))?;
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(parse_test)
+        .collect()
+}
+
+/// A `--test` value, `<runner>=<test ID>`.
+fn parse_test(value: &str) -> Result<(Runner, TestId)> {
+    let (runner, id) = value
+        .split_once('=')
+        .with_context(|| format!("`{value}` is not `<runner>=<test ID>`"))?;
+    let runner = Runner::from_name(runner)
+        .with_context(|| format!("`{runner}` is not nextest, vitest, playwright or pytest"))?;
+    Ok((runner, TestId::parse(runner, id)?))
+}
+
+/// Prints each runner's commands' arguments as `<runner>\t<batch>\t<argument>`
+/// lines.
 pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<ExitCode> {
-    let selection = match arguments.quarantined {
-        Some(limit) => Selection::Quarantined(limit),
-        None => Selection::Tests(arguments.test),
+    let selection = match (arguments.quarantined, arguments.tests_file) {
+        (Some(limit), _) => Selection::Quarantined(limit),
+        (None, Some(path)) => Selection::Tests(read_tests(&environment.root.join(path))?),
+        (None, None) => Selection::Tests(arguments.test),
     };
-    for (runner, argument) in self::arguments(&environment.root, selection, arguments.count)? {
-        output::line(&format!("{runner}\t{argument}"));
+    let limits = Limits::of_host()?;
+    for (runner, batch, argument) in
+        self::arguments(&environment.root, selection, arguments.count, limits)?
+    {
+        output::line(&format!("{runner}\t{batch}\t{argument}"));
     }
     Ok(ExitCode::SUCCESS)
 }

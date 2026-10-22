@@ -1,6 +1,8 @@
 use std::net::IpAddr;
 use std::path::Path;
 
+use goodfetch_engine::pinned_download::{CHROMIUM_BACKGROUND_TRAFFIC_OFF, ChromiumSwitch};
+
 use super::{Arguments, Launch, Warning, arguments, shared_memory_of};
 
 const MEBIBYTE: u64 = 1024 * 1024;
@@ -178,5 +180,38 @@ fn a_launch_on_the_runs_profile_keeps_away_from_the_os_keychain() {
             has(&built, "--no-first-run"),
         ),
         (true, true, true)
+    );
+}
+
+/// Every entry of `pinned_download`'s background-traffic table (ADR 0043)
+/// is on the command line of a launch, headless or not: each flag as an
+/// argument, each feature in the launch's one `--disable-features`.
+/// Covers: story:4-83
+#[test]
+fn every_launch_carries_every_entry_of_the_background_traffic_table() {
+    let omitted = |built: &Arguments| {
+        let disabled_features: Vec<&str> = built
+            .arguments
+            .iter()
+            .filter_map(|argument| argument.strip_prefix("--disable-features="))
+            .collect();
+        let missing: Vec<ChromiumSwitch> = CHROMIUM_BACKGROUND_TRAFFIC_OFF
+            .into_iter()
+            .filter(|switch| match switch {
+                ChromiumSwitch::Flag(flag) => !has(built, flag),
+                ChromiumSwitch::DisabledFeature(feature) => !disabled_features
+                    .last()
+                    .is_some_and(|features| features.split(',').any(|named| named == *feature)),
+            })
+            .collect();
+        (missing, disabled_features.len())
+    };
+
+    assert_eq!(
+        (
+            omitted(&arguments(&launch(true, None))),
+            omitted(&arguments(&launch(false, None))),
+        ),
+        ((Vec::new(), 1), (Vec::new(), 1))
     );
 }

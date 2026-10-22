@@ -95,6 +95,18 @@ reason = "A review rule no test reaches: the pull request that adds a feature al
 link = "TESTING.md#review-checklist"
 
 [[exception]]
+feature = "story:8-58"
+evidence = "none"
+reason = "Half built: every captured page of the block-detection corpus classifies to its cause in process (`goodfetch-collie`'s `block_detection` unit tests), but no Session meets the corpus in the engine until a page raises `blocked` with the cause `classify` gives, which #711 builds; its engine-level corpus test declares this story and removes this exception."
+link = "https://github.com/goodfetch/goodfetch/issues/711"
+
+[[exception]]
+feature = "story:8-59"
+evidence = "none"
+reason = "Half built: the rules fire on evidence and never on a vendor's presence in process (`goodfetch-collie`'s `block_detection` unit tests, the corpus's vendor-script and contact-form pages among them), but no Session meets those pages in the engine until a page raises `blocked`, which #711 builds; its engine-level corpus test declares this story and removes this exception."
+link = "https://github.com/goodfetch/goodfetch/issues/711"
+
+[[exception]]
 feature = "error:sample_crawl_refused"
 evidence = "none"
 reason = "A sample entry of `goodfetch-protocol`, which carries `xtask codegen`'s pipeline and has no behaviour to test; the area that defines the real contracts removes it, and this exception with it."

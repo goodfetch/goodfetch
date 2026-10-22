@@ -85,8 +85,10 @@ export type TestSupportErrorCode =
   | "covers_unknown"
   /** axe found a violation of WCAG 2.2 AA or a best practice on a served test's page (ADR 0073). */
   | "axe_violations"
-  /** An entry of the axe exception file names a selector that matches nothing on a page where its rule ran (ADR 0073). */
+  /** An entry of the axe exception file excepts no violation on a page it names where its rule ran: its selector matches nothing there, or none of its elements violates the rule any more (ADR 0073). */
   | "axe_exception_unmatched"
+  /** An entry of the axe exception file names a selector that takes in the whole page (`html`, `body` or every element in it), which would turn its rule off (ADR 0073). */
+  | "axe_exception_too_broad"
   /** The axe exception file cannot be read, or an entry lacks a field or has one it does not define (ADR 0073). */
   | "axe_exceptions_invalid"
   /** At 320 × 256 CSS pixels, the page or a region of it scrolls horizontally outside a data table or code block (ADR 0073). */

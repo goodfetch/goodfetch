@@ -130,6 +130,36 @@ test.describe("auditAccessibility's exceptions", () => {
     await expect(audited).rejects.toMatchObject({ code: "axe_exception_unmatched" });
   });
 
+  test("an exception whose elements no longer violate its rule fails where its rule ran", async ({
+    page,
+    cspPages,
+  }, testInfo) => {
+    await page.goto(cspPages.url("accessible"));
+
+    const audited = auditAccessibility(page, {
+      exceptions: [exception("document-title", "h1")],
+      testInfo,
+    });
+
+    await expect(audited).rejects.toMatchObject({ code: "axe_exception_unmatched" });
+  });
+
+  for (const selector of ["*", "body *", ":not(#first)"]) {
+    test(`an exception whose selector \`${selector}\` takes in the whole page is refused`, async ({
+      page,
+      cspPages,
+    }, testInfo) => {
+      await page.goto(cspPages.url("two-images"));
+
+      const audited = auditAccessibility(page, {
+        exceptions: [exception("image-alt", selector)],
+        testInfo,
+      });
+
+      await expect(audited).rejects.toMatchObject({ code: "axe_exception_too_broad" });
+    });
+  }
+
   test("an exception suppresses its rule on the pages it names", async ({
     page,
     cspPages,

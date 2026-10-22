@@ -143,3 +143,35 @@ fn a_child_that_exited_passes_teardown() {
 
     assert!(teardown.is_ok());
 }
+
+#[cfg(unix)]
+#[test]
+fn the_socket_folder_a_killed_daemon_left_outside_the_home_goes_at_teardown() {
+    use goodfetch_test_support::{ConsoleState, DAEMON_SOCKET, DaemonEndpoint, RuntimeFile};
+
+    let outside = tempfile::Builder::new()
+        .prefix("goodfetch é ")
+        .tempdir_in("/tmp")
+        .unwrap()
+        .keep();
+    let env = TestEnv::new();
+    let runtime_file = RuntimeFile::path(env.home(), "0.0.0");
+    std::fs::create_dir_all(runtime_file.parent().unwrap()).unwrap();
+    RuntimeFile {
+        endpoint: DaemonEndpoint::Unix(outside.join(DAEMON_SOCKET)),
+        token: "a-token".to_owned(),
+        version: "0.0.0".to_owned(),
+        pid: 1,
+        console: ConsoleState::Absent,
+    }
+    .write(&runtime_file)
+    .unwrap();
+
+    drop(env);
+
+    let left = outside.exists();
+    if left {
+        std::fs::remove_dir_all(&outside).unwrap();
+    }
+    assert!(!left, "{}", outside.display());
+}

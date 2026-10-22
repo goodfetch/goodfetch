@@ -191,13 +191,30 @@ export class ProtocolAdapter<
   readonly #runs = new Map<string, unknown>();
   /** How many engine instances the adapter has stood for: `restart()` starts another. */
   #instances = 1;
+  /** Whether the test that made it ended: nothing reaches a Client after that. */
+  #ended = false;
 
   constructor(options: ProtocolAdapterOptions) {
     this.#contract = productContract(options.product ?? "collie");
     this.requests = this.#requests;
     this.transport = { open: (listener) => this.#open(listener) };
     this.bodyFetcher = (handle) => this.#fetch(handle);
-    onTestFinished(() => this.#verify());
+    onTestFinished(() => this.#end());
+  }
+
+  /**
+   * Ends the adapter with its test: closes every Connection without telling
+   * its Client, so an answer or an event that comes later reaches no Client
+   * of a later test, then fails the test with its violations. A function
+   * answer still pending is dropped unchecked: its Client never saw it.
+   */
+  #end(): void {
+    this.#ended = true;
+    for (const connection of this.#connections) {
+      connection.open = false;
+    }
+    this.#connections.clear();
+    this.#verify();
   }
 
   /**
@@ -364,7 +381,11 @@ export class ProtocolAdapter<
     }
     connection.open = false;
     this.#connections.delete(connection);
-    queueMicrotask(() => connection.listener.close());
+    queueMicrotask(() => {
+      if (!this.#ended) {
+        connection.listener.close();
+      }
+    });
   }
 
   /** Sends `message` to the Client after the current task, unless its Connection closed meanwhile. */
@@ -504,6 +525,17 @@ export class ProtocolAdapter<
       if (this.#paramsInvalid("hello", this.#contract.helloParams.problems(params))) {
         return;
       }
+      const refusal = this.#helloRefusal(params);
+      if (refusal !== undefined) {
+        this.#deliver(connection, {
+          id,
+          error: this.#wireError(
+            new Failure(refusal, {}),
+            `The engine refuses this hello: ${refusal}.`,
+          ),
+        });
+        return;
+      }
       this.#deliver(connection, {
         id,
         result: {
@@ -567,10 +599,15 @@ export class ProtocolAdapter<
     try {
       outcome = typeof answer === "function" ? await answer(params) : answer;
     } catch (error) {
-      this.#violation(
-        "answer_invalid",
-        `the test's answer of ${operation} threw: ${String(error)}`,
-      );
+      if (!this.#ended) {
+        this.#violation(
+          "answer_invalid",
+          `the test's answer of ${operation} threw: ${String(error)}`,
+        );
+      }
+      return;
+    }
+    if (this.#ended) {
       return;
     }
     const problems = this.#outcomeProblems(operation, outcome);
@@ -587,6 +624,22 @@ export class ProtocolAdapter<
           }
         : { id, result: outcome },
     );
+  }
+
+  /**
+   * The Error code the engine refuses a schema-valid `hello` with, as the
+   * generated refusal vectors give it: `not_in_product` for a Product this
+   * engine does not carry, before `protocol_version_unsupported` for a
+   * protocol version other than its own.
+   */
+  #helloRefusal(params: unknown): string | undefined {
+    const fields = typeof params === "object" && params !== null ? params : {};
+    const needs = "needs" in fields ? fields.needs : undefined;
+    if (needs === "foxhound" && this.#contract.product !== "foxhound") {
+      return "not_in_product";
+    }
+    const version = "protocol_version" in fields ? fields.protocol_version : undefined;
+    return version === this.#contract.protocolVersion ? undefined : "protocol_version_unsupported";
   }
 
   /** The wire's error object of `failed`, whose code the catalog defines, told to people as `message`. */

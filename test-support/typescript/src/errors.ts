@@ -85,8 +85,22 @@ export type TestSupportErrorCode =
   | "covers_unknown"
   /** axe found a violation of WCAG 2.2 AA or a best practice on a served test's page (ADR 0073). */
   | "axe_violations"
-  /** An entry of the axe exception file names a selector that matches nothing on a page where its rule ran (ADR 0073). */
+  /** A screen's keyboard walk reaches no stop (ADR 0073). */
+  | "keyboard_walk_empty"
+  /** `browserStateReset` lifted a test's overrides and the page still read them past its deadline (ADR 0068). */
+  | "browser_state_not_reset"
+  /** A stop's area changes while it stays unfocused, so `focusChecks` cannot tell a focus ring from it (ADR 0073). */
+  | "focus_not_visible_unstable"
+  /** A screen's keyboard walk is not the one `console/screens.toml` records for it (ADR 0073). */
+  | "keyboard_walk_changed"
+  /** `console/screens.toml` sets up a screen the Feature inventory does not list (ADR 0073). */
+  | "screen_setup_orphaned"
+  /** The Console has routes, and the Feature inventory names no `screen:` Feature (ADR 0073). */
+  | "screens_missing"
+  /** An entry of the axe exception file excepts no violation on a page it names where its rule ran: its selector matches nothing there, or none of its elements violates the rule any more (ADR 0073). */
   | "axe_exception_unmatched"
+  /** An entry of the axe exception file names a selector that takes in the whole page (`html`, `body` or every element in it), which would turn its rule off (ADR 0073). */
+  | "axe_exception_too_broad"
   /** The axe exception file cannot be read, or an entry lacks a field or has one it does not define (ADR 0073). */
   | "axe_exceptions_invalid"
   /** At 320 × 256 CSS pixels, the page or a region of it scrolls horizontally outside a data table or code block (ADR 0073). */

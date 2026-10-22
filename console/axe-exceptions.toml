@@ -12,6 +12,8 @@
 # `pages` names as few pages as the false positive needs (`URLPattern`'s
 # pathname syntax; `/*` for an element of the shared layout).
 # `@goodfetch/test-support`'s axe fixture reads this file and fails a page an
-# entry names where its rule ran and its selector matches nothing;
+# entry names where its rule ran and it excepted no violation (its selector
+# matches nothing, or none of its elements violates the rule any more), and
+# one whose selector takes in the whole page (`*`, `body *`);
 # `xtask axe-exceptions check` fails an entry missing a field or naming no
 # page, or whose issue is not open.

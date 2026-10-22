@@ -3579,6 +3579,13 @@
             "$ref": "#/$defs/TaskResult"
           },
           "type": "array"
+        },
+        "test_errors": {
+          "description": "Each error that failed the variant's test outside its steps, checks\nand tasks, with its Error code: a page error or an accessibility\nviolation the test found once its body had ended (ADR 0068). A\nvariant with one is `failed`, whatever its steps and checks say.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -3604,7 +3611,7 @@
       "oneOf": [
         {
           "const": "proved",
-          "description": "Every automated step and check passed and every named task is\n`verified`.",
+          "description": "Every automated step and check passed, every named task is\n`verified` and no error failed the test outside them.",
           "type": "string"
         },
         {

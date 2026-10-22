@@ -1,0 +1,4 @@
+{
+  "description": "An await_reply that follows no send: the player fails at once with nothing_to_answer",
+  "steps": [{ "await_reply": { "result": {} } }]
+}

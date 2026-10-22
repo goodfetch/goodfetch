@@ -1,7 +1,9 @@
 // Seam B (spec #326): each setting of the `browserState` browser command is
 // read back from the page through the browser's own interfaces (`matchMedia`,
-// `Intl`, `navigator`), and `browserStateReset`, which the shared setup runs
-// before each test, gives the page back the project's state (ADR 0068).
+// `Intl`, `navigator`), and `browserStateReset`, which `browserState` runs
+// once its test ends, gives the page back the project's state (ADR 0068).
+// tests/browser-state-reset.test.ts proves the reset on a project whose
+// colour scheme and motion are not Playwright's defaults.
 import { describe, expect, test } from "vitest";
 import {
   browserState,
@@ -32,8 +34,12 @@ const settings: readonly Setting[] = [
   {
     name: "locale",
     state: { locale: "tr-TR" },
-    readBack: () => new Intl.NumberFormat().resolvedOptions().locale,
-    expected: "tr-TR",
+    readBack: () => [
+      navigator.language,
+      navigator.languages,
+      new Intl.NumberFormat().resolvedOptions().locale,
+    ],
+    expected: ["tr-TR", ["tr-TR"], "tr-TR"],
   },
   {
     name: "time zone",
@@ -54,6 +60,7 @@ function pageState(): Readonly<Record<string, unknown>> {
     dark: matchMedia("(prefers-color-scheme: dark)").matches,
     reducedMotion: matchMedia("(prefers-reduced-motion: reduce)").matches,
     locale: new Intl.NumberFormat().resolvedOptions().locale,
+    language: navigator.language,
     timeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
     online: navigator.onLine,
   };

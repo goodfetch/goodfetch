@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import pytest
 from goodfetch_test_support.generated.result_document import (
@@ -32,6 +32,7 @@ class Vector(TypedDict):
     steps: list[str]
     checks: list[str]
     tasks: list[str | None]
+    test_errors: NotRequired[list[str]]
     outcome: str
 
 
@@ -65,6 +66,7 @@ def write(path: Path, vector: Vector) -> JourneyOutcome:
         tasks=[
             task(index, outcome) for index, outcome in enumerate(vector["tasks"], 1)
         ],
+        test_errors=vector.get("test_errors", []),
     )
 
 

@@ -261,12 +261,18 @@ pub(crate) fn orphans(root: &Path) -> Result<Vec<Finding>> {
         .collect())
 }
 
+/// The xtask tests' fixtures, this check's own cases among them, which set
+/// tolerances on purpose.
+const OWN_CASES: &str = "xtask/tests/it/fixtures";
+
 /// Every comparison tolerance set outside the shared visual config, in the
 /// files the suites run (fixtures and frozen `rnd/` aside), and every
 /// Reference screenshot over 512 KiB.
 pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
-    for file in tree::files(root, "")? {
+    // A fixture module a visual test imports can set a tolerance too, so
+    // fixtures folders are read, this check's own cases aside.
+    for file in tree::files_with_fixtures(root, "", &[OWN_CASES])? {
         let code = Path::new(&file)
             .extension()
             .and_then(|extension| extension.to_str())
@@ -277,7 +283,10 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
         let path = root.join(&file);
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
-        for (line, setting) in tolerance::settings(&text) {
+        let visual_test = Path::new(&file)
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().contains(".visual."));
+        for (line, setting) in tolerance::settings(&text, visual_test) {
             findings.push(Finding::new(
                 "tolerance-outside-shared-config",
                 format!("{file}:{line}"),

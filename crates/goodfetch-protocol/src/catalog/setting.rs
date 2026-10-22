@@ -8,7 +8,7 @@ use std::net::IpAddr;
 
 use serde_json::{Value, json};
 
-use crate::secrets::{REFERENCE_PATTERN, SecretReference};
+use crate::secret_reference::{REFERENCE_PATTERN, SecretReference};
 
 /// The kind of a Setting's values, as every layer writes them: JSON on the
 /// wire, the same nesting in a TOML file.

@@ -7,6 +7,14 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+# nextest starts each test straight from the runner, not through a stub copy
+# of `cargo-nextest` that then executes the test (its double-spawn): on macOS
+# under load, a test that starts no process at all kept its output pipes open
+# past the leak timeout through the stub and failed as leaky (TESTING.md,
+# Before merge). On Linux it makes no difference. The stub only guards
+# against a hang on Ctrl-Z.
+export NEXTEST_DOUBLE_SPAWN := "0"
+
 # In CI, test builds use the `ci-test` Cargo profile (ADR 0061).
 test_profile := if env("CI", "") != "" { "ci-test" } else { "test" }
 
@@ -654,7 +662,8 @@ quick *all:
 # the other steps, each in its own container, with their lines marked:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
 # projects in the pinned Playwright image, ADR 0073). The suite waits for
-# them and fails when one fails (ci/pre-merge.sh).
+# them and fails when one fails (ci/pre-merge.sh). `quick` runs only the
+# checks every change needs, for a change no test reads (ADR 0135).
 pre-merge *all:
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/pre-merge.sh {{ all }}
 
@@ -1032,7 +1041,9 @@ hooks:
 
 # Merges a pull request only when `just pre-merge all`, which starts with
 # `just quick all`'s lint and Quick suite, passes on its exact head, in a
-# clean checkout in the gate's own worktree (AGENTS.md, "Merging").
+# clean checkout in the gate's own worktree (AGENTS.md, "Merging"), or `just
+# pre-merge quick` when no test reads the change (`xtask affected`'s
+# `gate=quick`, ADR 0135).
 merge number:
     ci/merge-pr.sh {{ number }}
 

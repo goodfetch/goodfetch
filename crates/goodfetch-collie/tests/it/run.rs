@@ -169,3 +169,59 @@ fn a_run_past_a_short_run_timeout_stops_with_the_stop_reason_timeout() {
         )
     );
 }
+
+/// A Collie engine leaves the Politeness file's domain limits, which are
+/// Foxhound's, untouched (ADR 0098), and a Collie Run takes
+/// `politeness.sharing`, which also governs its proxies' limits (ADR 0088),
+/// marked in its result when not `shared`.
+///
+/// Covers: story:3-85, setting:politeness.sharing, format:politeness-file
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the Politeness file's bytes itself"
+)]
+fn a_collie_run_leaves_the_politeness_files_domain_limits_untouched() {
+    let env = TestEnv::new();
+    let file = env.home().join("politeness.sqlite");
+    Connection::open(&file)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE domain_limits (key TEXT NOT NULL PRIMARY KEY, ready_at INTEGER,
+                 backoffs INTEGER NOT NULL, ceiling INTEGER, ceiling_changed_at INTEGER,
+                 last_start INTEGER) STRICT;
+             INSERT INTO domain_limits VALUES ('shop.test', 1767603602000, 1, 2, 1767603600000, 1767603600000);",
+        )
+        .unwrap();
+    let before = std::fs::read(&file).unwrap();
+    let mut engine = Attached::start(&env);
+
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+    call(
+        &mut engine,
+        1,
+        "run.start",
+        &json!({ "run_id": "program", "settings": { "politeness": { "sharing": "per_daemon" } } }),
+    );
+    let report = call(
+        &mut engine,
+        2,
+        "run.finish",
+        &json!({ "run_id": "program" }),
+    );
+    let (_, exited) = engine.finish();
+
+    assert_eq!(
+        (
+            &report["result"]["weakened_by"],
+            exited,
+            std::fs::read(&file).unwrap() == before,
+        ),
+        (
+            &json!([{ "key": "politeness.sharing", "value": "per_daemon", "layer": "run" }]),
+            true,
+            true,
+        )
+    );
+}

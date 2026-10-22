@@ -21,7 +21,7 @@
 //! in the reply to its `hello`.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use goodfetch_protocol::catalog::{Product, Reach};
 use goodfetch_protocol::connection::{
@@ -129,6 +129,7 @@ pub(crate) async fn serve(
     let connection = Arc::new(ConnectionContext {
         identity: Arc::clone(&dispatch.identity),
         client,
+        surface: OnceLock::new(),
         runs,
         events,
         daemon,
@@ -142,7 +143,6 @@ pub(crate) async fn serve(
         in_flight: BTreeMap::new(),
         behind_gateway: false,
         opened: false,
-        surface: None,
         connection,
         requests,
         pending: BTreeMap::new(),
@@ -192,8 +192,6 @@ struct Session<'owner> {
     in_flight: BTreeMap<RequestId, InFlight>,
     behind_gateway: bool,
     opened: bool,
-    /// The surface the Connection's `hello` named.
-    surface: Option<Surface>,
     connection: Arc<ConnectionContext>,
     requests: mpsc::Receiver<Outgoing>,
     pending: BTreeMap<RequestId, Pending>,
@@ -404,7 +402,8 @@ impl Session<'_> {
             Ok((mut accepted, surface)) => {
                 record(HELLO, None);
                 self.opened = true;
-                self.surface = Some(surface);
+                // A Connection answers one `hello`: the first sets it.
+                let _ = self.connection.surface.set(surface);
                 self.opened_client = daemon.map(|daemon| daemon.opened(surface));
                 self.behind_gateway = accepted.behind_gateway;
                 if let Access::Attached(private_endpoint) = &self.access {
@@ -450,7 +449,10 @@ impl Session<'_> {
             ))
         } else if let Some(handler) = self.dispatch.handlers.get(method.as_str()) {
             if handler.operation().reach == Reach::PersonOnly
-                && !matches!(self.surface, Some(Surface::Cli | Surface::Console))
+                && !matches!(
+                    self.connection.surface.get(),
+                    Some(Surface::Cli | Surface::Console)
+                )
             {
                 Some(person_required(&method))
             } else {

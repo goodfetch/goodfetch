@@ -19,6 +19,17 @@ class CollieTypes(BaseModel):
     )
 
 
+class Acted(BaseModel):
+    """
+    What a locator action answers once its input landed on its target:
+    nothing, since no operation returns a handle on an element (ADR 0085).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class ArtifactKind(StrEnum):
     """
     What a Pinned artifact is (ADR 0098: the clean-up's rule covers every
@@ -38,6 +49,11 @@ class ArtifactKind(StrEnum):
     """A full Clean-up rules set (ADR 0047)."""
     mouse_movements = "mouse_movements"
     """Recorded mouse movements (ADR 0035)."""
+
+
+class Asked(RootModel[Literal[True]]):
+    root: Literal[True]
+    """The format, with its default options."""
 
 
 class Completeness(StrEnum):
@@ -212,6 +228,35 @@ class LimitStanding(StrEnum):
     """It cannot evaluate it: a newer engine wrote it."""
 
 
+class MainContent(StrEnum):
+    """Whether the extractor found the document's main content."""
+
+    found = "found"
+    """It found it."""
+    none = "none"
+    """
+    The document has none: the formats read from it are empty, a value
+    and never the whole page in its place.
+    """
+
+
+class MarkdownContent(StrEnum):
+    """How much of the page a Markdown format holds."""
+
+    main = "main"
+    """The main content the extractor finds, the default."""
+
+
+class MarkdownOptions(BaseModel):
+    """The options of the `markdown` format."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: MarkdownContent
+    """How much of the page it holds."""
+
+
 class PageBodyRead(BaseModel):
     """What `page.body` answers once it sent the last chunk."""
 
@@ -220,6 +265,29 @@ class PageBodyRead(BaseModel):
     )
     size: Annotated[int, Field(ge=0)]
     """The body's size in bytes."""
+
+
+class PageFormats(BaseModel):
+    """
+    What `page.formats` answers: the formats the request asked for, and
+    none it did not, with the document's URL, its base URL and whether it
+    has main content. Text is as the document holds it, never repaired.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    base_url: str
+    """
+    The URL its relative URLs resolve against: its first `<base href>`,
+    else its URL.
+    """
+    main_content: MainContent
+    """Whether it has main content."""
+    markdown: str | None = None
+    """Its content as Markdown, when the request asked for it."""
+    url: str
+    """The document's URL, after redirects."""
 
 
 class PageId(RootModel[str]):
@@ -528,6 +596,19 @@ class StopReason4(BaseModel):
         extra="allow",
     )
     kind: Literal["timeout"]
+
+
+class StopReason5(BaseModel):
+    """
+    Its foreground Daemon drained on `SIGTERM`: checkpointed and
+    stopped, to be resumed by its Run ID on the Daemon's next start
+    (ADR 0049).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["drain"]
 
 
 class StoppedBy(StrEnum):
@@ -905,6 +986,27 @@ class HelloResult(BaseModel):
     """The protocol version the engine speaks."""
 
 
+class Locator(BaseModel):
+    """
+    A locator (ADR 0085): what an action looks for on a page, resolved
+    again at each use, never a handle on an element. This tracer's locators
+    are CSS selectors.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page it looks on."""
+    selector: str
+    """A CSS selector, which also matches inside open shadow roots."""
+
+
+class MarkdownFormat(RootModel[Asked | MarkdownOptions]):
+    root: Asked | MarkdownOptions
+    """The `markdown` format of a request: `true`, or its options."""
+
+
 class Navigated(BaseModel):
     """
     What a navigation answers: the document's response, or none for a
@@ -970,6 +1072,24 @@ class Period(BaseModel):
     """How long it counts."""
     time_zone: str
     """The IANA time zone its midnights are in, such as `Europe/Paris`."""
+
+
+class PressParams(BaseModel):
+    """
+    What `locator.press` takes: the locator whose element gets the key, and
+    the key.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """
+    A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by
+    Playwright's key names.
+    """
+    locator: Locator
+    """The locator."""
 
 
 class ReachedLimit(BaseModel):
@@ -1153,7 +1273,7 @@ class StopReason1(BaseModel):
     kind: Literal["abort"]
 
 
-class StopReason5(BaseModel):
+class StopReason6(BaseModel):
     """
     It could not take another Slice of a Limit, and stopped at its next
     safe point, resumable once the period starts again or a person
@@ -1235,6 +1355,16 @@ class UsageSetParams(BaseModel):
     """The Usage kind it caps."""
 
 
+class ClickParams(BaseModel):
+    """What `locator.click` takes: the locator whose element it clicks."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    locator: Locator
+    """The locator."""
+
+
 class EventBatch(BaseModel):
     """
     What `$/events` carries: a batch of one subscription's events, in the
@@ -1248,6 +1378,35 @@ class EventBatch(BaseModel):
     """Its events."""
     id: RequestId
     """The id of the subscription's `events.subscribe` call."""
+
+
+class FillParams(BaseModel):
+    """
+    What `locator.fill` takes: the locator whose field it fills, and the
+    text.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    locator: Locator
+    """The locator."""
+    value: str
+    """The text the field holds afterwards; an empty text clears it."""
+
+
+class FormatsRequest(BaseModel):
+    """
+    The formats a `page.formats` call asks for, each `true` or its options:
+    one value, which a Record can carry and a Dataset's schema can be
+    generated from (ADR 0103). A format left out is left out of the result.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    markdown: MarkdownFormat | None = None
+    """The page's content as Markdown, with GFM's tables."""
 
 
 class Limit(BaseModel):
@@ -1348,7 +1507,7 @@ class SettingsExplanation(BaseModel):
     """Each setting, by key."""
 
 
-class StopReason6(BaseModel):
+class StopReason7(BaseModel):
     """
     A Limit flagged *must understand* that its engine cannot evaluate
     came to cover it when it charged, and it stopped at its next safe
@@ -1372,6 +1531,7 @@ class StopReason(
         | StopReason4
         | StopReason5
         | StopReason6
+        | StopReason7
     ]
 ):
     root: (
@@ -1381,6 +1541,7 @@ class StopReason(
         | StopReason4
         | StopReason5
         | StopReason6
+        | StopReason7
     )
     """
     Why a Run stopped (ADR 0102); the other causes join with the tickets that
@@ -1396,6 +1557,18 @@ class UsageListResult(BaseModel):
     )
     limits: list[LimitUsage]
     """Every Limit of the Usage ledger, by scope, with its Usage."""
+
+
+class FormatsParams(BaseModel):
+    """What `page.formats` takes: the page, and the formats it asks for."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    formats: FormatsRequest
+    """The formats."""
+    page_id: PageId
+    """The page."""
 
 
 class RunReport(BaseModel):

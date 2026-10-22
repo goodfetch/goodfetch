@@ -15,6 +15,7 @@ mod frontier;
 mod journeys;
 mod limits;
 mod outcomes;
+mod politeness;
 mod service_manager;
 mod workers;
 mod writer_lock;

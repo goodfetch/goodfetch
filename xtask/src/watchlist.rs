@@ -371,11 +371,32 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     Ok(ExitCode::SUCCESS)
 }
 
+/// The most characters of a listed name an issue shows.
+const SHOWN_NAME: usize = 64;
+
+/// A listed name as an issue shows it: only letters, digits, spaces and
+/// `.-_+&'`, so nothing from an unpinned checkout becomes live Markdown, a
+/// mention or a link, and at most [`SHOWN_NAME`] characters.
+fn shown(name: &str) -> String {
+    let kept: Vec<char> = name
+        .chars()
+        .filter(|character| {
+            character.is_alphanumeric()
+                || matches!(character, ' ' | '.' | '-' | '_' | '+' | '&' | '\'')
+        })
+        .collect();
+    let mut text: String = kept.iter().take(SHOWN_NAME).collect();
+    if kept.len() > SHOWN_NAME {
+        text.push('…');
+    }
+    text
+}
+
 fn title(vendor: &Missing) -> String {
     let name = vendor
         .listings
         .first()
-        .map_or(vendor.key.as_str(), |listed| listed.name.as_str());
+        .map_or_else(|| vendor.key.clone(), |listed| shown(&listed.name));
     format!("Block detection: no rule covers {name}, which a watchlist lists")
 }
 
@@ -388,7 +409,7 @@ fn body(vendor: &Missing) -> String {
             "- {} ({}) lists `{}`.",
             listed.watchlist.name(),
             listed.watchlist.license(),
-            listed.name
+            shown(&listed.name)
         );
     }
     format!(

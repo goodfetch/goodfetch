@@ -9,7 +9,8 @@ use std::path::{Path, PathBuf};
 use rstest::rstest;
 
 use super::{
-    Coverage, Listed, Missing, Watchlist, describes_bot_protection, missing, read_listed, unkeyed,
+    Coverage, Listed, Missing, Watchlist, body, describes_bot_protection, missing, read_listed,
+    title, unkeyed,
 };
 
 fn fixtures() -> PathBuf {
@@ -174,6 +175,52 @@ fn a_listed_name_with_no_letter_or_digit_is_reported() {
     ];
 
     assert_eq!(unkeyed(&listings), vec![&listings[1]]);
+}
+
+/// A name a watchlist lists reaches the issue as plain text: a backtick,
+/// mention, link or tag in it never becomes live Markdown, in the title or
+/// the body.
+#[test]
+fn a_listed_name_reaches_the_issue_as_plain_text() {
+    let vendor = Missing {
+        key: "evil".to_owned(),
+        listings: vec![listed(
+            Watchlist::AntibotDetector,
+            "Evil` @everyone [x](https://e.test) <b>",
+        )],
+    };
+
+    assert_eq!(
+        (
+            title(&vendor),
+            body(&vendor).lines().nth(2).map(str::to_owned)
+        ),
+        (
+            "Block detection: no rule covers Evil everyone xhttpse.test b, which a watchlist lists"
+                .to_owned(),
+            Some(
+                "- Scrapfly's Antibot-Detector (NPOSL-3.0) lists `Evil everyone xhttpse.test b`."
+                    .to_owned()
+            ),
+        )
+    );
+}
+
+/// A name past 64 characters is cut, so no listing fills an issue.
+#[test]
+fn a_long_listed_name_is_cut() {
+    let vendor = Missing {
+        key: "long".to_owned(),
+        listings: vec![listed(Watchlist::WebAppAnalyzer, &"Bot".repeat(30))],
+    };
+
+    assert_eq!(
+        title(&vendor),
+        format!(
+            "Block detection: no rule covers {}…, which a watchlist lists",
+            "Bot".repeat(21) + "B"
+        )
+    );
 }
 
 /// A vendor no rule covers yet that the lists spell differently is missing

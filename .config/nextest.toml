@@ -1,7 +1,10 @@
 # cargo-nextest's profiles (TESTING.md, No retries and Time budgets; ADRs 0061
 # and 0064). Every profile keeps zero retries with every lock on, fails leaky
 # tests and writes JUnit XML to `target/nextest/<profile>/junit.xml`.
-nextest-version = { required = "0.9.131" }
+# 0.9.148 is the first whose stress run (`just repeat`'s `--stress-count`)
+# fails when any run failed; before it, with fail-fast off, it exited with the
+# last run's code (nextest-rs/nextest#3624).
+nextest-version = { required = "0.9.148" }
 
 # The LazyFS power cuts (`lazyfs::` in an integration-test binary) run only in
 # the Release suite on Linux x64 (ADR 0060), where `just lazyfs-test` builds

@@ -325,3 +325,55 @@ fn oldest_quarantined_tests_are_the_ones_repeated() {
         ]
     );
 }
+
+/// A nextest test that fails on its second run only, so the last run passes.
+const FAILS_ON_ITS_SECOND_RUN: &str = r#"#[cfg(test)]
+mod tests {
+    #[test]
+    fn flaky() {
+        assert_ne!(std::env::var("NEXTEST_STRESS_CURRENT").as_deref(), Ok("1"));
+    }
+}
+"#;
+
+/// The gate's stress run of 2026-10-22: `just repeat 20` exited 0 with "19
+/// passed, 1 failed", since nextest before 0.9.148 gave a stress run the last
+/// run's exit code when fail-fast was off (nextest-rs/nextest#3624), so a
+/// failed run went unnoticed. `.config/nextest.toml` requires a nextest that
+/// counts every run.
+#[test]
+fn nextest_fails_when_one_run_of_a_repeated_test_fails() {
+    let workspace = Workspace::from_fixture("quarantine");
+    workspace.write("src/lib.rs", FAILS_ON_ITS_SECOND_RUN.as_bytes());
+    workspace.write(
+        ".config/nextest.toml",
+        b"[profile.default]\nfail-fast = false\n\n[profile.default.junit]\npath = \"junit.xml\"\n",
+    );
+    let outcome = workspace.xtask(&[
+        "repeat",
+        "--count",
+        "3",
+        "--test",
+        "nextest=sample tests::flaky",
+    ]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let arguments = invocations(&outcome.stdout).concat();
+
+    let status = workspace
+        .command("cargo")
+        .args(["nextest", "run"])
+        .args(&arguments)
+        .status()
+        .unwrap();
+
+    let report = workspace.read_text("target/nextest/default/junit.xml");
+    assert_eq!(
+        (
+            report.matches("<testcase ").count(),
+            report.matches("<failure").count()
+        ),
+        (3, 1),
+        "{report}"
+    );
+    assert!(!status.success(), "nextest exited with {status}");
+}

@@ -64,7 +64,7 @@ export interface Transport {
   open(listener: ConnectionListener): Connection;
 }
 
-/** What reads a page body, a screenshot or an Export by its handle. */
+/** What reads a page body, a screenshot or an Export by its handle, `<run_id>/<body>`. */
 export type BodyFetcher = (handle: string) => Promise<Uint8Array>;
 
 /** Whether the page is visible, as `document.visibilityState` says, and when that changes. */

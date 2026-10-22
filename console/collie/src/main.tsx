@@ -29,7 +29,7 @@ const signedIn = await signIn({
 const client = signedIn
   ? createConsoleClient({
       transport: webSocketTransport(protocolUrl(origin)),
-      bodyFetcher: httpBodyFetcher(origin),
+      bodyFetcher: httpBodyFetcher(origin, window.fetch.bind(window)),
       visibility: documentVisibility(document),
       product: "collie",
     })

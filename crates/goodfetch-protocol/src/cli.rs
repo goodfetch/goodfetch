@@ -38,9 +38,11 @@ pub struct CommandError {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub message: String,
     /// The operation the command called, by its canonical name, such as
-    /// `run.finish`.
+    /// `run.finish`; absent when the command failed before it could call
+    /// one, as `npx @goodfetch/collie` does when it finds no executable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub operation: String,
+    pub operation: Option<String>,
     /// The Error code's own details, such as `fix`.
     #[serde(flatten)]
     pub details: Map<String, Value>,

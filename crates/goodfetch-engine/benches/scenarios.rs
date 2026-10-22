@@ -5,12 +5,15 @@
 //! Goodfetch home made and removed outside the measured run, and
 //! writing a fixed number of rows through a run file's writer, queued
 //! together so they commit in one group, with SQLite's full sync, in a
-//! temporary folder (ADR 0071's run-state writes). Inputs are literals; no
-//! network, no sleep, no work whose amount depends on timing.
+//! temporary folder (ADR 0071's run-state writes), and judging a fixed batch
+//! of URLs under a domain policy of a thousand entries (spec #564's egress
+//! decision). Inputs are literals; no network, no sleep, no work whose
+//! amount depends on timing.
 
 use std::path::Path;
 
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::rpc::framing::{Frame, Framer, MAX_MESSAGE_BYTES, decode};
@@ -199,4 +202,46 @@ async fn join_all<F: Future>(futures: impl Iterator<Item = F>) -> Vec<F::Output>
         .into_iter()
         .map(|answer| answer.expect("invariant: every future answered"))
         .collect()
+}
+
+/// A domain policy of `entries` entries, nine in ten allowed and one in ten
+/// blocked, each a host of its own, and the URLs a run requests under it:
+/// for each tenth entry, an allowed host, a subdomain of it, the blocked
+/// host, a host no entry lists and an address in decimal.
+pub(crate) fn egress_policy(entries: usize) -> (Policy, Vec<String>) {
+    let host = |entry: usize| format!("site-{entry}.example.test");
+    let blocked: Vec<String> = (0..entries).step_by(10).map(host).collect();
+    let allowed: Vec<String> = (0..entries)
+        .filter(|entry| entry % 10 != 0)
+        .map(host)
+        .collect();
+    let policy = Policy::new(&allowed, &blocked)
+        .expect("invariant: every entry the scenario writes is a host");
+    let urls = (0..entries)
+        .step_by(10)
+        .flat_map(|entry| {
+            [
+                format!("https://{}/products?page=2", host(entry + 1)),
+                format!("https://www.shop.{}/cart", host(entry + 1)),
+                format!("https://{}/", host(entry)),
+                format!("https://unlisted-{entry}.example.test/"),
+                format!("http://{}/", 2_130_706_433 + entry),
+            ]
+        })
+        .collect();
+    (policy, urls)
+}
+
+/// Judges every URL of `urls` under `policy`, as requests of the engine's
+/// own HTTP client, and returns how many it allowed.
+pub(crate) fn judge_all(policy: &Policy, urls: &[String]) -> usize {
+    urls.iter()
+        .filter(|url| {
+            let request = Request {
+                url,
+                kind: RequestKind::Fetch,
+            };
+            matches!(judge(&request, policy), Judgment::Allowed(_))
+        })
+        .count()
 }

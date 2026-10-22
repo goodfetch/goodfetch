@@ -442,6 +442,12 @@ number = 4
 kind = "setting"
 prefix = "secrets."
 
+# Area 4's egress policy (#620): the Error code a refused request fails with.
+[[area]]
+number = 4
+kind = "error"
+prefix = "egress_"
+
 # Area 4's Secret references (#615): the Error codes a resolution fails
 # with.
 [[area]]

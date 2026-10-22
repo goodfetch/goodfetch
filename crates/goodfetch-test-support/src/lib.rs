@@ -162,8 +162,8 @@ pub use special_purpose::{
 };
 pub use sql_dump::sql_dump;
 pub use ssrf::{
-    Answer, CaseLookup, CoverageGap, CoverageGaps, EgressRule, Family, LetThrough, Miss, Outcome,
-    Redirect, Refusal, Route, SsrfCase, SsrfTable, SsrfTableError, run_cases,
+    Answer, CaseDomains, CaseLookup, CoverageGap, CoverageGaps, EgressRule, Family, LetThrough,
+    Miss, Outcome, Redirect, Refusal, Route, SsrfCase, SsrfTable, SsrfTableError, run_cases,
 };
 pub use strict_stdout::{
     Line, MESSAGE_DEADLINE, STDERR_GRACE, StrictStdout, StrictStdoutError, StrictStdoutErrorKind,

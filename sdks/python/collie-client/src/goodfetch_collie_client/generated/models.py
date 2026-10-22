@@ -250,6 +250,21 @@ class Enqueued1(BaseModel):
     """
 
 
+class ErrorData(BaseModel):
+    """
+    What a failure's `data` holds: its Error code, whether the same call may
+    succeed when made again, and the code's own details.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    """The Error code, or the name of the protocol failure."""
+    retryable: bool
+    """Whether the same call may succeed when made again."""
+
+
 class HttpBody(RootModel[str]):
     root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
     """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
@@ -710,6 +725,26 @@ class RecordingReport(BaseModel):
     """How many recorded responses it used."""
     written_by: str | None = None
     """The engine that wrote them."""
+
+
+class RequestFailed(BaseModel):
+    """
+    What `page.request_failed` reports: a request of the run that failed
+    while no call waited for it, such as one the egress policy refused.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    failure: ErrorData
+    """
+    Why it failed: the Error code a call waiting for it would have
+    raised, with its details, such as `egress_refused`.
+    """
+    method: str
+    """Its method, such as `GET`."""
+    url: str
+    """The request's URL, as the run gave it."""
 
 
 class RequestId(RootModel[int | str]):

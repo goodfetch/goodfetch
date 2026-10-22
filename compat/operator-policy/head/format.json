@@ -721,6 +721,20 @@
           "egress": {
             "additionalProperties": false,
             "properties": {
+              "allowed_domains": {
+                "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run. A request to a host it does not list fails with `egress_refused`.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "blocked_domains": {
+                "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run. A request to a host it lists fails with `egress_refused`.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
               "offline": {
                 "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
                 "type": "boolean"
@@ -1475,6 +1489,20 @@
           "egress": {
             "additionalProperties": false,
             "properties": {
+              "allowed_domains": {
+                "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run. A request to a host it does not list fails with `egress_refused`.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "blocked_domains": {
+                "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run. A request to a host it lists fails with `egress_refused`.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
               "offline": {
                 "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
                 "type": "boolean"

@@ -146,6 +146,14 @@ class DaemonDrainingError(UnavailableError):
         super().__init__(message, code="daemon_draining", group="unavailable", retryable=True)
 
 
+class EgressRefusedError(RefusedError):
+    """The run's egress policy refused a request before it connected: a host the domain policy does not allow, an address that is not globally reachable, or a scheme no request may use. The details name the URL, the rule, the address when there is one and the setting that would allow it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="egress_refused", group="refused", retryable=False)
+
+
 class EngineExitedError(UnavailableError):
     """The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr."""
 
@@ -486,6 +494,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "closed": ClosedError,
     "console_port_in_use": ConsolePortInUseError,
     "daemon_draining": DaemonDrainingError,
+    "egress_refused": EgressRefusedError,
     "engine_exited": EngineExitedError,
     "engine_not_found": EngineNotFoundError,
     "engine_output_invalid": EngineOutputInvalidError,

@@ -479,25 +479,9 @@ fn yes() -> Value {
     Value::Bool(true)
 }
 
-fn no() -> Value {
-    Value::Bool(false)
-}
-
 fn thirty_seconds() -> Value {
     json!(30_000)
 }
-
-/// `egress.offline` (ADR 0043's `offline`).
-pub const EGRESS_OFFLINE: Setting = Setting {
-    name: "egress.offline",
-    description: "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
-    kind: ValueKind::Boolean,
-    default: no,
-    clearable: false,
-    authority: Authority::Every,
-    weakens: None,
-    arrived_in: ARRIVED_IN,
-};
 
 /// `network.resolve` (ADR 0059).
 pub const NETWORK_RESOLVE: Setting = Setting {
@@ -728,7 +712,6 @@ pub const ENTRIES: Entries = Entries {
     plugin_kinds: &[],
     metrics: &[],
     settings: &[
-        EGRESS_OFFLINE,
         NETWORK_RESOLVE,
         TLS_TRUSTED_CAS,
         TLS_ACCEPT_INVALID_CERTS,

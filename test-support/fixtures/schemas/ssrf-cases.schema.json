@@ -16,6 +16,31 @@
       ],
       "description": "An address, or `public` for the layer's public stand-in."
     },
+    "CaseDomains": {
+      "additionalProperties": false,
+      "description": "The domain policy a case runs under (`egress.allowed_domains` and\n`egress.blocked_domains`).",
+      "properties": {
+        "allowed": {
+          "default": [
+            "*"
+          ],
+          "description": "The hosts allowed, each with its subdomains; `*` for every host,\nthe setting's default.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "blocked": {
+          "default": [],
+          "description": "The hosts blocked, each with its subdomains.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "CaseLookup": {
       "additionalProperties": false,
       "description": "A case's scripted DNS answer to one lookup.",
@@ -41,6 +66,11 @@
     "EgressRule": {
       "description": "The rule an `egress_refused` names.",
       "oneOf": [
+        {
+          "const": "domain_policy",
+          "description": "A host the domain policy does not allow, or blocks, or a request it\ncannot judge.",
+          "type": "string"
+        },
         {
           "const": "private_address",
           "description": "An address that is not globally reachable.",
@@ -99,6 +129,11 @@
         {
           "const": "lent_page_client",
           "description": "A Lent page's client trying a browser context with its own proxy, or\nan extension (ADR 0089).",
+          "type": "string"
+        },
+        {
+          "const": "domain_policy",
+          "description": "A host the run's domain policy refuses, in any spelling the URL\nparser accepts: one it does not allow, one it blocks.",
           "type": "string"
         }
       ]
@@ -310,6 +345,17 @@
             "null"
           ]
         },
+        "domains": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CaseDomains"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The domain policy the run requests `url` under, when the case sets\none; every host is allowed otherwise."
+        },
         "family": {
           "$ref": "#/$defs/Family",
           "description": "The family the case belongs to."
@@ -355,12 +401,15 @@
           "description": "The way the request leaves the run."
         },
         "target": {
-          "description": "The address no connection may reach, when the case has one.",
-          "format": "ip",
-          "type": [
-            "string",
-            "null"
-          ]
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Answer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The address no connection may reach, when the case has one: an\naddress, or `public` for the layer's public stand-in."
         },
         "url": {
           "description": "The URL the run requests.",

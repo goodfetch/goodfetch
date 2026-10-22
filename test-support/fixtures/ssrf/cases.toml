@@ -13,8 +13,10 @@
 #   layer's public stand-in (the Proving ground's address end to end);
 # - `redirect`, how the public stand-in answers `url`, when it redirects;
 # - `fetches`, how many times the run requests `url` (1 when absent);
-# - `target`, the address no connection may reach, and `block`, the IANA
-#   block it lies in;
+# - `domains`, the domain policy it runs under (`allowed`, `["*"]` when
+#   absent, and `blocked`), every host allowed when absent;
+# - `target`, the address no connection may reach (`public` for the
+#   public stand-in), and `block`, the IANA block it lies in;
 # - `refusal`, the typed refusal every layer gives.
 #
 # Host names are under `.test` (RFC 6761), so no case resolves outside its
@@ -851,3 +853,137 @@ url = "http://127.0.0.1/"
 route = { via = "extension" }
 target = "127.0.0.1"
 refusal = { code = "cdp_command_refused" }
+
+# The domain policy (ADRs 0014, 0100 and 0120): a host `egress.allowed_domains`
+# does not list, or `egress.blocked_domains` lists, in any spelling the URL
+# parser accepts, is refused before any lookup. Each name resolves to the
+# public stand-in, so only the policy stands between the run and its target.
+
+[[cases]]
+name = "host_not_allowed"
+family = "domain_policy"
+url = "http://elsewhere.test/offsite"
+domains = { allowed = ["scope.test"] }
+lookups = [{ name = "elsewhere.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "name_ending_in_an_allowed_host_without_a_dot"
+family = "domain_policy"
+url = "http://notscope.test/"
+domains = { allowed = ["scope.test"] }
+lookups = [{ name = "notscope.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "empty_allowed_list"
+family = "domain_policy"
+url = "http://scope.test/"
+domains = { allowed = [] }
+lookups = [{ name = "scope.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_subdomain_of_an_allowed_host"
+family = "domain_policy"
+url = "http://shop.scope.test/cart"
+domains = { allowed = ["scope.test"], blocked = ["shop.scope.test"] }
+lookups = [{ name = "shop.scope.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_host_under_every_host_allowed"
+family = "domain_policy"
+url = "http://elsewhere.test/offsite"
+domains = { blocked = ["elsewhere.test"] }
+lookups = [{ name = "elsewhere.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_host_in_capitals"
+family = "domain_policy"
+url = "http://ELSEWHERE.Test/offsite"
+domains = { blocked = ["elsewhere.test"] }
+lookups = [{ name = "elsewhere.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_host_with_a_trailing_dot"
+family = "domain_policy"
+url = "http://elsewhere.test./offsite"
+domains = { blocked = ["elsewhere.test"] }
+lookups = [{ name = "elsewhere.test.", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_host_with_a_percent_encoded_dot"
+family = "domain_policy"
+url = "http://elsewhere%2Etest/offsite"
+domains = { blocked = ["elsewhere.test"] }
+lookups = [{ name = "elsewhere.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_name_in_punycode"
+family = "domain_policy"
+url = "http://xn--bcher-kva.example.test/"
+domains = { blocked = ["bücher.example.test"] }
+lookups = [{ name = "xn--bcher-kva.example.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_name_in_unicode"
+family = "domain_policy"
+url = "http://bücher.example.test/"
+domains = { blocked = ["xn--bcher-kva.example.test"] }
+lookups = [{ name = "xn--bcher-kva.example.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_address_in_decimal"
+family = "domain_policy"
+url = "http://2130706433/"
+domains = { blocked = ["127.0.0.1"] }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_address_in_hexadecimal"
+family = "domain_policy"
+url = "http://0x7f000001/"
+domains = { blocked = ["127.0.0.1"] }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_address_in_octal_parts"
+family = "domain_policy"
+url = "http://0177.0.0.01/"
+domains = { blocked = ["127.0.0.1"] }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_address_written_in_decimal"
+family = "domain_policy"
+url = "http://127.0.0.1/"
+domains = { blocked = ["2130706433"] }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "url_that_does_not_parse"
+family = "domain_policy"
+url = "http://[::1/"
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }

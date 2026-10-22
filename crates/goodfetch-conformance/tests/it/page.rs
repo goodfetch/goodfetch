@@ -16,7 +16,7 @@ use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, TestEnv, Tool, browser_cach
 
 use crate::proving_ground::LocalCopy;
 
-/// Covers: story:5-61, story:5-23, story:5-24, story:5-26, story:5-56, story:5-11, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, error:navigation_failed, error:navigation_interrupted, story:6-1, story:6-8, story:6-12, operation:page.formats
+/// Covers: story:5-61, story:5-23, story:5-24, story:5-26, story:5-56, story:5-11, story:5-2, story:5-3, story:5-10, story:5-18, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, operation:locator.click, operation:locator.fill, operation:locator.press, error:navigation_failed, error:navigation_interrupted, story:6-1, story:6-8, story:6-12, operation:page.formats
 #[test]
 fn the_page_suite_is_proved_against_collies_attached_engine() {
     let env = TestEnv::new();
@@ -59,6 +59,8 @@ fn the_page_suite_is_proved_against_collies_attached_engine() {
                 ("navigation.failures", Outcome::Proved),
                 ("formats", Outcome::Proved),
                 ("launch", Outcome::Proved),
+                ("locators.guard", Outcome::Proved),
+                ("locators.input", Outcome::Proved),
             ],
             Some(Product::Collie),
         ),

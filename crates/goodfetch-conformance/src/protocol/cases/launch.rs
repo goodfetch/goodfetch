@@ -130,7 +130,7 @@ pub(super) fn headless_identity(
 ) -> Result<(), Gone> {
     let run_id = "conformance-headless-identity";
     let url = format!("http://{IDENTITY_HOST}:{}/identity", site.port);
-    start_run(connection, site, run_id, checks)?;
+    start_run(connection, site, run_id, &json!({}), checks)?;
     let loaded = open_at(connection, run_id, &url, checks)?;
     checks.check("the identity page loads", loaded);
     let reported = reports_once(site, "/identity", |seen| {
@@ -227,7 +227,7 @@ pub(super) fn background_timer(
     else {
         return Ok(());
     };
-    start_run(connection, site, run_id, checks)?;
+    start_run(connection, site, run_id, &json!({}), checks)?;
     let behind = open_at(connection, run_id, &format!("{origin}/timer"), checks)?;
     let front = open_at(connection, run_id, &front_url, checks)?;
     checks.check(

@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Checkpoint, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FormatsParams, GotoParams, LimitUsage, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
+from .models import Acted, Checkpoint, ClickParams, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, LimitUsage, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
 
 
 class AsyncCaller(Protocol):
@@ -63,6 +63,27 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return SubscriptionEnded.model_construct(**_fields(await self._caller.call("events.subscribe", params)))
+
+    async def locator_click(self, params: ClickParams) -> Acted:
+        """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(await self._caller.call("locator.click", params)))
+
+    async def locator_fill(self, params: FillParams) -> Acted:
+        """Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(await self._caller.call("locator.fill", params)))
+
+    async def locator_press(self, params: PressParams) -> Acted:
+        """Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(await self._caller.call("locator.press", params)))
 
     async def page_body(self, params: PageBodyParams) -> PageBodyRead:
         """Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.
@@ -216,6 +237,27 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return SubscriptionEnded.model_construct(**_fields(self._caller.call("events.subscribe", params)))
+
+    def locator_click(self, params: ClickParams) -> Acted:
+        """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(self._caller.call("locator.click", params)))
+
+    def locator_fill(self, params: FillParams) -> Acted:
+        """Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(self._caller.call("locator.fill", params)))
+
+    def locator_press(self, params: PressParams) -> Acted:
+        """Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(self._caller.call("locator.press", params)))
 
     def page_body(self, params: PageBodyParams) -> PageBodyRead:
         """Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.

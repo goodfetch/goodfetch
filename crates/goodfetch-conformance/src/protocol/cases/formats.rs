@@ -89,7 +89,7 @@ pub(super) fn markdown_matches_the_oracle(
     };
     let origin = origin_of(&index).to_owned();
     let run_id = "conformance-formats-markdown";
-    start_run(connection, site, run_id, checks)?;
+    start_run(connection, site, run_id, &json!({}), checks)?;
     if let Some(page) = new_page(connection, run_id, checks)? {
         let mut records = Vec::new();
         for path in &paths {
@@ -144,7 +144,7 @@ pub(super) fn a_format_not_named_is_left_out(
     };
     let url = format!("{}{path}", origin_of(&index));
     let run_id = "conformance-formats-envelope";
-    start_run(connection, site, run_id, checks)?;
+    start_run(connection, site, run_id, &json!({}), checks)?;
     if let Some(page) = new_page(connection, run_id, checks)? {
         goto(connection, &page.page_id, &url, checks)?;
         let read = formats(connection, &page.page_id, &json!({}))?;
@@ -173,7 +173,7 @@ pub(super) fn no_main_content_is_none(
     };
     let url = format!("{}{NO_MAIN_CONTENT}", origin_of(&index));
     let run_id = "conformance-formats-none";
-    start_run(connection, site, run_id, checks)?;
+    start_run(connection, site, run_id, &json!({}), checks)?;
     if let Some(page) = new_page(connection, run_id, checks)? {
         goto(connection, &page.page_id, &url, checks)?;
         let read = formats(connection, &page.page_id, &json!({ "markdown": true }))?;

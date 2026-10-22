@@ -60,6 +60,7 @@ signing = true
 
 [settings.timeout]
 run = 30000
+action = 30000
 navigation = 30000
 first_byte = 30000
 handler = 30000

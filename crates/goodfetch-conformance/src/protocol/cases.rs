@@ -5,8 +5,11 @@
 
 mod delivery;
 mod formats;
+mod guard;
 mod launch;
 mod navigation;
+
+use std::collections::BTreeMap;
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, ProtocolVersion};
 use goodfetch_protocol::connection::{
@@ -21,8 +24,7 @@ use goodfetch_protocol::result_document::{CaseCheck, OracleAnswer};
 use goodfetch_protocol::run::{RUN_FINISH, RUN_START};
 use serde_json::{Value, json};
 
-use std::collections::BTreeMap;
-
+use self::guard::Step;
 use super::connection::{Connection, Gone};
 use super::target::{DEADLINE, EngineTarget, START_DEADLINE};
 use crate::proving_ground::{ProvingGround, TaskList};
@@ -55,6 +57,13 @@ pub(crate) enum Case {
     NoMainContentIsNone,
     HeadlessIdentity,
     BackgroundTimer,
+    ClickWaitsOutACover,
+    TransientDuplicateIsWaitedOut,
+    LocatorSurvivesARerender,
+    TypedTextReachesAControlledField,
+    KeyReachesAField,
+    StillAmbiguous,
+    NeverActionable,
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -193,6 +202,21 @@ impl Case {
             }
             "a-headless-page-shows-the-site-its-windows-identity" => Self::HeadlessIdentity,
             "a-page-behind-another-keeps-its-timer-and-its-focus" => Self::BackgroundTimer,
+            "a-click-on-a-covered-target-lands-once-the-cover-leaves" => Self::ClickWaitsOutACover,
+            "an-ambiguous-target-that-becomes-unique-is-acted-on" => {
+                Self::TransientDuplicateIsWaitedOut
+            }
+            "a-locator-survives-a-re-render-that-replaces-its-element" => {
+                Self::LocatorSurvivesARerender
+            }
+            "typed-text-reaches-a-controlled-field-as-trusted-input" => {
+                Self::TypedTextReachesAControlledField
+            }
+            "a-pressed-key-reaches-a-field-as-a-trusted-key" => Self::KeyReachesAField,
+            "a-target-still-ambiguous-raises-target-not-unique" => Self::StillAmbiguous,
+            "a-target-never-actionable-raises-deadline-exceeded-naming-the-step" => {
+                Self::NeverActionable
+            }
             _ => return None,
         })
     }
@@ -261,6 +285,48 @@ impl Case {
             Self::NoMainContentIsNone => formats::no_main_content_is_none(connection, site, checks),
             Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
             Self::BackgroundTimer => launch::background_timer(connection, site, checks),
+            Self::ClickWaitsOutACover => guard::lands(
+                connection,
+                site,
+                "actionability/2",
+                "conformance-cover",
+                &[Step::Click("#target")],
+                checks,
+            ),
+            Self::TransientDuplicateIsWaitedOut => guard::lands(
+                connection,
+                site,
+                "actionability/27",
+                "conformance-transient-duplicate",
+                &[Step::Click("#target")],
+                checks,
+            ),
+            Self::LocatorSurvivesARerender => guard::lands(
+                connection,
+                site,
+                "actionability/6",
+                "conformance-rerender",
+                &[Step::Click("#target")],
+                checks,
+            ),
+            Self::TypedTextReachesAControlledField => guard::lands(
+                connection,
+                site,
+                "actionability/28",
+                "conformance-controlled-field",
+                &[Step::Fill("#name", "Goodfetch"), Step::Click("#save")],
+                checks,
+            ),
+            Self::KeyReachesAField => guard::lands(
+                connection,
+                site,
+                "actionability/15",
+                "conformance-key",
+                &[Step::Press("#field", "Enter")],
+                checks,
+            ),
+            Self::StillAmbiguous => guard::still_ambiguous(connection, site, checks),
+            Self::NeverActionable => guard::never_actionable(connection, site, checks),
         }
     }
 }
@@ -418,16 +484,20 @@ fn fabricated_hello(
     refused
 }
 
-/// Starts the Run `run_id`, its `network.resolve` mapping the site's hosts.
+/// Starts the Run `run_id` with `settings`, its `network.resolve` mapping
+/// the site's hosts.
 pub(crate) fn start_run(
     connection: &mut Connection,
     site: &Site,
     run_id: &str,
+    settings: &Value,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
+    let mut settings = settings.clone();
+    settings["network"] = json!({ "resolve": site.resolve });
     let id = connection.request(
         RUN_START.name,
-        &json!({ "run_id": run_id, "settings": { "network": { "resolve": site.resolve } } }),
+        &json!({ "run_id": run_id, "settings": settings }),
     )?;
     let answer = connection.answer(id)?.message;
     checks.check("the Run starts", answer.get("result").is_some());
@@ -468,7 +538,7 @@ fn default_session(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-default-session";
-    start_run(connection, site, run_id, checks)?;
+    start_run(connection, site, run_id, &json!({}), checks)?;
     let first = new_page(connection, run_id, checks)?;
     let second = new_page(connection, run_id, checks)?;
     if let (Some(first), Some(second)) = (first, second) {
@@ -491,7 +561,7 @@ fn goto(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result
     let Some(url) = site.page_url.clone() else {
         return Ok(());
     };
-    start_run(connection, site, run_id, checks)?;
+    start_run(connection, site, run_id, &json!({}), checks)?;
     if let Some(page) = new_page(connection, run_id, checks)? {
         let id = connection.request(
             PAGE_GOTO.name,

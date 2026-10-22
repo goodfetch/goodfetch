@@ -19,6 +19,17 @@ class CollieTypes(BaseModel):
     )
 
 
+class Acted(BaseModel):
+    """
+    What a locator action answers once its input landed on its target:
+    nothing, since no operation returns a handle on an element (ADR 0085).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class ArtifactKind(StrEnum):
     """
     What a Pinned artifact is (ADR 0098: the clean-up's rule covers every
@@ -975,6 +986,22 @@ class HelloResult(BaseModel):
     """The protocol version the engine speaks."""
 
 
+class Locator(BaseModel):
+    """
+    A locator (ADR 0085): what an action looks for on a page, resolved
+    again at each use, never a handle on an element. This tracer's locators
+    are CSS selectors.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page it looks on."""
+    selector: str
+    """A CSS selector, which also matches inside open shadow roots."""
+
+
 class MarkdownFormat(RootModel[Asked | MarkdownOptions]):
     root: Asked | MarkdownOptions
     """The `markdown` format of a request: `true`, or its options."""
@@ -1045,6 +1072,24 @@ class Period(BaseModel):
     """How long it counts."""
     time_zone: str
     """The IANA time zone its midnights are in, such as `Europe/Paris`."""
+
+
+class PressParams(BaseModel):
+    """
+    What `locator.press` takes: the locator whose element gets the key, and
+    the key.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """
+    A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by
+    Playwright's key names.
+    """
+    locator: Locator
+    """The locator."""
 
 
 class ReachedLimit(BaseModel):
@@ -1304,6 +1349,16 @@ class UsageSetParams(BaseModel):
     """The Usage kind it caps."""
 
 
+class ClickParams(BaseModel):
+    """What `locator.click` takes: the locator whose element it clicks."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    locator: Locator
+    """The locator."""
+
+
 class EventBatch(BaseModel):
     """
     What `$/events` carries: a batch of one subscription's events, in the
@@ -1317,6 +1372,21 @@ class EventBatch(BaseModel):
     """Its events."""
     id: RequestId
     """The id of the subscription's `events.subscribe` call."""
+
+
+class FillParams(BaseModel):
+    """
+    What `locator.fill` takes: the locator whose field it fills, and the
+    text.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    locator: Locator
+    """The locator."""
+    value: str
+    """The text the field holds afterwards; an empty text clears it."""
 
 
 class FormatsRequest(BaseModel):

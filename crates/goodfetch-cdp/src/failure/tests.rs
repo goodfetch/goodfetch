@@ -19,6 +19,9 @@ fn refusal(message: &str) -> Refusal {
 #[case::no_target("No target with given id found", Refusal::TargetGone)]
 #[case::detached("Not attached to an active page", Refusal::TargetGone)]
 #[case::invalid_url("Cannot navigate to invalid URL", Refusal::InvalidUrl)]
+#[case::context_unknown("Cannot find context with specified id", Refusal::ContextGone)]
+#[case::context_destroyed("Execution context was destroyed.", Refusal::ContextGone)]
+#[case::context_navigated("Inspected target navigated or closed", Refusal::ContextGone)]
 #[case::unknown("Something the table has never seen", Refusal::Unrecognized)]
 fn each_message_of_the_browser_becomes_its_refusal(
     #[case] message: &str,

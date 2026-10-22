@@ -631,6 +631,18 @@ pub const TIMEOUT_RUN: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `timeout.action` (ADRs 0019, 0080 and 0083), the guard's window.
+pub const TIMEOUT_ACTION: Setting = Setting {
+    name: "timeout.action",
+    description: "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `timeout.navigation` (ADRs 0080 and 0083).
 pub const TIMEOUT_NAVIGATION: Setting = Setting {
     name: "timeout.navigation",
@@ -695,6 +707,7 @@ pub const ENTRIES: Entries = Entries {
         SECRETS_BY_REFERENCE,
         WEBHOOK_SIGNING,
         TIMEOUT_RUN,
+        TIMEOUT_ACTION,
         TIMEOUT_NAVIGATION,
         TIMEOUT_FIRST_BYTE,
         ADMISSION_MAX_REQUESTS_PER_MINUTE,

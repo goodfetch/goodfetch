@@ -35,6 +35,10 @@ allowed_domains = ["example"]
 blocked_domains = ["example"]
 offline = true
 
+[settings.tls]
+trusted_cas = { "example.test" = ["example"] }
+accept_invalid_certs = { "example.test" = "example" }
+
 [settings.browser]
 headless = true
 
@@ -61,10 +65,6 @@ echo_repeats = 4
 
 [settings.network]
 resolve = { "example.test" = ["127.0.0.1"] }
-
-[settings.tls]
-trusted_cas = { "example.test" = ["example"] }
-accept_invalid_certs = { "example.test" = "example" }
 
 [settings.consent]
 domains = ["example"]
@@ -179,6 +179,10 @@ allowed_domains = ["example"]
 blocked_domains = ["example"]
 offline = true
 
+[lock.tls]
+trusted_cas = { "example.test" = ["example"] }
+accept_invalid_certs = { "example.test" = "example" }
+
 [lock.browser]
 headless = true
 
@@ -205,10 +209,6 @@ echo_repeats = 4
 
 [lock.network]
 resolve = { "example.test" = ["127.0.0.1"] }
-
-[lock.tls]
-trusted_cas = { "example.test" = ["example"] }
-accept_invalid_certs = { "example.test" = "example" }
 
 [lock.consent]
 domains = ["example"]

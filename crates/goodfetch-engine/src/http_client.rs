@@ -2,8 +2,11 @@
 //! the engine opens an outbound connection on the OS's network, which the
 //! Simulation never carries. It sends one HTTP or HTTPS request over
 //! HTTP/1.1 and streams the answer's body, the `resolve` setting applied before any
-//! lookup (ADR 0059), Mozilla's roots trusted beside the certificate
-//! authorities its caller adds. It adds no header of its own.
+//! lookup (ADR 0059), every certificate verified by [`tls`]'s per-host
+//! decision: Mozilla's roots, and the certificate authorities trusted for
+//! the host's domain (ADR 0042). A certificate that fails ends the request
+//! with `certificate_invalid` before anything is sent. It adds no header of
+//! its own.
 //!
 //! Every connection it opens races the host's addresses under RFC 8305
 //! ([`happy_eyeballs`], ADR 0118). [`connect`] is that step for the HTTP
@@ -13,9 +16,11 @@
 //!
 //! A request of the run, an address a page can reach, goes through
 //! [`PageTraffic`], which the Session's egress policy judges before any
-//! lookup or connection (ADRs 0014 and 0017): a refusal ends the call that
-//! waited for it with `egress_refused`, or, when no call waits, is a
-//! `page.request_failed` event in the Run trace.
+//! lookup or connection (ADRs 0014 and 0017), and whose host's every
+//! address it judges again before connecting, so the connection tries only
+//! addresses the resolved-address check let through: a refusal ends the
+//! call that waited for it with `egress_refused`, or, when no call waits,
+//! is a `page.request_failed` event in the Run trace.
 //!
 //! ADR 0043 allows only two kinds of caller beside a run's own requests:
 //! `pinned_download`, the one path for every connection nobody configured,
@@ -35,7 +40,7 @@ use http_body_util::{BodyExt as _, Empty};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, StatusCode};
 use hyper_util::rt::TokioIo;
-use rustls::pki_types::{CertificateDer, ServerName};
+use rustls::pki_types::ServerName;
 use url::Host;
 
 use crate::clock::Clock;
@@ -43,6 +48,7 @@ use crate::dns::{Dns, IpFamily, LookupError, Route, family_of};
 use crate::egress::{self, Judgment, Refused};
 use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
 use crate::run_trace::RequestLog;
+use crate::tls::{self, CertificateInvalid, Trust};
 
 #[cfg(test)]
 mod tests;
@@ -74,9 +80,8 @@ impl Resolve {
 pub(crate) struct Network<'a> {
     /// The `resolve` setting.
     pub(crate) resolve: &'a Resolve,
-    /// Certificate authorities trusted beside Mozilla's roots, such as those
-    /// of `tls.trusted_cas`.
-    pub(crate) trusted_certificates: &'a [CertificateDer<'static>],
+    /// What each host's certificate may chain to beside Mozilla's roots.
+    pub(crate) trust: &'a Trust,
     /// What the race waits on.
     pub(crate) clock: Clock,
     /// The race's delays.
@@ -215,9 +220,9 @@ pub struct PageTraffic {
     pub egress: egress::Policy,
     /// The `resolve` setting (ADR 0059).
     pub resolve: Resolve,
-    /// Certificate authorities trusted beside Mozilla's roots, such as those
-    /// of `tls.trusted_cas`.
-    pub trusted_certificates: Vec<CertificateDer<'static>>,
+    /// What each host's certificate may chain to beside Mozilla's roots:
+    /// the certificate authorities `tls.trusted_cas` lists for its domain.
+    pub trust: Trust,
     /// What the Happy Eyeballs race waits on (ADR 0118).
     pub clock: Clock,
     /// `resolver.resolution_delay` and `resolver.attempt_delay`.
@@ -250,9 +255,13 @@ pub enum FetchError {
 
 impl PageTraffic {
     /// Sends a GET for `url` once the egress policy allows it, and answers
-    /// its head; its body arrives through [`Response::chunk`]. A refusal
-    /// opens no connection and makes no lookup; when nobody waits for the
-    /// request, it is also recorded in the Run trace.
+    /// its head; its body arrives through [`Response::chunk`]. The policy
+    /// judges the request before any lookup, then every address its host
+    /// stands for (the `resolve` mapping's, its literal address or the
+    /// resolver's answers) before any connection, which tries only those
+    /// addresses (ADR 0017's resolved-address check). A refusal opens no
+    /// connection; when nobody waits for the request, it is also recorded
+    /// in the Run trace.
     ///
     /// # Errors
     ///
@@ -265,6 +274,7 @@ impl PageTraffic {
     ///
     /// Dropping the future closes any connection it opened.
     pub async fn get(&self, url: &str, waiter: Waiter<'_>) -> Result<Response, FetchError> {
+        let requested = url;
         let request = egress::Request {
             url,
             kind: egress::RequestKind::Fetch,
@@ -305,7 +315,7 @@ impl PageTraffic {
             .map_err(|_| FetchError::Failed(Failure::ServerName))?;
         let network = Network {
             resolve: &self.resolve,
-            trusted_certificates: &self.trusted_certificates,
+            trust: &self.trust,
             clock: self.clock,
             delays: self.delays,
         };
@@ -314,7 +324,16 @@ impl PageTraffic {
             port,
             plain,
         };
-        send(&server, request, &network)
+        let found = addresses(&server, &self.resolve)
+            .await
+            .map_err(FetchError::Failed)?;
+        if let Err(refused) = egress::judge_addresses(requested, &found, &self.egress) {
+            if let Waiter::Nobody(log) = waiter {
+                record_unwaited(log, &refused).await;
+            }
+            return Err(FetchError::Refused(refused));
+        }
+        send_to(&server, &found, request, &network)
             .await
             .map_err(FetchError::Failed)
     }
@@ -340,6 +359,9 @@ pub enum Failure {
     ServerName,
     /// No answer, or a connection that broke.
     Network,
+    /// The host's certificate failed verification, so nothing was sent:
+    /// `certificate_invalid`.
+    CertificateInvalid(CertificateInvalid),
 }
 
 /// The task that drives one connection, plain or over TLS, until it ends.
@@ -423,8 +445,24 @@ pub(crate) async fn send(
     request: Request<Empty<Bytes>>,
     network: &Network<'_>,
 ) -> Result<Response, Failure> {
+    let found = addresses(server, network.resolve).await?;
+    send_to(server, &found, request, network).await
+}
+
+/// Sends `request` to `server` at one of `found`, its addresses, over
+/// HTTPS unless the server is plain, and answers its head.
+///
+/// # Cancel safety
+///
+/// Dropping the future closes any connection it opened.
+async fn send_to(
+    server: &Server<'_>,
+    found: &[SocketAddr],
+    request: Request<Empty<Bytes>>,
+    network: &Network<'_>,
+) -> Result<Response, Failure> {
     let (mut sender, mut connection) = if server.plain {
-        let tcp = race_to(server, network).await?;
+        let tcp = race_to(server, found, network).await?;
         let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tcp))
             .await
             .map_err(|_| Failure::Network)?;
@@ -432,11 +470,14 @@ pub(crate) async fn send(
     } else {
         let server_name =
             ServerName::try_from(server.host.to_owned()).map_err(|_| Failure::ServerName)?;
-        let tcp = race_to(server, network).await?;
-        let tls = tokio_rustls::TlsConnector::from(Arc::new(tls_config(network)))
+        let tcp = race_to(server, found, network).await?;
+        let tls = tokio_rustls::TlsConnector::from(Arc::new(network.trust.client_config()))
             .connect(server_name, tcp)
             .await
-            .map_err(|_| Failure::Network)?;
+            .map_err(|error| {
+                tls::certificate_invalid(&error, server.host)
+                    .map_or(Failure::Network, Failure::CertificateInvalid)
+            })?;
         let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tls))
             .await
             .map_err(|_| Failure::Network)?;
@@ -472,14 +513,17 @@ pub(crate) async fn send(
     })
 }
 
-/// Connects to `server`'s addresses, both families answered at once,
-/// raced under RFC 8305.
-async fn race_to(server: &Server<'_>, network: &Network<'_>) -> Result<TcpStream, Failure> {
-    let found = addresses(server, network.resolve).await?;
+/// Connects to one of `found`, `server`'s addresses, both families
+/// answered at once, raced under RFC 8305: it tries no other address.
+async fn race_to(
+    server: &Server<'_>,
+    found: &[SocketAddr],
+    network: &Network<'_>,
+) -> Result<TcpStream, Failure> {
     let of = |family: IpFamily| -> Result<Vec<IpAddr>, LookupError> {
         Ok(found
             .iter()
-            .copied()
+            .map(SocketAddr::ip)
             .filter(|address| family_of(*address) == family)
             .collect())
     };
@@ -518,40 +562,23 @@ async fn attempt(address: SocketAddr, local: Option<IpAddr>) -> io::Result<TcpSt
     socket.connect(address).await
 }
 
-/// `server`'s addresses: the `resolve` mapping's, its literal address, or
-/// the system resolver's.
-async fn addresses(server: &Server<'_>, resolve: &Resolve) -> Result<Vec<IpAddr>, Failure> {
+/// `server`'s addresses on its port: the `resolve` mapping's, its literal
+/// address, or the system resolver's, each as the resolver gives it, its
+/// zone ID included.
+async fn addresses(server: &Server<'_>, resolve: &Resolve) -> Result<Vec<SocketAddr>, Failure> {
+    let on_port = |address: &IpAddr| SocketAddr::new(*address, server.port);
     if let Some(mapped) = resolve.addresses(server.host) {
-        return Ok(mapped.to_vec());
+        return Ok(mapped.iter().map(on_port).collect());
     }
     if let Ok(address) = server.host.parse::<IpAddr>() {
-        return Ok(vec![address]);
+        return Ok(vec![on_port(&address)]);
     }
-    let found: Vec<IpAddr> = tokio::net::lookup_host((server.host, server.port))
+    let found: Vec<SocketAddr> = tokio::net::lookup_host((server.host, server.port))
         .await
         .map_err(|_| Failure::Network)?
-        .map(|address| address.ip())
         .collect();
     if found.is_empty() {
         return Err(Failure::Network);
     }
     Ok(found)
-}
-
-fn tls_config(network: &Network<'_>) -> rustls::ClientConfig {
-    let mut roots = rustls::RootCertStore::empty();
-    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    for certificate in network.trusted_certificates {
-        // A certificate that is no CA certificate trusts nothing; it is the
-        // setting's to refuse, not the request's.
-        let _ = roots.add(certificate.clone());
-    }
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let mut config = rustls::ClientConfig::builder_with_provider(provider)
-        .with_safe_default_protocol_versions()
-        .expect("invariant: ring supports rustls's default protocol versions")
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-    config.alpn_protocols = vec![b"http/1.1".to_vec()];
-    config
 }

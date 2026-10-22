@@ -46,5 +46,7 @@ pub mod sample;
 pub mod secret_reference;
 pub mod secrets;
 pub mod settings;
+pub mod special_purpose;
+pub mod tls;
 pub mod usage;
 pub mod versions;

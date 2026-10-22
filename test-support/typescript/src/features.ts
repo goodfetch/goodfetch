@@ -95,21 +95,29 @@ export const COVERS = "covers";
 
 /**
  * Fails with `covers_unknown` when a `covers` annotation names no Feature of
- * `features`, or names none at all.
+ * the Playwright configuration's `metadata.features` (the inventory's IDs,
+ * `readFeatureIds`), or names none at all. A configuration that passes no
+ * list of IDs vouches for no annotation, so every `covers` annotation fails.
  */
 export function refuseUnknownCovers(
   annotations: readonly Annotation[],
-  features: readonly string[],
+  metadata: Readonly<Record<string, unknown>>,
 ): void {
-  const known = new Set(features);
+  const features = metadata["features"];
+  const listed =
+    Array.isArray(features) && features.every((feature) => typeof feature === "string");
+  const known = new Set<unknown>(listed ? features : []);
   const unknown = annotations
     .filter((annotation) => annotation.type === COVERS)
     .map((annotation) => annotation.description ?? "")
     .filter((feature) => !known.has(feature));
   if (unknown.length > 0) {
+    const where = listed
+      ? "the inventory does not list"
+      : "the Playwright configuration cannot check, since its `metadata.features` is no list of the inventory's IDs";
     throw new TestSupportError(
       "covers_unknown",
-      `the test's covers annotations name Features the inventory does not list: ${unknown.map((feature) => JSON.stringify(feature)).join(", ")}`,
+      `the test's covers annotations name Features ${where}: ${unknown.map((feature) => JSON.stringify(feature)).join(", ")}`,
     );
   }
 }

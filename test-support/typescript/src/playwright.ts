@@ -260,13 +260,7 @@ export const test: TestType<
     async ({}, use, testInfo) => {
       await use();
       // Checked after the body, so an annotation the test added is checked too.
-      const features: unknown = testInfo.config.metadata["features"];
-      if (Array.isArray(features)) {
-        refuseUnknownCovers(
-          testInfo.annotations,
-          features.filter((feature): feature is string => typeof feature === "string"),
-        );
-      }
+      refuseUnknownCovers(testInfo.annotations, testInfo.config.metadata);
     },
     { auto: true },
   ],

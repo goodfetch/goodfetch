@@ -187,19 +187,16 @@ impl<Own: Joined> Joining<Own> {
     pub fn call(self) -> Call {
         self.call
     }
-
-    /// The operations whose commands join the group.
-    fn joining() -> impl Iterator<Item = &'static Operation> {
-        commands().filter(|operation| {
-            namespace(operation) == Own::NAMESPACE
-                && !Own::has_subcommand(&spelled(member(operation)))
-        })
-    }
 }
+
+// Each generic function only passes `Own`'s namespace and own commands on
+// to one that is not: a generic one reading the catalog would copy its
+// tables into the executable's crate, about 700 more relocations for the
+// loader to apply at every start (ADR 0071's startup figure).
 
 impl<Own: Joined> Subcommand for Joining<Own> {
     fn augment_subcommands(group: Command) -> Command {
-        members_of(group, Self::joining())
+        joined_members(group, Own::NAMESPACE, Own::has_subcommand)
     }
 
     fn augment_subcommands_for_update(group: Command) -> Command {
@@ -207,16 +204,13 @@ impl<Own: Joined> Subcommand for Joining<Own> {
     }
 
     fn has_subcommand(name: &str) -> bool {
-        Self::joining().any(|operation| spelled(member(operation)) == name)
+        joins(Own::NAMESPACE, Own::has_subcommand, name)
     }
 }
 
 impl<Own: Joined> FromArgMatches for Joining<Own> {
     fn from_arg_matches(matches: &ArgMatches) -> Result<Self, clap::Error> {
-        let call = matches
-            .subcommand()
-            .filter(|(member, _)| Self::has_subcommand(member))
-            .and_then(|(member, matches)| call_in(Own::NAMESPACE, member, matches))
+        let call = joined_call(Own::NAMESPACE, Own::has_subcommand, matches)
             .ok_or_else(|| clap::Error::new(ErrorKind::MissingSubcommand))?;
         Ok(Self {
             call,
@@ -228,6 +222,44 @@ impl<Own: Joined> FromArgMatches for Joining<Own> {
         *self = Self::from_arg_matches(matches)?;
         Ok(())
     }
+}
+
+/// The operations of `namespace` whose commands join its hand-written
+/// group, whose own commands `own` names.
+fn joining(
+    namespace: &'static str,
+    own: fn(&str) -> bool,
+) -> impl Iterator<Item = &'static Operation> {
+    commands().filter(move |operation| {
+        self::namespace(operation) == namespace && !own(&spelled(member(operation)))
+    })
+}
+
+/// `group`, the hand-written group of `namespace` whose own commands `own`
+/// names, with the generated commands that join it.
+fn joined_members(group: Command, namespace: &'static str, own: fn(&str) -> bool) -> Command {
+    members_of(group, joining(namespace, own))
+}
+
+/// Whether `name` is a generated command that joins the hand-written group
+/// of `namespace`, whose own commands `own` names.
+fn joins(namespace: &'static str, own: fn(&str) -> bool, name: &str) -> bool {
+    joining(namespace, own).any(|operation| spelled(member(operation)) == name)
+}
+
+/// The call of the generated command that the parse `matches` of the
+/// hand-written group of `namespace`, whose own commands `own` names, asks
+/// for.
+fn joined_call(
+    namespace: &'static str,
+    own: fn(&str) -> bool,
+    matches: &ArgMatches,
+) -> Option<Call> {
+    let (member, matches) = matches.subcommand()?;
+    if !joins(namespace, own, member) {
+        return None;
+    }
+    call_in(namespace, member, matches)
 }
 
 /// How the CLI offers an operation.

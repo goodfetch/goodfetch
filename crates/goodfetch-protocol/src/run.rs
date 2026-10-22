@@ -216,8 +216,7 @@ pub const MAX_PROGRESS_MESSAGE_CHARACTERS: usize = 512;
 pub struct ProgressMessage(String);
 
 impl ProgressMessage {
-    /// Reads `text` as a progress message, `None` when it is longer than
-    /// [`MAX_PROGRESS_MESSAGE_CHARACTERS`] characters.
+    /// Reads `text` as a progress message, `None` when it is too long.
     pub fn parse(text: &str) -> Option<Self> {
         (text.chars().count() <= MAX_PROGRESS_MESSAGE_CHARACTERS).then(|| Self(text.to_owned()))
     }
@@ -592,7 +591,6 @@ pub const RUN_AXES_CHANGED: Event = Event {
 };
 
 /// A Run's progress as it is now (ADR 0102): what `run.progress` reports.
-/// The Run's progress ticket adds the rest of ADR 0102's `RunProgress`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RunProgress {
     /// The Run's ID.

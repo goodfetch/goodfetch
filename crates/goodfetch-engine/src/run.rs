@@ -568,7 +568,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
                 needs,
             };
             if let Some(driver) = context.runs().driver(kind) {
-                run.spawn(driver(run.clone(), context.client().clone(), settings));
+                run.spawn(driver(*run.clone(), context.client().clone(), settings));
             }
             started
         }

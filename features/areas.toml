@@ -409,7 +409,13 @@ prefix = "filter_lists."
 [[area]]
 number = 5
 kind = "setting"
-prefix = "session."
+prefix = "session.source"
+
+# A crawl's Session pool (#920, ADR 0088): its keys are area 6's.
+[[area]]
+number = 6
+kind = "setting"
+prefix = "session.pool."
 
 [[area]]
 number = 5

@@ -29,7 +29,7 @@ pub const OPERATIONS: &[&str] = &["crawl.serve", "crawl.start", "crawl_request.e
 pub const PLUGIN_KINDS: &[&str] = &["sample_page_filter"];
 
 /// The settings only Foxhound carries.
-pub const SETTINGS: &[&str] = &["crawl.domain_keys", "crawl.handler.concurrency", "crawl.retry.handler_failed", "crawl.retry.max", "crawl.sample_pages", "delivery.report_guarantee_class", "delivery.write_ids_and_epochs", "paid_fetch.chain_rpc_endpoints", "paid_fetch.domains", "paid_fetch.exchange_rates", "paid_fetch.max_price_per_page", "politeness.domain.concurrency", "politeness.domain.delay", "timeout.handler"];
+pub const SETTINGS: &[&str] = &["crawl.domain_keys", "crawl.handler.concurrency", "crawl.retry.handler_failed", "crawl.retry.max", "crawl.sample_pages", "delivery.report_guarantee_class", "delivery.write_ids_and_epochs", "paid_fetch.chain_rpc_endpoints", "paid_fetch.domains", "paid_fetch.exchange_rates", "paid_fetch.max_price_per_page", "politeness.domain.concurrency", "politeness.domain.delay", "session.pool.max_age", "session.pool.max_error_score", "session.pool.max_size", "session.pool.max_uses", "timeout.handler"];
 
 /// The shared type values only Foxhound carries.
 pub const SHARED_TYPE_VALUES: &[&str] = &["decoy", "paid_fetch", "partitioned_crawl", "sample_crawled_pages"];

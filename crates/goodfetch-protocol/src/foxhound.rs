@@ -3,12 +3,14 @@
 //! Its `sample` entries are samples until the crawl areas define the real
 //! ones; `crawl` holds a crawl's start and the exchange that serves its work
 //! items, `frontier` what its Frontier answers each seed and enqueue, and
-//! `outcomes` the reads of how its requests ended.
+//! `outcomes` the reads of how its requests ended, and `session_pool` the
+//! Session of its Session pool that serves each attempt.
 
 pub mod block;
 pub mod crawl;
 pub mod frontier;
 pub mod outcomes;
+pub mod session_pool;
 pub mod settings;
 pub mod usage;
 

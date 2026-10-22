@@ -24,6 +24,18 @@ CREATE TABLE outcomes (
             attempts INTEGER NOT NULL,
             outcome TEXT NOT NULL
         ) STRICT;
+CREATE TABLE pool_sessions (
+            position INTEGER NOT NULL PRIMARY KEY,
+            proxy_tier TEXT NOT NULL,
+            opened_at INTEGER NOT NULL,
+            uses INTEGER NOT NULL,
+            error_score REAL NOT NULL,
+            retired_because TEXT
+        ) STRICT;
+CREATE TABLE pool_tiers (
+            domain_key TEXT NOT NULL PRIMARY KEY,
+            proxy_tier TEXT NOT NULL
+        ) STRICT;
 CREATE TABLE records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
@@ -86,6 +98,8 @@ CREATE TABLE work_items (
             forefront INTEGER
         ) STRICT;
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
+CREATE INDEX pool_sessions_open ON pool_sessions (position)
+            WHERE retired_because IS NULL;
 CREATE INDEX work_items_by_domain
             ON work_items (status, domain_key, forefront DESC, priority DESC, position);
 CREATE INDEX work_items_by_status ON work_items (status, position);

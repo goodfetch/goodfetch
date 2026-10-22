@@ -21,6 +21,7 @@ goodfetch-crawl.workspace = true
 goodfetch-frontier.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
+goodfetch-session-pool.workspace = true
 mimalloc = { workspace = true, optional = true }
 
 [dev-dependencies]

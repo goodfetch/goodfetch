@@ -113,14 +113,16 @@ fn a_seed_added_to_a_running_crawl_is_committed_at_once_and_answered_as_an_enque
         ),
     ];
     serve_until(&mut engine, &mut handler, || pages.borrow().len() == 2);
-    let handled_while_running = pages.borrow().clone();
+    let mut handled_while_running = pages.borrow().clone();
+    handled_while_running.sort_by_key(Value::to_string);
     let report = engine.call(
         "finish",
         "run.finish",
         &json!({ "run_id": "adding" }),
         &mut handler,
     );
-    let outcomes = outcomes(&mut engine, "adding");
+    let mut outcomes = outcomes(&mut engine, "adding");
+    outcomes.sort_by_key(|(url, _)| url.to_string());
     assert!(engine.finish());
 
     assert_eq!(

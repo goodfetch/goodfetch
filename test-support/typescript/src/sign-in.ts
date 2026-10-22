@@ -34,7 +34,10 @@ export async function signInTo(
     withLink: async (page) => {
       const link = await daemon.signInLink();
       await page.goto(link);
-      await expectSignedIn(page, daemon, `the Console did not sign in through its link ${link}`);
+      // A link that carries its token in the fragment is signed in once
+      // the page has swapped it and taken it out of the address.
+      await page.waitForURL((url) => url.hash === "");
+      await expectSignedIn(page, daemon, "the Console did not sign in through its link");
     },
     withOidc: async (page, person = OIDC_PERSON) => {
       await page.goto(daemon.singleSignOn);

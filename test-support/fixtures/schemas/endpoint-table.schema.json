@@ -82,6 +82,11 @@
           "const": "exposed_daemon",
           "description": "An Exposed Daemon's address, reached with newline-delimited\nJSON-RPC over TCP (ADR 0049).",
           "type": "string"
+        },
+        {
+          "const": "console",
+          "description": "The Console's WebSocket on its own origin, whose handshake carries\na sign-in's cookie and the Console's `Host` and `Origin` (ADRs\n0024, 0031 and 0067).",
+          "type": "string"
         }
       ]
     },

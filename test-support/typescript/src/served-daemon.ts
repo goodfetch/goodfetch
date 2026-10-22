@@ -6,9 +6,11 @@
 //
 // The Console is served by a `ConsoleServer`, given the started Daemon and
 // the test's OIDC provider: by default `executableConsole`, the Console the
-// Daemon serves itself from its executable's Console build, which has no
-// sign-in yet (area 12), so a test of sign-in passes the server it stands
-// in for; without one, the fixture fails with `console_not_served`.
+// Daemon serves itself from its executable's Console build, whose sign-in
+// link the executable's `console` command gives (spec #592); it has no
+// single sign-on yet, so a test of one passes the server it stands in for.
+// Without a server, the fixture fails with `console_not_served`.
+import { daemonCommand, type CliOutput } from "./daemon-command.ts";
 import { daemonOf, type DaemonDescription } from "./daemon.ts";
 import { TestSupportError } from "./errors.ts";
 import type { OidcClient } from "./oidc-provider.ts";
@@ -26,6 +28,8 @@ export interface ConsoleStart {
   readonly daemon: DaemonDescription;
   /** The test's OIDC provider, for the Console's single sign-on. */
   readonly oidc: OidcClient;
+  /** Runs the Daemon's executable with `args` in the test's home and cleared environment. */
+  cli(args: readonly string[]): Promise<CliOutput>;
 }
 
 /** A Console being served. */
@@ -51,21 +55,33 @@ export interface ConsoleServer {
   serve(start: ConsoleStart): Promise<ServedConsole>;
 }
 
-/** What the executable's Console answers a request for a sign-in link: it has none yet (area 12). */
-function noSignIn(): never {
-  throw new TestSupportError(
-    "console_not_served",
-    "the executable's Console has no sign-in yet (area 12): pass a `consoleServer` that has one",
-  );
+/** The sign-in link `console --json --no-browser` prints, which opens no browser. */
+async function signInLinkOf(start: ConsoleStart): Promise<string> {
+  const output = await start.cli(["console", "--json", "--no-browser"]);
+  let url: unknown;
+  try {
+    const opened: unknown = JSON.parse(output.stdout);
+    url = typeof opened === "object" && opened !== null && "url" in opened ? opened.url : undefined;
+  } catch {
+    url = undefined;
+  }
+  if (output.code !== 0 || typeof url !== "string") {
+    throw new TestSupportError(
+      "sign_in_failed",
+      `\`console --json\` gave no sign-in link (exit ${String(output.code)}): ${output.stderr}`,
+    );
+  }
+  return url;
 }
 
 /**
  * The Console the test's Daemon serves itself, from its executable's
- * Console build (ADR 0057), at the URL its runtime file reports. It has no
- * sign-in yet (area 12): asking for one fails with `console_not_served`.
+ * Console build (ADR 0057), at the URL its runtime file reports, its
+ * sign-in link the one the executable's `console` command prints.
  */
 export const executableConsole: ConsoleServer = {
-  serve: async ({ daemon }) => {
+  serve: async (start) => {
+    const { daemon } = start;
     const url = daemon.console;
     if (url === undefined || url === null) {
       throw new TestSupportError(
@@ -75,7 +91,7 @@ export const executableConsole: ConsoleServer = {
     }
     return {
       url,
-      signInLink: async () => noSignIn(),
+      signInLink: async () => signInLinkOf(start),
       singleSignOn: new URL("sso", url).href,
       session: new URL("session", url).href,
       close: async () => undefined,
@@ -130,7 +146,7 @@ export async function startServedDaemon(start: ServedDaemonStart): Promise<Start
   if (consoleServer === undefined) {
     throw new TestSupportError(
       "console_not_served",
-      "the executables serve no Console yet (area 12): pass the test's `consoleServer` with `test.use`",
+      "no `consoleServer` serves the test's Console: keep the default, the executable's own, or pass one with `test.use`",
     );
   }
   const testEnv = await startTestEnv({
@@ -141,6 +157,8 @@ export async function startServedDaemon(start: ServedDaemonStart): Promise<Start
     daemon: start.product,
   });
   const description = daemonOf(testEnv.description);
+  const executable = toolPath(testEnv.description.tools, start.product);
+  const env = testEnv.description.env;
   let served: ServedConsole;
   try {
     served = await consoleServer.serve({
@@ -148,6 +166,7 @@ export async function startServedDaemon(start: ServedDaemonStart): Promise<Start
       home: testEnv.description.home,
       daemon: description,
       oidc: start.oidc,
+      cli: async (args) => daemonCommand(start.processes, { executable, env }, args),
     });
   } catch (error) {
     await testEnv.close();
@@ -162,8 +181,8 @@ export async function startServedDaemon(start: ServedDaemonStart): Promise<Start
       url: url.href,
       port: Number(url.port),
       provingGround: testEnv.description.proving_ground,
-      executable: toolPath(testEnv.description.tools, start.product),
-      env: testEnv.description.env,
+      executable,
+      env,
       signInLink: () => served.signInLink(),
       singleSignOn: served.singleSignOn,
       session: served.session,

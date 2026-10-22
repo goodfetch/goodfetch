@@ -12,6 +12,7 @@ listeners.private_endpoint = { expect = "closed" }
 listeners.ops_listener = { expect = "status", status = 401 }
 listeners.daemon_websocket = { expect = "closed" }
 listeners.exposed_daemon = { expect = "closed" }
+listeners.console = { expect = "status", status = 401 }
 "#;
 
 #[test]
@@ -112,6 +113,20 @@ listeners.private_endpoint = { expect = "closed" }
     Rule::OriginMissing,
     ListenerKind::ExposedDaemon
 )]
+#[case::a_closed_connection_for_a_sign_in_cookie(
+    "token_wrong",
+    "console",
+    r#"{ expect = "closed" }"#,
+    Rule::TokenWrong,
+    ListenerKind::Console
+)]
+#[case::a_status_for_a_signed_in_websockets_first_message(
+    "hello_not_first",
+    "console",
+    r#"{ expect = "status", status = 400 }"#,
+    Rule::HelloNotFirst,
+    ListenerKind::Console
+)]
 #[case::a_refusal_rule_answering_with_a_status_only(
     "token_wrong",
     "ops_listener",
@@ -180,7 +195,7 @@ fn the_committed_table_meets_its_committed_schema() {
 #[test]
 fn the_committed_schema_refuses_a_listener_the_table_has_no_kind_for() {
     let table: serde_json::Value =
-        toml::from_str(&GOOD.replace("daemon_socket", "console")).unwrap();
+        toml::from_str(&GOOD.replace("daemon_socket", "mcp_listener")).unwrap();
 
     let valid = jsonschema::validator_for(&committed_schema())
         .unwrap()

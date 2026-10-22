@@ -56,6 +56,26 @@ pub enum Surface {
     Worker,
 }
 
+/// The form a Client's user writes names in (ADR 0099), which the engine
+/// renders the names and targets of its messages in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Form {
+    /// The TypeScript SDK, and Code mode.
+    Typescript,
+    /// The Python SDK.
+    Python,
+    /// A Rust program.
+    Rust,
+    /// The CLI.
+    Cli,
+    /// The MCP server and the Framework adapters.
+    Tool,
+    /// The catalog's own names: the Console, Integrations and the HTTP
+    /// listener.
+    Catalog,
+}
+
 impl Surface {
     /// Its name on the wire.
     pub fn as_str(self) -> &'static str {
@@ -188,6 +208,11 @@ pub struct HelloParams {
     /// The surface it comes from.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub surface: Surface,
+    /// The form its user writes names in (ADR 0099); none until each
+    /// surface names its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub form: Option<Form>,
     /// The Daemon's token; an Attached engine needs none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -466,6 +491,18 @@ pub const ENGINE_EXITED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A Connection to an engine that dropped while a call waited for its
+/// answer (ADRs 0031 and 0079), raised by the Client's own runtime, as the
+/// Console's, which then connects again.
+pub const CONNECTION_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "connection_lost",
+    description: "The Connection to the engine dropped before the call was answered, so whether it took effect is unknown. The Client connects again by itself; make the call again once it has, after checking that an Effect did not happen.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// What `engine_exited` details.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct EngineExitedDetails {
@@ -518,6 +555,7 @@ pub const ENTRIES: Entries = Entries {
         CLOSED,
         ENGINE_NOT_FOUND,
         ENGINE_EXITED,
+        CONNECTION_LOST,
         ENGINE_OUTPUT_INVALID,
         PERSON_REQUIRED,
     ],

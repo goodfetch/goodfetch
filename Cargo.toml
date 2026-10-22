@@ -57,6 +57,9 @@ markup5ever_rcdom = { version = "0.38.0", default-features = false }
 pulldown-cmark = { version = "0.13.4", default-features = false }
 # The OS generator that seeds `Entropy` in production (ADR 0059).
 getrandom = { version = "0.3.4", default-features = false }
+# The Feature scanner expands an rstest `#[files]` glob as rstest does
+# (xtask).
+glob = { version = "0.3.4", default-features = false }
 # The pinned Chromium's CDP bindings and the client's connection (spec #577).
 goodfetch-cdp = { path = "crates/goodfetch-cdp" }
 # Both executables' command line, which Foxhound's reaches without Collie's
@@ -224,6 +227,9 @@ http = { version = "1.5.0", default-features = false, features = ["std"] }
 prost = { version = "0.14.1", default-features = false, features = ["std"] }
 # Run IDs, from the Clock and Entropy (ADRs 0036 and 0059).
 ulid = { version = "3.0.0", default-features = false }
+# The Feature scanner keeps the characters rstest keeps in a case name
+# (xtask).
+unicode-ident = { version = "1.0.27", default-features = false }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }
 # The WHATWG URL Standard's parser, IDNA included: every URL a crawl's
 # Frontier meets (ADR 0120), and a URL glob resolved as Playwright resolves

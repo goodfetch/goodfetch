@@ -17,6 +17,7 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 
+use super::rstest_names;
 use crate::metadata;
 
 /// Where a test sits, read from its path (ADR 0075).
@@ -195,6 +196,10 @@ pub(crate) fn tests(cargo: &OsStr, root: &Path, packages: Option<&[&str]>) -> Re
             let context = Target {
                 root: &canonical_root,
                 package: &package.name,
+                manifest_dir: package
+                    .manifest_path
+                    .parent()
+                    .context("a manifest sits in a folder")?,
                 binary: &binary,
             };
             let source = &target.src_path;
@@ -227,6 +232,8 @@ fn binary_id(package: &str, target: &metadata::Target) -> Option<String> {
 struct Target<'a> {
     root: &'a Path,
     package: &'a str,
+    /// The package's folder, which an rstest `#[files]` glob is relative to.
+    manifest_dir: &'a Path,
     binary: &'a str,
 }
 
@@ -265,9 +272,7 @@ impl Target<'_> {
     ) -> Result<()> {
         for item in items {
             match item {
-                syn::Item::Fn(function) => {
-                    self.function(module, function, features, tests);
-                }
+                syn::Item::Fn(function) => self.function(module, function, features, tests)?,
                 syn::Item::Mod(child) => self.module(module, child, features, tests)?,
                 _ => {}
             }
@@ -321,17 +326,23 @@ impl Target<'_> {
         function: &syn::ItemFn,
         features: &[String],
         tests: &mut Vec<Test>,
-    ) {
+    ) -> Result<()> {
         let attributes = &function.attrs;
         if !is_test(attributes) {
-            return;
+            return Ok(());
         }
         let mut all = features.to_vec();
         all.extend(covers(attributes));
         let mut name = module.names.to_vec();
         name.push(function.sig.ident.to_string());
         let base = name.join("::");
-        let cases = cases(attributes);
+        let cases = rstest_names::suffixes(function, self.manifest_dir).with_context(|| {
+            format!(
+                "naming the cases of `{}` in {} as nextest does",
+                function.sig.ident,
+                module.path.display()
+            )
+        })?;
         let names: Vec<String> = if cases.is_empty() {
             vec![base]
         } else {
@@ -345,6 +356,7 @@ impl Target<'_> {
             path: path.clone(),
             features: all.clone(),
         }));
+        Ok(())
     }
 }
 
@@ -402,39 +414,6 @@ fn covers(attributes: &[syn::Attribute]) -> Vec<String> {
                 .filter(|feature| !feature.is_empty())
                 .map(str::to_owned)
                 .collect::<Vec<_>>()
-        })
-        .collect()
-}
-
-/// The names nextest gives an rstest test's cases: `case_<n>` or
-/// `case_<n>_<description>`, `n` from 1, padded to the count's digits.
-fn cases(attributes: &[syn::Attribute]) -> Vec<String> {
-    let descriptions: Vec<Option<String>> = attributes
-        .iter()
-        .filter_map(|attribute| {
-            let segments: Vec<String> = attribute
-                .path()
-                .segments
-                .iter()
-                .map(|segment| segment.ident.to_string())
-                .collect();
-            match segments.as_slice() {
-                [case] if case == "case" => Some(None),
-                [case, description] if case == "case" => Some(Some(description.clone())),
-                _ => None,
-            }
-        })
-        .collect();
-    let width = descriptions.len().to_string().len();
-    descriptions
-        .iter()
-        .enumerate()
-        .map(|(index, description)| {
-            let number = format!("{:0width$}", index + 1);
-            match description {
-                Some(description) => format!("case_{number}_{description}"),
-                None => format!("case_{number}"),
-            }
         })
         .collect()
 }

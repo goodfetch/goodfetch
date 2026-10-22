@@ -23,6 +23,7 @@ mod listed;
 mod page;
 mod report;
 mod row;
+mod rstest_names;
 mod scan;
 mod screen;
 mod story;

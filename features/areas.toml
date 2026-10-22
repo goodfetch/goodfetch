@@ -397,6 +397,22 @@ number = 5
 kind = "error"
 prefix = "pattern_unsupported"
 
+# A navigation's redirect loops, cut documents and downloads (#699).
+[[area]]
+number = 5
+kind = "error"
+prefix = "too_many_redirects"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "response_truncated"
+
+[[area]]
+number = 5
+kind = "event"
+prefix = "page."
+
 [[area]]
 number = 6
 kind = "setting"

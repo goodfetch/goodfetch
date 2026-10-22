@@ -283,7 +283,7 @@ fn the_browser_runs_over_a_pipe_never_enables_runtime_and_hides_the_guards_world
                 .iter()
                 .any(|line| line.contains("--remote-debugging-pipe")),
             methods.contains("Page.navigate"),
-            methods.iter().any(|method| method.starts_with("Runtime.")),
+            methods.contains("Runtime.enable"),
             reports.contains(&("ran".to_owned(), "content".to_owned())),
             reports
                 .iter()

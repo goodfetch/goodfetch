@@ -721,6 +721,17 @@
       ]
     },
     {
+      "id": "error:response_truncated",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:run_busy",
       "kind": "error",
       "area": 3,
@@ -874,6 +885,17 @@
       ]
     },
     {
+      "id": "error:too_many_redirects",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "event:browser_cache.download_progress",
       "kind": "event",
       "area": 3,
@@ -888,6 +910,17 @@
       "id": "event:events.resync",
       "kind": "event",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "event:page.download",
+      "kind": "event",
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [

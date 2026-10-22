@@ -321,6 +321,15 @@ export class ProtocolVersionUnsupportedError extends UnavailableError {
 }
 
 /**
+ * The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.
+ */
+export class ResponseTruncatedError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "response_truncated", group: "page", retryable: true });
+  }
+}
+
+/**
  * Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.
  */
 export class RunBusyError extends RefusedError {
@@ -437,6 +446,15 @@ export class SettingUnknownError extends ProgramError {
   }
 }
 
+/**
+ * The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain.
+ */
+export class TooManyRedirectsError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "too_many_redirects", group: "page", retryable: false });
+  }
+}
+
 /** The error class of each of Collie's Error codes. */
 export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   address_family_unavailable: AddressFamilyUnavailableError,
@@ -463,6 +481,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   page_crashed: PageCrashedError,
   pattern_unsupported: PatternUnsupportedError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
+  response_truncated: ResponseTruncatedError,
   run_busy: RunBusyError,
   run_conflict: RunConflictError,
   run_id_invalid: RunIdInvalidError,
@@ -476,4 +495,5 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   setting_locked: SettingLockedError,
   setting_not_applicable: SettingNotApplicableError,
   setting_unknown: SettingUnknownError,
+  too_many_redirects: TooManyRedirectsError,
 };

@@ -250,6 +250,14 @@ class ProtocolVersionUnsupportedError(UnavailableError):
         super().__init__(message, code="protocol_version_unsupported", group="unavailable", retryable=False)
 
 
+class ResponseTruncatedError(PageError):
+    """The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="response_truncated", group="page", retryable=True)
+
+
 class RunBusyError(RefusedError):
     """Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later."""
 
@@ -354,6 +362,14 @@ class SettingUnknownError(ProgramError):
         super().__init__(message, code="setting_unknown", group="program", retryable=False)
 
 
+class TooManyRedirectsError(PageError):
+    """The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="too_many_redirects", group="page", retryable=False)
+
+
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "address_family_unavailable": AddressFamilyUnavailableError,
     "artifact_download_failed": ArtifactDownloadFailedError,
@@ -379,6 +395,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "page_crashed": PageCrashedError,
     "pattern_unsupported": PatternUnsupportedError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
+    "response_truncated": ResponseTruncatedError,
     "run_busy": RunBusyError,
     "run_conflict": RunConflictError,
     "run_id_invalid": RunIdInvalidError,
@@ -392,5 +409,6 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "setting_locked": SettingLockedError,
     "setting_not_applicable": SettingNotApplicableError,
     "setting_unknown": SettingUnknownError,
+    "too_many_redirects": TooManyRedirectsError,
 }
 """The exception class of each Error code."""

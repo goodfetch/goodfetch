@@ -10,11 +10,12 @@ from typing import Final
 
 from pydantic import BaseModel
 
-from .models import DownloadProgress, Resync, RunAborting, RunAxes, RunCheckpointing, RunMigrating, RunStopping, SampleEchoed
+from .models import DownloadProgress, PageDownload, Resync, RunAborting, RunAxes, RunCheckpointing, RunMigrating, RunStopping, SampleEchoed
 
 EVENTS: Final[Mapping[str, type[BaseModel]]] = {
     "browser_cache.download_progress": DownloadProgress,
     "events.resync": Resync,
+    "page.download": PageDownload,
     "run.aborting": RunAborting,
     "run.axes_changed": RunAxes,
     "run.checkpointing": RunCheckpointing,
@@ -26,6 +27,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 
 - `browser_cache.download_progress`: A Pinned artifact the call needs is downloading into the Browser cache: the bytes received so far, out of those announced.
 - `events.resync`: The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, from which the stream continues.
+- `page.download`: A navigation of the page reached a file the browser downloads instead of showing, such as a PDF: the navigation answers no response and the page keeps its document. Names the page, the file's URL and the name the browser suggests.
 - `run.aborting`: A Run is being aborted: it stops at its next safe point. Lossless.
 - `run.axes_changed`: A Run's Lifecycle, Verdict or Completeness changed: it started running, or it ended. Lossless: while a subscriber's queue is full, the Run waits.
 - `run.checkpointing`: A Checkpoint of a Run is being written: on `run.checkpoint`, a pause, a migration, a clean stop or the periodic `checkpoint.interval`. Lossless.
@@ -36,6 +38,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 
 EXPERIMENTAL_EVENTS: Final[frozenset[str]] = frozenset({
     "events.resync",
+    "page.download",
     "run.aborting",
     "run.axes_changed",
     "run.checkpointing",

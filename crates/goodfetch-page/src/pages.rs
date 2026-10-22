@@ -2,27 +2,29 @@
 //! each live Run's default Session, opened by its first `run.new_page` and
 //! shared by every later one, and each open page by its ID. A Run's pages
 //! and Session leave with it: when it stops, its browser closes and its
-//! entries go.
+//! entries go. A navigation the browser turns into a download answers no
+//! response and publishes `page.download` on the engine's event stream.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_engine::browser_cache::{PinnedArtifact, Pins};
+use goodfetch_engine::events::Events;
 use goodfetch_engine::runs::{Run, RunError};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::{
-    GotoParams, Navigated, NewPageParams, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD,
-    PageId, PageOpened, PageParams, RUN_NEW_PAGE, SessionId,
+    GotoParams, Navigated, NewPageParams, PAGE_DOWNLOAD, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO,
+    PAGE_RELOAD, PageDownload, PageId, PageOpened, PageParams, RUN_NEW_PAGE, SessionId, WaitUntil,
 };
 use goodfetch_protocol::run::{RUN_NOT_FOUND, RunDetails, RunId};
 use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use serde_json::json;
 use tokio::sync::Mutex;
 
-use crate::driver::{Destination, LocalBrowser, PageDriver, SessionDriver};
+use crate::driver::{Arrived, Destination, LocalBrowser, PageDriver, SessionDriver};
 
 /// A navigation's deadline when the Run's settings name none: 30 s.
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
@@ -48,34 +50,66 @@ pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
         ))
         .with_handler(Handler::new(
             &PAGE_GOTO,
-            move |params: GotoParams, _context: CallContext| {
+            move |params: GotoParams, context: CallContext| {
                 let pages = going.clone();
                 async move {
                     pages
-                        .navigate(&params.page_id, Destination::Url(&params.url))
+                        .navigate(
+                            &params.page_id,
+                            Destination::Url(&params.url),
+                            params.wait_until.unwrap_or_default(),
+                            context.events(),
+                        )
                         .await
                 }
             },
         ))
         .with_handler(Handler::new(
             &PAGE_RELOAD,
-            move |params: PageParams, _context: CallContext| {
+            move |params: PageParams, context: CallContext| {
                 let pages = reloading.clone();
-                async move { pages.navigate(&params.page_id, Destination::Reload).await }
+                async move {
+                    pages
+                        .navigate(
+                            &params.page_id,
+                            Destination::Reload,
+                            WaitUntil::Load,
+                            context.events(),
+                        )
+                        .await
+                }
             },
         ))
         .with_handler(Handler::new(
             &PAGE_GO_BACK,
-            move |params: PageParams, _context: CallContext| {
+            move |params: PageParams, context: CallContext| {
                 let pages = going_back.clone();
-                async move { pages.navigate(&params.page_id, Destination::Back).await }
+                async move {
+                    pages
+                        .navigate(
+                            &params.page_id,
+                            Destination::Back,
+                            WaitUntil::Load,
+                            context.events(),
+                        )
+                        .await
+                }
             },
         ))
         .with_handler(Handler::new(
             &PAGE_GO_FORWARD,
-            move |params: PageParams, _context: CallContext| {
+            move |params: PageParams, context: CallContext| {
                 let pages = pages.clone();
-                async move { pages.navigate(&params.page_id, Destination::Forward).await }
+                async move {
+                    pages
+                        .navigate(
+                            &params.page_id,
+                            Destination::Forward,
+                            WaitUntil::Load,
+                            context.events(),
+                        )
+                        .await
+                }
             },
         ))
 }
@@ -176,11 +210,15 @@ impl Pages {
         opened
     }
 
-    /// Navigates the page `page_id` to `destination`.
+    /// Navigates the page `page_id` to `destination`, answering once its
+    /// document reached the state `wait_until` names; a download it turns
+    /// into is published on `events`.
     async fn navigate(
         &self,
         page_id: &PageId,
         destination: Destination<'_>,
+        wait_until: WaitUntil,
+        events: &Events,
     ) -> Result<Navigated, CallError> {
         let page = self
             .state
@@ -196,8 +234,26 @@ impl Pages {
                     &json!({ "page_id": page_id }),
                 )
             })?;
-        let response = page.driver.navigate(destination).await?;
-        Ok(Navigated { response })
+        match page.driver.navigate(destination, wait_until).await? {
+            Arrived::Document(response) => Ok(Navigated { response }),
+            Arrived::Download {
+                url,
+                suggested_filename,
+            } => {
+                events
+                    .publish(
+                        &PAGE_DOWNLOAD,
+                        Some(&page_id.0),
+                        &PageDownload {
+                            page_id: page_id.clone(),
+                            url,
+                            suggested_filename,
+                        },
+                    )
+                    .await;
+                Ok(Navigated { response: None })
+            }
+        }
     }
 }
 

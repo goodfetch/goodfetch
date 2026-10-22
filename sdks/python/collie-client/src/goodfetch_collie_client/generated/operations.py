@@ -86,7 +86,7 @@ class AsyncCollieOperations:
         return Navigated.model_construct(**_fields(await self._caller.call("page.go_forward", params)))
 
     async def page_goto(self, params: GotoParams) -> Navigated:
-        """Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
+        """Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -218,7 +218,7 @@ class CollieOperations:
         return Navigated.model_construct(**_fields(self._caller.call("page.go_forward", params)))
 
     def page_goto(self, params: GotoParams) -> Navigated:
-        """Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
+        """Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """

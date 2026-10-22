@@ -17,8 +17,22 @@ import type { BrowserCommand, BrowserCommandContext } from "vitest/node";
 import type { BrowserState } from "./browser-state.ts";
 import { TestSupportError } from "./errors.ts";
 
-/** Each page's DevTools session, kept while it holds an override. */
-const overrides = new WeakMap<Page, CDPSession>();
+/** What the page reads of the state a DevTools session overrides. */
+interface Overridden {
+  readonly locale: string;
+  readonly language: string;
+  readonly timeZone: string;
+  readonly online: boolean;
+}
+
+/** Each page's DevTools session, kept while it holds an override, with what the page read before it. */
+const overrides = new WeakMap<
+  Page,
+  { readonly session: CDPSession; readonly before: Overridden }
+>();
+
+/** How long the reset waits for the page to read its state back. */
+const RESET_DEADLINE_MILLISECONDS = 10_000;
 
 /** A page's colour scheme and reduced motion, as `emulateMedia` takes them. */
 interface Media {
@@ -77,13 +91,45 @@ const browserStateReset: BrowserCommand = async (context) => {
     projectMedia.delete(page);
     await page.emulateMedia(media);
   }
-  const session = overrides.get(page);
-  if (session !== undefined) {
-    // Detaching the session lifts the overrides it set, and only those.
+  const kept = overrides.get(page);
+  if (kept !== undefined) {
+    // Detaching the session lifts the overrides it set, and only those, but
+    // the page reads them lifted only a moment later: wait until it reads
+    // what it read before them, or the next test would start in this one's
+    // state.
     overrides.delete(page);
-    await session.detach();
+    await kept.session.detach();
+    await readsBack(page, kept.before);
   }
 };
+
+/** What the page reads now of the state a DevTools session overrides. */
+async function overridden(page: Page): Promise<Overridden> {
+  return page.evaluate(() => ({
+    locale: new Intl.NumberFormat().resolvedOptions().locale,
+    language: navigator.language,
+    timeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
+    online: navigator.onLine,
+  }));
+}
+
+/** Waits until the page reads `before` again; `browser_state_not_reset` past the deadline. */
+async function readsBack(page: Page, before: Overridden): Promise<void> {
+  const deadline = Date.now() + RESET_DEADLINE_MILLISECONDS;
+  for (;;) {
+    const now = await overridden(page);
+    if (JSON.stringify(now) === JSON.stringify(before)) {
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw new TestSupportError(
+        "browser_state_not_reset",
+        `the page still reads ${JSON.stringify(now)}, not the project's ${JSON.stringify(before)}, ${RESET_DEADLINE_MILLISECONDS} ms after the reset`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
 
 /** The commands to register as the project's `browser.commands`. */
 export const browserCommands: {
@@ -118,7 +164,7 @@ function playwrightPage(context: BrowserCommandContext): Page {
 async function overrideSession(page: Page): Promise<CDPSession> {
   const kept = overrides.get(page);
   if (kept !== undefined) {
-    return kept;
+    return kept.session;
   }
   const browser = page.context().browser()?.browserType().name();
   if (browser !== "chromium") {
@@ -127,7 +173,8 @@ async function overrideSession(page: Page): Promise<CDPSession> {
       `a locale, time zone or online status is set per test only on Chromium; on ${browser ?? "this browser"}, set \`locale\`, \`timezoneId\` or \`offline\` in the project's provider context options`,
     );
   }
+  const before = await overridden(page);
   const session = await page.context().newCDPSession(page);
-  overrides.set(page, session);
+  overrides.set(page, { session, before });
   return session;
 }

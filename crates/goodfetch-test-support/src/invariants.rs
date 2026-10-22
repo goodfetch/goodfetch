@@ -65,7 +65,10 @@ impl<R: Serialize> fmt::Display for Violation<R> {
 /// Judges a log's delivery by Guarantee class. The log's `Fence`, `Write`,
 /// `Commit` and `Visible` records share one epoch sequence; a write is stale
 /// when a greater epoch was fenced before it. Visible records are judged in
-/// log order, then commits.
+/// log order, then commits. A visible copy no logged `Write` explains, as a
+/// real-process test logs a copy in a process it does not instrument, is
+/// explained by a logged `Commit` of its key and value, and is otherwise
+/// stale when its epoch is below the greatest epoch fenced.
 pub fn fencing<R: Serialize + Clone>(
     log: &ObservationLog<R>,
     class: GuaranteeClass,
@@ -80,6 +83,11 @@ pub fn fencing<R: Serialize + Clone>(
             .iter()
             .filter(|written| written.copy == shown.copy)
             .collect();
+        if sources.is_empty()
+            && let Some((kind, positions)) = unexplained(&delivery, shown, class)
+        {
+            return Err(violation(kind, positions));
+        }
         let stale = (!sources.is_empty()
             && sources.iter().all(|written| written.stale_since.is_some()))
         .then(|| sources[0]);
@@ -132,11 +140,52 @@ pub fn fencing<R: Serialize + Clone>(
     Ok(())
 }
 
+/// The violation, if any, of a visible copy no logged `Write` explains: a
+/// stale one under Fenced, or a stale one over a key a current copy wrote or
+/// a commit holds another value of under Record-fenced. A logged `Commit` of
+/// its key and value explains it.
+fn unexplained(
+    delivery: &Delivery<'_>,
+    shown: &Shown<'_>,
+    class: GuaranteeClass,
+) -> Option<(ViolationKind, Vec<usize>)> {
+    let committed = delivery
+        .committed
+        .iter()
+        .any(|committed| committed.key == shown.copy.key && committed.digest == shown.copy.digest);
+    let (fence, epoch) = delivery.greatest_fence?;
+    if committed || shown.copy.epoch >= epoch {
+        return None;
+    }
+    match class {
+        GuaranteeClass::Fenced => Some((
+            ViolationKind::StaleRecordVisible,
+            vec![fence, shown.position],
+        )),
+        GuaranteeClass::RecordFenced => delivery
+            .written
+            .iter()
+            .find(|other| other.copy.key == shown.copy.key && other.stale_since.is_none())
+            .map(|current| current.position)
+            .or_else(|| {
+                delivery
+                    .committed
+                    .iter()
+                    .find(|committed| committed.key == shown.copy.key)
+                    .map(|committed| committed.position)
+            })
+            .map(|current| (ViolationKind::StaleOverwrite, vec![current, shown.position])),
+        GuaranteeClass::Keyed | GuaranteeClass::AtLeastOnce => None,
+    }
+}
+
 /// A log's delivery records, read once.
 struct Delivery<'a> {
     written: Vec<Written<'a>>,
     committed: Vec<Committed<'a>>,
     visible: Vec<Shown<'a>>,
+    /// The position and epoch of the first fence of the greatest epoch.
+    greatest_fence: Option<(usize, Epoch)>,
 }
 
 /// One copy of a record: its epoch, key and digest.
@@ -171,6 +220,7 @@ impl<'a> Delivery<'a> {
             written: Vec::new(),
             committed: Vec::new(),
             visible: Vec::new(),
+            greatest_fence: None,
         };
         let mut current: Option<(usize, Epoch)> = None;
         for (position, record) in records.iter().enumerate() {
@@ -207,6 +257,7 @@ impl<'a> Delivery<'a> {
                 _ => {}
             }
         }
+        delivery.greatest_fence = current;
         delivery
     }
 }

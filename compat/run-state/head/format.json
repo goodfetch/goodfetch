@@ -47,6 +47,66 @@
           }
         ]
       },
+      "Limit": {
+        "description": "One Limit of the Usage ledger: a generic row, which a newer engine may\nwrite with a scope kind, a Usage kind, a currency or a period this one\ndoes not know (ADR 0041).",
+        "properties": {
+          "amount": {
+            "arrived_in": "0.1",
+            "description": "How much it allows per period: a count of the Usage kind, or\nmillionths of the currency.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "currency": {
+            "arrived_in": "0.1",
+            "description": "The currency it caps the Usage kind's price in, an ISO 4217 code;\nnone for a Limit on the Usage itself.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "must_understand": {
+            "arrived_in": "0.1",
+            "description": "Whether an engine that cannot evaluate it must refuse the runs it\ncannot place outside it, with `limit_not_understood`.",
+            "type": "boolean"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Period"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "The period it counts over; none for a Limit that never starts again,\nsuch as a Client connection's."
+          },
+          "scope": {
+            "$ref": "#/$defs/LimitScope",
+            "arrived_in": "0.1",
+            "description": "What it is on."
+          },
+          "set_by": {
+            "$ref": "#/$defs/LimitSetter",
+            "arrived_in": "0.1",
+            "description": "Who set it."
+          },
+          "usage_kind": {
+            "arrived_in": "0.1",
+            "description": "The Usage kind it caps, a value of a type both Products share.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "usage_kind",
+          "amount",
+          "must_understand",
+          "set_by"
+        ],
+        "type": "object"
+      },
       "LimitScope": {
         "description": "What a Limit is on: a scope kind, a value of a type both Products share\n(`install`, `daemon`, `person`, `token`, `connection`, and Foxhound's\n`partitioned_crawl`), and which one of its kind (ADR 0041). A kind this\nreader does not know is kept as it is.",
         "properties": {
@@ -66,6 +126,26 @@
           "id"
         ],
         "type": "object"
+      },
+      "LimitSetter": {
+        "description": "Who set a Limit, which decides whether it allows paying (ADR 0045).",
+        "oneOf": [
+          {
+            "const": "person",
+            "description": "A person, in the Console or an interactive CLI prompt.",
+            "type": "string"
+          },
+          {
+            "const": "managed_policy",
+            "description": "A managed Operator policy.",
+            "type": "string"
+          },
+          {
+            "const": "client",
+            "description": "A Client, which only adds a Limit of its own.",
+            "type": "string"
+          }
+        ]
       },
       "Period": {
         "description": "The period a Limit counts over, in an explicit IANA time zone, so that\nit never depends on the host's (ADR 0041).",
@@ -411,6 +491,25 @@
             },
             "required": [
               "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "A Limit flagged *must understand* that its engine cannot evaluate\ncame to cover it when it charged, and it stopped at its next safe\npoint, resumable by an engine that can (ADR 0041): the stop of the\nError code `limit_not_understood`.",
+            "properties": {
+              "kind": {
+                "const": "limit_not_understood",
+                "type": "string"
+              },
+              "limit": {
+                "$ref": "#/$defs/Limit",
+                "arrived_in": "0.1",
+                "description": "The Limit."
+              }
+            },
+            "required": [
+              "kind",
+              "limit"
             ],
             "type": "object"
           }

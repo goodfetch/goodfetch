@@ -16,6 +16,9 @@ max_unused_age = 30000
 resolution_delay = 30000
 attempt_delay = 30000
 
+[settings.browser]
+headless = true
+
 [settings.run_state]
 location = "example"
 
@@ -109,6 +112,9 @@ max_unused_age = 30000
 [lock.resolver]
 resolution_delay = 30000
 attempt_delay = 30000
+
+[lock.browser]
+headless = true
 
 [lock.run_state]
 location = "example"

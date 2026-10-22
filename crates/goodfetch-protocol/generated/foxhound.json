@@ -4417,6 +4417,23 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+      "name": "browser.headless",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "machine",
       "clearable": true,
       "default": 2592000000,

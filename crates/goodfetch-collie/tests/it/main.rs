@@ -22,6 +22,7 @@ mod help;
 mod human_output;
 mod invalid_calls;
 mod journeys;
+mod launch;
 #[cfg(target_os = "linux")]
 mod lazyfs;
 mod log;
@@ -33,4 +34,6 @@ mod service_manager;
 mod settings_flags;
 mod upgrade_files;
 mod usage;
+#[cfg(target_os = "linux")]
+mod virtual_display;
 mod writer_lock;

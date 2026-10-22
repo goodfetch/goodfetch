@@ -5,6 +5,7 @@
 
 mod delivery;
 mod formats;
+mod launch;
 mod navigation;
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, ProtocolVersion};
@@ -52,15 +53,20 @@ pub(crate) enum Case {
     MarkdownMatchesTheOracle,
     FormatNotNamedIsLeftOut,
     NoMainContentIsNone,
+    HeadlessIdentity,
+    BackgroundTimer,
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
-/// each task's start URL, the `resolve` mapping of its hosts to the Proving
-/// ground's address, and the Proving ground itself, whose time step a case
-/// may set and whose oracle a case may ask.
+/// each task's start URL, the origin of its access family, the port it
+/// serves on, the `resolve` mapping of its hosts to its address, and the
+/// Proving ground itself, whose time step a case may set, whose oracle a
+/// case may ask and whose own observations a case may read.
 pub(crate) struct Site {
     page_url: Option<String>,
     start_urls: BTreeMap<String, String>,
+    access_origin: Option<String>,
+    port: String,
     resolve: Value,
     proving_ground: ProvingGround,
 }
@@ -79,12 +85,29 @@ impl Site {
             .iter()
             .find(|task| task.family == "catalog")
             .map(|task| task.start_url.clone());
+        let access_origin = task_list
+            .tasks
+            .iter()
+            .find(|task| task.family == "access")
+            .and_then(|task| {
+                let rest = task.start_url.strip_prefix("http://")?;
+                let authority = rest.split('/').next()?;
+                Some(format!("http://{authority}"))
+            });
+        let port = address
+            .rsplit_once(':')
+            .map_or("80", |(_, port)| port)
+            .to_owned();
         let mut resolve = serde_json::Map::new();
         for task in &task_list.tasks {
             if let Some(host) = host_of(&task.start_url) {
                 resolve.insert(host.to_owned(), json!([ip]));
             }
         }
+        // The access family's secure host, which no task names: a browser
+        // would resolve it to every loopback address, the Proving ground's
+        // among them, and this keeps it on that one.
+        resolve.insert(launch::IDENTITY_HOST.to_owned(), json!([ip]));
         Self {
             page_url,
             start_urls: task_list
@@ -92,6 +115,8 @@ impl Site {
                 .iter()
                 .map(|task| (task.id.as_str().to_owned(), task.start_url.clone()))
                 .collect(),
+            access_origin,
+            port,
             resolve: Value::Object(resolve),
             proving_ground: proving_ground.clone(),
         }
@@ -166,6 +191,8 @@ impl Case {
             "a-page-with-no-main-content-answers-empty-markdown-and-none" => {
                 Self::NoMainContentIsNone
             }
+            "a-headless-page-shows-the-site-its-windows-identity" => Self::HeadlessIdentity,
+            "a-page-behind-another-keeps-its-timer-and-its-focus" => Self::BackgroundTimer,
             _ => return None,
         })
     }
@@ -232,6 +259,8 @@ impl Case {
                 formats::a_format_not_named_is_left_out(connection, site, checks)
             }
             Self::NoMainContentIsNone => formats::no_main_content_is_none(connection, site, checks),
+            Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
+            Self::BackgroundTimer => launch::background_timer(connection, site, checks),
         }
     }
 }
@@ -390,7 +419,7 @@ fn fabricated_hello(
 }
 
 /// Starts the Run `run_id`, its `network.resolve` mapping the site's hosts.
-fn start_run(
+pub(crate) fn start_run(
     connection: &mut Connection,
     site: &Site,
     run_id: &str,
@@ -406,7 +435,7 @@ fn start_run(
 }
 
 /// Opens a page of the Run `run_id`.
-fn new_page(
+pub(crate) fn new_page(
     connection: &mut Connection,
     run_id: &str,
     checks: &mut Checks,
@@ -426,7 +455,7 @@ fn new_page(
     Ok(opened)
 }
 
-fn finish_run(connection: &mut Connection, run_id: &str) -> Result<(), Gone> {
+pub(crate) fn finish_run(connection: &mut Connection, run_id: &str) -> Result<(), Gone> {
     let id = connection.request(RUN_FINISH.name, &json!({ "run_id": run_id }))?;
     connection.browser_answer(id)?;
     Ok(())

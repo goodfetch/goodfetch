@@ -409,6 +409,11 @@ number = 5
 kind = "setting"
 prefix = "paid_fetch."
 
+[[area]]
+number = 5
+kind = "setting"
+prefix = "browser."
+
 # Area 5, Site access (specs #576 to #579): a Run's pages, their navigations
 # and the Error codes of their browsers (#695, #698).
 [[area]]

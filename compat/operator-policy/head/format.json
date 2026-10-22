@@ -244,6 +244,16 @@
             },
             "type": "object"
           },
+          "browser": {
+            "additionalProperties": false,
+            "properties": {
+              "headless": {
+                "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
           "browser_cache": {
             "additionalProperties": false,
             "properties": {
@@ -718,6 +728,16 @@
                   }
                 ],
                 "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+              }
+            },
+            "type": "object"
+          },
+          "browser": {
+            "additionalProperties": false,
+            "properties": {
+              "headless": {
+                "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+                "type": "boolean"
               }
             },
             "type": "object"

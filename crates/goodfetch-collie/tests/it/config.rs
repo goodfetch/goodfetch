@@ -193,6 +193,60 @@ fn config_explain_shows_the_happy_eyeballs_delays() {
     );
 }
 
+/// `browser.headless` is Collie's, `true` by default, and `config explain`
+/// names the layer that set it: the default, then user configuration's
+/// `false` (spec #577).
+///
+/// Covers: story:5-56, command:config.explain, setting:browser.headless
+#[test]
+fn config_explain_shows_browser_headless_true_by_default_and_the_layer_that_set_it() {
+    let headless = |env: &TestEnv| {
+        let (stdout, _, succeeded) = explain(env, Mode::Attached, &["browser.headless", "--json"]);
+        assert!(succeeded, "{stdout}");
+        let output: Value = serde_json::from_str(&stdout).unwrap();
+        output["settings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|setting| {
+                json!([
+                    setting["key"],
+                    setting["value"],
+                    setting["layer"],
+                    setting["products"]
+                ])
+            })
+            .collect::<Vec<_>>()
+    };
+    let by_default = TestEnv::new();
+    let configured = TestEnv::new();
+    let major = configured.home().join("0.0");
+    fs::create_dir_all(&major).unwrap();
+    fs::write(
+        major.join("configuration.toml"),
+        "version = \"0.1\"\n\n[settings.browser]\nheadless = false\n",
+    )
+    .unwrap();
+
+    assert_eq!(
+        (headless(&by_default), headless(&configured)),
+        (
+            vec![json!([
+                "browser.headless",
+                true,
+                "default",
+                ["collie", "foxhound"]
+            ])],
+            vec![json!([
+                "browser.headless",
+                false,
+                "user_configuration",
+                ["collie", "foxhound"]
+            ])],
+        )
+    );
+}
+
 /// Covers: story:3-142, error:not_in_product
 #[test]
 fn a_foxhound_key_given_as_a_flag_is_not_in_product() {

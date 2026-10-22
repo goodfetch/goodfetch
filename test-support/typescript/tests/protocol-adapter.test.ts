@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect } from "vitest";
-import { test } from "@goodfetch/test-support";
+import { test, type ProcessRecord } from "@goodfetch/test-support";
 import {
   createProtocolAdapter,
   failure,
@@ -404,6 +404,28 @@ const vitest = join(
 );
 const fixture = fileURLToPath(new URL("fixtures/protocol-adapter/", import.meta.url));
 
+/** Runs the tests of the fixture project the pattern names in their own Vitest, and gives each one's `ran:` line. */
+async function runFixture(
+  processes: ProcessRecord,
+  pattern: string,
+  onTestFinished: (cleanup: () => Promise<void>) => void,
+): Promise<string[]> {
+  const output = await mkdtemp(join(tmpdir(), "goodfetch-protocol-adapter-"));
+  onTestFinished(() => rm(output, { recursive: true, force: true }));
+  const run = processes.spawn(
+    process.execPath,
+    [vitest, "run", "--config", "vitest.config.ts", "--root", ".", `--testNamePattern=${pattern}`],
+    { env: { ...process.env, GOODFETCH_FIXTURE_OUTPUT: output }, cwd: fixture },
+  );
+  let stdout = "";
+  run.child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  run.child.stderr.resume();
+  await run.exit;
+  return stdout.split("\n").filter((line) => line.startsWith("ran: "));
+}
+
 // Each case runs one test of the fixture project of fixtures/protocol-adapter/
 // in its own Vitest, and reads how it ended and the codes that failed it.
 describe("ProtocolAdapter failing the test", () => {
@@ -423,21 +445,26 @@ describe("ProtocolAdapter failing the test", () => {
       ran: "ran: a call answered as the bundle allows passed ",
     },
   ])("$name", async ({ name, ran }, { processes, onTestFinished }) => {
-    const output = await mkdtemp(join(tmpdir(), "goodfetch-protocol-adapter-"));
-    onTestFinished(() => rm(output, { recursive: true, force: true }));
-    const run = processes.spawn(
-      process.execPath,
-      [vitest, "run", "--config", "vitest.config.ts", "--root", ".", `--testNamePattern=^${name}$`],
-      { env: { ...process.env, GOODFETCH_FIXTURE_OUTPUT: output }, cwd: fixture },
+    const lines = await runFixture(processes, `^${name}$`, onTestFinished);
+
+    expect(lines).toEqual([ran]);
+  });
+});
+
+describe("ProtocolAdapter once its test ended", () => {
+  test("closes its Connections, so a late answer reaches no Client in the next test", async ({
+    processes,
+    onTestFinished,
+  }) => {
+    const lines = await runFixture(
+      processes,
+      "^(a test ending before its answer comes|the test after it)$",
+      onTestFinished,
     );
-    let stdout = "";
-    run.child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
-      stdout += chunk;
-    });
-    run.child.stderr.resume();
 
-    await run.exit;
-
-    expect(stdout.split("\n").filter((line) => line.startsWith("ran: "))).toEqual([ran]);
+    expect(lines).toEqual([
+      "ran: a test ending before its answer comes passed ",
+      "ran: the test after it passed ",
+    ]);
   });
 });

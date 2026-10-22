@@ -68,3 +68,28 @@ test("a call answered as the bundle allows", async () => {
 
   expect(received).toEqual(['{"jsonrpc":"2.0","id":1,"result":{"text":"hello hello"}}']);
 });
+
+/** What the first test's Client heard after its test ended. */
+const heardLate: string[] = [];
+
+test("a test ending before its answer comes", async () => {
+  const adapter = createProtocolAdapter();
+  adapter.answer("sample.echo", async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return { text: "late" };
+  });
+  const connection = adapter.transport.open({
+    message: (text) => heardLate.push(text),
+    close: () => heardLate.push("closed"),
+  });
+
+  connection.send(
+    JSON.stringify({ jsonrpc: "2.0", id: 1, method: "sample.echo", params: { text: "hi" } }),
+  );
+});
+
+test("the test after it", async () => {
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  expect(heardLate).toEqual([]);
+});

@@ -1,7 +1,8 @@
 // A Vitest project of Console-like tests on the in-memory adapter of the
 // protocol, run by tests/protocol-adapter.test.ts one test at a time: each
 // but one gives the adapter something the engine could never send or take,
-// and must fail. It prints one `ran: <test> <state> <codes>` line per test,
+// and must fail; the last two run together, in order, to show nothing of an
+// adapter reaches its Client once its test ended. It prints one `ran: <test> <state> <codes>` line per test,
 // `<codes>` being the `code` of each error that failed it, and writes its
 // caches under GOODFETCH_FIXTURE_OUTPUT, never beside itself.
 import { join } from "node:path";

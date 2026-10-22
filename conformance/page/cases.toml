@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695 and #698): a Collie
+# The page suite's case list (spec #577, tickets #695, #698 and #699): a Collie
 # program's pages over the protocol, run by `goodfetch-conformance`'s engine
 # harness against an Attached engine of Collie's executable on the local
 # Proving ground (ADR 0094), each case on a Run of its own whose `network.resolve`
@@ -10,7 +10,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "2"
+version = "3"
 
 [[capability]]
 name = "sessions.default"
@@ -51,3 +51,39 @@ covers = ["story:5-26", "operation:page.goto", "error:navigation_failed"]
 [[capability.case]]
 id = "a-navigation-superseded-before-it-committed-is-interrupted"
 covers = ["operation:page.goto", "error:navigation_interrupted"]
+
+[[capability]]
+name = "navigation.redirects"
+
+[[capability.case]]
+id = "a-redirect-loop-raises-too-many-redirects"
+covers = ["story:5-29", "operation:page.goto", "error:too_many_redirects"]
+
+[[capability.case]]
+id = "a-redirect-is-followed-without-waiting-its-retry-after"
+covers = ["operation:page.goto"]
+
+[[capability]]
+name = "navigation.cut_documents"
+
+[[capability.case]]
+id = "a-cut-document-raises-response-truncated-unless-the-navigation-returned-at-commit"
+covers = ["story:5-29", "operation:page.goto", "error:response_truncated"]
+
+[[capability]]
+name = "navigation.decoding"
+
+[[capability.case]]
+id = "a-coding-that-fails-to-decode-fails-the-navigation-and-an-unknown-one-passes"
+covers = ["story:5-30", "operation:page.goto", "error:navigation_failed"]
+
+[[capability.case]]
+id = "each-document-response-names-its-decoded-encoding"
+covers = ["operation:page.goto"]
+
+[[capability]]
+name = "navigation.downloads"
+
+[[capability.case]]
+id = "a-goto-to-a-file-emits-download-and-answers-no-response"
+covers = ["story:5-31", "operation:page.goto", "operation:page.reload", "event:page.download"]

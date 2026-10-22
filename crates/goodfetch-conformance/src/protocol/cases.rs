@@ -4,6 +4,7 @@
 //! cases are `delivery`'s.
 
 mod delivery;
+mod fetch_edge;
 mod navigation;
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, ProtocolVersion};
@@ -48,6 +49,12 @@ pub(crate) enum Case {
     BackLoadsTheDocumentAgain,
     UnresolvedNameFailsTheNavigation,
     SupersededNavigationIsInterrupted,
+    RedirectLoopIsTooManyRedirects,
+    RetryAfterOnARedirectIsNotWaited,
+    CutDocumentsAreTruncated,
+    ContentCodingsDecodeAsChrome,
+    FileNavigationIsADownload,
+    ResponsesNameTheirDecodedEncoding,
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -81,6 +88,9 @@ impl Site {
                 resolve.insert(host.to_owned(), json!([ip]));
             }
         }
+        for host in NAMED_HOSTS {
+            resolve.insert(host.to_owned(), json!([ip]));
+        }
         Self {
             page_url,
             start_urls: task_list
@@ -97,7 +107,18 @@ impl Site {
     fn start_url(&self, id: &str) -> Option<&str> {
         self.start_urls.get(id).map(String::as_str)
     }
+
+    /// The plain HTTP URL of `path` on `host`, one of the Proving ground's
+    /// host names that belong to no task, on its port.
+    fn named_url(&self, host: &str, path: &str) -> Option<String> {
+        let (_, port) = self.proving_ground.address().rsplit_once(':')?;
+        Some(format!("http://{host}:{port}{path}"))
+    }
 }
+
+/// The Proving ground's host names that belong to no task and that a case
+/// reaches, which `resolve` maps too: the fetch edge's (ADR 0118).
+const NAMED_HOSTS: [&str; 1] = ["fetch-edge.test"];
 
 /// The host name of an `http` URL.
 fn host_of(url: &str) -> Option<&str> {
@@ -153,6 +174,22 @@ impl Case {
             }
             "a-navigation-superseded-before-it-committed-is-interrupted" => {
                 Self::SupersededNavigationIsInterrupted
+            }
+            "a-redirect-loop-raises-too-many-redirects" => Self::RedirectLoopIsTooManyRedirects,
+            "a-redirect-is-followed-without-waiting-its-retry-after" => {
+                Self::RetryAfterOnARedirectIsNotWaited
+            }
+            "a-cut-document-raises-response-truncated-unless-the-navigation-returned-at-commit" => {
+                Self::CutDocumentsAreTruncated
+            }
+            "a-coding-that-fails-to-decode-fails-the-navigation-and-an-unknown-one-passes" => {
+                Self::ContentCodingsDecodeAsChrome
+            }
+            "a-goto-to-a-file-emits-download-and-answers-no-response" => {
+                Self::FileNavigationIsADownload
+            }
+            "each-document-response-names-its-decoded-encoding" => {
+                Self::ResponsesNameTheirDecodedEncoding
             }
             _ => return None,
         })
@@ -212,6 +249,22 @@ impl Case {
             }
             Self::SupersededNavigationIsInterrupted => {
                 navigation::superseded(connection, site, checks)
+            }
+            Self::RedirectLoopIsTooManyRedirects => {
+                fetch_edge::redirect_loop(connection, site, checks)
+            }
+            Self::RetryAfterOnARedirectIsNotWaited => {
+                fetch_edge::retry_after_on_a_redirect(connection, site, checks)
+            }
+            Self::CutDocumentsAreTruncated => fetch_edge::cut_documents(connection, site, checks),
+            Self::ContentCodingsDecodeAsChrome => {
+                fetch_edge::content_codings(connection, site, checks)
+            }
+            Self::FileNavigationIsADownload => {
+                fetch_edge::file_navigation(connection, site, checks)
+            }
+            Self::ResponsesNameTheirDecodedEncoding => {
+                fetch_edge::decoded_encodings(connection, site, checks)
             }
         }
     }

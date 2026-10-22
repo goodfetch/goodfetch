@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use goodfetch_test_support::{
-    Cli, CliError, DaemonError, Mode, RuntimeFile, TestEnv, Tool, assert_cli_snapshot, cli, tools,
+    Cli, CliError, Mode, RuntimeFile, TestEnv, Tool, assert_cli_snapshot, cli, tools,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -236,7 +236,7 @@ fn a_daemon_mode_run_whose_daemon_leaves_its_runtime_file_fails() {
 
     let runtime_file = RuntimeFile::path(env.home(), "0.0.0");
     assert!(
-        matches!(&run, Err(CliError::Daemon(DaemonError::RuntimeFileLeft(path))) if *path == runtime_file),
+        matches!(&run, Err(CliError::Daemon(goodfetch_test_support::DaemonError::RuntimeFileLeft(path))) if *path == runtime_file),
         "{run:?}"
     );
 }

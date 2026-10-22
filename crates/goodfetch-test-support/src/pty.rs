@@ -17,7 +17,7 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use expectrl::session::OsSession;
-use expectrl::{Eof, Expect as _, Session};
+use expectrl::{Expect as _, Session};
 use regex::bytes::Regex;
 
 use crate::cli::{CliError, record_command};
@@ -160,6 +160,7 @@ impl PtyRun<'_> {
 /// the exit code.
 #[cfg(unix)]
 fn end(mut session: OsSession) -> Result<(Vec<u8>, Option<i32>), PtyError> {
+    use expectrl::Eof;
     use expectrl::process::unix::WaitStatus;
 
     let rest = session

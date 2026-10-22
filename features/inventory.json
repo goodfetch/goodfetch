@@ -1409,6 +1409,17 @@
       ]
     },
     {
+      "id": "operation:daemon.health",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:daemon.status",
       "kind": "operation",
       "area": 3,
@@ -3851,6 +3862,28 @@
     },
     {
       "id": "setting:network.resolve",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:ops.address",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:otlp.metrics_endpoint",
       "kind": "setting",
       "area": 3,
       "milestone": null,

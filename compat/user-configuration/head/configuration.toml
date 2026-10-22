@@ -9,6 +9,12 @@ idle_timeout = 30000
 address = "example"
 drain_grace = 30000
 
+[settings.ops]
+address = "example"
+
+[settings.otlp]
+metrics_endpoint = "example"
+
 [settings.browser_cache]
 max_unused_age = 30000
 

@@ -119,6 +119,7 @@ pub const ENTRIES: Entries = Entries {
         description: "Texts the sample operation repeated.",
         instrument: Instrument::Counter,
         unit: "{echo}",
+        labels: &[],
         stability: Stability::Stable,
         arrived_in: ARRIVED_IN,
     }],

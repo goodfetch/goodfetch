@@ -1571,6 +1571,67 @@
         }
       ]
     },
+    "DaemonHealth": {
+      "description": "What `daemon.health` answers: what the ops listener's `/livez` and\n`/readyz` check (ADR 0050). In a Daemon group, readiness ignores the\nLead Daemon's reachability.",
+      "properties": {
+        "live": {
+          "arrived_in": "0.1",
+          "description": "Whether it is live: its runtime and its Runs' registry, which writes\ntheir run state, respond.",
+          "type": "boolean"
+        },
+        "ready": {
+          "arrived_in": "0.1",
+          "description": "Whether it is ready: live, and able to take a new Run.",
+          "type": "boolean"
+        },
+        "unready": {
+          "arrived_in": "0.1",
+          "description": "Why it is not ready, when it is not; empty when it is.",
+          "items": {
+            "$ref": "#/$defs/Unready"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "live",
+        "ready",
+        "unready"
+      ],
+      "type": "object"
+    },
+    "DaemonHealthOutput": {
+      "description": "What `daemon health --json` prints.",
+      "properties": {
+        "daemon": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DaemonHealth"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What the Daemon answered, or `None` when no Daemon of the major\nanswered."
+        },
+        "healthy": {
+          "arrived_in": "0.1",
+          "description": "Its answer, which its exit code repeats: 0 when `true`.",
+          "type": "boolean"
+        },
+        "probe": {
+          "$ref": "#/$defs/HealthProbe",
+          "arrived_in": "0.1",
+          "description": "The probe it answers."
+        }
+      },
+      "required": [
+        "probe",
+        "healthy"
+      ],
+      "type": "object"
+    },
     "DaemonInstallOutput": {
       "description": "What `daemon install --json` prints.",
       "properties": {
@@ -2463,6 +2524,21 @@
         "message"
       ],
       "type": "object"
+    },
+    "HealthProbe": {
+      "description": "Which of the ops listener's probes `daemon health` answers.",
+      "oneOf": [
+        {
+          "const": "live",
+          "description": "`/livez`'s: whether the Daemon is live.",
+          "type": "string"
+        },
+        {
+          "const": "ready",
+          "description": "`/readyz`'s: whether it is ready to take a new Run.",
+          "type": "string"
+        }
+      ]
     },
     "HelloParams": {
       "additionalProperties": false,
@@ -6431,6 +6507,26 @@
       ],
       "type": "object"
     },
+    "Unready": {
+      "description": "Why a Daemon cannot take a new Run now, as its ops listener's\n`/readyz` and `daemon health` check it (ADR 0050).",
+      "oneOf": [
+        {
+          "const": "draining",
+          "description": "It drains, taking no Run (ADR 0049).",
+          "type": "string"
+        },
+        {
+          "const": "run_state_not_writable",
+          "description": "Its run state cannot be written.",
+          "type": "string"
+        },
+        {
+          "const": "browsers_missing",
+          "description": "A browser its configuration uses is not installed.",
+          "type": "string"
+        }
+      ]
+    },
     "UpgradeFilesOutput": {
       "description": "What `upgrade-files --json` prints: the major it upgraded from and to,\nand the files of the new major's copy, by their path in Goodfetch home.",
       "properties": {
@@ -7270,6 +7366,40 @@
                 },
                 "type": "object"
               },
+              "ops": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`."
+                  }
+                },
+                "type": "object"
+              },
+              "otlp": {
+                "additionalProperties": false,
+                "properties": {
+                  "metrics_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The OTLP/HTTP endpoint `daemon run`, the foreground Daemon, exports its metrics to, in protobuf, every 60 seconds and once more as it exits: a full URL such as `http://collector:4318/v1/metrics`. Unset by default: nothing is exported (ADR 0043)."
+                  }
+                },
+                "type": "object"
+              },
               "paid_fetch": {
                 "additionalProperties": false,
                 "properties": {
@@ -7812,6 +7942,40 @@
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "ops": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`."
+                  }
+                },
+                "type": "object"
+              },
+              "otlp": {
+                "additionalProperties": false,
+                "properties": {
+                  "metrics_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The OTLP/HTTP endpoint `daemon run`, the foreground Daemon, exports its metrics to, in protobuf, every 60 seconds and once more as it exits: a full URL such as `http://collector:4318/v1/metrics`. Unset by default: nothing is exported (ADR 0043)."
                   }
                 },
                 "type": "object"
@@ -8378,6 +8542,40 @@
                 },
                 "type": "object"
               },
+              "ops": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`."
+                  }
+                },
+                "type": "object"
+              },
+              "otlp": {
+                "additionalProperties": false,
+                "properties": {
+                  "metrics_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The OTLP/HTTP endpoint `daemon run`, the foreground Daemon, exports its metrics to, in protobuf, every 60 seconds and once more as it exits: a full URL such as `http://collector:4318/v1/metrics`. Unset by default: nothing is exported (ADR 0043)."
+                  }
+                },
+                "type": "object"
+              },
               "paid_fetch": {
                 "additionalProperties": false,
                 "properties": {
@@ -8720,6 +8918,9 @@
     },
     "config.explain": {
       "$ref": "#/$defs/SettingsExplanation"
+    },
+    "daemon.health": {
+      "$ref": "#/$defs/DaemonHealthOutput"
     },
     "daemon.install": {
       "$ref": "#/$defs/DaemonInstallOutput"

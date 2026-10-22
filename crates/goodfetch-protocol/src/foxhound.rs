@@ -124,6 +124,7 @@ pub const ENTRIES: Entries = Entries {
         description: "Pages the sample crawl visited.",
         instrument: Instrument::Counter,
         unit: "{page}",
+        labels: &[],
         stability: Stability::Experimental,
         arrived_in: ARRIVED_IN,
     }],

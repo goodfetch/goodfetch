@@ -132,6 +132,17 @@
       ]
     },
     {
+      "id": "command:console",
+      "kind": "command",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:daemon.health",
       "kind": "command",
       "area": 3,
@@ -702,6 +713,17 @@
       ]
     },
     {
+      "id": "error:connection_lost",
+      "kind": "error",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:console_port_in_use",
       "kind": "error",
       "area": 12,
@@ -727,6 +749,17 @@
       "id": "error:deadline_exceeded",
       "kind": "error",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:egress_refused",
+      "kind": "error",
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1259,6 +1292,17 @@
     },
     {
       "id": "event:page.download",
+      "kind": "event",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "event:page.request_failed",
       "kind": "event",
       "area": 5,
       "milestone": null,
@@ -4138,6 +4182,56 @@
       ]
     },
     {
+      "id": "setting:crawl.max_depth",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.max_path_segments",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.max_requests",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.max_segment_repeats",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.max_url_length",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:crawl.retry.handler_failed",
       "kind": "setting",
       "area": 3,
@@ -4247,6 +4341,28 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:egress.allowed_domains",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:egress.blocked_domains",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -9355,6 +9471,17 @@
       "kind": "story",
       "area": 11,
       "milestone": "M3 Browser automation",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-1",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
       "status": "active",
       "products": [
         "collie",
@@ -15435,6 +15562,28 @@
     },
     {
       "id": "story:6-226",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-227",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-228",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

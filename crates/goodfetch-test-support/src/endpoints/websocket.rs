@@ -21,6 +21,8 @@ pub(super) struct Handshake<'a> {
     pub(super) host: &'a str,
     /// The `Origin` header, if any.
     pub(super) origin: Option<&'a str>,
+    /// The `Cookie` header, if any.
+    pub(super) cookie: Option<String>,
 }
 
 /// Opens a WebSocket to `address` with `handshake`, sends `message` as its
@@ -45,6 +47,9 @@ pub(super) fn attempt(address: SocketAddr, handshake: &Handshake<'_>, message: &
         .header("Sec-WebSocket-Key", generate_key());
     if let Some(origin) = handshake.origin {
         request = request.header("Origin", origin);
+    }
+    if let Some(cookie) = &handshake.cookie {
+        request = request.header("Cookie", cookie);
     }
     let Ok(request) = request.body(()) else {
         return Observed::Malformed;

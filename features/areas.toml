@@ -442,6 +442,12 @@ number = 4
 kind = "setting"
 prefix = "secrets."
 
+# Area 4's egress policy (#620): the Error code a refused request fails with.
+[[area]]
+number = 4
+kind = "error"
+prefix = "egress_"
+
 # Area 4's Secret references (#615): the Error codes a resolution fails
 # with.
 [[area]]
@@ -683,6 +689,18 @@ number = 12
 kind = "setting"
 prefix = "console."
 
+# The `console` command that opens it signed in, and the Error code its
+# Client raises when its Connection drops (#817).
+[[area]]
+number = 12
+kind = "command"
+prefix = "console"
+
+[[area]]
+number = 12
+kind = "error"
+prefix = "connection_lost"
+
 # Area 11, the Client surfaces (spec #608): the commands generated from the
 # catalog (#1174).
 [[area]]
@@ -757,6 +775,13 @@ prefix = "attempt_ended"
 number = 6
 kind = "setting"
 prefix = "crawl.scope."
+
+# Area 6, Collection, Foxhound: the crawl's bounds and the caps on a URL's
+# shape (#843).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.max_"
 
 # Area 6, Collection (spec #580, Collie's part): a Run's Key-value store
 # (#791).

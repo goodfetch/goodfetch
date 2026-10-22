@@ -31,9 +31,14 @@ httpdate.workspace = true
 # Period Limits count in an explicit IANA time zone (ADR 0041), read from the
 # system database, or a bundled one where the OS has none.
 jiff = { workspace = true, features = ["tzdb-zoneinfo", "tzdb-bundle-platform"] }
-# The runtime's metrics, through OpenTelemetry's API alone: the meter is a
-# value the executable gives the engine, a no-op one otherwise (ADR 0050).
+# The runtime's metrics, through OpenTelemetry's API: the meter is a value
+# the executable gives the engine, a no-op one otherwise (ADR 0050). The
+# Trace context each request carries, the request spans' parents and links,
+# and trace and span IDs drawn from the Entropy (ADR 0132): the API, its
+# SDK's ID generator and the bridge from `tracing`.
 opentelemetry = { workspace = true, features = ["metrics"] }
+opentelemetry_sdk.workspace = true
+tracing-opentelemetry.workspace = true
 rusqlite.workspace = true
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 # Every resolved Secret reference's value, zeroized when dropped (ADR 0015).

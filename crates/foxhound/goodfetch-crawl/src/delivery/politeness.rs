@@ -16,7 +16,7 @@ use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use serde_json::{Map, Value};
 use tokio::time::Instant;
 
-use super::{Answer, block_cause};
+use super::attempt::{Answer, block_cause};
 use crate::work_items::{self, Failure, Unsuccessful};
 
 /// The `fix` of a request a site's `Retry-After` holds further away than

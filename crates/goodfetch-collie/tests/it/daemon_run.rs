@@ -25,7 +25,7 @@ use std::process::Stdio;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use goodfetch_test_support::{DaemonEndpoint, Process, RuntimeFile, TestEnv};
+use goodfetch_test_support::{DaemonEndpoint, Process, RuntimeFile, TestEnv, record_command_in};
 use serde_json::{Value, json};
 
 use crate::daemon::RawClient;
@@ -49,8 +49,11 @@ pub(crate) fn free_address() -> SocketAddr {
 }
 
 /// A foreground Daemon the test started, with its stdout's lines read on a
-/// thread of their own.
+/// thread of their own. Once it exits, `daemon run` goes into the test's
+/// command record with its exit code (ADR 0072).
 pub(crate) struct Foreground {
+    /// The test's folder, which holds its command record.
+    folder: PathBuf,
     pub(crate) process: Process,
     lines: mpsc::Receiver<String>,
     /// Every line it wrote to stdout so far.
@@ -82,6 +85,7 @@ impl Foreground {
             }
         });
         Self {
+            folder: env.folder().to_owned(),
             process,
             lines,
             logged: Vec::new(),
@@ -161,13 +165,14 @@ impl Foreground {
         assert!(sent.success(), "`kill -TERM {pid}` failed");
     }
 
-    /// Waits for it to exit, reading the rest of its log; whether it exited
-    /// with 0.
+    /// Waits for it to exit, reading the rest of its log, and records
+    /// `daemon run` with its exit code; whether it exited with 0.
     pub(crate) fn exited(&mut self) -> bool {
         let exited = self.process.child().wait().unwrap();
         while let Ok(line) = self.lines.recv_timeout(LOG_DEADLINE) {
             self.logged.push(line);
         }
+        record_command_in(&self.folder, &["daemon", "run"], exited.code()).unwrap();
         exited.success()
     }
 }

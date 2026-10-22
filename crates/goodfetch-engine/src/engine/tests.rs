@@ -26,6 +26,7 @@ mod report;
 mod run;
 mod settings;
 mod takeover;
+mod trace;
 mod usage;
 mod versions;
 mod websocket;

@@ -186,6 +186,15 @@ export class ClosedError extends ProgramError {
 }
 
 /**
+ * The Connection to the engine dropped before the call was answered, so whether it took effect is unknown. The Client connects again by itself; make the call again once it has, after checking that an Effect did not happen.
+ */
+export class ConnectionLostError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "connection_lost", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon.
  */
 export class ConsolePortInUseError extends UnavailableError {
@@ -200,6 +209,15 @@ export class ConsolePortInUseError extends UnavailableError {
 export class DaemonDrainingError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "daemon_draining", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * The run's egress policy refused a request before it connected: a host the domain policy does not allow, an address that is not globally reachable, or a scheme no request may use. The details name the URL, the rule, the address when there is one and the setting that would allow it.
+ */
+export class EgressRefusedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "egress_refused", group: "refused", retryable: false });
   }
 }
 
@@ -583,8 +601,10 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   browser_not_installed: BrowserNotInstalledError,
   call_cancelled: CallCancelledError,
   closed: ClosedError,
+  connection_lost: ConnectionLostError,
   console_port_in_use: ConsolePortInUseError,
   daemon_draining: DaemonDrainingError,
+  egress_refused: EgressRefusedError,
   engine_exited: EngineExitedError,
   engine_not_found: EngineNotFoundError,
   engine_output_invalid: EngineOutputInvalidError,

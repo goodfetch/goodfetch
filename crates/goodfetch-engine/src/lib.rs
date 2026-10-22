@@ -26,6 +26,7 @@ pub mod crash_report;
 pub mod daemon;
 pub mod deadline;
 pub mod dns;
+pub mod egress;
 mod engine;
 pub mod entropy;
 pub mod events;
@@ -43,6 +44,7 @@ pub mod log;
 pub mod lowest_minor;
 pub mod metrics;
 pub mod ops;
+pub mod people;
 pub mod pinned_download;
 pub mod politeness;
 mod product;
@@ -51,17 +53,20 @@ pub mod rpc;
 pub mod run;
 mod run_index;
 pub mod run_state;
+pub mod run_trace;
 pub mod runs;
 pub mod secrets;
 pub mod settings;
 pub mod tasks;
+pub mod trace;
 pub mod transition;
 pub mod transport;
 pub mod upgrade;
 mod usage;
 
 pub use composition::{
-    CallContext, CallError, CallInput, Composition, CompositionError, Contribution, Handler,
+    CallContext, CallError, CallInput, Composition, CompositionError, ConsoleBuild, ConsoleFile,
+    Contribution, Handler,
 };
 pub use engine::{Dependencies, Engine};
 pub use info::contribution;

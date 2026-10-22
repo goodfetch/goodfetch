@@ -471,6 +471,7 @@ fn fabricated_hello(
             minor: 0,
         },
         surface: Surface::Rust,
+        form: None,
         token: other.token().map(ToOwned::to_owned),
         needs: Some(hello.product),
         product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))

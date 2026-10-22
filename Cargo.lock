@@ -1440,6 +1440,7 @@ dependencies = [
  "tokio-util",
  "toml_edit",
  "tracing",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "ulid",
  "url",
@@ -1553,6 +1554,7 @@ name = "goodfetch-proving-ground"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "brotli",
  "clap",
  "crc32fast",
  "data-encoding",

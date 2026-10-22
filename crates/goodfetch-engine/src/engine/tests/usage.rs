@@ -321,11 +321,9 @@ fn usage_lists_the_usage_against_each_limit_by_scope() {
     );
 }
 
-/// Covers: story:3-67, error:not_in_product
-#[rstest]
-#[case::a_collie_engine_refuses_it(Product::Collie, json!("not_in_product"))]
-#[case::a_foxhound_engine_holds_it(Product::Foxhound, Value::Null)]
-fn paid_fetch_is_a_usage_kind_only_foxhound_carries(#[case] product: Product, #[case] code: Value) {
+/// The Error code of `product`'s engine's reply to a `usage.set` of a
+/// `paid_fetch` Limit, null when it holds it.
+fn paid_fetch_set_by(product: Product) -> Value {
     let env = TestEnv::new();
 
     let replies = replies(
@@ -337,7 +335,23 @@ fn paid_fetch_is_a_usage_kind_only_foxhound_carries(#[case] product: Product, #[
         )],
     );
 
-    assert_eq!(replies[0]["error"]["data"]["code"], code);
+    replies[0]["error"]["data"]["code"].clone()
+}
+
+/// `paid_fetch` is a usage kind only Foxhound carries: a Collie engine
+/// refuses a Limit on it with `not_in_product`.
+/// Covers: story:3-67, error:not_in_product
+#[test]
+fn a_collie_engine_refuses_a_paid_fetch_limit_with_not_in_product() {
+    assert_eq!(paid_fetch_set_by(Product::Collie), json!("not_in_product"));
+}
+
+/// `paid_fetch` is a usage kind only Foxhound carries: a Foxhound engine
+/// holds a Limit on it.
+/// Covers: story:3-67
+#[test]
+fn a_foxhound_engine_holds_a_paid_fetch_limit() {
+    assert_eq!(paid_fetch_set_by(Product::Foxhound), Value::Null);
 }
 
 /// Covers: story:3-74, error:limit_not_understood

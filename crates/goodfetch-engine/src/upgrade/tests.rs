@@ -81,7 +81,7 @@ fn the_committed_upgrade_paths_read() {
 /// upgrade graph does (ADR 0066); before the first release the table lists
 /// none.
 ///
-/// Covers: story:3-96, command:upgrade-files, error:upgrade_source_unsupported
+/// Covers: story:3-96, error:upgrade_source_unsupported
 #[test]
 fn a_source_the_table_does_not_list_is_refused_naming_the_release_to_upgrade_through() {
     let env = TestEnv::new();
@@ -109,7 +109,7 @@ fn a_source_the_table_does_not_list_is_refused_naming_the_release_to_upgrade_thr
 /// A newer major than the executable's is refused with a message to
 /// upgrade (ADR 0066).
 ///
-/// Covers: story:3-96, command:upgrade-files, error:upgrade_source_unsupported
+/// Covers: story:3-96, error:upgrade_source_unsupported
 #[test]
 fn a_newer_major_is_refused_with_a_message_to_upgrade() {
     let env = TestEnv::new();
@@ -139,7 +139,7 @@ fn a_newer_major_is_refused_with_a_message_to_upgrade() {
 /// and per-install file but its Daemon's, the older major's files keep
 /// their bytes, and a second run changes nothing (ADRs 0030 and 0066).
 ///
-/// Covers: story:3-96, command:upgrade-files
+/// Covers: story:3-96
 #[test]
 fn a_listed_source_gives_the_new_major_its_copy_and_leaves_the_older_majors_files() {
     let env = TestEnv::new();
@@ -192,7 +192,7 @@ fn a_listed_source_gives_the_new_major_its_copy_and_leaves_the_older_majors_file
 /// A file the new major already holds, other than the older major's, is
 /// kept as it is (ADR 0030: never lose what the new major wrote).
 ///
-/// Covers: story:3-96, command:upgrade-files
+/// Covers: story:3-96
 #[test]
 fn a_file_the_new_major_already_holds_is_kept() {
     let env = TestEnv::new();
@@ -220,7 +220,7 @@ fn a_file_the_new_major_already_holds_is_kept() {
 /// previous preview's files are an older major's, and a home with no older
 /// major's files has nothing to upgrade.
 ///
-/// Covers: story:3-96, command:upgrade-files
+/// Covers: story:3-96
 #[test]
 fn each_preview_minor_upgrades_from_the_previous_preview() {
     let env = TestEnv::new();
@@ -248,7 +248,7 @@ fn each_preview_minor_upgrades_from_the_previous_preview() {
 /// with the new major's, and drops those of majors it no longer supports,
 /// so that an uninstalled major's cap does not linger (ADR 0041).
 ///
-/// Covers: story:3-77, command:upgrade-files
+/// Covers: story:3-77
 #[test]
 fn the_new_major_takes_over_the_older_majors_managed_limits() {
     let env = TestEnv::new();

@@ -18,6 +18,7 @@
 mod children;
 mod dns;
 mod downloads;
+mod egress;
 mod happy_eyeballs;
 mod held_clock;
 mod name_server;

@@ -26,6 +26,11 @@ max_unused_age = 30000
 resolution_delay = 30000
 attempt_delay = 30000
 
+[settings.egress]
+allowed_domains = ["example"]
+blocked_domains = ["example"]
+offline = true
+
 [settings.browser]
 headless = true
 
@@ -49,9 +54,6 @@ handler = 30000
 
 [settings.sample]
 echo_repeats = 4
-
-[settings.egress]
-offline = true
 
 [settings.network]
 resolve = { "example.test" = ["127.0.0.1"] }
@@ -111,6 +113,11 @@ max = 30000
 sample_pages = 4
 domain_keys = { "example.test" = "example" }
 keep_alive = true
+max_depth = 4
+max_requests = 4
+max_url_length = 4
+max_path_segments = 4
+max_segment_repeats = 4
 
 [settings.crawl.retry]
 max = 4
@@ -159,6 +166,11 @@ max_unused_age = 30000
 resolution_delay = 30000
 attempt_delay = 30000
 
+[lock.egress]
+allowed_domains = ["example"]
+blocked_domains = ["example"]
+offline = true
+
 [lock.browser]
 headless = true
 
@@ -182,9 +194,6 @@ handler = 30000
 
 [lock.sample]
 echo_repeats = 4
-
-[lock.egress]
-offline = true
 
 [lock.network]
 resolve = { "example.test" = ["127.0.0.1"] }
@@ -244,6 +253,11 @@ max = 30000
 sample_pages = 4
 domain_keys = { "example.test" = "example" }
 keep_alive = true
+max_depth = 4
+max_requests = 4
+max_url_length = 4
+max_path_segments = 4
+max_segment_repeats = 4
 
 [lock.crawl.retry]
 max = 4
@@ -298,6 +312,11 @@ max_requests_per_minute = 4
 
 [cap.crawl]
 sample_pages = 4
+max_depth = 4
+max_requests = 4
+max_url_length = 4
+max_path_segments = 4
+max_segment_repeats = 4
 
 [cap.crawl.retry]
 max = 4

@@ -85,7 +85,11 @@ pub(crate) fn check(
                 entry.license.clone().unwrap_or_default()
             }
         };
-        if entry.source.is_none() {
+        if entry
+            .source
+            .as_deref()
+            .is_none_or(|source| source.trim().is_empty())
+        {
             findings.push(Finding::new(
                 "source-unknown",
                 subject(entry),

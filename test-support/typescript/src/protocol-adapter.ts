@@ -7,10 +7,10 @@
 // committed JSON Schema bundle and catalog. It is not the Scripted engine
 // (ADR 0069), which plays one ordered script.
 //
-// The `transport` and `bodyFetcher` shapes stand in for area 12's Console
-// Client interface until its spec is ticketed: a transport opens Connections
-// that carry JSON-RPC text, as the Console's same-origin WebSocket does, and
-// a body fetcher reads a body's bytes by its handle.
+// The `transport` and `bodyFetcher` are the shapes the Console's Client
+// takes (spec #592): a transport opens Connections that carry JSON-RPC
+// text, as the Console's same-origin WebSocket does, and a body fetcher
+// reads a body's bytes by its handle.
 import type {
   CollieEventPayloads,
   CollieOperationTypes,

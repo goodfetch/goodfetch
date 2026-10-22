@@ -604,6 +604,17 @@
       ]
     },
     {
+      "id": "error:browser_host_outdated",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:browser_launch_failed",
       "kind": "error",
       "area": 5,
@@ -886,6 +897,17 @@
       ]
     },
     {
+      "id": "error:path_not_writable",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:pattern_unsupported",
       "kind": "error",
       "area": 5,
@@ -909,6 +931,17 @@
     },
     {
       "id": "error:protocol_version_unsupported",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:resources_exhausted",
       "kind": "error",
       "area": 3,
       "milestone": null,
@@ -1020,6 +1053,39 @@
       "id": "error:sample_refused",
       "kind": "error",
       "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:secret_domain_not_allowed",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:secret_unavailable",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:secret_unbound",
+      "kind": "error",
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1239,6 +1305,226 @@
       "id": "event:sample.echoed",
       "kind": "event",
       "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:browser_host_outdated",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:deadline_exceeded",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:file_write_failed",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:internal",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:interrupted",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:limit_reached",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:model",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:not_in_product",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:page",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:path_not_writable",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:program",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:protocol_version_unsupported",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:refused",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:resources_exhausted",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:run_stopped",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:success",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:terminated",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:unavailable",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:usage",
+      "kind": "exit",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:verdict_not_verified",
+      "kind": "exit",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -4048,6 +4334,17 @@
       ]
     },
     {
+      "id": "setting:run_state.key_reference",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:run_state.layout",
       "kind": "setting",
       "area": 3,
@@ -4187,6 +4484,17 @@
     },
     {
       "id": "setting:timeout.run",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:timeout.secret",
       "kind": "setting",
       "area": 3,
       "milestone": null,

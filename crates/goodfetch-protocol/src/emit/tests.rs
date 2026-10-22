@@ -326,3 +326,22 @@ fn the_bundle_holds_the_type_a_failed_command_prints_under_json() {
         json!(["code", "group", "retryable", "message", "operation"])
     );
 }
+
+#[rstest]
+#[case::success("success", 0)]
+#[case::a_groups_row("refused", 4)]
+#[case::an_error_codes_own_row("limit_reached", 16)]
+#[case::a_stopped_run("run_stopped", 20)]
+#[case::sigterm("terminated", 143)]
+fn the_catalog_lists_the_exit_code_tables_rows(#[case] name: &str, #[case] code: u64) {
+    let emitted = emit();
+
+    let row = emitted.catalog["exit_codes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["name"] == name)
+        .map(|row| (row["code"].clone(), row["product"].clone()));
+
+    assert_eq!(row, Some((json!(code), json!("collie"))));
+}

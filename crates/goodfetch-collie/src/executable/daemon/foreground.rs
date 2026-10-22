@@ -2,8 +2,10 @@
 //! operator chose, with no pick (ADR 0098), under Docker, Kubernetes or
 //! systemd. It writes no runtime file and never stops idle; it listens on
 //! `daemon.address`, a loopback address until the Daemon terminates TLS
-//! (area 4), and Clients open with the persistent token of the major's
-//! `daemon.token`; it reads `daemon.address` and `daemon.drain_grace` from
+//! (area 4), with newline-delimited JSON-RPC and the protocol over
+//! WebSocket, whose handshake must name that address or `localhost` with
+//! its port as its `Host` and `Origin`; Clients open with the persistent
+//! token of the major's `daemon.token`; it reads `daemon.address` and `daemon.drain_grace` from
 //! user configuration and the Operator policy, which
 //! `GOODFETCH_DAEMON_ADDRESS` and `GOODFETCH_DAEMON_DRAIN_GRACE` override
 //! unless the policy locks them; and its logs are JSON lines on stdout,
@@ -21,10 +23,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_engine::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Drain, Holds, Succession};
+use goodfetch_engine::rpc::Authorities;
 use goodfetch_engine::settings::{Resolved, SettingsError};
 use goodfetch_engine::transport::Network;
 use goodfetch_engine::{Dependencies, Engine};
-use goodfetch_protocol::daemon::{ADDRESS, DRAIN_GRACE, IDLE_TIMEOUT};
+use goodfetch_protocol::daemon::{ADDRESS, DRAIN_GRACE, DaemonEndpoint, IDLE_TIMEOUT};
 use goodfetch_protocol::settings::{SETTING_INVALID, SETTING_LOCKED, SettingsLayer};
 use tokio_util::sync::CancellationToken;
 
@@ -125,6 +128,10 @@ pub(in crate::executable) fn run(
                 grace: configured.drain_grace,
             }),
             install,
+            websocket: match &endpoint {
+                DaemonEndpoint::Tcp(bound) => Some(Authorities::loopback(*bound)),
+                DaemonEndpoint::Unix(_) => None,
+            },
         };
         tracing::info!(
             %endpoint,

@@ -8,9 +8,11 @@
 //!   check's finding prints it, followed by a change at least the measured
 //!   one, in the check's own unit, and then its reason;
 //! - and a comment by the repository's owner, who accepts when merging (ADR
-//!   0133): the user who owns it, or an owner of the organization that does
-//!   (its `admin` role), says the rule's phrase and names the pull request's head SHA, in
-//!   full or abbreviated to at least 7 characters. An agent that posts with
+//!   0133): the user who owns it, or a member of the organization that does
+//!   with the repository's `admin` permission (as every owner of the
+//!   organization has; ADR 0133's note of 2026-10-22), says the rule's phrase
+//!   and names the pull request's head SHA, in full or abbreviated to at
+//!   least 7 characters. An agent that posts with
 //!   the owner's token posts as the owner, so this is the convention the
 //!   owner keeps, not a proof of who wrote the comment.
 
@@ -50,9 +52,8 @@ const OWNER: &str = "OWNER";
 /// The comment author GitHub reports for an organization's members, its
 /// owners included.
 const MEMBER: &str = "MEMBER";
-/// An organization owner's role in its membership.
+/// The repository permission every owner of its organization has.
 const ADMIN: &str = "admin";
-const ACTIVE: &str = "active";
 /// Git's shortest abbreviation of an object name.
 const SHORTEST_SHA: usize = 7;
 const FULL_SHA: usize = 40;
@@ -81,9 +82,8 @@ struct User {
 }
 
 #[derive(Deserialize)]
-struct Membership {
-    role: String,
-    state: String,
+struct RepositoryPermission {
+    permission: String,
 }
 
 impl PullRequest<'_> {
@@ -121,7 +121,9 @@ impl PullRequest<'_> {
 
     /// Whether the repository's owner wrote `comment`: GitHub marks a user's
     /// repository's owner OWNER, but an organization's owners only MEMBER, so
-    /// a member counts when the organization gives them its `admin` role.
+    /// a member counts when they administer the repository. The repository's
+    /// permission stands in for the organization's role, which a fine-grained
+    /// token without organization access cannot read.
     fn by_owner(&self, comment: &Comment) -> Result<bool> {
         if comment.author_association == OWNER {
             return Ok(true);
@@ -129,16 +131,16 @@ impl PullRequest<'_> {
         let (Some(user), MEMBER) = (&comment.user, comment.author_association.as_str()) else {
             return Ok(false);
         };
-        let organization = self
-            .repository
-            .split_once('/')
-            .map_or(self.repository, |(owner, _)| owner);
-        let membership: Option<Membership> = self
+        let permission: Option<RepositoryPermission> = self
             .api
-            .find(&format!("/orgs/{organization}/memberships/{}", user.login))
-            .with_context(|| format!("reading {}'s role in {organization}", user.login))?;
-        Ok(membership
-            .is_some_and(|membership| membership.role == ADMIN && membership.state == ACTIVE))
+            .find(&format!(
+                "/repos/{}/collaborators/{}/permission",
+                self.repository, user.login
+            ))
+            .with_context(|| {
+                format!("reading {}'s permission on {}", user.login, self.repository)
+            })?;
+        Ok(permission.is_some_and(|permission| permission.permission == ADMIN))
     }
 }
 

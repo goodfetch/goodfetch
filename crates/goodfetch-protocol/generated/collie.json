@@ -2659,6 +2659,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.",
+      "exit_code": 12,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "browser_host_outdated",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended.",
       "exit_code": null,
       "group": "unavailable",
@@ -2700,7 +2710,7 @@
     {
       "arrived_in": "0.1",
       "description": "The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon.",
-      "exit_code": 12,
+      "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "console_port_in_use",
@@ -2770,7 +2780,7 @@
     {
       "arrived_in": "0.1",
       "description": "The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again.",
-      "exit_code": null,
+      "exit_code": 14,
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "file_write_failed",
@@ -2800,7 +2810,7 @@
     {
       "arrived_in": "0.1",
       "description": "A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.",
-      "exit_code": null,
+      "exit_code": 16,
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "limit_reached",
@@ -2879,6 +2889,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.",
+      "exit_code": 13,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "path_not_writable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program.",
       "exit_code": null,
       "group": "program",
@@ -2904,6 +2924,16 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "protocol_version_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.",
+      "exit_code": 15,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "resources_exhausted",
       "product": "collie",
       "retryable": false
     },
@@ -2994,6 +3024,36 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "sample_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Secret placeholder's value would go to a domain outside its binding's `domains`: the field's frame or the request's URL. The details name the placeholder, the reference and the domain, never a value.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "secret_domain_not_allowed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "secret_unavailable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No scope binds the Secret placeholder a call names. `bound` lists the placeholders bound, never a value.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "secret_unbound",
       "product": "collie",
       "retryable": false
     },
@@ -3252,6 +3312,128 @@
       },
       "product": "collie",
       "stability": "experimental"
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "The command did what it was asked.",
+      "name": "success",
+      "product": "collie"
+    },
+    {
+      "code": 1,
+      "description": "A bug in Goodfetch. Report it.",
+      "name": "internal",
+      "product": "collie"
+    },
+    {
+      "code": 2,
+      "description": "The command line is wrong: an unknown command or flag, or a bad value. Nothing reached the engine.",
+      "name": "usage",
+      "product": "collie"
+    },
+    {
+      "code": 3,
+      "description": "The program is wrong: its call, its settings or its own handler code. Fix the program.",
+      "name": "program",
+      "product": "collie"
+    },
+    {
+      "code": 4,
+      "description": "A policy, a Limit, a lock or a person refused. Change a setting, raise the Limit or ask the operator.",
+      "name": "refused",
+      "product": "collie"
+    },
+    {
+      "code": 5,
+      "description": "The page or site never reached the state the call needed. Read the Run trace; change the step, the wait or the Access mode.",
+      "name": "page",
+      "product": "collie"
+    },
+    {
+      "code": 6,
+      "description": "The Model provider's answer was unusable. Change the model or the strategy.",
+      "name": "model",
+      "product": "collie"
+    },
+    {
+      "code": 7,
+      "description": "The deadline passed. Raise it, or wait for the right thing.",
+      "name": "deadline_exceeded",
+      "product": "collie"
+    },
+    {
+      "code": 8,
+      "description": "Something Goodfetch depends on is unreachable or gone. Retry, or fix the setup.",
+      "name": "unavailable",
+      "product": "collie"
+    },
+    {
+      "code": 10,
+      "description": "The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.",
+      "name": "not_in_product",
+      "product": "collie"
+    },
+    {
+      "code": 11,
+      "description": "The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.",
+      "name": "protocol_version_unsupported",
+      "product": "collie"
+    },
+    {
+      "code": 12,
+      "description": "The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.",
+      "name": "browser_host_outdated",
+      "product": "collie"
+    },
+    {
+      "code": 13,
+      "description": "The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.",
+      "name": "path_not_writable",
+      "product": "collie"
+    },
+    {
+      "code": 14,
+      "description": "The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again.",
+      "name": "file_write_failed",
+      "product": "collie"
+    },
+    {
+      "code": 15,
+      "description": "The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.",
+      "name": "resources_exhausted",
+      "product": "collie"
+    },
+    {
+      "code": 16,
+      "description": "A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.",
+      "name": "limit_reached",
+      "product": "collie"
+    },
+    {
+      "code": 20,
+      "description": "The Run ended `stopped`: a Limit, an abort, its timeout, a pause or the loss of its engine stopped it. Resume it by its Run ID.",
+      "name": "run_stopped",
+      "product": "collie"
+    },
+    {
+      "code": 21,
+      "description": "`--require-verified` was given and the Run, or the Agent's Success check, ended with a Verdict other than `verified`: `rejected` or `needs_review`.",
+      "name": "verdict_not_verified",
+      "product": "collie"
+    },
+    {
+      "code": 130,
+      "description": "The command was interrupted (`SIGINT`, or `CTRL_BREAK_EVENT` on Windows): its call was cancelled, and the Run it started checkpointed and stopped, resumable by its Run ID.",
+      "name": "interrupted",
+      "product": "collie"
+    },
+    {
+      "code": 143,
+      "description": "The command was sent `SIGTERM`: its call was cancelled, and the Run it started checkpointed and stopped, resumable by its Run ID.",
+      "name": "terminated",
+      "product": "collie"
     }
   ],
   "handler_requests": [],
@@ -4291,6 +4473,25 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": true,
+      "default": null,
+      "description": "The Secret reference of the key-encryption key that wraps each Run's data key, resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration; none by default.",
+      "name": "run_state.key_reference",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A Secret reference, such as `env:NAME`.",
+        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "machine",
       "clearable": false,
       "default": "per_run",
@@ -4442,6 +4643,25 @@
       "default": null,
       "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default.",
       "name": "timeout.run",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+      "name": "timeout.secret",
       "product": "collie",
       "products": [
         "collie",

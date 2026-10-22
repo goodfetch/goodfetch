@@ -105,6 +105,20 @@ impl Foreground {
         }
     }
 
+    /// The fields of the next refusal of a Connection it logs from here on,
+    /// or `None` when it logs none within the deadline.
+    pub(crate) fn refusal(&mut self) -> Option<Value> {
+        while let Ok(line) = self.lines.recv_timeout(LOG_DEADLINE) {
+            self.logged.push(line.clone());
+            if let Ok(record) = serde_json::from_str::<Value>(&line)
+                && record["target"] == json!("goodfetch::rpc::refusal")
+            {
+                return Some(record["fields"].clone());
+            }
+        }
+        None
+    }
+
     /// Where it serves, as it logged once it did.
     pub(crate) fn serving(&mut self) -> DaemonEndpoint {
         let serves = self.record("the foreground Daemon serves");

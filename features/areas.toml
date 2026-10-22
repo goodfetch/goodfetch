@@ -418,6 +418,13 @@ number = 4
 kind = "setting"
 prefix = "secrets."
 
+# Area 4's Secret references (#615): the Error codes a resolution fails
+# with.
+[[area]]
+number = 4
+kind = "error"
+prefix = "secret_"
+
 # Area 4's Audit log (#612): `audit.verify`, Collie's `audit verify` and the
 # log's format.
 [[area]]
@@ -613,6 +620,32 @@ prefix = "closed"
 number = 11
 kind = "error"
 prefix = "engine_"
+
+# Area 11, the Client surfaces (spec #608): ADR 0069's exit-code table,
+# every row of which is a CLI exit code (#1188).
+[[area]]
+number = 11
+kind = "exit"
+prefix = ""
+
+# The Error codes whose rows of the exit-code table #1188 declared before
+# their areas raise them: a path the program chose that cannot be written
+# (ADR 0116) and exhausted resources (ADRs 0040, 0122) are area 3's, an
+# outdated Browser host (ADR 0096) area 5's.
+[[area]]
+number = 3
+kind = "error"
+prefix = "path_not_writable"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "resources_exhausted"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "browser_host_outdated"
 
 # Area 12, the Console (spec #592): its address and the Error code of its
 # port taken (#811).

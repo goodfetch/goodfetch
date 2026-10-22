@@ -9,6 +9,7 @@ mod http;
 mod json_rpc;
 mod runner;
 mod table;
+mod websocket;
 
 pub use connection::ListenerAddress;
 pub use runner::{

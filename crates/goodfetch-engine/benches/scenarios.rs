@@ -100,6 +100,7 @@ pub(crate) fn dispatch(calls: &[u8], home: &Path) -> usize {
             tokio::join!(send, receive).1
         };
         let dependencies = Dependencies {
+            environment: std::collections::BTreeMap::new(),
             home: Home::new(home.to_owned()),
             clock: Clock::paused(std::time::UNIX_EPOCH),
             entropy: Entropy::seeded(0),

@@ -10,6 +10,8 @@ adrs = [17]
 listeners.daemon_socket = { expect = "closed" }
 listeners.private_endpoint = { expect = "closed" }
 listeners.ops_listener = { expect = "status", status = 401 }
+listeners.daemon_websocket = { expect = "closed" }
+listeners.exposed_daemon = { expect = "closed" }
 "#;
 
 #[test]
@@ -88,6 +90,27 @@ listeners.private_endpoint = { expect = "closed" }
     r#"{ expect = "closed" }"#,
     Rule::HostForeign,
     ListenerKind::DaemonSocket
+)]
+#[case::a_status_for_a_websockets_first_message(
+    "token_wrong",
+    "daemon_websocket",
+    r#"{ expect = "status", status = 401 }"#,
+    Rule::TokenWrong,
+    ListenerKind::DaemonWebsocket
+)]
+#[case::a_closed_connection_for_a_websockets_handshake(
+    "origin_foreign",
+    "daemon_websocket",
+    r#"{ expect = "closed" }"#,
+    Rule::OriginForeign,
+    ListenerKind::DaemonWebsocket
+)]
+#[case::a_missing_origin_on_a_json_rpc_stream(
+    "origin_missing",
+    "exposed_daemon",
+    r#"{ expect = "closed" }"#,
+    Rule::OriginMissing,
+    ListenerKind::ExposedDaemon
 )]
 #[case::a_refusal_rule_answering_with_a_status_only(
     "token_wrong",

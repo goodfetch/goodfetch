@@ -8,6 +8,8 @@ use std::net::IpAddr;
 
 use serde_json::{Value, json};
 
+use crate::secret_reference::{REFERENCE_PATTERN, SecretReference};
+
 /// The kind of a Setting's values, as every layer writes them: JSON on the
 /// wire, the same nesting in a TOML file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,6 +35,8 @@ pub enum ValueKind {
     Map(&'static ValueKind),
     /// A value of one kind, or `null`, inside a list or a map.
     Optional(&'static ValueKind),
+    /// A Secret reference, `provider:rest`, never a value (ADR 0015).
+    SecretReference,
 }
 
 impl ValueKind {
@@ -73,6 +77,13 @@ impl ValueKind {
             },
             Self::Optional(_) if value.is_null() => Ok(()),
             Self::Optional(kind) => kind.check(value),
+            Self::SecretReference => match value.as_str().map(SecretReference::parse) {
+                Some(Ok(_)) => Ok(()),
+                Some(Err(error)) => Err(format!(
+                    "expected a Secret reference such as `env:NAME`: {error}; a value is never taken in its place"
+                )),
+                None => Err("expected a Secret reference such as `env:NAME`".to_owned()),
+            },
         }
     }
 
@@ -134,6 +145,11 @@ impl ValueKind {
             Self::List(kind) => json!({ "type": "array", "items": kind.schema() }),
             Self::Map(kind) => json!({ "type": "object", "additionalProperties": kind.schema() }),
             Self::Optional(kind) => json!({ "anyOf": [kind.schema(), { "type": "null" }] }),
+            Self::SecretReference => json!({
+                "type": "string",
+                "pattern": REFERENCE_PATTERN,
+                "description": "A Secret reference, such as `env:NAME`.",
+            }),
         }
     }
 }

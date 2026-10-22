@@ -85,20 +85,32 @@ impl Process {
     /// Sends it `SIGINT`, as Ctrl-C at a terminal does, through `kill -INT`,
     /// without waiting for it to exit.
     #[cfg(unix)]
+    pub fn interrupt(&self) -> io::Result<()> {
+        self.signal("INT")
+    }
+
+    /// Sends it `SIGTERM`, as a service manager or `kill` does, through
+    /// `kill -TERM`, without waiting for it to exit.
+    #[cfg(unix)]
+    pub fn terminate(&self) -> io::Result<()> {
+        self.signal("TERM")
+    }
+
+    #[cfg(unix)]
     #[expect(
         clippy::disallowed_methods,
         reason = "a test helper's blocking `kill`, run outside any async worker (ADR 0062)"
     )]
-    pub fn interrupt(&self) -> io::Result<()> {
+    fn signal(&self, name: &str) -> io::Result<()> {
         let pid = self.child().id().to_string();
         let status = std::process::Command::new("kill")
-            .args(["-INT", &pid])
+            .args([format!("-{name}").as_str(), &pid])
             .status()?;
         if status.success() {
             Ok(())
         } else {
             Err(io::Error::other(format!(
-                "`kill -INT {pid}` failed: {status}"
+                "`kill -{name} {pid}` failed: {status}"
             )))
         }
     }

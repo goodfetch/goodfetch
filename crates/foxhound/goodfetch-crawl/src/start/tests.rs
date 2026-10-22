@@ -221,6 +221,7 @@ pub(crate) fn dependencies(env: &TestEnv, run_state: RunStateOptions) -> Depende
 /// The same, with the settings' defaults: a 60 s handler, so a 70 s lease.
 pub(crate) fn default_dependencies(env: &TestEnv, run_state: RunStateOptions) -> Dependencies {
     Dependencies {
+        environment: std::collections::BTreeMap::new(),
         home: Home::new(env.home().to_owned()),
         clock: Clock::paused(env.start_time()),
         entropy: Entropy::seeded(env.seed()),

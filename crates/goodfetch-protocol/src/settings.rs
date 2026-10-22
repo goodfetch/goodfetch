@@ -495,40 +495,6 @@ pub const NETWORK_RESOLVE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
-/// `tls.trusted_cas` (ADR 0042).
-pub const TLS_TRUSTED_CAS: Setting = Setting {
-    name: "tls.trusted_cas",
-    description: "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
-    kind: ValueKind::Map(&ValueKind::List(&ValueKind::Text)),
-    default: empty_table,
-    clearable: false,
-    authority: Authority::Configuration,
-    weakens: None,
-    arrived_in: ARRIVED_IN,
-};
-
-fn trust_on_first_use_only(value: &Value) -> bool {
-    value
-        .as_object()
-        .is_some_and(|entries| entries.values().all(Value::is_null))
-}
-
-fn accepts_any_invalid_certificate(value: &Value) -> bool {
-    value.as_object().is_some_and(|entries| !entries.is_empty())
-}
-
-/// `tls.accept_invalid_certs` (ADR 0042).
-pub const TLS_ACCEPT_INVALID_CERTS: Setting = Setting {
-    name: "tls.accept_invalid_certs",
-    description: "Domains whose certificate may fail verification, each with a pin, `any`, or `null` for trust on first use. A pin and `any` are taken only from an Operator policy and user and project configuration; a Recipe or a run may list a domain only for trust on first use.",
-    kind: ValueKind::Map(&ValueKind::Optional(&ValueKind::Text)),
-    default: empty_table,
-    clearable: false,
-    authority: Authority::ConfigurationExcept(trust_on_first_use_only),
-    weakens: Some(accepts_any_invalid_certificate),
-    arrived_in: ARRIVED_IN,
-};
-
 /// `consent.domains` (ADR 0048).
 pub const CONSENT_DOMAINS: Setting = Setting {
     name: "consent.domains",
@@ -713,8 +679,6 @@ pub const ENTRIES: Entries = Entries {
     metrics: &[],
     settings: &[
         NETWORK_RESOLVE,
-        TLS_TRUSTED_CAS,
-        TLS_ACCEPT_INVALID_CERTS,
         CONSENT_DOMAINS,
         WALL_DOMAINS,
         WALL_REFETCH_DOMAINS,

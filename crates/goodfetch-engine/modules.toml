@@ -65,6 +65,7 @@ wake = []
 # Which of `runs`'s own modules may import which.
 [submodules.runs]
 folder = []
+import = ["folder"]
 outcome = []
 reader = ["folder"]
 reindex = ["folder", "writer"]
@@ -96,6 +97,7 @@ cache = []
 [submodules.attached]
 files = []
 parent = []
+relay = []
 
 # Which of `ledger`'s own modules may import which.
 [submodules.ledger]

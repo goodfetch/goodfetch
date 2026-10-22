@@ -1,0 +1,15 @@
+# Installed by ci/os-services.sh setup on a host whose AppArmor restricts
+# unprivileged user namespaces (Ubuntu 23.10 and later, its hosted runners
+# included): gives them to the tests' own copy of util-linux's `unshare`,
+# which Collie's PID 1 test runs (ADR 0049). The copy and its folder are
+# root's, so no user can put another program at this path; the restriction
+# stays on for every other program, /usr/bin/unshare included, and no sysctl
+# changes. The path is TEST_UNSHARE in ci/os-services.sh and in
+# crates/goodfetch-collie/tests/it/daemon_run.rs.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile goodfetch-test-unshare /usr/local/libexec/goodfetch-test-tools/unshare flags=(unconfined) {
+  userns,
+  include if exists <local/goodfetch-test-unshare>
+}

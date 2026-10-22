@@ -1357,6 +1357,9 @@ struct Registry {
 
 impl Registry {
     async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
+        // No command is answered before the reclaim ends, so a Run starts
+        // on a ledger rid of dead runs' Slices, and an answered Run call
+        // says the engine's startup writes are done.
         self.reclaim().await;
         while let Some(command) = mailbox.recv().await {
             match command {

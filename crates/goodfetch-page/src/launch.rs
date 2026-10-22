@@ -9,6 +9,7 @@
 mod arguments;
 #[cfg(unix)]
 mod pipe;
+mod preferences;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -46,11 +47,6 @@ const PROFILES: &str = "browser-profiles";
 
 /// The folder of a Chromium profile's default user, in its data directory.
 const DEFAULT_PROFILE: &str = "Default";
-
-/// The preferences every launch starts its profile with: a PDF is
-/// downloaded, never shown in the browser's viewer, so a navigation to one
-/// is a download (ADR 0119).
-const PREFERENCES: &str = r#"{"plugins":{"always_open_pdf_externally":true}}"#;
 
 /// A launched browser: its connection, how its process ended once it did,
 /// and its executable.
@@ -212,14 +208,22 @@ pub(crate) async fn launch(run: &Run, home: &Home, pins: &Pins) -> Result<Launch
     let profile = run.folder().join(PROFILES).join("default");
     let created = profile.join(DEFAULT_PROFILE);
     run.owner()
-        .blocking(move || {
+        .blocking(
             #[expect(
                 clippy::disallowed_methods,
                 reason = "it runs on the tasks module's blocking policy"
             )]
-            std::fs::create_dir_all(&created)
-                .and_then(|()| std::fs::write(created.join("Preferences"), PREFERENCES))
-        })
+            move || {
+                let file = created.join("Preferences");
+                std::fs::create_dir_all(&created)?;
+                let existing = match std::fs::read_to_string(&file) {
+                    Ok(text) => Some(text),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(error),
+                };
+                std::fs::write(file, preferences::starting_preferences(existing.as_deref()))
+            },
+        )
         .await
         .map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
     let settings = run.settings().map(RunSettings::resolved);

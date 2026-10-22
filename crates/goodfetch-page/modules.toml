@@ -19,6 +19,7 @@ world = []
 [submodules.launch]
 arguments = []
 pipe = []
+preferences = []
 
 # Which of `guard`'s own modules may import which.
 [submodules.guard]

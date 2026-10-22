@@ -8,7 +8,8 @@ import { playScript, test } from "@goodfetch/test-support";
 import { describe, expect, vi } from "vitest";
 import { startAndFinish } from "../tests/programs/tracer.ts";
 import { NotInProductError } from "@goodfetch/collie-client";
-import { Collie, connectOver } from "./collie.ts";
+import { Collie } from "./collie.ts";
+import { connectOver } from "./testing.ts";
 
 /** The Scripted engine playing `script`, and a Collie Connection opened over it. */
 async function collieOn(

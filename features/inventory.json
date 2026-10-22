@@ -1607,6 +1607,26 @@
       ]
     },
     {
+      "id": "operation:run.add_seed",
+      "kind": "operation",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.add_seeds",
+      "kind": "operation",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:run.checkpoint",
       "kind": "operation",
       "area": 3,

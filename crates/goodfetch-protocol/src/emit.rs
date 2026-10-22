@@ -48,6 +48,7 @@ use crate::daemon::{
 use crate::entries::MODULES;
 use crate::events::{CreditParams, EventBatch};
 use crate::formats::FORMATS;
+use crate::foxhound::frontier::{EnqueuedBatch, SeedBatch};
 use crate::journey::{Journey, JourneyCatalog};
 use crate::key_value_store::KeyValueStoreKey;
 use crate::page::Chunk;
@@ -101,6 +102,8 @@ pub fn emit() -> Emitted {
         "events": { "params": generator.subschema_for::<EventBatch>() },
         "chunk": { "params": generator.subschema_for::<Chunk>() },
         "key": { "params": generator.subschema_for::<KeyValueStoreKey>() },
+        "seeds": { "params": generator.subschema_for::<SeedBatch>() },
+        "enqueued": { "params": generator.subschema_for::<EnqueuedBatch>() },
     });
     let outputs = json!({
         "browsers.clean": generator.subschema_for::<BrowsersCleanOutput>(),

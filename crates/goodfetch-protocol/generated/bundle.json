@@ -1519,11 +1519,11 @@
     },
     "CreditParams": {
       "additionalProperties": false,
-      "description": "What `$/credit` grants: more events, or chunks, for a streaming call.",
+      "description": "What `$/credit` grants: more events, or chunks, for a streaming call;\nsent by the engine, more seeds a `run.add_seeds` call takes.",
       "properties": {
         "credits": {
           "arrived_in": "0.1",
-          "description": "How many more events, or chunks, the Client takes.",
+          "description": "How many more events, or chunks, the Client takes; sent by the\nengine, how many more seeds the call takes.",
           "format": "uint32",
           "minimum": 1,
           "type": "integer"
@@ -2005,6 +2005,30 @@
           "type": "object"
         }
       ]
+    },
+    "EnqueuedBatch": {
+      "additionalProperties": false,
+      "description": "What `$/enqueued` carries: the answer of each seed of one `$/seeds`\nbatch, in the batch's order.",
+      "properties": {
+        "answers": {
+          "arrived_in": "0.1",
+          "description": "Each seed's answer.",
+          "items": {
+            "$ref": "#/$defs/Enqueued"
+          },
+          "type": "array"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the `run.add_seeds` call."
+        }
+      },
+      "required": [
+        "id",
+        "answers"
+      ],
+      "type": "object"
     },
     "ErrorData": {
       "additionalProperties": true,
@@ -4701,6 +4725,54 @@
       ],
       "type": "object"
     },
+    "RunAddSeedParams": {
+      "additionalProperties": false,
+      "description": "What `run.add_seed` takes: one seed for a running crawl.",
+      "properties": {
+        "attempt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SeedAttempt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The attempt that adds it, when a handler adds it through its\ncontext's `run`; absent, the program adds it from outside any\nattempt."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        },
+        "seed": {
+          "$ref": "#/$defs/Seed",
+          "arrived_in": "0.1",
+          "description": "The seed."
+        }
+      },
+      "required": [
+        "run_id",
+        "seed"
+      ],
+      "type": "object"
+    },
+    "RunAddSeedsParams": {
+      "additionalProperties": false,
+      "description": "What `run.add_seeds` takes: the running crawl its Client streams seeds\nto.",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunAxes": {
       "description": "A Run's three axes as they are now (ADR 0029): what\n`run.axes_changed` reports, and what a resync gives of each Run.",
       "properties": {
@@ -5243,6 +5315,30 @@
       ],
       "type": "object"
     },
+    "RunSeedsAdded": {
+      "description": "What `run.add_seeds` answers once its stream ended: how many of the\nseeds it took were added, and how many were not.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "The seeds added.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "not_added": {
+          "arrived_in": "0.1",
+          "description": "The seeds not added, each with its reason in its answer.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "added",
+        "not_added"
+      ],
+      "type": "object"
+    },
     "RunSeedsParams": {
       "additionalProperties": false,
       "description": "What `run.seeds` takes.",
@@ -5708,6 +5804,11 @@
           "arrived_in": "0.1",
           "description": "The body it is sent with, if any."
         },
+        "forefront": {
+          "arrived_in": "0.1",
+          "description": "Whether it goes ahead of every request its domain holds pending,\nwhatever their priority, as Crawlee's `forefront` (ADR 0005): of two\nsuch requests, the later goes first; `false` by default.",
+          "type": "boolean"
+        },
         "key": {
           "arrived_in": "0.1",
           "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
@@ -5745,6 +5846,58 @@
       "required": [
         "url",
         "label"
+      ],
+      "type": "object"
+    },
+    "SeedAttempt": {
+      "additionalProperties": false,
+      "description": "The attempt a seed is added from: a handler's `ctx.run`, which is bound\nto its attempt (ADR 0093).",
+      "properties": {
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt adds the seed.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "crawl_request_id",
+        "lease_epoch"
+      ],
+      "type": "object"
+    },
+    "SeedBatch": {
+      "additionalProperties": false,
+      "description": "What `$/seeds` carries: the next seeds a Client streams to a\n`run.add_seeds` call, never more than the credits the call granted.",
+      "properties": {
+        "end": {
+          "arrived_in": "0.1",
+          "description": "Whether they are the stream's last: the call answers once it\nanswered them.",
+          "type": "boolean"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the `run.add_seeds` call."
+        },
+        "seeds": {
+          "arrived_in": "0.1",
+          "default": [],
+          "description": "The seeds, in order.",
+          "items": {
+            "$ref": "#/$defs/Seed"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
       ],
       "type": "object"
     },
@@ -6677,6 +6830,11 @@
         "$ref": "#/$defs/CreditParams"
       }
     },
+    "enqueued": {
+      "params": {
+        "$ref": "#/$defs/EnqueuedBatch"
+      }
+    },
     "events": {
       "params": {
         "$ref": "#/$defs/EventBatch"
@@ -6693,6 +6851,11 @@
     "key": {
       "params": {
         "$ref": "#/$defs/KeyValueStoreKey"
+      }
+    },
+    "seeds": {
+      "params": {
+        "$ref": "#/$defs/SeedBatch"
       }
     }
   },

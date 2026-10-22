@@ -549,10 +549,22 @@ pub struct Metric {
     pub instrument: Instrument,
     /// Its UCUM unit, such as `s` or `{request}`.
     pub unit: &'static str,
+    /// Its labels (OpenTelemetry's attributes), each with the bounded set
+    /// of values it takes (ADR 0050).
+    pub labels: &'static [MetricLabel],
     /// Its semver status.
     pub stability: Stability,
     /// The version that added it.
     pub arrived_in: ProtocolVersion,
+}
+
+/// A label of a metric and every value it takes: a bounded set, never a
+/// URL, a domain or a Run ID (ADR 0050).
+pub struct MetricLabel {
+    /// Its `snake_case` name.
+    pub name: &'static str,
+    /// Every value it takes.
+    pub values: &'static [&'static str],
 }
 
 /// A Setting (ADR 0028), named by its key, which ADR 0087 refuses on a
@@ -604,6 +616,8 @@ pub enum SharedType {
     BlockCause,
     /// What an Audit log entry records (ADR 0016).
     AuditKind,
+    /// What a Run report's warning says (ADR 0102).
+    RunWarningCode,
 }
 
 impl SharedType {
@@ -615,6 +629,7 @@ impl SharedType {
             Self::NotificationEvent => "notification_event",
             Self::BlockCause => "block_cause",
             Self::AuditKind => "audit_kind",
+            Self::RunWarningCode => "run_warning_code",
         }
     }
 }

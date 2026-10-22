@@ -84,7 +84,7 @@ pub(crate) fn attributes(html: &str, name: &str) -> Vec<String> {
 /// Crawls `seeds` with one request in flight at a time, answering each
 /// `crawl_request.handle` with `handler`, which may call the engine
 /// itself through the `Inside` it gets; answers `run.finish`'s reply.
-fn crawl(
+pub(crate) fn crawl(
     engine: &mut Attached,
     run_id: &str,
     seeds: &[Value],
@@ -179,11 +179,11 @@ impl Inside<'_> {
     }
 }
 
-fn added(id: &str, url: &str) -> Value {
+pub(crate) fn added(id: &str, url: &str) -> Value {
     json!({ "kind": "added", "id": id, "url": url })
 }
 
-fn not_added(reason: &str, url: &str) -> Value {
+pub(crate) fn not_added(reason: &str, url: &str) -> Value {
     json!({ "kind": "not_added", "reason": reason, "url": url })
 }
 

@@ -5,7 +5,7 @@
 pub const COMMANDS: &[&str] = &[];
 
 /// The error codes only Foxhound carries.
-pub const ERROR_CODES: &[&str] = &["attempt_ended", "client_gone", "handler_failed", "handler_lost", "lease_lost", "sample_crawl_refused"];
+pub const ERROR_CODES: &[&str] = &["attempt_ended", "client_gone", "handler_failed", "handler_lost", "lease_lost", "response_unavailable", "sample_crawl_refused"];
 
 /// The error groups only Foxhound carries.
 pub const ERROR_GROUPS: &[&str] = &[];
@@ -23,16 +23,16 @@ pub const HANDLER_REQUESTS: &[&str] = &["crawl_request.handle"];
 pub const HOOK_STAGES: &[&str] = &["sample_crawled_page"];
 
 /// The metrics only Foxhound carries.
-pub const METRICS: &[&str] = &["goodfetch.sample.crawled_pages"];
+pub const METRICS: &[&str] = &["goodfetch.sample.crawled_pages", "goodfetch.work_item.leased", "goodfetch.work_item.retried"];
 
 /// The operations only Foxhound carries.
-pub const OPERATIONS: &[&str] = &["crawl.serve", "crawl.start", "crawl_request.enqueue", "run.failed_requests", "run.outcomes", "run.seeds", "sample.crawl"];
+pub const OPERATIONS: &[&str] = &["crawl.serve", "crawl.start", "crawl_request.enqueue", "run.add_seed", "run.add_seeds", "run.failed_requests", "run.outcomes", "run.seeds", "sample.crawl"];
 
 /// The plugin kinds only Foxhound carries.
 pub const PLUGIN_KINDS: &[&str] = &["sample_page_filter"];
 
 /// The settings only Foxhound carries.
-pub const SETTINGS: &[&str] = &["crawl.domain_keys", "crawl.handler.concurrency", "crawl.keep_alive", "crawl.retry.handler_failed", "crawl.retry.max", "crawl.sample_pages", "crawl.scope.exclude", "crawl.scope.include", "crawl.scope.strategy", "delivery.report_guarantee_class", "delivery.write_ids_and_epochs", "paid_fetch.chain_rpc_endpoints", "paid_fetch.domains", "paid_fetch.exchange_rates", "paid_fetch.max_price_per_page", "politeness.domain.concurrency", "politeness.domain.delay", "session.pool.max_age", "session.pool.max_error_score", "session.pool.max_size", "session.pool.max_uses", "timeout.handler"];
+pub const SETTINGS: &[&str] = &["crawl.domain_keys", "crawl.handler.concurrency", "crawl.keep_alive", "crawl.retry.handler_failed", "crawl.retry.max", "crawl.sample_pages", "crawl.scope.exclude", "crawl.scope.include", "crawl.scope.strategy", "delivery.report_guarantee_class", "delivery.write_ids_and_epochs", "paid_fetch.chain_rpc_endpoints", "paid_fetch.domains", "paid_fetch.exchange_rates", "paid_fetch.max_price_per_page", "politeness.backoff.enabled", "politeness.backoff.initial", "politeness.backoff.max", "politeness.domain.concurrency", "politeness.domain.delay", "politeness.retry_after.max", "session.pool.max_age", "session.pool.max_error_score", "session.pool.max_size", "session.pool.max_uses", "timeout.handler"];
 
 /// The shared type values only Foxhound carries.
-pub const SHARED_TYPE_VALUES: &[&str] = &["decoy", "paid_fetch", "partitioned_crawl", "sample_crawled_pages"];
+pub const SHARED_TYPE_VALUES: &[&str] = &["decoy", "paid_fetch", "partitioned_crawl", "sample_crawled_pages", "trap_links_off"];

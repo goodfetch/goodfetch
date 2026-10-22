@@ -446,6 +446,8 @@ pub struct DeadlineExceededDetails {
 pub enum StoppedBy {
     /// A Client, such as through `$/cancel`.
     Client,
+    /// The program, such as through `run.stop` (ADR 0102).
+    Program,
 }
 
 /// What `call_cancelled` details.

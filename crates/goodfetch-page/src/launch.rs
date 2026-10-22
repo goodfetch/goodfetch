@@ -26,6 +26,7 @@ use goodfetch_engine::children::Children;
 use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::http_client::Resolve;
+use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
@@ -102,12 +103,13 @@ fn fetching(run: &Run) -> Fetching {
     }
 }
 
-/// The browser's executable, and the build it holds while it runs.
+/// The browser's executable, the build it holds while it runs, and its
+/// kind, as `goodfetch.browser.running`'s `browser` label names it.
 async fn executable(
     run: &Run,
     home: &Home,
     pins: &Pins,
-) -> Result<(PathBuf, Option<HeldArtifact>), CallError> {
+) -> Result<(PathBuf, Option<HeldArtifact>, &'static str), CallError> {
     let choice = BrowserChoice::Default;
     match browser_source(Platform::current(), &choice, &BTreeMap::new()) {
         BrowserSource::Pinned {
@@ -146,14 +148,14 @@ async fn executable(
             let files = prepared.artifact.files();
             let executable = executable_in(&files, platform)
                 .ok_or_else(|| launch_failed(&files, None, "no executable for this platform"))?;
-            Ok((executable, Some(prepared.artifact)))
+            Ok((executable, Some(prepared.artifact), "chrome_for_testing"))
         }
         BrowserSource::Installed { candidates, notice } => {
             notice_of(notice);
             let path = installed_browser(&choice, &candidates, pins.pinned_by.product)
                 .await
                 .map_err(|error| error.to_call_error())?;
-            Ok((path, None))
+            Ok((path, None, "chromium"))
         }
     }
 }
@@ -204,7 +206,7 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 /// Dropping the future before the browser started leaves no process; after,
 /// the Run's stop closes it.
 pub(crate) async fn launch(run: &Run, home: &Home, pins: &Pins) -> Result<Launched, CallError> {
-    let (executable, held) = executable(run, home, pins).await?;
+    let (executable, held, kind) = executable(run, home, pins).await?;
     let profile = run.folder().join(PROFILES).join("default");
     let created = profile.join(DEFAULT_PROFILE);
     run.owner()
@@ -258,6 +260,7 @@ pub(crate) async fn launch(run: &Run, home: &Home, pins: &Pins) -> Result<Launch
         exits,
         held,
         profile,
+        run.metrics().browser_running(kind),
     ));
     Ok(Launched {
         connection,
@@ -348,6 +351,7 @@ async fn supervise(
     exits: watch::Sender<Option<BrowserExit>>,
     held: Option<HeldArtifact>,
     profile: PathBuf,
+    running: Counted,
 ) {
     let Process {
         mut child,
@@ -370,6 +374,7 @@ async fn supervise(
             }
         };
         drop(connection);
+        drop(running);
         status
     });
     let exit = status.ok().map(exit_of);

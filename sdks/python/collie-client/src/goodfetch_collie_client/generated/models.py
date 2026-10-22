@@ -85,6 +85,26 @@ class AuditVerifyParams(BaseModel):
     )
 
 
+class AxisReason(BaseModel):
+    """One reason a Run is not `verified` or not `complete` (ADR 0029)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    call_id: str | None = None
+    """
+    The AI task it is about, by its `callId`, when it is about one (ADR
+    0100).
+    """
+    code: str
+    """
+    What it is, such as `stopped` or `failed`; a reason this reader does
+    not know is kept as it is.
+    """
+    message: str
+    """What it says, for people."""
+
+
 class Completeness(StrEnum):
     """
     Whether a Run's results cover everything in its scope (ADRs 0005 and
@@ -187,6 +207,20 @@ class DaemonStopping(BaseModel):
     """How many live Runs it stops, each resumable from its own state."""
 
 
+class EndingError(BaseModel):
+    """An Error code a Run's ending raises, with its message and details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    """The Error code."""
+    details: dict[str, Any] | None = None
+    """The code's own details."""
+    message: str
+    """What it says, for people."""
+
+
 class EngineInfoParams(BaseModel):
     """What `engine.info` takes: nothing."""
 
@@ -198,6 +232,22 @@ class EngineInfoParams(BaseModel):
 class EngineInstance(RootModel[str]):
     root: Annotated[str, Field(min_length=1)]
     """One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only."""
+
+
+class Enqueued1(BaseModel):
+    """The Frontier admitted it as a crawl request."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    id: str
+    """The crawl request's ID within the Run."""
+    kind: Literal["added"]
+    url: str
+    """
+    Its URL as the WHATWG URL Standard parsed it, resolved against
+    its base: the URL its handler receives.
+    """
 
 
 class Form(StrEnum):
@@ -221,6 +271,16 @@ class Form(StrEnum):
     The catalog's own names: the Console, Integrations and the HTTP
     listener.
     """
+
+
+class HttpBody(RootModel[str]):
+    root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
+    """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
+
+
+class HttpMethod(RootModel[str]):
+    root: Annotated[str, Field(pattern="^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")]
+    """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
 
 
 class KeyValueStoreDeleted(BaseModel):
@@ -262,6 +322,20 @@ class KeyValueStoreValue(BaseModel):
     )
     value: Any
     """The value, or null for an absent key."""
+
+
+class KindUsage(BaseModel):
+    """What a Run used of one Usage kind."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    amount: Annotated[int, Field(ge=0)]
+    """A count, or millionths of the currency."""
+    currency: str | None = None
+    """The currency, an ISO 4217 code; none for a count."""
+    usage_kind: str
+    """The Usage kind, a value of a type both Products share."""
 
 
 class Lifecycle(StrEnum):
@@ -383,6 +457,76 @@ class MarkdownOptions(BaseModel):
     """How much of the page it holds."""
 
 
+class ModelUsage(BaseModel):
+    """A Run's model calls (ADR 0101)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    calls: Annotated[int, Field(ge=0)]
+    """The calls, retries and Repairs included."""
+    tokens: Annotated[int, Field(ge=0)]
+    """The tokens, input and output."""
+
+
+class NotAddedReason(StrEnum):
+    """Why the Frontier did not add a request (ADRs 0093 and 0120)."""
+
+    duplicate = "duplicate"
+    """
+    The Frontier already admitted a request of the same identity: its
+    method, its URL's key and its body's hash, or its declared `key`.
+    """
+    out_of_scope = "out_of_scope"
+    """Its URL is outside the crawl's scope (`crawl.scope.*`)."""
+    domain_policy = "domain_policy"
+    """The Run's domain policy refuses its host."""
+    max_depth = "max_depth"
+    """It is deeper than `crawl.max_depth`."""
+    max_requests = "max_requests"
+    """The crawl already admitted `crawl.max_requests` requests."""
+    unsupported_scheme = "unsupported_scheme"
+    """
+    Its URL's scheme is one the crawl cannot fetch: only `http` and
+    `https` are.
+    """
+    invalid_url = "invalid_url"
+    """
+    The WHATWG URL Standard's parser refuses its URL, or it is relative
+    where nothing gives it a base, as a seed is.
+    """
+    max_url_length = "max_url_length"
+    """Its URL is longer than `crawl.max_url_length`."""
+    max_path_segments = "max_path_segments"
+    """Its URL's path has more segments than `crawl.max_path_segments`."""
+    max_segment_repeats = "max_segment_repeats"
+    """
+    A segment of its URL's path repeats more than
+    `crawl.max_segment_repeats`.
+    """
+
+
+class NothingDone2(BaseModel):
+    """
+    No seed reached a handler: each was refused when added or skipped
+    when fetched.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reason: Literal["no_seed_handled"]
+
+
+class NothingDone3(BaseModel):
+    """A resume or a retry found nothing left."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reason: Literal["nothing_pending"]
+
+
 class PageBodyRead(BaseModel):
     """What `page.body` answers once it sent the last chunk."""
 
@@ -465,6 +609,36 @@ class PeriodLength(StrEnum):
     """From the first day's midnight to the next month's."""
 
 
+class PlanStatus(StrEnum):
+    """What became of a Run's new Plan versions (ADR 0091)."""
+
+    unchanged = "unchanged"
+    """Nothing changed."""
+    promoted = "promoted"
+    """They were written to the Plan file."""
+    pending_review = "pending_review"
+    """They wait for a person."""
+    frozen = "frozen"
+    """The Plan file is frozen."""
+
+
+class PluginRun(BaseModel):
+    """A Plugin that ran in a Run (ADRs 0016 and 0033)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    confinement_missing: list[str] | None = None
+    """
+    The parts of its confinement the host could not give, under a
+    reduced confinement the Operator policy allowed.
+    """
+    name: str
+    """Its name."""
+    network_level: str
+    """The network level it ran at."""
+
+
 class PointInTime(RootModel[AwareDatetime]):
     root: AwareDatetime
     """A point in time in UTC, as RFC 3339."""
@@ -539,9 +713,40 @@ class ProtocolVersion(RootModel[str]):
     """A version `major.minor` (ADR 0030)."""
 
 
+class RecordingReport(BaseModel):
+    """What a Run did with the Response recording its start named (ADR 0105)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    file: str
+    """Its file."""
+    misses: list[str] | None = None
+    """Each request the recording missed."""
+    mode: str
+    """Its mode, such as `record` or `replay`."""
+    recorded_from: PointInTime | None = None
+    """When the oldest of them was fetched."""
+    recorded_to: PointInTime | None = None
+    """When the newest of them was fetched."""
+    responses_used: Annotated[int, Field(ge=0)]
+    """How many recorded responses it used."""
+    written_by: str | None = None
+    """The engine that wrote them."""
+
+
 class RequestId(RootModel[int | str]):
     root: int | str
     """A request's id, which its reply carries back."""
+
+
+class Resource(StrEnum):
+    """A resource the governor can run out of (ADR 0122)."""
+
+    memory = "memory"
+    """The machine's or the container's memory."""
+    storage = "storage"
+    """A filesystem the Run writes to."""
 
 
 class RunId(RootModel[str]):
@@ -573,7 +778,7 @@ class RunOrigin(StrEnum):
 
 
 class RunParams(BaseModel):
-    """What `run.finish` and `run.abort` take: the Run."""
+    """What `run.usage`, `run.pause` and `run.migrate` take: the Run."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -631,6 +836,45 @@ class RunSetProgressMessageParams(BaseModel):
     """The Run's ID."""
 
 
+class RunWaitParams(BaseModel):
+    """
+    What `run.finish` and `run.stop` take: the Run, and how long the call
+    waits for its end.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    run_id: RunId
+    """The Run's ID."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the call waits for the Run's end, in milliseconds; past it,
+    it fails with `deadline_exceeded` and only the wait ends. None by
+    default for `run.finish`, which the Run's own `timeout.run` bounds;
+    `timeout.close` by default for `run.stop`.
+    """
+
+
+class RunWarning(BaseModel):
+    """
+    What a Run warns of (ADR 0102): a code of the warning table, or of a
+    newer engine's, kept as it is, with its message and what it concerns.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    """Its code."""
+    folder: str | None = None
+    """The folder it concerns."""
+    message: str
+    """What it says, for people."""
+    sessions: list[str] | None = None
+    """The Sessions it concerns."""
+
+
 class SampleEchoParams(BaseModel):
     """What `sample.echo` repeats."""
 
@@ -681,6 +925,65 @@ class SampleStorePutResult(BaseModel):
     )
     replaced: bool
     """Whether a value was already kept under the key."""
+
+
+class Seed(BaseModel):
+    """
+    One request a crawl starts from (ADR 0093): a URL, the Label that picks
+    its handler and its Payload, and how it is sent and identified.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    body: HttpBody | None = None
+    """The body it is sent with, if any."""
+    forefront: bool | None = None
+    """
+    Whether it goes ahead of every request its domain holds pending,
+    whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+    such requests, the later goes first; `false` by default.
+    """
+    key: str | None = None
+    """
+    Its identity in the Frontier, declared by the program in place of
+    its method, its URL's key and its body's hash: a canonicalization
+    of the program's own, which always wins (ADR 0005).
+    """
+    label: str
+    """Its Label."""
+    method: HttpMethod | None = None
+    """The method it is sent with: `GET` by default."""
+    payload: Any | None = None
+    """The data the program attaches for its handler."""
+    priority: int | None = None
+    """
+    Its priority among the requests of its domain: higher goes first,
+    and a priority never orders requests of different domains (ADR
+    0004); 0 by default.
+    """
+    url: str
+    """Its URL."""
+
+
+class SeedBatch(BaseModel):
+    """
+    What `$/seeds` carries: the next seeds a Client streams to a
+    `run.add_seeds` call, never more than the credits the call granted.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end: bool | None = None
+    """
+    Whether they are the stream's last: the call answers once it
+    answered them.
+    """
+    id: RequestId
+    """The id of the `run.add_seeds` call."""
+    seeds: Annotated[list[Seed] | None, Field(validate_default=True)] = []
+    """The seeds, in order."""
 
 
 class SessionId(RootModel[str]):
@@ -785,11 +1088,38 @@ class StopReason5(BaseModel):
     kind: Literal["drain"]
 
 
+class StopReason8(BaseModel):
+    """Its engine was lost while it ran, and another engine stopped it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["engine_lost"]
+
+
+class StopReason9(BaseModel):
+    """
+    The resource governor ran out of a resource for it, and it stopped
+    at its next safe point, resumable (ADRs 0040 and 0122).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    folder: str | None = None
+    """For storage, the folder whose filesystem filled."""
+    kind: Literal["resources"]
+    resource: Resource
+    """The resource that ran out."""
+
+
 class StoppedBy(StrEnum):
     """Who stopped a call (ADR 0113)."""
 
     client = "client"
     """A Client, such as through `$/cancel`."""
+    program = "program"
+    """The program, such as through `run.stop` (ADR 0102)."""
 
 
 class SubscriptionEnded(BaseModel):
@@ -844,6 +1174,54 @@ class Tags(RootModel[list[Tag]]):
     """A Run's tags, in the order given."""
 
 
+class UncertainEffect(BaseModel):
+    """An Effect a Run left uncertain (ADR 0106), until a person reconciles it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    crawl_request: str | None = None
+    """The crawl request it ran for, in a crawl."""
+    entry: str
+    """Its Effect journal entry."""
+    first_command: str | None = None
+    """The first command sent for it."""
+    instruction: str | None = None
+    """Its instruction, for an AI action."""
+    key: str | None = None
+    """Its key, for a declared Effect."""
+    reason: str
+    """Why it is uncertain."""
+    since: PointInTime
+    """Since when it is uncertain."""
+
+
+class Unready(StrEnum):
+    """
+    Why a Daemon cannot take a new Run now, as its ops listener's
+    `/readyz` and `daemon health` check it (ADR 0050).
+    """
+
+    draining = "draining"
+    """It drains, taking no Run (ADR 0049)."""
+    run_state_not_writable = "run_state_not_writable"
+    """Its run state cannot be written."""
+    browsers_missing = "browsers_missing"
+    """A browser its configuration uses is not installed."""
+
+
+class UsageAmount(BaseModel):
+    """An amount of a Usage kind counted in a currency, or as a count."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    amount: Annotated[int, Field(ge=0)]
+    """A count, or millionths of the currency."""
+    currency: str | None = None
+    """The currency, an ISO 4217 code; none for a count."""
+
+
 class UsageListParams(BaseModel):
     """What `usage.list` takes."""
 
@@ -881,6 +1259,26 @@ class WaitUntil(StrEnum):
     """Once the document fired `DOMContentLoaded`."""
     load = "load"
     """Once the document fired `load`."""
+
+
+class WeakenedSetting(BaseModel):
+    """
+    A setting that weakened a safeguard for a Run (ADR 0028): its key, its
+    value, the layer that set it and, for the run layer, where the value came
+    from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    key: str
+    """The setting's key."""
+    layer: SettingsLayer
+    """The layer that set it."""
+    origin: RunOrigin | None = None
+    """For the run layer, where the value came from."""
+    value: Any
+    """Its value."""
 
 
 class ArtifactId(BaseModel):
@@ -980,15 +1378,42 @@ class ConfigExplainParams(BaseModel):
 
 
 class CreditParams(BaseModel):
-    """What `$/credit` grants: more events, or chunks, for a streaming call."""
+    """
+    What `$/credit` grants: more events, or chunks, for a streaming call;
+    sent by the engine, more seeds a `run.add_seeds` call takes.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
     )
     credits: Annotated[int, Field(ge=1)]
-    """How many more events, or chunks, the Client takes."""
+    """
+    How many more events, or chunks, the Client takes; sent by the
+    engine, how many more seeds the call takes.
+    """
     id: RequestId
     """The streaming call's id."""
+
+
+class DaemonHealth(BaseModel):
+    """
+    What `daemon.health` answers: what the ops listener's `/livez` and
+    `/readyz` check (ADR 0050). In a Daemon group, readiness ignores the
+    Lead Daemon's reachability.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    live: bool
+    """
+    Whether it is live: its runtime and its Runs' registry, which writes
+    their run state, respond.
+    """
+    ready: bool
+    """Whether it is ready: live, and able to take a new Run."""
+    unready: list[Unready]
+    """Why it is not ready, when it is not; empty when it is."""
 
 
 class DaemonStatus(BaseModel):
@@ -1050,6 +1475,42 @@ class EngineInfo(BaseModel):
     """The engine's Product version."""
     protocol_version: ProtocolVersion
     """The protocol version the engine speaks."""
+
+
+class Enqueued2(BaseModel):
+    """The Frontier did not admit it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["not_added"]
+    reason: NotAddedReason
+    """Why."""
+    url: str
+    """Its URL as it was given."""
+
+
+class Enqueued(RootModel[Enqueued1 | Enqueued2]):
+    root: Enqueued1 | Enqueued2
+    """
+    The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
+    value, never an error, since a request is one among many.
+    """
+
+
+class EnqueuedBatch(BaseModel):
+    """
+    What `$/enqueued` carries: the answer of each seed of one `$/seeds`
+    batch, in the batch's order.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answers: list[Enqueued]
+    """Each seed's answer."""
+    id: RequestId
+    """The id of the `run.add_seeds` call."""
 
 
 class EventEnvelope(BaseModel):
@@ -1330,6 +1791,22 @@ class NewPageParams(BaseModel):
     """The Run."""
 
 
+class NothingDone1(BaseModel):
+    """The start found the Run ended."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    ended_at: PointInTime
+    """When it ended."""
+    reason: Literal["already_ended"]
+
+
+class NothingDone(RootModel[NothingDone1 | NothingDone2 | NothingDone3]):
+    root: NothingDone1 | NothingDone2 | NothingDone3
+    """Why a call that ends a Run did nothing (ADR 0102's G1)."""
+
+
 class PageBodyParams(BaseModel):
     """What `page.body` takes: the body to read."""
 
@@ -1387,6 +1864,22 @@ class Period(BaseModel):
     """How long it counts."""
     time_zone: str
     """The IANA time zone its midnights are in, such as `Europe/Paris`."""
+
+
+class PlanReport(BaseModel):
+    """What a Run did with its Plan file (ADR 0091)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    file: str | None = None
+    """The Plan file's path, or none."""
+    status: PlanStatus
+    """What became of its new versions."""
+    steps_changed: list[str] | None = None
+    """The steps that changed, each Agent task one entry (ADR 0100)."""
+    version: Annotated[int | None, Field(ge=0)] = None
+    """The version it used."""
 
 
 class PressParams(BaseModel):
@@ -1543,23 +2036,6 @@ class RunStarted(BaseModel):
     """Whether the start began it."""
 
 
-class SettingLimit(BaseModel):
-    """
-    A setting that decided an outcome: its key, its value and the layer that
-    set it (ADRs 0028 and 0079).
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    key: str
-    """The setting's key."""
-    layer: SettingsLayer
-    """The layer that set it."""
-    value: Any
-    """Its value."""
-
-
 class SettingsFile(BaseModel):
     """A layer's file, as `config explain` names it."""
 
@@ -1642,6 +2118,8 @@ class StopReason(
         | StopReason5
         | StopReason6
         | StopReason7
+        | StopReason8
+        | StopReason9
     ]
 ):
     root: (
@@ -1652,11 +2130,10 @@ class StopReason(
         | StopReason5
         | StopReason6
         | StopReason7
+        | StopReason8
+        | StopReason9
     )
-    """
-    Why a Run stopped (ADR 0102); the other causes join with the tickets that
-    stop Runs for them.
-    """
+    """Why a Run stopped (ADRs 0029, 0080 and 0102)."""
 
 
 class UsageRaiseParams(BaseModel):
@@ -1714,6 +2191,34 @@ class UsageSetParams(BaseModel):
     Which one of its kind; the caller's own when absent (its Client
     connection, its person, the engine's Daemon, the install).
     """
+    usage_kind: str
+    """The Usage kind it caps."""
+
+
+class AppliedLimit(BaseModel):
+    """
+    A Limit that applies to a Run (ADRs 0041 and 0101): its scope's kind and
+    ID, what it caps, its period, what it allows, what is left of it and who
+    set it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    amount: Annotated[int, Field(ge=0)]
+    """What it allows per period: a count, or millionths of the currency."""
+    currency: str | None = None
+    """The currency it caps a price in, for a price Limit."""
+    left: Annotated[int, Field(ge=0)]
+    """What is left of it in the current period."""
+    period: Period | None = None
+    """Its period; none for a Limit that never starts again."""
+    resets_at: PointInTime | None = None
+    """When its period starts again; none for a Limit without one."""
+    scope: LimitScope
+    """What it is on; a scope kind this reader does not know is kept."""
+    set_by: LimitSetter
+    """Who set it."""
     usage_kind: str
     """The Usage kind it caps."""
 
@@ -1888,51 +2393,6 @@ class Resync(BaseModel):
     """The axes of each Run the engine knows, live or ended."""
 
 
-class RunReport(BaseModel):
-    """
-    What a Run states about itself when it ends (ADR 0102): its three axes
-    (ADR 0029) and when it ran.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    checkpoint: Checkpoint | None = None
-    """
-    The last Checkpoint written of it in this engine, when one was (ADR
-    0102).
-    """
-    completeness: Completeness
-    """Whether its results cover its scope."""
-    ended_at: PointInTime
-    """When it ended."""
-    lifecycle: Lifecycle
-    """Where it ended."""
-    policy_version: str | None = None
-    """
-    The version of the Operator policy it ran under, when one applied
-    (ADR 0028).
-    """
-    run_id: RunId
-    """The Run's ID."""
-    started_at: PointInTime
-    """When it started."""
-    stop_reason: StopReason | None = None
-    """Why it stopped, when it did."""
-    uncapped: bool | None = None
-    """
-    Whether it spent, or reserved, money in a currency no Limit holding
-    it caps (ADR 0041): *uncapped*.
-    """
-    verdict: Verdict
-    """Whether its own checks prove what it committed."""
-    weakened_by: list[SettingLimit] | None = None
-    """
-    Every setting it ran with that weakens a guarantee class or switches
-    off a costly control, with its value and layer (ADR 0028).
-    """
-
-
 class RunStopping(BaseModel):
     """What `run.stopping` carries."""
 
@@ -1943,6 +2403,42 @@ class RunStopping(BaseModel):
     """Why it stops."""
     run_id: RunId
     """The Run's ID."""
+
+
+class RunUsage(BaseModel):
+    """
+    What a Run used, as the Usage ledger charged it, and the Limits that
+    apply to it (ADRs 0041 and 0101): what `run.usage` answers and the
+    report carries.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    browser_time: Annotated[int, Field(ge=0)]
+    """How long it held a browser, in milliseconds."""
+    limits: list[AppliedLimit] | None = None
+    """Each Limit that applies to it, with what is left of it."""
+    model: ModelUsage
+    """Its model calls."""
+    other: list[KindUsage] | None = None
+    """
+    What it used of a Usage kind this engine does not name, kept as the
+    ledger holds it.
+    """
+    paid_fetches: list[UsageAmount] | None = None
+    """Its Paid fetches, by currency (ADR 0045)."""
+    paid_solves: list[UsageAmount] | None = None
+    """Its paid solves, by currency (ADR 0035)."""
+    proxy_bytes: Annotated[int, Field(ge=0)]
+    """The bytes it sent and received through a proxy."""
+    requests: Annotated[int, Field(ge=0)]
+    """The requests it sent."""
+    uncapped: bool | None = None
+    """
+    Whether it spent, or reserved, money in a currency no Limit holding
+    it caps (ADR 0041): *uncapped*.
+    """
 
 
 class SettingsExplanation(BaseModel):
@@ -1987,3 +2483,77 @@ class FormatsParams(BaseModel):
     """The formats."""
     page_id: PageId
     """The page."""
+
+
+class RunReport(BaseModel):
+    """
+    What a Run states about itself when it ends (ADR 0102). A part no area
+    supplied is absent, never zero.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    checkpoint: Checkpoint | None = None
+    """The last Checkpoint written of it in this engine, when one was."""
+    completeness: Completeness
+    """Whether its results cover its scope."""
+    completeness_reasons: list[AxisReason] | None = None
+    """Why it is not `complete`, when it is not."""
+    console_url: str | None = None
+    """
+    Its page in the Console, where its Run trace replays, when the
+    engine knows a Console address (ADR 0031).
+    """
+    ended_at: PointInTime
+    """When it ended."""
+    error: EndingError | None = None
+    """
+    The error the call that ends it raises: the one that failed a
+    `failed` Run, or a write at its end that failed, such as its Plan
+    file's (ADR 0116).
+    """
+    lifecycle: Lifecycle
+    """Where it ended."""
+    nothing_done: NothingDone | None = None
+    """Why the call that answered it did nothing, when it did nothing."""
+    plan: PlanReport | None = None
+    """What it did with its Plan file (ADR 0091)."""
+    plugins: list[PluginRun] | None = None
+    """Each Plugin that ran (ADRs 0016 and 0033)."""
+    policy_version: str | None = None
+    """
+    The version of the Operator policy it ran under, when one applied
+    (ADR 0031).
+    """
+    recording: RecordingReport | None = None
+    """What it did with the Response recording its start named (ADR 0105)."""
+    run_id: RunId
+    """The Run's ID."""
+    settings: list[ExplainedSetting] | None = None
+    """
+    Each effective value it ran with, the layer that set it and the one
+    that locked it, as `config.explain` gives them (ADR 0028).
+    """
+    started_at: PointInTime
+    """When it started."""
+    stop_reason: StopReason | None = None
+    """Why it stopped, when it did."""
+    uncertain_effects: list[UncertainEffect] | None = None
+    """
+    Each Effect it left uncertain, until a person reconciles it (ADR
+    0106).
+    """
+    usage: RunUsage
+    """
+    What it used, as the Usage ledger charged it, with the Limits that
+    apply to it (ADR 0101).
+    """
+    verdict: Verdict
+    """Whether its own checks prove what it committed."""
+    verdict_reasons: list[AxisReason] | None = None
+    """Why it is not `verified`, when it is not."""
+    warnings: list[RunWarning] | None = None
+    """What the areas warn of, each with a code and a message."""
+    weakened: list[WeakenedSetting] | None = None
+    """Every setting that weakened a safeguard for it (ADR 0028)."""

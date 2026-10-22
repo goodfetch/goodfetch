@@ -26,9 +26,14 @@ hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["client", "http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
+# A `Retry-After`'s HTTP-date in RFC 9110's three formats (ADR 0118).
+httpdate.workspace = true
 # Period Limits count in an explicit IANA time zone (ADR 0041), read from the
 # system database, or a bundled one where the OS has none.
 jiff = { workspace = true, features = ["tzdb-zoneinfo", "tzdb-bundle-platform"] }
+# The runtime's metrics, through OpenTelemetry's API alone: the meter is a
+# value the executable gives the engine, a no-op one otherwise (ADR 0050).
+opentelemetry = { workspace = true, features = ["metrics"] }
 rusqlite.workspace = true
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 # Every resolved Secret reference's value, zeroized when dropped (ADR 0015).
@@ -84,6 +89,11 @@ hyper = { workspace = true, features = ["server"] }
 rcgen = { workspace = true, features = ["ring"] }
 insta.workspace = true
 mimalloc.workspace = true
+# The metrics tests read what the engine records through the SDK and the
+# Prometheus exporter the executables use (src/engine/tests/metrics.rs).
+opentelemetry_sdk = { workspace = true, features = ["metrics"] }
+opentelemetry-prometheus.workspace = true
+prometheus.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true
 rstest.workspace = true

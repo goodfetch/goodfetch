@@ -86,7 +86,7 @@ fn a_run_report_names_the_operator_policy_version_and_the_settings_that_weaken()
     assert_eq!(
         (
             &finished["result"]["policy_version"],
-            &finished["result"]["weakened_by"]
+            &finished["result"]["weakened"]
         ),
         (
             &json!("sha256:e0e1ddb8a44ecebb"),
@@ -94,6 +94,7 @@ fn a_run_report_names_the_operator_policy_version_and_the_settings_that_weaken()
                 "key": "tls.accept_invalid_certs",
                 "value": { "intranet.example": null },
                 "layer": "run",
+                "origin": "settings",
             }])
         )
     );

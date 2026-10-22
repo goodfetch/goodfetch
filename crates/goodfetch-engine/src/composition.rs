@@ -20,7 +20,7 @@ use std::sync::{Arc, OnceLock};
 
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation};
 use goodfetch_protocol::connection::Surface;
-use goodfetch_protocol::daemon::{DaemonStatus, DaemonStopping};
+use goodfetch_protocol::daemon::{DaemonHealth, DaemonStatus, DaemonStopping};
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -35,7 +35,7 @@ use crate::log::ConnectionLog;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
-use crate::runs::{Driver, Runs};
+use crate::runs::{Driver, ReportPart, Runs};
 use goodfetch_protocol::run::RunKind;
 
 /// A failure a call answers with: an Error code of the catalog, with its
@@ -148,6 +148,7 @@ pub struct CallContext {
     connection: Arc<ConnectionContext>,
     token: CancellationToken,
     stream: Option<Arc<CallStream>>,
+    input: Option<Arc<CallInput>>,
 }
 
 /// What every call of one Connection is given: the engine's identity, the
@@ -181,6 +182,8 @@ pub(crate) trait DaemonSide: Send + Sync {
     fn refusing(&self) -> Answering<'_, bool>;
     /// What `daemon.status` answers.
     fn status(&self) -> Answering<'_, DaemonStatus>;
+    /// What `daemon.health` answers.
+    fn health(&self) -> Answering<'_, DaemonHealth>;
     /// Stops the Daemon once `daemon.stop` has answered what it says.
     fn stop(&self) -> Answering<'_, DaemonStopping>;
 }
@@ -193,19 +196,89 @@ pub(crate) struct CallStream {
     pub(crate) outgoing: mpsc::Sender<Vec<u8>>,
 }
 
+/// The stream of input a call takes from its Client (ADR 0024): each
+/// notification of its handler's input method that names the call's id, in
+/// the order they came, and the way back to its Client for what it
+/// answers, such as the credits that let the Client send more.
+pub struct CallInput {
+    id: RequestId,
+    incoming: tokio::sync::Mutex<mpsc::UnboundedReceiver<Value>>,
+    outgoing: mpsc::Sender<Vec<u8>>,
+    line: fn(&str, &Value) -> Vec<u8>,
+}
+
+impl CallInput {
+    /// The input of the call `id`, whose notifications `incoming` brings,
+    /// answering on the Connection's writer `outgoing` with the lines
+    /// `line` writes of a notification's method and params.
+    pub(crate) fn new(
+        id: RequestId,
+        incoming: mpsc::UnboundedReceiver<Value>,
+        outgoing: mpsc::Sender<Vec<u8>>,
+        line: fn(&str, &Value) -> Vec<u8>,
+    ) -> Self {
+        Self {
+            id,
+            incoming: tokio::sync::Mutex::new(incoming),
+            outgoing,
+            line,
+        }
+    }
+
+    /// The call's id, which its notifications name.
+    pub fn id(&self) -> &RequestId {
+        &self.id
+    }
+
+    /// The params of the next input notification; `None` once the
+    /// Connection ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no notification.
+    pub async fn next(&self) -> Option<Value> {
+        self.incoming.lock().await.recv().await
+    }
+
+    /// Sends the Client the notification `method` with `params`; `false`
+    /// once the Connection's writer is gone.
+    pub async fn notify(&self, method: &str, params: &impl Serialize) -> bool {
+        let params =
+            serde_json::to_value(params).expect("invariant: a notification's params encode");
+        self.outgoing
+            .send((self.line)(method, &params))
+            .await
+            .is_ok()
+    }
+}
+
 impl CallContext {
     /// A call on `connection`, cancelled through `token`, with `stream`
-    /// when its handler streams.
+    /// when its handler streams, and `input` when it takes input.
     pub(crate) fn new(
         connection: Arc<ConnectionContext>,
         token: CancellationToken,
         stream: Option<CallStream>,
+        input: Option<CallInput>,
     ) -> Self {
         Self {
             connection,
             token,
             stream: stream.map(Arc::new),
+            input: input.map(Arc::new),
         }
+    }
+
+    /// The call's stream of input from its Client, which only a handler
+    /// built with [`Handler::taking_input`] reads.
+    ///
+    /// # Panics
+    ///
+    /// When the handler takes no input: its calls carry none.
+    pub fn input(&self) -> &CallInput {
+        self.input
+            .as_deref()
+            .expect("invariant: a handler taking input gets its calls' input")
     }
 
     /// The engine's event stream, on which a handler publishes its events.
@@ -278,6 +351,7 @@ pub struct Handler {
     operation: &'static Operation,
     call: Arc<dyn Fn(Value, CallContext) -> Answer + Send + Sync>,
     streams: bool,
+    input: Option<&'static str>,
 }
 
 impl Handler {
@@ -309,6 +383,7 @@ impl Handler {
             operation,
             call: Arc::new(call),
             streams: false,
+            input: None,
         }
     }
 
@@ -323,6 +398,19 @@ impl Handler {
     /// Whether its calls stream notifications.
     pub(crate) fn streams(&self) -> bool {
         self.streams
+    }
+
+    /// The same handler, whose calls take the notifications `method` that
+    /// name them as their input, through [`CallContext::input`].
+    #[must_use]
+    pub fn taking_input(mut self, method: &'static str) -> Self {
+        self.input = Some(method);
+        self
+    }
+
+    /// The notification its calls take as their input, if any.
+    pub(crate) fn input(&self) -> Option<&'static str> {
+        self.input
     }
 
     /// The operation it handles.
@@ -344,6 +432,7 @@ pub struct Contribution {
     politeness_tables: Vec<PolitenessTables>,
     drivers: Vec<(RunKind, Driver)>,
     admission_gates: Option<Arc<dyn Gates>>,
+    report_parts: Vec<Arc<dyn ReportPart>>,
 }
 
 impl Contribution {
@@ -356,6 +445,7 @@ impl Contribution {
             politeness_tables: Vec::new(),
             drivers: Vec::new(),
             admission_gates: None,
+            report_parts: Vec::new(),
         }
     }
 
@@ -395,6 +485,14 @@ impl Contribution {
     #[must_use]
     pub fn with_admission_gates(mut self, gates: Arc<dyn Gates>) -> Self {
         self.admission_gates = Some(gates);
+        self
+    }
+
+    /// The same, adding `part` to each Run's report when the Run ends (ADR
+    /// 0102).
+    #[must_use]
+    pub fn with_report_part(mut self, part: Arc<dyn ReportPart>) -> Self {
+        self.report_parts.push(part);
         self
     }
 
@@ -527,6 +625,14 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.drivers.iter().cloned())
+            .collect()
+    }
+
+    /// What every contribution adds to each Run's report, in order.
+    pub(crate) fn report_parts(&self) -> Vec<Arc<dyn ReportPart>> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.report_parts.iter().cloned())
             .collect()
     }
 

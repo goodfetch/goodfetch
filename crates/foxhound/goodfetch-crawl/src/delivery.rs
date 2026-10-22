@@ -23,46 +23,65 @@
 //! its user, given back once its attempt ended, with what the attempt met:
 //! a site that did not answer in time backs the domain off, and a handler
 //! failing with `blocked` for a `rate_limit` (a 429) halves its concurrency,
-//! for every sharing run (ADR 0053). A domain the Politeness holds for want
-//! of room waits for the wake of a Permit given back. Once every work item
+//! for every sharing run (ADR 0053), as one failing with
+//! `response_unavailable` for a 502, 503 or 504 backs it off; the time a
+//! failure's `retryAfter` names holds the domain until then (ADR 0118). A
+//! domain the Politeness holds for want of room waits for the wake of a
+//! Permit given back. When that time is further away than the Run waits
+//! (`politeness.retry_after.max`), the request whose response asked ends
+//! `failed` with no retry spent, and each request of the domain admitted
+//! meanwhile ends `failed` with `response_unavailable`, unsent: no handler
+//! request goes for it. Once every work item
 //! is done, it finishes the Run; with `crawl.keep_alive` (RT-12) it waits
 //! for new work instead until `run.finish` lets the Run finish, so its idle
-//! time counts toward its `timeout.run`. When the Run is asked to stop at its next safe point,
+//! time counts toward its `timeout.run`. A seed added to the running crawl
+//! (`run.add_seed`, `run.add_seeds`) wakes it, idle or not, to key the new
+//! work items and queue them under their domains. When the Run is asked to stop at its next safe point,
 //! such as once its `timeout.run` passed, it admits nothing new, lets each
 //! attempt in flight commit or be abandoned under its lease, and then stops
 //! the Run. When the Run stops at once, by an abort, the attempts in flight
 //! are abandoned and their work items return to pending without counting;
 //! when
 //! no Connection serves the crawl any more, the driver delivers nothing
-//! more and waits for the Run to stop or a Connection to join.
+//! more and waits for the Run to stop or a Connection to join. Each attempt
+//! counts in `goodfetch.work_item.leased` until it ends, and each retry in
+//! `goodfetch.work_item.retried`, on the meter the Run hands out (ADR 0050).
 
-use goodfetch_engine::admission::{Admission, Ended, Waiting, Wakes};
+use std::time::Duration;
+
+use goodfetch_engine::admission::{Admission, Waiting, Wakes};
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::ledger::Refusal;
+use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_protocol::block::BlockCause;
-use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams,
-    CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
+    CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST, RESPONSE_UNAVAILABLE,
+    WORK_ITEM_LEASED, WORK_ITEM_RETRIED,
 };
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
-use goodfetch_protocol::run::StopReason;
-use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
+use goodfetch_protocol::run::{
+    AxisReason, EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, StopReason,
+};
 use goodfetch_protocol::usage::REQUESTS;
 use goodfetch_session_pool::{Effect, PoolSettings, SessionPool};
 use serde_json::{Map, Value};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::CrawlPolicy;
-use crate::serving::{Crawls, Server};
+use crate::serving::{Crawls, Opened, Server};
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
+
+mod politeness;
+
+use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
 
 /// The Error code of a page the site refused, which Collie's page raises
 /// with the Block cause in its details (ADRs 0035 and 0079); declared with
@@ -94,6 +113,8 @@ struct Attempt {
     /// The server, by its place in the delivery's list, its request went to.
     server: usize,
     leased: Leased,
+    /// Its count in `goodfetch.work_item.leased`, until it drops.
+    _counted: Counted,
     /// The Session of the crawl's Session pool that served it.
     session: ServingSession,
     lease: WorkItemLease,
@@ -134,8 +155,9 @@ impl Serving {
 }
 
 /// Drives `run`'s work items to the handler of `client`, and of each
-/// Connection that `joined` brings, until each is done or the Run stops;
-/// then closes the crawl in `crawls`.
+/// Connection that `arrivals` brings, keying the seeds added since whenever
+/// it says so, until each is done or the Run stops; then closes the crawl
+/// in `crawls`.
 ///
 /// # Cancel safety
 ///
@@ -144,7 +166,7 @@ impl Serving {
 pub(crate) async fn drive(
     run: Run,
     client: Client,
-    mut joined: mpsc::UnboundedReceiver<Server>,
+    mut arrivals: Opened,
     crawls: Crawls,
     settings: RunSettings,
 ) {
@@ -154,7 +176,7 @@ pub(crate) async fn drive(
         in_flight: 0,
         gone: false,
     }];
-    deliver(&run, &mut servers, &mut joined, &settings).await;
+    deliver(&run, &mut servers, &mut arrivals, &settings).await;
     crawls.close(run.id()).await;
 }
 
@@ -162,7 +184,7 @@ pub(crate) async fn drive(
 async fn deliver(
     run: &Run,
     servers: &mut Vec<Serving>,
-    joined: &mut mpsc::UnboundedReceiver<Server>,
+    arrivals: &mut Opened,
     settings: &RunSettings,
 ) {
     let run_leases = Leases::new(run.clock(), run.id().as_str(), run.state().epoch());
@@ -192,7 +214,7 @@ async fn deliver(
             .await
         {
             tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be leased");
-            end(run, &mut admission, Ending::Failed).await;
+            end(run, &mut admission, failed(run, &error)).await;
             return;
         }
         if attempts.is_empty() {
@@ -201,7 +223,7 @@ async fn deliver(
                 return;
             }
             if !servers.iter_mut().any(Serving::serves) {
-                match waited(run, &mut admission, servers, joined, false).await {
+                match waited(run, &mut admission, servers, arrivals, false).await {
                     Waited::Ended => return,
                     Waited::Stop(reason) => stop = Some(reason),
                     Waited::Again => {}
@@ -212,7 +234,7 @@ async fn deliver(
                 Ok(Idle::Admit) => continue,
                 Ok(Idle::Wait) => {}
                 Ok(Idle::Done) => {
-                    match drained(run, &resolved, &mut admission, servers, joined).await {
+                    match drained(run, &resolved, &mut admission, servers, arrivals).await {
                         Waited::Ended => return,
                         Waited::Stop(reason) => stop = Some(reason),
                         Waited::Again => {}
@@ -221,7 +243,7 @@ async fn deliver(
                 }
                 Err(error) => {
                     tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
-                    end(run, &mut admission, Ending::Failed).await;
+                    end(run, &mut admission, failed(run, &error)).await;
                     return;
                 }
             }
@@ -244,8 +266,13 @@ async fn deliver(
             reason = run.stopping(), if stop.is_none() => {
                 stop = Some(reason);
             }
-            Some(server) = joined.recv() => {
+            Some(server) = arrivals.joined.recv() => {
                 servers.push(Serving::joined(server));
+            }
+            () = arrivals.seeded.notified() => {
+                if let Err(error) = key_new(run, &mut admission).await {
+                    tracing::warn!(%error, run_id = %run.id(), "the seeds added were not keyed yet");
+                }
             }
             Some(ended) = attempts.join_next() => {
                 if let Ok(attempt) = ended {
@@ -256,6 +283,23 @@ async fn deliver(
             key = next_wake(wakes.as_mut()) => admission.wake(key.as_deref()),
         }
     }
+}
+
+/// The ending of a crawl whose state or admission failed with `error`:
+/// `failed`, its ending calls raising `run_state_unavailable` (ADR 0102).
+fn failed(run: &Run, error: &dyn std::fmt::Display) -> Ending {
+    let details = RunDetails {
+        run_id: run.id().clone(),
+        path: Some(run.folder().display().to_string()),
+    };
+    Ending::Failed(EndingError {
+        code: RUN_STATE_UNAVAILABLE.name.to_owned(),
+        message: format!("The crawl `{}` failed: {error}", run.id()),
+        details: match serde_json::to_value(details) {
+            Ok(Value::Object(details)) => details,
+            _ => Map::new(),
+        },
+    })
 }
 
 /// Ends the Run as `ending` says, once its admission gave back what it held.
@@ -285,19 +329,28 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
 pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings, crawls: Crawls) {
     let policy = CrawlPolicy::of(&settings.at_admission().await);
     let retry_max = policy.retry_max;
-    if let Err(error) = run
+    let left = run
         .state()
         .write(move |connection| {
-            work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)
+            work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)?;
+            work_items::left(connection)
         })
-        .await
-    {
-        tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
-        run.end(Ending::Failed).await;
-        return;
+        .await;
+    match left {
+        Err(error) => {
+            tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
+            run.end(failed(&run, &error)).await;
+            return;
+        }
+        Ok(0) => {
+            if let Err(error) = run.nothing_done(NothingDone::NothingPending).await {
+                tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's `nothingDone` was not kept");
+            }
+        }
+        Ok(_) => {}
     }
-    let joined = crawls.open(&run).await;
-    drive(run, client, joined, crawls, settings).await;
+    let opened = crawls.open(&run).await;
+    drive(run, client, opened, crawls, settings).await;
 }
 
 /// The crawl's Session pool under the Run's settings now.
@@ -352,39 +405,12 @@ async fn lease_to_servers(
                 run.clone(),
                 place,
                 server.client.clone(),
-                (leased, session),
+                (leased, session, leased_count(run)),
                 lease,
             ));
         }
     }
     Ok(())
-}
-
-/// What an attempt's answer says of its domain: a handler's failure that
-/// says the site did not answer in time (a `deadline_exceeded` whose
-/// `limit` is the response's first byte or the navigation) backs the domain
-/// off like a refused or timed-out connection (ADR 0086); one that says the
-/// site refused for too many requests (`blocked` for a `rate_limit`, a 429)
-/// halves its concurrency (ADR 0021). A `Retry-After` and a 503 join with
-/// the fetch tiers (area 5).
-fn domain_ending(answer: &Answer) -> Ended {
-    let Answer::Failed { code, details, .. } = answer else {
-        return Ended::Done;
-    };
-    if block_cause(code, details) == Some(BlockCause::RateLimit) {
-        return Ended::TooManyRequests(None);
-    }
-    let timed_out = code == DEADLINE_EXCEEDED.name
-        && details
-            .get("limit")
-            .and_then(|limit| limit.get("key"))
-            .and_then(Value::as_str)
-            .is_some_and(|key| [TIMEOUT_FIRST_BYTE.name, TIMEOUT_NAVIGATION.name].contains(&key));
-    if timed_out {
-        Ended::BackOff
-    } else {
-        Ended::Done
-    }
 }
 
 /// What a crawl with nothing to deliver now does next.
@@ -393,8 +419,8 @@ enum Waited {
     Ended,
     /// The Run is asked to stop at its next safe point.
     Stop(StopReason),
-    /// `run.finish` let it finish, or a Connection joined to serve it:
-    /// look for work once more.
+    /// `run.finish` let it finish, a Connection joined to serve it, or a
+    /// seed was added: look for work once more.
     Again,
 }
 
@@ -407,26 +433,48 @@ async fn drained(
     resolved: &Resolved,
     admission: &mut Admission,
     servers: &mut Vec<Serving>,
-    joined: &mut mpsc::UnboundedReceiver<Server>,
+    arrivals: &mut Opened,
 ) -> Waited {
     let keeps_alive = resolved
         .boolean(CRAWL_KEEP_ALIVE.name)
         .expect("invariant: `crawl.keep_alive` resolves to a boolean");
     if !keeps_alive || run.is_let_finish() {
-        end(run, admission, Ending::Finished).await;
+        let unavailable = run
+            .state()
+            .read(|connection| work_items::any_failed_with(connection, RESPONSE_UNAVAILABLE.name))
+            .await;
+        let ending = match unavailable {
+            Ok(false) => Ending::Finished,
+            Ok(true) => Ending::FinishedIncomplete(unavailable_reason()),
+            Err(error) => {
+                tracing::warn!(%error, run_id = %run.id(), "the crawl's failed requests were not read; it finishes incomplete");
+                Ending::FinishedIncomplete(unavailable_reason())
+            }
+        };
+        end(run, admission, ending).await;
         return Waited::Ended;
     }
-    waited(run, admission, servers, joined, true).await
+    waited(run, admission, servers, arrivals, true).await
+}
+
+/// Why a crawl that ends with requests `failed` with
+/// `response_unavailable` is `incomplete` (ADR 0118).
+fn unavailable_reason() -> AxisReason {
+    AxisReason {
+        code: RESPONSE_UNAVAILABLE.name.to_owned(),
+        message: "A site asked to wait longer than `politeness.retry_after.max` allows, so some of its requests failed with `response_unavailable`; `retryFailed()` re-admits them.".to_owned(),
+        call_id: None,
+    }
 }
 
 /// Waits, with nothing to deliver now, until the Run stops at once, is
-/// asked to stop at its next safe point, a Connection joins to serve it
-/// or, `until_finish`, `run.finish` lets it finish.
+/// asked to stop at its next safe point, a Connection joins to serve it, a
+/// seed is added or, `until_finish`, `run.finish` lets it finish.
 async fn waited(
     run: &Run,
     admission: &mut Admission,
     servers: &mut Vec<Serving>,
-    joined: &mut mpsc::UnboundedReceiver<Server>,
+    arrivals: &mut Opened,
     until_finish: bool,
 ) -> Waited {
     tokio::select! {
@@ -438,10 +486,11 @@ async fn waited(
         }
         reason = run.stopping() => Waited::Stop(reason),
         () = run.let_finish(), if until_finish => Waited::Again,
-        Some(server) = joined.recv() => {
+        Some(server) = arrivals.joined.recv() => {
             servers.push(Serving::joined(server));
             Waited::Again
         }
+        () = arrivals.seeded.notified() => Waited::Again,
     }
 }
 
@@ -490,7 +539,7 @@ async fn settled(
         server.gone = true;
     }
     let waiting = attempt.leased.waiting.clone();
-    let domain = domain_ending(&attempt.answer);
+    let domain = domain_ending(&attempt.answer, run.clock().now(), run.clock().wall());
     let resolved = settings.at_admission().await;
     pool.settle(
         &attempt.session,
@@ -507,11 +556,18 @@ async fn settled(
     {
         tracing::warn!(%error, run_id = %run.id(), "the crawl's Session pool was not written");
     }
-    let retried = settle(run, CrawlPolicy::of(&resolved), attempt).await;
+    let retried = settle(
+        run,
+        CrawlPolicy::of(&resolved),
+        goodfetch_frontier::longest_wait(&resolved),
+        attempt,
+    )
+    .await;
     admission
         .ended(&waiting.id, &waiting.key, run.clock().now(), domain)
         .await;
     if retried {
+        count_retry(run);
         admission.enqueue(waiting);
     }
     if let Err(error) = key_new(run, admission).await {
@@ -527,7 +583,7 @@ async fn opened(run: &Run, settings: &RunSettings) -> Option<(Admission, Session
         Ok(opened) => Some(opened),
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's admission could not open");
-            run.end(Ending::Failed).await;
+            run.end(failed(run, &error)).await;
             None
         }
     }
@@ -558,12 +614,34 @@ async fn open(run: &Run, settings: &RunSettings) -> Result<(Admission, SessionPo
     Ok((admission, pool))
 }
 
-/// Keys each work item not keyed yet, the seeds at the start and those a
-/// handler enqueued since, and offers it to its domain's queue, which
-/// takes it unless full; one it refuses waits in run state until its queue
-/// fills again.
+/// How many work items not keyed yet [`key_new`] reads at a time, so a
+/// stream of added seeds never sits in memory whole.
+const KEYED_AT_ONCE: usize = 1024;
+
+/// Keys each work item not keyed yet, the seeds at the start, those a
+/// handler enqueued since and those added to the running crawl, and offers
+/// it to its domain's queue, which takes it unless full; one it refuses
+/// waits in run state until its queue fills again.
 async fn key_new(run: &Run, admission: &mut Admission) -> Result<(), RunStateError> {
-    let unkeyed = run.state().read(work_items::unkeyed).await?;
+    loop {
+        let unkeyed = run
+            .state()
+            .read(|connection| work_items::unkeyed(connection, KEYED_AT_ONCE))
+            .await?;
+        let read = unkeyed.len();
+        key(run, admission, unkeyed).await?;
+        if read < KEYED_AT_ONCE {
+            return Ok(());
+        }
+    }
+}
+
+/// Keys each of `unkeyed`, as [`key_new`] does.
+async fn key(
+    run: &Run,
+    admission: &mut Admission,
+    unkeyed: Vec<(String, Waiting)>,
+) -> Result<(), RunStateError> {
     if unkeyed.is_empty() {
         return Ok(());
     }
@@ -618,10 +696,18 @@ async fn admit(
     let now = run.clock().now();
     let mut ids = Vec::new();
     let mut drained = Vec::new();
+    let mut refused = Vec::new();
     while ids.len() < room {
         let Some(admitted) = admission.admit(now).await else {
             break;
         };
+        if let Some(until) = admitted.refused_until {
+            if admitted.drained {
+                drained.push(admitted.key.clone());
+            }
+            refused.push((admitted, until));
+            continue;
+        }
         match run.charge(REQUESTS, 1).await {
             Ok(()) => {}
             Err(ChargeError::Refused(Refusal::Reached(_) | Refusal::NotUnderstood(_))) => break,
@@ -632,13 +718,16 @@ async fn admit(
         }
         ids.push(admitted.id);
     }
-    if ids.is_empty() {
-        return Ok(Vec::new());
+    if !refused.is_empty() {
+        end_unsent(run, admission, refused).await?;
     }
-    let leased = run
-        .state()
-        .write(move |connection| work_items::lease(connection, &ids))
-        .await?;
+    let leased = if ids.is_empty() {
+        Vec::new()
+    } else {
+        run.state()
+            .write(move |connection| work_items::lease(connection, &ids))
+            .await?
+    };
     for key in drained {
         fill(run, admission, Some(key)).await?;
     }
@@ -671,7 +760,7 @@ async fn attempt(
     run: Run,
     server: usize,
     client: Client,
-    (leased, session): (Leased, ServingSession),
+    (leased, session, counted): (Leased, ServingSession, Counted),
     lease: WorkItemLease,
 ) -> Attempt {
     let params = CrawlRequestHandleParams {
@@ -711,10 +800,35 @@ async fn attempt(
     Attempt {
         server,
         leased,
+        _counted: counted,
         session,
         lease,
         answer,
     }
+}
+
+/// One more attempt in `goodfetch.work_item.leased`, until the answer
+/// drops.
+fn leased_count(run: &Run) -> Counted {
+    let counter = run
+        .metrics()
+        .meter()
+        .i64_up_down_counter(WORK_ITEM_LEASED.name)
+        .with_description(WORK_ITEM_LEASED.description)
+        .with_unit(WORK_ITEM_LEASED.unit)
+        .build();
+    Counted::new(counter, Vec::new())
+}
+
+/// One more retry in `goodfetch.work_item.retried`.
+fn count_retry(run: &Run) {
+    run.metrics()
+        .meter()
+        .u64_counter(WORK_ITEM_RETRIED.name)
+        .with_description(WORK_ITEM_RETRIED.description)
+        .with_unit(WORK_ITEM_RETRIED.unit)
+        .build()
+        .add(1, &[]);
 }
 
 /// The answer of an attempt whose lease ended first: a result is a late
@@ -739,7 +853,12 @@ async fn late(run: Run, lease: WorkItemLease, mut sent: Sent<CrawlRequestHandled
 /// its handler's skip, its block, or its work item retried or failed; then
 /// releases its lease. Answers whether its work item waits again for a
 /// retry.
-async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
+async fn settle(
+    run: &Run,
+    policy: CrawlPolicy,
+    longest_wait: Option<Duration>,
+    attempt: Attempt,
+) -> bool {
     let Attempt {
         leased,
         lease,
@@ -748,19 +867,8 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
     } = attempt;
     let id = leased.crawl_request.id.clone();
     let epoch = leased.lease_epoch;
-    let failure = |code: String, retryable: bool, message: String| {
-        let retryable = if code == HANDLER_FAILED.name {
-            policy.retry_handler_failed
-        } else {
-            retryable
-        };
-        let failure = Failure { code, message };
-        if retryable && policy.may_retry(leased.attempt) {
-            Unsuccessful::Retried(failure)
-        } else {
-            Unsuccessful::Failed(failure)
-        }
-    };
+    let failure =
+        |failure, retryable| retried_or_failed(policy, leased.attempt, failure, retryable);
     let unsuccessful = match answer {
         Answer::Handled(CrawlRequestHandled {
             skipped: Some(skip),
@@ -776,9 +884,8 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
                     return false;
                 }
                 Err(CommitError::LeaseLost) => failure(
-                    LEASE_LOST.name.to_owned(),
+                    Failure::new(LEASE_LOST.name, LEASE_LOST.description),
                     LEASE_LOST.retryable,
-                    LEASE_LOST.description.to_owned(),
                 ),
                 Err(CommitError::RunState(error)) => {
                     tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
@@ -787,24 +894,31 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
             }
         }
         Answer::ClientGone => failure(
-            CLIENT_GONE.name.to_owned(),
+            Failure::new(CLIENT_GONE.name, CLIENT_GONE.description),
             CLIENT_GONE.retryable,
-            CLIENT_GONE.description.to_owned(),
         ),
         Answer::LeaseEnded => failure(
-            HANDLER_LOST.name.to_owned(),
+            Failure::new(HANDLER_LOST.name, HANDLER_LOST.description),
             HANDLER_LOST.retryable,
-            HANDLER_LOST.description.to_owned(),
         ),
         Answer::Failed {
             code,
             retryable,
             message,
             details,
-        } => match block_cause(&code, &details) {
-            Some(cause) => Unsuccessful::Blocked(cause),
-            None => failure(code, retryable, message),
-        },
+        } => {
+            let held = held_past_bound(&details, run.clock().wall(), longest_wait).is_some();
+            let failed = Failure {
+                code,
+                message,
+                details,
+            };
+            match block_cause(&failed.code, &failed.details) {
+                Some(cause) => Unsuccessful::Blocked(cause),
+                None if held => Unsuccessful::Failed(failed.with_fix(RETRY_AFTER_FIX)),
+                None => failure(failed, retryable),
+            }
+        }
     };
     let retried = matches!(unsuccessful, Unsuccessful::Retried(_));
     let recorded = match &unsuccessful {
@@ -834,6 +948,28 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
             tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
             false
         }
+    }
+}
+
+/// How `failure` on a work item's `attempt`th attempt ends it under
+/// `policy`: retried while it is `retryable` and retries are left, failed
+/// otherwise; a handler's own failure is retryable only as
+/// `crawl.retry.handler_failed` says.
+fn retried_or_failed(
+    policy: CrawlPolicy,
+    attempt: u32,
+    failure: Failure,
+    retryable: bool,
+) -> Unsuccessful {
+    let retryable = if failure.code == HANDLER_FAILED.name {
+        policy.retry_handler_failed
+    } else {
+        retryable
+    };
+    if retryable && policy.may_retry(attempt) {
+        Unsuccessful::Retried(failure)
+    } else {
+        Unsuccessful::Failed(failure)
     }
 }
 

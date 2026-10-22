@@ -13,6 +13,7 @@ mod github;
 mod store;
 mod workspace;
 
+mod advisories;
 mod affected;
 mod all_green;
 mod allure;

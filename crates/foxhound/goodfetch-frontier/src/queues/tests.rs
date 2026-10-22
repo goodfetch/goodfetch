@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_engine::admission::{Ended, Gate, Gates, Waiting};
+use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::settings::{Layers, Values, resolve};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::settings::SettingsLayer;
@@ -27,7 +28,7 @@ use super::{BOUND, DomainGates, DomainQueues, TABLES, backoff};
 use crate::domain_key::DomainKeys;
 
 fn queues() -> DomainQueues {
-    DomainQueues::new(DomainKeys::default(), BOUND)
+    DomainQueues::new(DomainKeys::default(), BOUND, Entropy::seeded(1))
 }
 
 /// Enqueues a request of `url` named `id` at `priority`, its order the
@@ -140,7 +141,7 @@ fn forefront_goes_ahead_of_its_domains_pending_requests_and_of_no_other_domain()
 #[test]
 fn a_full_queue_puts_out_its_last_request_for_one_that_goes_ahead() {
     let now = Instant::now();
-    let mut queues = DomainQueues::new(DomainKeys::default(), 2);
+    let mut queues = DomainQueues::new(DomainKeys::default(), 2, Entropy::seeded(1));
     let mut taken = vec![
         enqueue(&mut queues, "1", "https://heavy.test/1", 0),
         enqueue(&mut queues, "2", "https://heavy.test/2", 0),
@@ -172,7 +173,7 @@ fn a_domain_backing_off_holds_no_turn_while_the_others_go() {
     enqueue(&mut queues, "a1", "https://a.test/1", 0);
     enqueue(&mut queues, "a2", "https://a.test/2", 0);
     let first = queues.admit(now).unwrap();
-    queues.ended(&first.key, now, Ended::BackOff);
+    queues.ended(&first.key, now, Ended::BackOff(None));
 
     let admitted = admit_all(&mut queues, now);
     let ready_at = queues.ready_at(now);
@@ -206,7 +207,7 @@ fn a_domain_waits_out_the_moment_its_response_named() {
 /// Covers: story:3-47
 #[test]
 fn a_domains_queue_holds_its_bound_and_refuses_more() {
-    let mut queues = DomainQueues::new(DomainKeys::default(), 2);
+    let mut queues = DomainQueues::new(DomainKeys::default(), 2, Entropy::seeded(1));
 
     let taken = [
         enqueue(&mut queues, "1", "https://heavy.test/1", 0),
@@ -276,7 +277,7 @@ fn a_domains_wait_survives_a_resume_from_the_journal() {
     let now = Instant::now();
     let file = run_file();
     let mut gate = DomainGates
-        .open(&settings(json!({})), &file, wall, now)
+        .open(&settings(json!({})), &file, wall, now, Entropy::seeded(1))
         .unwrap();
     enqueue(gate.as_mut(), "h1", "https://heavy.test/1", 0);
     let first = gate.admit(now).unwrap();
@@ -290,6 +291,7 @@ fn a_domains_wait_survives_a_resume_from_the_journal() {
             &file,
             wall + Duration::from_secs(10),
             later,
+            Entropy::seeded(1),
         )
         .unwrap();
     enqueue(resumed.as_mut(), "h2", "https://heavy.test/2", 0);
@@ -308,7 +310,7 @@ fn a_released_domain_leaves_the_journal() {
     let now = Instant::now();
     let file = run_file();
     let mut gate = DomainGates
-        .open(&settings(json!({})), &file, wall, now)
+        .open(&settings(json!({})), &file, wall, now, Entropy::seeded(1))
         .unwrap();
     enqueue(gate.as_mut(), "h1", "https://heavy.test/1", 0);
     let first = gate.admit(now).unwrap();
@@ -340,6 +342,7 @@ fn a_crawls_domain_keys_setting_overrides_its_queues_keys() {
             &file,
             UNIX_EPOCH,
             Instant::now(),
+            Entropy::seeded(1),
         )
         .unwrap();
 
@@ -464,7 +467,7 @@ proptest! {
         bound in 1_usize..4,
     ) {
         let now = Instant::now();
-        let mut queues = DomainQueues::new(DomainKeys::default(), bound);
+        let mut queues = DomainQueues::new(DomainKeys::default(), bound, Entropy::seeded(1));
         let mut lines: [Vec<Lined>; 3] = Default::default();
         let mut pending: BTreeMap<i64, (usize, Waiting)> = BTreeMap::new();
         let mut in_flight: Vec<(usize, Waiting)> = Vec::new();
@@ -542,7 +545,7 @@ proptest! {
             enqueue(&mut queues, &index.to_string(), "https://heavy.test/", 0);
             at = queues.ready_at(at).unwrap().max(at) + Duration::from_millis(*offset);
             let admitted = queues.admit(at).unwrap();
-            queues.ended(&admitted.key, at, Ended::BackOff);
+            queues.ended(&admitted.key, at, Ended::BackOff(None));
             enqueue(&mut queues, "next", "https://heavy.test/next", 0);
             let wait = queues.ready_at(at).unwrap() - at;
             prop_assert!(wait >= Duration::from_secs(2) && wait <= Duration::from_mins(1));

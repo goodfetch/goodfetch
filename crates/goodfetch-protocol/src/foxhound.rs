@@ -3,13 +3,15 @@
 //! Its `sample` entries are samples until the crawl areas define the real
 //! ones; `crawl` holds a crawl's start and the exchange that serves its work
 //! items, `frontier` what its Frontier answers each seed and enqueue, and
-//! `outcomes` the reads of how its requests ended, and `session_pool` the
-//! Session of its Session pool that serves each attempt.
+//! `outcomes` the reads of how its requests ended, `report` what a crawl's
+//! Run report adds, and `session_pool` the Session of its Session pool that
+//! serves each attempt.
 
 pub mod block;
 pub mod crawl;
 pub mod frontier;
 pub mod outcomes;
+pub mod report;
 pub mod session_pool;
 pub mod settings;
 pub mod usage;
@@ -124,6 +126,7 @@ pub const ENTRIES: Entries = Entries {
         description: "Pages the sample crawl visited.",
         instrument: Instrument::Counter,
         unit: "{page}",
+        labels: &[],
         stability: Stability::Experimental,
         arrived_in: ARRIVED_IN,
     }],

@@ -18,7 +18,9 @@
 mod admission;
 mod keep_alive;
 mod limits;
+mod metrics;
 mod model;
+mod report;
 mod resume;
 mod safe_point;
 
@@ -265,7 +267,15 @@ pub(crate) fn crawl_fenced<T>(
     dependencies: impl FnOnce() -> Dependencies,
     talk: impl AsyncFnOnce(&mut Client) -> T,
 ) -> (T, Vec<Value>) {
-    let engine = engine();
+    crawl_on(&engine(), dependencies, talk)
+}
+
+/// [`crawl_fenced`], on `engine`.
+pub(crate) fn crawl_on<T>(
+    engine: &Engine,
+    dependencies: impl FnOnce() -> Dependencies,
+    talk: impl AsyncFnOnce(&mut Client) -> T,
+) -> (T, Vec<Value>) {
     let (layer, transitions) = Transitions::new();
     let answer = goodfetch_test_support::runtime().block_on(async {
         let dependencies = dependencies();

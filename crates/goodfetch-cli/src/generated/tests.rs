@@ -114,6 +114,7 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
         [
             ("daemon.status", Offer::Command),
             ("daemon.stop", Offer::Command),
+            ("daemon.health", Offer::Command),
             ("engine.info", Offer::Command),
             ("events.subscribe", Offer::Follow),
             ("run.new_page", Offer::Command),
@@ -128,7 +129,9 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("locator.press", Offer::Command),
             ("run.start", Offer::Command),
             ("run.finish", Offer::Command),
+            ("run.stop", Offer::Command),
             ("run.abort", Offer::Command),
+            ("run.usage", Offer::Command),
             ("run.checkpoint", Offer::Command),
             ("run.pause", Offer::Command),
             ("run.migrate", Offer::Command),

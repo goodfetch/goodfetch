@@ -57,12 +57,43 @@ received (ADR 0079).
 - `token`: Every run a Connection holding a named token starts.
 """
 
-UsageKind: TypeAlias = Literal["paid_solves", "proxy_bytes", "requests", "sample_echoes"] | str
+RunWarningCode: TypeAlias = Literal["baseline_unavailable", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_stale", "cpu_throttled", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "storage_low"] | str
+"""A `run_warning_code`, a type both Products share (ADR 0095).
+
+Collie's values below; a value this package does not know is kept as
+received (ADR 0079).
+
+- `baseline_unavailable`: The baseline a comparison needs was unavailable.
+- `browser_build_firefox`: A Session ran Firefox.
+- `browser_build_outdated`: A Session's browser build is outdated.
+- `browser_build_plugin`: A Session ran a browser build a Plugin gave.
+- `browser_build_third_party`: A Session ran a third party's browser build.
+- `clean_up_rules_stale`: The Run's Clean-up rules are older than 14 days.
+- `cpu_throttled`: The host throttled the engine's CPU.
+- `file_write_failed`: A file the Run writes, such as a periodic Checkpoint, could not be written to its storage.
+- `filter_vendor_flagged`: A filter list flags a vendor the Run used.
+- `fingerprint_basic`: A Session ran the basic fingerprint.
+- `fingerprint_basic_fallback`: A Session fell back to the basic fingerprint.
+- `fingerprint_js_injection`: A Session's fingerprint was injected by JavaScript, which a site can detect.
+- `fingerprint_none`: A Session ran with no fingerprint.
+- `human_input_fallback`: A Session's human input fell back to plain input.
+- `path_not_writable`: A file the Run writes at its end could not be written at its path.
+- `plugin_figures`: Usage figures come from a Plugin.
+- `plugin_quantity_above_maximum`: A Plugin reported a quantity above its declared maximum, recorded in full.
+- `politeness_store_degraded`: The Politeness store was unreachable, and the Run took a degraded share.
+- `proxy_exit_may_change`: A Session's proxy exit may change between its requests.
+- `storage_low`: The Run met the `low` storage level: the folder, its free space and what was shed.
+"""
+
+UsageKind: TypeAlias = Literal["browser_time", "model_calls", "model_tokens", "paid_solves", "proxy_bytes", "requests", "sample_echoes"] | str
 """A `usage_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
 received (ADR 0079).
 
+- `browser_time`: The time a run held a browser, in milliseconds (ADR 0101).
+- `model_calls`: Model calls a run made, retries and Repairs included (ADR 0101).
+- `model_tokens`: Model tokens a run used, input and output (ADR 0101).
 - `paid_solves`: Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.
 - `proxy_bytes`: Bytes a run sent and received through a proxy, per proxy kind.
 - `requests`: Requests a run sent: a crawl's Crawl requests, and a page's navigations.

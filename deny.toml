@@ -1,6 +1,6 @@
 # cargo-deny's workspace-wide configuration (STYLE.md, Dependencies; ADRs
 # 0018, 0062 and 0087). `just lint` checks the licenses, bans and sources
-# offline; `just audit` checks the advisories, which need RustSec's database.
+# offline; `just audit` checks the advisories against RustSec's pinned commit.
 # What each Product's executable ships is checked against `ci/deny/`'s own
 # configurations (`ci/deny/products.sh`).
 #
@@ -42,7 +42,16 @@ allow = [
 # fails, and so does a yanked version or an unmaintained crate anywhere in the
 # graph (STYLE.md: maintained, or deliberately stable). An advisory is ignored
 # only with its ID, a reason and the issue that removes it.
+#
+# ci/audit.sh names the database's folder: the gate's reads the commit
+# ci/advisories.toml pins, offline, and the live audit cargo-deny's own clone
+# (ADR 0064). By hand, from the repository root, the pinned one. The age
+# cargo-deny measures offline is that of the local checkout, not of the
+# data, so a pinned commit never goes stale here; the daily live audit reads
+# the newest.
 [advisories]
+db-path = "${GOODFETCH_ADVISORY_DBS:-target/advisories/rustsec}"
+maximum-db-staleness = "P36500D"
 unmaintained = "all"
 unsound = "all"
 yanked = "deny"

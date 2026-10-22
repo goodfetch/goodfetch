@@ -26,7 +26,7 @@ use goodfetch_test_support::{ConsoleState, DAEMON_DEADLINE, Daemon, RuntimeFile,
 use rstest::rstest;
 use serde_json::Value;
 
-use crate::daemon::{StopsTheDaemon, validate};
+use crate::daemon::{RawClient, StopsTheDaemon, validate};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -214,6 +214,33 @@ fn the_console_serves_its_builds_files_as_they_are_stored() {
     let stored = std::fs::read(console_build().join(format!("{}.br", &path[1..]))).unwrap();
     assert_eq!(body, stored);
     daemon.stop(&env).unwrap();
+}
+
+/// A Run on a Daemon that serves the Console names its page there in its
+/// report (ADRs 0031 and 0102).
+/// Covers: story:3-154, command:run.start, command:run.finish
+#[test]
+fn a_runs_report_names_its_page_in_the_console_its_daemon_serves() {
+    let env = TestEnv::new();
+    env.user_configuration("console.address = \"127.0.0.1:0\"\n");
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let started = cli(&env, COLLIE)
+        .args(["daemon", "start", "--json"])
+        .run()
+        .unwrap();
+    assert_eq!(started.exit, Some(0), "{}", started.stderr);
+
+    let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
+    let mut client = RawClient::opened(&found, "collie");
+
+    let started = client.call(1, "run.start", &serde_json::json!({ "run_id": "paged" }));
+    let finished = client.call(2, "run.finish", &serde_json::json!({ "run_id": "paged" }));
+
+    assert_eq!(started["result"]["run_id"], "paged", "{started}");
+    assert_eq!(
+        finished["result"]["console_url"],
+        Value::from(format!("{}runs/paged", console_url(&env)))
+    );
 }
 
 /// Covers: story:12-3, setting:console.address, command:daemon.start, command:daemon.status

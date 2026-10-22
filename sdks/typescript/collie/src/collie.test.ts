@@ -48,6 +48,7 @@ describe("a Collie Connection", () => {
           completeness: "complete",
           started_at: "2026-01-01T00:00:00Z",
           ended_at: "2026-01-01T00:00:00Z",
+          usage: { model: { calls: 0, tokens: 0 }, browser_time: 0, proxy_bytes: 0, requests: 0 },
         },
       });
       expect(played.done()).toEqual({ kind: "finished" });

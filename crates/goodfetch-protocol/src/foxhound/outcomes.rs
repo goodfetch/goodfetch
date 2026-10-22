@@ -10,6 +10,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::block::BlockCause;
 use crate::catalog::{
@@ -106,6 +107,12 @@ pub struct AttemptError {
     /// What it said.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub message: String,
+    /// The error's own details, as its Error code defines them, such as the
+    /// time a site's `Retry-After` asked for and a `fix`; left out when it
+    /// has none.
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub details: Map<String, Value>,
 }
 
 /// What a succeeded request's commit did with its Records in one Dataset

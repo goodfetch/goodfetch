@@ -221,6 +221,22 @@
           "politeness": {
             "additionalProperties": false,
             "properties": {
+              "backoff": {
+                "additionalProperties": false,
+                "properties": {
+                  "initial": {
+                    "description": "The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max": {
+                    "description": "The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "domain": {
                 "additionalProperties": false,
                 "properties": {
@@ -248,6 +264,17 @@
                       }
                     ],
                     "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                  }
+                },
+                "type": "object"
+              },
+              "retry_after": {
+                "additionalProperties": false,
+                "properties": {
+                  "max": {
+                    "description": "The longest a crawl waits for the time a site's `Retry-After` asks, past `politeness.backoff.max`: 15 minutes. When the site asks for longer, nothing is sent to its domain before that time and nothing waits for it: the request whose response asked, and each request admitted to the domain meanwhile, ends `failed` with `response_unavailable`, and `run.retry_failed` re-admits them once the site is back. Whatever its value, nothing is sent sooner than the site asked.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -319,6 +346,11 @@
             "properties": {
               "action": {
                 "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "close": {
+                "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -626,9 +658,37 @@
             },
             "type": "object"
           },
+          "ops": {
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`."
+              }
+            },
+            "type": "object"
+          },
           "otlp": {
             "additionalProperties": false,
             "properties": {
+              "metrics_endpoint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The OTLP/HTTP endpoint `daemon run`, the foreground Daemon, exports its metrics to, in protobuf, every 60 seconds and once more as it exits: a full URL such as `http://collector:4318/v1/metrics`. Unset by default: nothing is exported (ADR 0043)."
+              },
               "traces_endpoint": {
                 "anyOf": [
                   {
@@ -685,6 +745,26 @@
           "politeness": {
             "additionalProperties": false,
             "properties": {
+              "backoff": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "description": "Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result.",
+                    "type": "boolean"
+                  },
+                  "initial": {
+                    "description": "The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max": {
+                    "description": "The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "domain": {
                 "additionalProperties": false,
                 "properties": {
@@ -712,6 +792,17 @@
                       }
                     ],
                     "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                  }
+                },
+                "type": "object"
+              },
+              "retry_after": {
+                "additionalProperties": false,
+                "properties": {
+                  "max": {
+                    "description": "The longest a crawl waits for the time a site's `Retry-After` asks, past `politeness.backoff.max`: 15 minutes. When the site asks for longer, nothing is sent to its domain before that time and nothing waits for it: the request whose response asked, and each request admitted to the domain meanwhile, ends `failed` with `response_unavailable`, and `run.retry_failed` re-admits them once the site is back. Whatever its value, nothing is sent sooner than the site asked.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -747,7 +838,7 @@
             "additionalProperties": false,
             "properties": {
               "durability": {
-                "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+                "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened`.",
                 "enum": [
                   "full",
                   "fast"
@@ -856,6 +947,11 @@
             "properties": {
               "action": {
                 "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "close": {
+                "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -1256,9 +1352,37 @@
             },
             "type": "object"
           },
+          "ops": {
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`."
+              }
+            },
+            "type": "object"
+          },
           "otlp": {
             "additionalProperties": false,
             "properties": {
+              "metrics_endpoint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The OTLP/HTTP endpoint `daemon run`, the foreground Daemon, exports its metrics to, in protobuf, every 60 seconds and once more as it exits: a full URL such as `http://collector:4318/v1/metrics`. Unset by default: nothing is exported (ADR 0043)."
+              },
               "traces_endpoint": {
                 "anyOf": [
                   {
@@ -1315,6 +1439,26 @@
           "politeness": {
             "additionalProperties": false,
             "properties": {
+              "backoff": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "description": "Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result.",
+                    "type": "boolean"
+                  },
+                  "initial": {
+                    "description": "The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max": {
+                    "description": "The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "domain": {
                 "additionalProperties": false,
                 "properties": {
@@ -1342,6 +1486,17 @@
                       }
                     ],
                     "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                  }
+                },
+                "type": "object"
+              },
+              "retry_after": {
+                "additionalProperties": false,
+                "properties": {
+                  "max": {
+                    "description": "The longest a crawl waits for the time a site's `Retry-After` asks, past `politeness.backoff.max`: 15 minutes. When the site asks for longer, nothing is sent to its domain before that time and nothing waits for it: the request whose response asked, and each request admitted to the domain meanwhile, ends `failed` with `response_unavailable`, and `run.retry_failed` re-admits them once the site is back. Whatever its value, nothing is sent sooner than the site asked.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -1377,7 +1532,7 @@
             "additionalProperties": false,
             "properties": {
               "durability": {
-                "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+                "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened`.",
                 "enum": [
                   "full",
                   "fast"
@@ -1486,6 +1641,11 @@
             "properties": {
               "action": {
                 "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "close": {
+                "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
                 "minimum": 0,
                 "type": "integer"
               },

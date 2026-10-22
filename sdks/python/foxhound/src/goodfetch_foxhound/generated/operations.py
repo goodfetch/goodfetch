@@ -9,8 +9,8 @@ from typing import Any, cast
 
 from goodfetch_collie_client.generated.operations import AsyncCaller, Caller
 
-from goodfetch_collie_client.generated.models import RunParams, RunReport, RunStarted
-from .models import CrawlRequestEnqueueParams, CrawlRequestOutcomes, CrawlStartParams, Enqueued, FailedRequests, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
+from goodfetch_collie_client.generated.models import RunParams, RunStarted
+from .models import CrawlRequestEnqueueParams, CrawlRequestOutcomes, CrawlRunReport, CrawlStartParams, Enqueued, FailedRequests, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
 
 
 def _fields(result: object) -> dict[str, Any]:
@@ -25,12 +25,12 @@ class AsyncFoxhoundOperations:
         """Takes the runtime that sends each call."""
         self._caller = caller
 
-    async def crawl_serve(self, params: RunParams) -> RunReport:
+    async def crawl_serve(self, params: RunParams) -> CrawlRunReport:
         """Offers this Connection's handler to a live crawl another Connection started, as each of `workers=N` handler processes does (ADR 0024): the engine leases the crawl's work items to it as `crawl_request.handle` requests too, as many at once as `crawl.handler.concurrency` allows on each Connection. Answers the crawl's Run report once the Run ends; cancelling the call stops new work items, while those already sent still expect their answers. A Run this engine does not run as a crawl fails with `run_not_found`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
-        return RunReport.model_construct(**_fields(await self._caller.call("crawl.serve", params)))
+        return CrawlRunReport.model_construct(**_fields(await self._caller.call("crawl.serve", params)))
 
     async def crawl_start(self, params: CrawlStartParams) -> RunStarted:
         """Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done, or, with `crawl.keep_alive`, once `run.finish` lets it and every work item is done. A Run ID works as `run.start`'s.
@@ -45,6 +45,20 @@ class AsyncFoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return Enqueued.model_construct(**_fields(await self._caller.call("crawl_request.enqueue", params)))
+
+    async def run_add_seed(self, params: RunAddSeedParams) -> Enqueued:
+        """Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Enqueued.model_construct(**_fields(await self._caller.call("run.add_seed", params)))
+
+    async def run_add_seeds(self, params: RunAddSeedsParams) -> RunSeedsAdded:
+        """Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunSeedsAdded.model_construct(**_fields(await self._caller.call("run.add_seeds", params)))
 
     async def run_failed_requests(self, params: RunFailedRequestsParams) -> FailedRequests:
         """Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.
@@ -79,12 +93,12 @@ class FoxhoundOperations:
         """Takes the runtime that sends each call."""
         self._caller = caller
 
-    def crawl_serve(self, params: RunParams) -> RunReport:
+    def crawl_serve(self, params: RunParams) -> CrawlRunReport:
         """Offers this Connection's handler to a live crawl another Connection started, as each of `workers=N` handler processes does (ADR 0024): the engine leases the crawl's work items to it as `crawl_request.handle` requests too, as many at once as `crawl.handler.concurrency` allows on each Connection. Answers the crawl's Run report once the Run ends; cancelling the call stops new work items, while those already sent still expect their answers. A Run this engine does not run as a crawl fails with `run_not_found`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
-        return RunReport.model_construct(**_fields(self._caller.call("crawl.serve", params)))
+        return CrawlRunReport.model_construct(**_fields(self._caller.call("crawl.serve", params)))
 
     def crawl_start(self, params: CrawlStartParams) -> RunStarted:
         """Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done, or, with `crawl.keep_alive`, once `run.finish` lets it and every work item is done. A Run ID works as `run.start`'s.
@@ -99,6 +113,20 @@ class FoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return Enqueued.model_construct(**_fields(self._caller.call("crawl_request.enqueue", params)))
+
+    def run_add_seed(self, params: RunAddSeedParams) -> Enqueued:
+        """Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Enqueued.model_construct(**_fields(self._caller.call("run.add_seed", params)))
+
+    def run_add_seeds(self, params: RunAddSeedsParams) -> RunSeedsAdded:
+        """Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunSeedsAdded.model_construct(**_fields(self._caller.call("run.add_seeds", params)))
 
     def run_failed_requests(self, params: RunFailedRequestsParams) -> FailedRequests:
         """Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.

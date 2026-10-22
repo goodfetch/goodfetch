@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Final
 
-from goodfetch_collie_client.generated.errors import GoodfetchError, ProgramError, RefusedError, UnavailableError
+from goodfetch_collie_client.generated.errors import GoodfetchError, PageError, ProgramError, RefusedError, UnavailableError
 
 
 class AttemptEndedError(ProgramError):
@@ -51,6 +51,14 @@ class LeaseLostError(UnavailableError):
         super().__init__(message, code="lease_lost", group="unavailable", retryable=True)
 
 
+class ResponseUnavailableError(PageError):
+    """The site is failing for now: its 5xx or 408 response stayed after the retries ran out, or its `Retry-After` asked for a time further away than `politeness.retry_after.max`, so nothing is sent to its domain before then and nothing waits for it. The details name the response's `status` (`null` for a request held unsent), the time the site asked for as `retryAfter` when it asked, and a `fix`. `run.retry_failed` re-admits the request once the site is back."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="response_unavailable", group="page", retryable=True)
+
+
 class SampleCrawlRefusedError(RefusedError):
     """The sample crawl refused its pages."""
 
@@ -65,6 +73,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "handler_failed": HandlerFailedError,
     "handler_lost": HandlerLostError,
     "lease_lost": LeaseLostError,
+    "response_unavailable": ResponseUnavailableError,
     "sample_crawl_refused": SampleCrawlRefusedError,
 }
 """The exception class of each Error code."""

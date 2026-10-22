@@ -392,6 +392,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The site is failing for now: its 5xx or 408 response stayed after the retries ran out, or its `Retry-After` asked for a time further away than `politeness.retry_after.max`, so nothing is sent to its domain before then and nothing waits for it. The details name the response's `status` (`null` for a request held unsent), the time the site asked for as `retryAfter` when it asked, and a `fix`. `run.retry_failed` re-admits the request once the site is back.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "response_unavailable",
+      "product": "foxhound",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.",
       "exit_code": null,
       "group": "refused",
@@ -934,8 +944,132 @@
   "metrics": [
     {
       "arrived_in": "0.1",
+      "description": "The browsers the Daemon's Runs launched that run now, by kind: the pinned Chrome for Testing, or the distribution's Chromium where no build is made.",
+      "instrument": "up_down_counter",
+      "labels": [
+        {
+          "name": "browser",
+          "values": [
+            "chrome_for_testing",
+            "chromium"
+          ]
+        }
+      ],
+      "name": "goodfetch.browser.running",
+      "product": "collie",
+      "stability": "stable",
+      "unit": "{browser}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Clients connected to the Daemon, by the surface each named in its `hello`, Console tabs included.",
+      "instrument": "up_down_counter",
+      "labels": [
+        {
+          "name": "surface",
+          "values": [
+            "sdk_typescript",
+            "sdk_python",
+            "rust",
+            "cli",
+            "mcp",
+            "console",
+            "cloud",
+            "browser_host",
+            "worker"
+          ]
+        }
+      ],
+      "name": "goodfetch.client.connected",
+      "product": "collie",
+      "stability": "stable",
+      "unit": "{client}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "1 while the Daemon drains, taking no Run (ADR 0049), else 0.",
+      "instrument": "gauge",
+      "labels": [],
+      "name": "goodfetch.daemon.draining",
+      "product": "collie",
+      "stability": "stable",
+      "unit": "{daemon}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The share of the resource governor's concurrency target in use, from 0 to 1, on which the Helm chart's autoscaler scales the Daemons (ADRs 0040 and 0055). Reported once the governor runs.",
+      "instrument": "gauge",
+      "labels": [],
+      "name": "goodfetch.governor.saturation",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "1"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Daemon's live Runs, whose Lifecycle is `running`, by kind.",
+      "instrument": "up_down_counter",
+      "labels": [
+        {
+          "name": "run_kind",
+          "values": [
+            "collie",
+            "crawl"
+          ]
+        }
+      ],
+      "name": "goodfetch.run.active",
+      "product": "collie",
+      "stability": "stable",
+      "unit": "{run}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Runs that ended on the Daemon, by kind, Lifecycle, Verdict and Completeness (ADR 0029).",
+      "instrument": "counter",
+      "labels": [
+        {
+          "name": "run_kind",
+          "values": [
+            "collie",
+            "crawl"
+          ]
+        },
+        {
+          "name": "lifecycle",
+          "values": [
+            "stopped",
+            "finished",
+            "failed"
+          ]
+        },
+        {
+          "name": "verdict",
+          "values": [
+            "verified",
+            "rejected",
+            "needs_review"
+          ]
+        },
+        {
+          "name": "completeness",
+          "values": [
+            "complete",
+            "incomplete",
+            "unverified"
+          ]
+        }
+      ],
+      "name": "goodfetch.run.ended",
+      "product": "collie",
+      "stability": "stable",
+      "unit": "{run}"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Pages the sample crawl visited.",
       "instrument": "counter",
+      "labels": [],
       "name": "goodfetch.sample.crawled_pages",
       "product": "foxhound",
       "stability": "experimental",
@@ -945,10 +1079,31 @@
       "arrived_in": "0.1",
       "description": "Texts the sample operation repeated.",
       "instrument": "counter",
+      "labels": [],
       "name": "goodfetch.sample.echoes",
       "product": "collie",
       "stability": "stable",
       "unit": "{echo}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawls' work items leased to a handler whose attempt has not ended.",
+      "instrument": "up_down_counter",
+      "labels": [],
+      "name": "goodfetch.work_item.leased",
+      "product": "foxhound",
+      "stability": "stable",
+      "unit": "{work_item}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawls' work items whose attempt ended and that wait to be tried again.",
+      "instrument": "counter",
+      "labels": [],
+      "name": "goodfetch.work_item.retried",
+      "product": "foxhound",
+      "stability": "stable",
+      "unit": "{work_item}"
     }
   ],
   "operations": [
@@ -1024,7 +1179,7 @@
       "product": "foxhound",
       "reach": "all_surfaces",
       "result": {
-        "$ref": "#/$defs/RunReport"
+        "$ref": "#/$defs/CrawlRunReport"
       },
       "stability": "experimental"
     },
@@ -1065,6 +1220,25 @@
         "$ref": "#/$defs/Enqueued"
       },
       "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Says whether the Daemon is live and ready to take a new Run, and why not: what its ops listener's `/livez` and `/readyz` answer with a status alone.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "daemon.health",
+      "params": {
+        "$ref": "#/$defs/DaemonParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/DaemonHealth"
+      },
+      "stability": "stable"
     },
     {
       "arrived_in": "0.1",
@@ -1416,6 +1590,44 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl fails with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.add_seed",
+      "params": {
+        "$ref": "#/$defs/RunAddSeedParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Enqueued"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl fails with `run_not_found`.",
+      "events": [],
+      "kind": "sequence",
+      "name": "run.add_seeds",
+      "params": {
+        "$ref": "#/$defs/RunAddSeedsParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunSeedsAdded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "effect",
       "deprecated": null,
       "description": "Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
@@ -1458,12 +1670,12 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.",
+      "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait.",
       "events": [],
       "kind": "round_trip",
       "name": "run.finish",
       "params": {
-        "$ref": "#/$defs/RunParams"
+        "$ref": "#/$defs/RunWaitParams"
       },
       "product": "collie",
       "reach": "all_surfaces",
@@ -1630,6 +1842,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Stops a Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by its program, resumable by its Run ID, and answers its Run report; an ended Run's report is answered as it is. The wait is bounded by `timeout.close`, or the call's `timeout`: past it, the call fails with `deadline_exceeded` and the Run still stops at its next safe point. A Run that ended `failed` fails the call as `run.finish` does.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.stop",
+      "params": {
+        "$ref": "#/$defs/RunWaitParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.usage",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunUsage"
       },
       "stability": "experimental"
     },
@@ -2222,6 +2472,40 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
+      "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`.",
+      "name": "ops.address",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "The OTLP/HTTP endpoint `daemon run`, the foreground Daemon, exports its metrics to, in protobuf, every 60 seconds and once more as it exits: a full URL such as `http://collector:4318/v1/metrics`. Unset by default: nothing is exported (ADR 0043).",
+      "name": "otlp.metrics_endpoint",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
       "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only.",
       "name": "otlp.traces_endpoint",
       "product": "collie",
@@ -2311,6 +2595,58 @@
     {
       "arrived_in": "0.1",
       "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result.",
+      "name": "politeness.backoff.enabled",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 2000,
+      "description": "The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result.",
+      "name": "politeness.backoff.initial",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 60000,
+      "description": "The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result.",
+      "name": "politeness.backoff.max",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
       "clearable": true,
       "default": null,
       "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1.",
@@ -2332,6 +2668,24 @@
       "default": null,
       "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s.",
       "name": "politeness.domain.delay",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 900000,
+      "description": "The longest a crawl waits for the time a site's `Retry-After` asks, past `politeness.backoff.max`: 15 minutes. When the site asks for longer, nothing is sent to its domain before that time and nothing waits for it: the request whose response asked, and each request admitted to the domain meanwhile, ends `failed` with `response_unavailable`, and `run.retry_failed` re-admits them once the site is back. Whatever its value, nothing is sent sooner than the site asked.",
+      "name": "politeness.retry_after.max",
       "product": "foxhound",
       "products": [
         "foxhound"
@@ -2407,7 +2761,7 @@
       "authority": "every",
       "clearable": false,
       "default": "full",
-      "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+      "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened`.",
       "name": "run_state.durability",
       "product": "collie",
       "products": [
@@ -2606,6 +2960,25 @@
       "default": 30000,
       "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
       "name": "timeout.action",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+      "name": "timeout.close",
       "product": "collie",
       "products": [
         "collie",
@@ -2860,6 +3233,48 @@
   "shared_type_values": [
     {
       "arrived_in": "0.1",
+      "description": "The baseline a comparison needs was unavailable.",
+      "name": "baseline_unavailable",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran Firefox.",
+      "name": "browser_build_firefox",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's browser build is outdated.",
+      "name": "browser_build_outdated",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran a browser build a Plugin gave.",
+      "name": "browser_build_plugin",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran a third party's browser build.",
+      "name": "browser_build_third_party",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The time a run held a browser, in milliseconds (ADR 0101).",
+      "name": "browser_time",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A page that asks a person to prove they are human.",
       "name": "captcha",
       "product": "collie",
@@ -2902,6 +3317,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Run's Clean-up rules are older than 14 days.",
+      "name": "clean_up_rules_stale",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Every run a Client connection starts, while it lasts.",
       "name": "connection",
       "product": "collie",
@@ -2913,6 +3335,13 @@
       "name": "consent_required",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The host throttled the engine's CPU.",
+      "name": "cpu_throttled",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",
@@ -2944,6 +3373,55 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A file the Run writes, such as a periodic Checkpoint, could not be written to its storage.",
+      "name": "file_write_failed",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A filter list flags a vendor the Run used.",
+      "name": "filter_vendor_flagged",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran the basic fingerprint.",
+      "name": "fingerprint_basic",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session fell back to the basic fingerprint.",
+      "name": "fingerprint_basic_fallback",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's fingerprint was injected by JavaScript, which a site can detect.",
+      "name": "fingerprint_js_injection",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran with no fingerprint.",
+      "name": "fingerprint_none",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's human input fell back to plain input.",
+      "name": "human_input_fallback",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Every run of the user on the machine, whichever engine runs it.",
       "name": "install",
       "product": "collie",
@@ -2962,6 +3440,20 @@
       "name": "lent_page_attached",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Model calls a run made, retries and Repairs included (ADR 0101).",
+      "name": "model_calls",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Model tokens a run used, input and output (ADR 0101).",
+      "name": "model_tokens",
+      "product": "collie",
+      "type": "usage_kind"
     },
     {
       "arrived_in": "0.1",
@@ -2986,6 +3478,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A file the Run writes at its end could not be written at its path.",
+      "name": "path_not_writable",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The site asked to be paid for the page (ADR 0045).",
       "name": "payment_required",
       "product": "collie",
@@ -2997,6 +3496,27 @@
       "name": "person",
       "product": "collie",
       "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Usage figures come from a Plugin.",
+      "name": "plugin_figures",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Plugin reported a quantity above its declared maximum, recorded in full.",
+      "name": "plugin_quantity_above_maximum",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Politeness store was unreachable, and the Run took a degraded share.",
+      "name": "politeness_store_degraded",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",
@@ -3018,6 +3538,13 @@
       "name": "proxy_bytes",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's proxy exit may change between its requests.",
+      "name": "proxy_exit_may_change",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",
@@ -3084,6 +3611,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Run met the `low` storage level: the folder, its free space and what was shed.",
+      "name": "storage_low",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "An Exposed Daemon started with `daemon.tls.upstream`, TLS terminated in front of it (ADR 0049).",
       "name": "tls_terminated_upstream",
       "product": "collie",
@@ -3095,6 +3629,13 @@
       "name": "token",
       "product": "collie",
       "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawl ran with its trap-link detection off.",
+      "name": "trap_links_off",
+      "product": "foxhound",
+      "type": "run_warning_code"
     }
   ]
 }

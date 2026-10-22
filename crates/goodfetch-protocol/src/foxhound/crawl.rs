@@ -13,12 +13,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::catalog::{
-    Authority, Entries, ErrorCodeDefinition, ErrorGroup, HandlerRequest, Operation, OperationClass,
-    OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, HandlerRequest, Instrument, Metric,
+    Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting, Stability,
+    ValueKind, schema_of,
 };
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
+use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
-use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunReport, RunStarted, Tags};
+use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunStarted, Tags};
 use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -44,6 +46,12 @@ pub struct Seed {
     #[serde(default, skip_serializing_if = "is_zero")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub priority: i64,
+    /// Whether it goes ahead of every request its domain holds pending,
+    /// whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+    /// such requests, the later goes first; `false` by default.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub forefront: bool,
     /// The method it is sent with: `GET` by default.
     #[serde(default, skip_serializing_if = "HttpMethod::is_get")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -58,6 +66,14 @@ pub struct Seed {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub key: Option<String>,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes a reference"
+)]
+fn is_false(flag: &bool) -> bool {
+    !*flag
 }
 
 #[expect(
@@ -240,7 +256,7 @@ pub const CRAWL_SERVE: Operation = Operation {
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
     params: schema_of::<RunParams>,
-    result: schema_of::<RunReport>,
+    result: schema_of::<CrawlRunReport>,
     events: &[],
     cancellable: true,
     stability: Stability::Experimental,
@@ -264,6 +280,17 @@ pub const HANDLER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "handler_failed",
     description: "The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time.",
     group: ErrorGroup::Program,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A site failing for now, or holding a crawl request unsent past the
+/// bound on its `Retry-After` (ADRs 0093 and 0118).
+pub const RESPONSE_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "response_unavailable",
+    description: "The site is failing for now: its 5xx or 408 response stayed after the retries ran out, or its `Retry-After` asked for a time further away than `politeness.retry_after.max`, so nothing is sent to its domain before then and nothing waits for it. The details name the response's `status` (`null` for a request held unsent), the time the site asked for as `retryAfter` when it asked, and a `fix`. `run.retry_failed` re-admits the request once the site is back.",
+    group: ErrorGroup::Page,
     retryable: true,
     exit_code: None,
     arrived_in: ARRIVED_IN,
@@ -401,6 +428,30 @@ fn no() -> Value {
     Value::Bool(false)
 }
 
+/// `goodfetch.work_item.leased`: the crawls' work items whose attempt runs
+/// (ADR 0050).
+pub const WORK_ITEM_LEASED: Metric = Metric {
+    name: "goodfetch.work_item.leased",
+    description: "The crawls' work items leased to a handler whose attempt has not ended.",
+    instrument: Instrument::UpDownCounter,
+    unit: "{work_item}",
+    labels: &[],
+    stability: Stability::Stable,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `goodfetch.work_item.retried`: the attempts that ended to be tried
+/// again (ADR 0050).
+pub const WORK_ITEM_RETRIED: Metric = Metric {
+    name: "goodfetch.work_item.retried",
+    description: "The crawls' work items whose attempt ended and that wait to be tried again.",
+    instrument: Instrument::Counter,
+    unit: "{work_item}",
+    labels: &[],
+    stability: Stability::Stable,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -409,13 +460,14 @@ pub const ENTRIES: Entries = Entries {
     handler_requests: &[CRAWL_REQUEST_HANDLE],
     error_codes: &[
         HANDLER_FAILED,
+        RESPONSE_UNAVAILABLE,
         HANDLER_LOST,
         CLIENT_GONE,
         LEASE_LOST,
         ATTEMPT_ENDED,
     ],
     plugin_kinds: &[],
-    metrics: &[],
+    metrics: &[WORK_ITEM_LEASED, WORK_ITEM_RETRIED],
     settings: &[
         TIMEOUT_HANDLER,
         CRAWL_RETRY_MAX,

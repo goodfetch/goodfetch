@@ -11,6 +11,8 @@
 //!                                    socket-activated Daemon
 //! <home>/<major>/daemon-service.json the per-user service `daemon install`
 //!                                    registered
+//! <home>/<major>/ops.token           the ops token, mode 0600, which the
+//!                                    ops listener's `/metrics` takes
 //! ```
 //!
 //! A Daemon is running while its runtime file is there and its serving
@@ -25,7 +27,11 @@
 //! named by the per-major folder's path, mode `0700` and refused unless it
 //! is the user's own. A socket-activated Daemon starts before any Client
 //! could read a runtime file it writes, so its Clients' `hello` carries a
-//! persistent token, which `daemon rotate-token` replaces (ADR 0031).
+//! persistent token, which `daemon rotate-token` replaces (ADR 0031). The
+//! ops token is a token of its own, scoped to reading the metrics of the
+//! ops listener and taken by no other listener (ADR 0050); an operator may
+//! write it before the Daemon starts, as a Kubernetes Secret mounted there
+//! does, and the Daemon makes one when it finds none.
 //!
 //! These are blocking calls, made on the tasks module's blocking policy or
 //! by an executable outside its runtime.
@@ -52,12 +58,22 @@ const SERVING_LOCK: &str = "daemon.lock";
 const START_LOCK: &str = "daemon-start.lock";
 const TOKEN_FILE: &str = "daemon.token";
 const SERVICE_FILE: &str = "daemon-service.json";
+const OPS_TOKEN_FILE: &str = "ops.token";
 /// The page that opens the Console's sign-in link in a browser.
 const CONSOLE_OPENER: &str = "console.html";
 
 /// The longest socket path every OS takes: macOS's `sun_path` holds 104
 /// bytes, its last a NUL.
 const LONGEST_SOCKET_PATH: usize = 103;
+
+/// The token in the file at `path`, or `None` when there is none.
+fn read_token(path: &Path) -> io::Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(token) => Ok(Some(token.trim().to_owned()).filter(|token| !token.is_empty())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
 
 /// How many bytes of the OS generator a token takes.
 const TOKEN_BYTES: usize = 32;
@@ -186,10 +202,24 @@ impl DaemonFiles {
     ///
     /// When its file exists but cannot be read.
     pub fn read_token(&self) -> io::Result<Option<String>> {
-        match fs::read_to_string(self.token_file()) {
-            Ok(token) => Ok(Some(token.trim().to_owned()).filter(|token| !token.is_empty())),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error),
+        read_token(&self.token_file())
+    }
+
+    /// The ops token's file.
+    pub fn ops_token_file(&self) -> PathBuf {
+        self.folder.join(OPS_TOKEN_FILE)
+    }
+
+    /// The ops token, made from the OS generator when there is none.
+    ///
+    /// # Errors
+    ///
+    /// When its file cannot be read or written, or the OS generator gives
+    /// nothing.
+    pub fn ops_token(&self) -> io::Result<String> {
+        match read_token(&self.ops_token_file())? {
+            Some(token) => Ok(token),
+            None => self.write_token(OPS_TOKEN_FILE),
         }
     }
 
@@ -213,15 +243,21 @@ impl DaemonFiles {
     ///
     /// When its file cannot be written, or the OS generator gives nothing.
     pub fn rotate_token(&self) -> io::Result<String> {
+        self.write_token(TOKEN_FILE)
+    }
+
+    /// Writes a new token from the OS generator to the file `name`,
+    /// readable and writable by its owner alone, in one rename.
+    fn write_token(&self, name: &str) -> io::Result<String> {
         let token = new_token().map_err(|error| io::Error::other(error.to_string()))?;
         fs::create_dir_all(&self.folder)?;
-        let partial = self.folder.join(".daemon.token.partial");
+        let partial = self.folder.join(format!(".{name}.partial"));
         remove(&partial)?;
         let mut written = owner_only(&partial)?;
         written.write_all(token.as_bytes())?;
         written.sync_all()?;
         drop(written);
-        fs::rename(&partial, self.token_file())?;
+        fs::rename(&partial, self.folder.join(name))?;
         Ok(token)
     }
 

@@ -1,8 +1,10 @@
 //! The Daemon's contracts (ADRs 0024, 0030 and 0098): its runtime file, by
 //! which a Client of its major finds it, the `daemon.*` operations a Client
 //! asks it about itself with, its idle timeout, the per-user service that
-//! `daemon install` registers, and the `--json` outputs of `daemon start`,
-//! `stop`, `restart`, `status`, `install`, `uninstall` and `rotate-token`.
+//! `daemon install` registers, its health as its ops listener's probes and
+//! `daemon health` check it (ADR 0050), and the `--json` outputs of
+//! `daemon start`, `stop`, `restart`, `status`, `install`, `uninstall`,
+//! `rotate-token` and `health`.
 //! One Daemon per user and major serves both Products, so everything here
 //! is Collie's.
 //!
@@ -237,6 +239,81 @@ pub const STOP: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// Why a Daemon cannot take a new Run now, as its ops listener's
+/// `/readyz` and `daemon health` check it (ADR 0050).
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Unready {
+    /// It drains, taking no Run (ADR 0049).
+    Draining,
+    /// Its run state cannot be written.
+    RunStateNotWritable,
+    /// A browser its configuration uses is not installed.
+    BrowsersMissing,
+}
+
+/// What `daemon.health` answers: what the ops listener's `/livez` and
+/// `/readyz` check (ADR 0050). In a Daemon group, readiness ignores the
+/// Lead Daemon's reachability.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DaemonHealth {
+    /// Whether it is live: its runtime and its Runs' registry, which writes
+    /// their run state, respond.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub live: bool,
+    /// Whether it is ready: live, and able to take a new Run.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub ready: bool,
+    /// Why it is not ready, when it is not; empty when it is.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub unready: Vec<Unready>,
+}
+
+/// `daemon.health`.
+pub const HEALTH: Operation = Operation {
+    name: "daemon.health",
+    description: "Says whether the Daemon is live and ready to take a new Run, and why not: what its ops listener's `/livez` and `/readyz` answer with a status alone.",
+    class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<DaemonParams>,
+    result: schema_of::<DaemonHealth>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Stable,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// Which of the ops listener's probes `daemon health` answers.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum HealthProbe {
+    /// `/livez`'s: whether the Daemon is live.
+    Live,
+    /// `/readyz`'s: whether it is ready to take a new Run.
+    Ready,
+}
+
+/// What `daemon health --json` prints.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DaemonHealthOutput {
+    /// The probe it answers.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub probe: HealthProbe,
+    /// Its answer, which its exit code repeats: 0 when `true`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub healthy: bool,
+    /// What the Daemon answered, or `None` when no Daemon of the major
+    /// answered.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub daemon: Option<DaemonHealth>,
+}
+
 /// What `daemon status --json` prints.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DaemonStatusOutput {
@@ -348,7 +425,7 @@ pub struct DaemonRotateTokenOutput {
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[STATUS, STOP],
+    operations: &[STATUS, STOP, HEALTH],
     events: &[],
     handler_requests: &[],
     error_codes: &[NOT_A_DAEMON, DAEMON_DRAINING],

@@ -422,7 +422,7 @@ fn a_retry_after_a_handler_met_holds_its_domain_until_the_time_the_site_asked(
 /// the setting, the other domains go, and the Run finishes `incomplete`
 /// with both listed for `run.retry_failed` (ADR 0118).
 ///
-/// Covers: story:3-155, setting:politeness.retry_after.max, operation:run.failed_requests
+/// Covers: story:3-155, setting:politeness.retry_after.max, error:response_unavailable, operation:run.failed_requests
 #[test]
 fn a_retry_after_past_the_bound_ends_its_domains_requests_failed_unsent() {
     let env = TestEnv::new();

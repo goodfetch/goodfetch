@@ -174,6 +174,23 @@ fn backoffs_in_a_row_grow_toward_a_minute_and_a_success_resets_them() {
     assert!(after_success <= Duration::from_secs(6), "{after_success:?}");
 }
 
+/// A run's `politeness.backoff.initial` sets the shortest wait its
+/// backoff draws, the first spread up to three times it.
+///
+/// Covers: story:3-153, setting:politeness.backoff.initial
+#[test]
+fn a_runs_initial_wait_bounds_its_first_backoff() {
+    let file = file();
+    let patient = rule(json!({ "politeness": { "backoff": { "initial": 10_000 } } }));
+
+    let ready_at = patient
+        .ended(&file, KEY, 0, Ending::BackOff(None), at(0))
+        .unwrap()
+        .expect("the key waits");
+
+    assert!((at(10)..=at(30)).contains(&ready_at), "{ready_at:?}");
+}
+
 /// A `Retry-After` of ten minutes holds every sharing run past
 /// `politeness.backoff.max`, within `politeness.retry_after.max`.
 ///

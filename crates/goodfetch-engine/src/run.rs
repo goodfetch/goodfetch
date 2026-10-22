@@ -4,7 +4,8 @@
 //! ended; `run.abort` stops it; `run.checkpoint` writes a Checkpoint;
 //! `run.pause` and `run.migrate` checkpoint a Run and stop it, resumable;
 //! `run.resume` takes the next run epoch of an interrupted Run and starts
-//! its kind's driver again. Also the one translation of a start's, a Run's
+//! its kind's driver again; `run.set_progress_message` sets the program's
+//! own status line about its Run. Also the one translation of a start's, a Run's
 //! or a setting's failure into its Error code, which a Product's own start,
 //! such as Foxhound's `crawl.start`, answers with too.
 
@@ -23,9 +24,10 @@ use goodfetch_protocol::formats::{Compatibility, Format};
 use goodfetch_protocol::run::{Checkpoint, Lifecycle};
 use goodfetch_protocol::run::{
     RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN, RUN_IN_USE,
-    RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_START, RUN_STATE_UNAVAILABLE, ReachedLimit, RunAbortParams,
-    RunConflictDetails, RunDetails, RunId, RunIdInvalidDetails, RunKind, RunParams, RunReport,
-    RunStartParams, RunStarted, StartedAs, StopReason,
+    RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_SET_PROGRESS_MESSAGE, RUN_START, RUN_STATE_UNAVAILABLE,
+    ReachedLimit, RunAbortParams, RunConflictDetails, RunDetails, RunId, RunIdInvalidDetails,
+    RunKind, RunParams, RunProgress, RunReport, RunSetProgressMessageParams, RunStartParams,
+    RunStarted, StartedAs, StopReason,
 };
 use goodfetch_protocol::usage::{
     LIMIT_NOT_UNDERSTOOD, LIMIT_REACHED, Limit, LimitNotUnderstoodDetails,
@@ -45,7 +47,7 @@ use crate::runs::{EndedBy, Forwarded, Resume, Resumed, RunError, Start, StartErr
 use crate::settings::{Opening, Resolved, SettingsError};
 
 /// The `run.*` handlers.
-pub(crate) fn handlers() -> [Handler; 7] {
+pub(crate) fn handlers() -> [Handler; 8] {
     [
         Handler::new(&RUN_START, start),
         Handler::new(&RUN_FINISH, finish),
@@ -54,6 +56,7 @@ pub(crate) fn handlers() -> [Handler; 7] {
         Handler::new(&RUN_PAUSE, pause),
         Handler::new(&RUN_MIGRATE, migrate),
         Handler::new(&RUN_RESUME, resume),
+        Handler::new(&RUN_SET_PROGRESS_MESSAGE, set_progress_message),
     ]
 }
 
@@ -499,6 +502,17 @@ async fn finish(params: RunParams, context: CallContext) -> Result<RunReport, Ca
         .finish(params.run_id)
         .await
         .map_err(|error| run_error(error, context.identity()))
+}
+
+async fn set_progress_message(
+    params: RunSetProgressMessageParams,
+    context: CallContext,
+) -> Result<RunProgress, CallError> {
+    context
+        .runs()
+        .set_progress_message(params.run_id, params.message)
+        .await
+        .map_err(|error| run_error_of(error, context.identity(), RUN_SET_PROGRESS_MESSAGE.name))
 }
 
 async fn checkpoint(

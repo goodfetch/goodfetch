@@ -4052,6 +4052,11 @@
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
       "type": "string"
     },
+    "ProgressMessage": {
+      "description": "A program's own status line about its Run (RT-15).",
+      "maxLength": 512,
+      "type": "string"
+    },
     "ProjectSettings": {
       "additionalProperties": false,
       "description": "A project configuration's values, which a Client reads where it runs and\nsends with a scope it opens (ADR 0083).",
@@ -4614,6 +4619,13 @@
           "$ref": "#/$defs/Presence",
           "description": "Whether its state is at its location."
         },
+        "progress_message": {
+          "description": "The program's own status line, once it set one (RT-15).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "description": "The Run's ID."
@@ -4799,6 +4811,38 @@
       ],
       "type": "object"
     },
+    "RunProgress": {
+      "description": "A Run's progress as it is now (ADR 0102): what `run.progress` reports.",
+      "properties": {
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "arrived_in": "0.1",
+          "description": "Where it is."
+        },
+        "message": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProgressMessage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The program's own status line, once it set one."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "lifecycle"
+      ],
+      "type": "object"
+    },
     "RunReport": {
       "description": "What a Run states about itself when it ends (ADR 0102): its three axes\n(ADR 0029) and when it ran.",
       "properties": {
@@ -4961,6 +5005,27 @@
       ],
       "type": "object"
     },
+    "RunSetProgressMessageParams": {
+      "additionalProperties": false,
+      "description": "What `run.set_progress_message` takes.",
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/ProgressMessage",
+          "arrived_in": "0.1",
+          "description": "The program's status line, which replaces the one before."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "message"
+      ],
+      "type": "object"
+    },
     "RunStartParams": {
       "additionalProperties": false,
       "description": "What `run.start` takes.",
@@ -5105,6 +5170,13 @@
         },
         "policy_version": {
           "description": "The version of the Operator policy it ran under (ADR 0028).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "progress_message": {
+          "description": "The program's own status line, once it set one (RT-15).",
           "type": [
             "string",
             "null"
@@ -6814,6 +6886,10 @@
                     },
                     "type": "object"
                   },
+                  "keep_alive": {
+                    "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
+                    "type": "boolean"
+                  },
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
@@ -7355,6 +7431,10 @@
                       }
                     },
                     "type": "object"
+                  },
+                  "keep_alive": {
+                    "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
+                    "type": "boolean"
                   },
                   "retry": {
                     "additionalProperties": false,
@@ -7913,6 +7993,10 @@
                       }
                     },
                     "type": "object"
+                  },
+                  "keep_alive": {
+                    "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
+                    "type": "boolean"
                   },
                   "retry": {
                     "additionalProperties": false,

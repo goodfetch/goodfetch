@@ -138,6 +138,11 @@ prefix = "run.resume"
 [[area]]
 number = 3
 kind = "operation"
+prefix = "run.set_progress_message"
+
+[[area]]
+number = 3
+kind = "operation"
 prefix = "crawl.start"
 
 [[area]]
@@ -362,6 +367,11 @@ prefix = "crawl.handler."
 number = 3
 kind = "setting"
 prefix = "crawl.domain_keys"
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "crawl.keep_alive"
 
 [[area]]
 number = 3

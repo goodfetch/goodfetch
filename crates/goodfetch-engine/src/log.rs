@@ -6,9 +6,10 @@
 //! [`LogEvents`] is one value the executable's `main`, or a test, makes:
 //! its [`LogEvents::layer`] joins the process's `tracing` subscriber, and
 //! the engine it is given ([`crate::Engine::with_log_events`]) hands each
-//! Connection its own [`ConnectionLog`]. The layer listens only at the most
-//! verbose level a Connection asks for, so with none listening it costs
-//! nothing. Log events are telemetry: the layer never waits, and a
+//! Connection its own [`ConnectionLog`]. An engine given none, whose
+//! Connections no layer could feed, keeps no buffer of them. The layer
+//! listens only at the most verbose level a Connection asks for, so with
+//! none listening it costs nothing. Log events are telemetry: the layer never waits, and a
 //! Connection too slow to read them loses the oldest, which the next one it
 //! receives counts as `dropped`.
 
@@ -106,11 +107,11 @@ impl LogEvents {
             levels.next += 1;
             levels.of.insert(id, LogLevel::Off);
         });
-        ConnectionLog {
+        ConnectionLog(Some(Listening {
             id,
             events: self.clone(),
             level: watch::Sender::new(LogLevel::Off),
-        }
+        }))
     }
 
     fn set(&self, id: u64, level: Option<LogLevel>) {
@@ -130,27 +131,41 @@ impl LogEvents {
     }
 }
 
-/// One Connection's log events: its level, and what sends them.
+/// One Connection's log events: its level, and what sends them; nothing on
+/// an engine given no [`LogEvents`], whose Connections receive none.
 #[derive(Debug)]
-pub(crate) struct ConnectionLog {
+pub(crate) struct ConnectionLog(Option<Listening>);
+
+/// The log of a Connection to an engine given [`LogEvents`].
+#[derive(Debug)]
+struct Listening {
     id: u64,
     events: LogEvents,
     level: watch::Sender<LogLevel>,
 }
 
 impl ConnectionLog {
+    /// The log of a Connection to an engine given no [`LogEvents`]: no
+    /// layer emits any, so it receives none at any level.
+    pub(crate) fn none() -> Self {
+        Self(None)
+    }
+
     /// Sets the level the Connection receives from the next log event on.
     pub(crate) fn set(&self, level: LogLevel) {
-        self.level.send_replace(level);
-        self.events.set(self.id, Some(level));
-        let _ = self.events.events.send(Item::Level {
-            connection: self.id,
+        let Some(listening) = &self.0 else {
+            return;
+        };
+        listening.level.send_replace(level);
+        listening.events.set(listening.id, Some(level));
+        let _ = listening.events.events.send(Item::Level {
+            connection: listening.id,
             level,
         });
     }
 
     /// Sends the Connection its log events as `$/log` lines on `outgoing`,
-    /// until this log is dropped.
+    /// until this log is dropped; ends at once when it has none.
     ///
     /// # Cancel safety
     ///
@@ -159,13 +174,22 @@ impl ConnectionLog {
         &self,
         outgoing: mpsc::Sender<Vec<u8>>,
     ) -> impl Future<Output = ()> + Send + 'static {
-        let events = self.events.events.subscribe();
-        let level = self.level.subscribe();
-        forward(self.id, events, level, outgoing)
+        let receivers = self.0.as_ref().map(|listening| {
+            (
+                listening.id,
+                listening.events.events.subscribe(),
+                listening.level.subscribe(),
+            )
+        });
+        async move {
+            if let Some((connection, events, level)) = receivers {
+                forward(connection, events, level, outgoing).await;
+            }
+        }
     }
 }
 
-impl Drop for ConnectionLog {
+impl Drop for Listening {
     fn drop(&mut self) {
         self.events.set(self.id, None);
     }

@@ -16,7 +16,8 @@ goodfetch-engine.workspace = true
 goodfetch-page.workspace = true
 goodfetch-protocol.workspace = true
 psl.workspace = true
-rusqlite.workspace = true
+# Its statement cache keeps the per-seed scope insert prepared (prepare_cached).
+rusqlite = { workspace = true, features = ["cache"] }
 serde_json.workspace = true
 sha2.workspace = true
 tokio = { workspace = true, features = ["time"] }

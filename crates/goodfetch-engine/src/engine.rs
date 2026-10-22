@@ -91,7 +91,7 @@ impl Engine {
             dispatch: Arc::new(Dispatch {
                 identity: Arc::new(identity),
                 handlers: composition.handlers()?,
-                log_events: LogEvents::new(),
+                log_events: None,
             }),
             tables: composition.run_state_tables(),
             politeness_tables: composition.politeness_tables(),
@@ -119,7 +119,7 @@ impl Engine {
         self.dispatch = Arc::new(Dispatch {
             identity: Arc::clone(&self.dispatch.identity),
             handlers: self.dispatch.handlers.clone(),
-            log_events,
+            log_events: Some(log_events),
         });
         self
     }

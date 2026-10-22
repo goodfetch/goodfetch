@@ -63,6 +63,7 @@ const IDS: &str = "catalog/1 catalog/2 catalog/3 \
     downloads/1 downloads/2 downloads/3 downloads/4 downloads/5 downloads/6 downloads/7 \
     downloads/8 downloads/9 downloads/10 downloads/11 downloads/12 downloads/13 downloads/14 \
     downloads/15 downloads/16 downloads/17 downloads/18 \
+    bombs/1 bombs/2 bombs/3 bombs/4 bombs/5 bombs/6 \
     canaries/1 canaries/2 canaries/3 canaries/4";
 
 /// Each task's kind, in the same order.
@@ -90,6 +91,7 @@ const KINDS: &str = "crawl extract submit \
     extract extract extract extract extract extract extract extract extract extract \
     download download download download download download download download download download \
     download download download download download download download download \
+    extract extract extract extract extract extract \
     crawl crawl crawl crawl";
 
 #[test]

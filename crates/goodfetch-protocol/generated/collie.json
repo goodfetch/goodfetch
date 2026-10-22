@@ -4,6 +4,80 @@
       "description": "What a locator action answers once its input landed on its target:\nnothing, since no operation returns a handle on an element (ADR 0085).",
       "type": "object"
     },
+    "AppliedLimit": {
+      "description": "A Limit that applies to a Run (ADRs 0041 and 0101): its scope's kind and\nID, what it caps, its period, what it allows, what is left of it and who\nset it.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "What it allows per period: a count, or millionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps a price in, for a price Limit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "left": {
+          "arrived_in": "0.1",
+          "description": "What is left of it in the current period.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its period; none for a Limit that never starts again."
+        },
+        "resets_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When its period starts again; none for a Limit without one."
+        },
+        "scope": {
+          "$ref": "#/$defs/LimitScope",
+          "arrived_in": "0.1",
+          "description": "What it is on; a scope kind this reader does not know is kept."
+        },
+        "set_by": {
+          "$ref": "#/$defs/LimitSetter",
+          "arrived_in": "0.1",
+          "description": "Who set it."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind",
+        "amount",
+        "left",
+        "set_by"
+      ],
+      "type": "object"
+    },
     "ArtifactId": {
       "description": "Which Pinned artifact: its kind, its name and its build.",
       "properties": {
@@ -104,6 +178,34 @@
     "AuditVerifyParams": {
       "additionalProperties": false,
       "description": "What `audit.verify` takes: nothing.",
+      "type": "object"
+    },
+    "AxisReason": {
+      "description": "One reason a Run is not `verified` or not `complete` (ADR 0029).",
+      "properties": {
+        "call_id": {
+          "arrived_in": "0.1",
+          "description": "The AI task it is about, by its `callId`, when it is about one (ADR\n0100).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "code": {
+          "arrived_in": "0.1",
+          "description": "What it is, such as `stopped` or `failed`; a reason this reader does\nnot know is kept as it is.",
+          "type": "string"
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What it says, for people.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
       "type": "object"
     },
     "Checkpoint": {
@@ -466,6 +568,32 @@
       ],
       "type": "object"
     },
+    "EndingError": {
+      "description": "An Error code a Run's ending raises, with its message and details.",
+      "properties": {
+        "code": {
+          "arrived_in": "0.1",
+          "description": "The Error code.",
+          "type": "string"
+        },
+        "details": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The code's own details.",
+          "type": "object"
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What it says, for people.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
     "EngineInfo": {
       "description": "What `engine.info` answers.",
       "properties": {
@@ -814,6 +942,36 @@
       ],
       "type": "object"
     },
+    "KindUsage": {
+      "description": "What a Run used of one Usage kind.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "A count, or millionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency, an ISO 4217 code; none for a count.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind, a value of a type both Products share.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "usage_kind",
+        "amount"
+      ],
+      "type": "object"
+    },
     "LastRead": {
       "additionalProperties": false,
       "description": "The last event a Client read: its position, and the engine instance\nthat gave it.",
@@ -1130,6 +1288,30 @@
       ],
       "type": "object"
     },
+    "ModelUsage": {
+      "description": "A Run's model calls (ADR 0101).",
+      "properties": {
+        "calls": {
+          "arrived_in": "0.1",
+          "description": "The calls, retries and Repairs included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens": {
+          "arrived_in": "0.1",
+          "description": "The tokens, input and output.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "calls",
+        "tokens"
+      ],
+      "type": "object"
+    },
     "Navigated": {
       "description": "What a navigation answers: the document's response, or none for a\nnavigation within the same document, to a URL no server answers, such as\n`about:blank`, to a file the browser downloads instead of showing, which\n`page.download` reports, or back or forward from the last entry of the\npage's history. A 404 or a 500 is a response, a value.",
       "properties": {
@@ -1202,6 +1384,56 @@
         "usage_kind"
       ],
       "type": "object"
+    },
+    "NothingDone": {
+      "description": "Why a call that ends a Run did nothing (ADR 0102's G1).",
+      "oneOf": [
+        {
+          "description": "The start found the Run ended.",
+          "properties": {
+            "ended_at": {
+              "$ref": "#/$defs/PointInTime",
+              "arrived_in": "0.1",
+              "description": "When it ended."
+            },
+            "reason": {
+              "const": "already_ended",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "ended_at"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No seed reached a handler: each was refused when added or skipped\nwhen fetched.",
+          "properties": {
+            "reason": {
+              "const": "no_seed_handled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A resume or a retry found nothing left.",
+          "properties": {
+            "reason": {
+              "const": "nothing_pending",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "PageBodyParams": {
       "additionalProperties": false,
@@ -1423,6 +1655,99 @@
         }
       ]
     },
+    "PlanReport": {
+      "description": "What a Run did with its Plan file (ADR 0091).",
+      "properties": {
+        "file": {
+          "arrived_in": "0.1",
+          "description": "The Plan file's path, or none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/PlanStatus",
+          "arrived_in": "0.1",
+          "description": "What became of its new versions."
+        },
+        "steps_changed": {
+          "arrived_in": "0.1",
+          "description": "The steps that changed, each Agent task one entry (ADR 0100).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "The version it used.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    "PlanStatus": {
+      "description": "What became of a Run's new Plan versions (ADR 0091).",
+      "oneOf": [
+        {
+          "const": "unchanged",
+          "description": "Nothing changed.",
+          "type": "string"
+        },
+        {
+          "const": "promoted",
+          "description": "They were written to the Plan file.",
+          "type": "string"
+        },
+        {
+          "const": "pending_review",
+          "description": "They wait for a person.",
+          "type": "string"
+        },
+        {
+          "const": "frozen",
+          "description": "The Plan file is frozen.",
+          "type": "string"
+        }
+      ]
+    },
+    "PluginRun": {
+      "description": "A Plugin that ran in a Run (ADRs 0016 and 0033).",
+      "properties": {
+        "confinement_missing": {
+          "arrived_in": "0.1",
+          "description": "The parts of its confinement the host could not give, under a\nreduced confinement the Operator policy allowed.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name.",
+          "type": "string"
+        },
+        "network_level": {
+          "arrived_in": "0.1",
+          "description": "The network level it ran at.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "network_level"
+      ],
+      "type": "object"
+    },
     "PointInTime": {
       "description": "A point in time in UTC, as RFC 3339.",
       "format": "date-time",
@@ -1557,6 +1882,89 @@
         "usage_kind"
       ],
       "type": "object"
+    },
+    "RecordingReport": {
+      "description": "What a Run did with the Response recording its start named (ADR 0105).",
+      "properties": {
+        "file": {
+          "arrived_in": "0.1",
+          "description": "Its file.",
+          "type": "string"
+        },
+        "misses": {
+          "arrived_in": "0.1",
+          "description": "Each request the recording missed.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mode": {
+          "arrived_in": "0.1",
+          "description": "Its mode, such as `record` or `replay`.",
+          "type": "string"
+        },
+        "recorded_from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When the oldest of them was fetched."
+        },
+        "recorded_to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When the newest of them was fetched."
+        },
+        "responses_used": {
+          "arrived_in": "0.1",
+          "description": "How many recorded responses it used.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written_by": {
+          "arrived_in": "0.1",
+          "description": "The engine that wrote them.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "mode",
+        "file",
+        "responses_used"
+      ],
+      "type": "object"
+    },
+    "Resource": {
+      "description": "A resource the governor can run out of (ADR 0122).",
+      "oneOf": [
+        {
+          "const": "memory",
+          "description": "The machine's or the container's memory.",
+          "type": "string"
+        },
+        {
+          "const": "storage",
+          "description": "A filesystem the Run writes to.",
+          "type": "string"
+        }
+      ]
     },
     "Resync": {
       "description": "What `events.resync` gives: the current state, from which the stream\ncontinues.",
@@ -1750,7 +2158,7 @@
     },
     "RunParams": {
       "additionalProperties": false,
-      "description": "What `run.finish` and `run.abort` take: the Run.",
+      "description": "What `run.usage`, `run.pause` and `run.migrate` take: the Run.",
       "properties": {
         "run_id": {
           "$ref": "#/$defs/RunId",
@@ -1796,7 +2204,8 @@
       "type": "object"
     },
     "RunReport": {
-      "description": "What a Run states about itself when it ends (ADR 0102): its three axes\n(ADR 0029) and when it ran.",
+      "additionalProperties": true,
+      "description": "What a Run states about itself when it ends (ADR 0102). A part no area\nsupplied is absent, never zero.",
       "properties": {
         "checkpoint": {
           "anyOf": [
@@ -1808,35 +2217,121 @@
             }
           ],
           "arrived_in": "0.1",
-          "description": "The last Checkpoint written of it in this engine, when one was (ADR\n0102)."
+          "description": "The last Checkpoint written of it in this engine, when one was."
         },
         "completeness": {
           "$ref": "#/$defs/Completeness",
           "arrived_in": "0.1",
           "description": "Whether its results cover its scope."
         },
+        "completeness_reasons": {
+          "arrived_in": "0.1",
+          "description": "Why it is not `complete`, when it is not.",
+          "items": {
+            "$ref": "#/$defs/AxisReason"
+          },
+          "type": "array"
+        },
+        "console_url": {
+          "arrived_in": "0.1",
+          "description": "Its page in the Console, where its Run trace replays, when the\nengine knows a Console address (ADR 0031).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "ended_at": {
           "$ref": "#/$defs/PointInTime",
           "arrived_in": "0.1",
           "description": "When it ended."
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EndingError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The error the call that ends it raises: the one that failed a\n`failed` Run, or a write at its end that failed, such as its Plan\nfile's (ADR 0116)."
         },
         "lifecycle": {
           "$ref": "#/$defs/Lifecycle",
           "arrived_in": "0.1",
           "description": "Where it ended."
         },
+        "nothing_done": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NothingDone"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Why the call that answered it did nothing, when it did nothing."
+        },
+        "plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlanReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What it did with its Plan file (ADR 0091)."
+        },
+        "plugins": {
+          "arrived_in": "0.1",
+          "description": "Each Plugin that ran (ADRs 0016 and 0033).",
+          "items": {
+            "$ref": "#/$defs/PluginRun"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "policy_version": {
           "arrived_in": "0.1",
-          "description": "The version of the Operator policy it ran under, when one applied\n(ADR 0028).",
+          "description": "The version of the Operator policy it ran under, when one applied\n(ADR 0031).",
           "type": [
             "string",
             "null"
           ]
         },
+        "recording": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecordingReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What it did with the Response recording its start named (ADR 0105)."
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
           "description": "The Run's ID."
+        },
+        "settings": {
+          "arrived_in": "0.1",
+          "description": "Each effective value it ran with, the layer that set it and the one\nthat locked it, as `config.explain` gives them (ADR 0028).",
+          "items": {
+            "$ref": "#/$defs/ExplainedSetting"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "started_at": {
           "$ref": "#/$defs/PointInTime",
@@ -1855,21 +2350,48 @@
           "arrived_in": "0.1",
           "description": "Why it stopped, when it did."
         },
-        "uncapped": {
+        "uncertain_effects": {
           "arrived_in": "0.1",
-          "description": "Whether it spent, or reserved, money in a currency no Limit holding\nit caps (ADR 0041): *uncapped*.",
-          "type": "boolean"
+          "description": "Each Effect it left uncertain, until a person reconciles it (ADR\n0106).",
+          "items": {
+            "$ref": "#/$defs/UncertainEffect"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "usage": {
+          "$ref": "#/$defs/RunUsage",
+          "arrived_in": "0.1",
+          "description": "What it used, as the Usage ledger charged it, with the Limits that\napply to it (ADR 0101)."
         },
         "verdict": {
           "$ref": "#/$defs/Verdict",
           "arrived_in": "0.1",
           "description": "Whether its own checks prove what it committed."
         },
-        "weakened_by": {
+        "verdict_reasons": {
           "arrived_in": "0.1",
-          "description": "Every setting it ran with that weakens a guarantee class or switches\noff a costly control, with its value and layer (ADR 0028).",
+          "description": "Why it is not `verified`, when it is not.",
           "items": {
-            "$ref": "#/$defs/SettingLimit"
+            "$ref": "#/$defs/AxisReason"
+          },
+          "type": "array"
+        },
+        "warnings": {
+          "arrived_in": "0.1",
+          "description": "What the areas warn of, each with a code and a message.",
+          "items": {
+            "$ref": "#/$defs/RunWarning"
+          },
+          "type": "array"
+        },
+        "weakened": {
+          "arrived_in": "0.1",
+          "description": "Every setting that weakened a safeguard for it (ADR 0028).",
+          "items": {
+            "$ref": "#/$defs/WeakenedSetting"
           },
           "type": "array"
         }
@@ -1880,7 +2402,8 @@
         "verdict",
         "completeness",
         "started_at",
-        "ended_at"
+        "ended_at",
+        "usage"
       ],
       "type": "object"
     },
@@ -2037,6 +2560,142 @@
       ],
       "type": "object"
     },
+    "RunUsage": {
+      "description": "What a Run used, as the Usage ledger charged it, and the Limits that\napply to it (ADRs 0041 and 0101): what `run.usage` answers and the\nreport carries.",
+      "properties": {
+        "browser_time": {
+          "arrived_in": "0.1",
+          "description": "How long it held a browser, in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "limits": {
+          "arrived_in": "0.1",
+          "description": "Each Limit that applies to it, with what is left of it.",
+          "items": {
+            "$ref": "#/$defs/AppliedLimit"
+          },
+          "type": "array"
+        },
+        "model": {
+          "$ref": "#/$defs/ModelUsage",
+          "arrived_in": "0.1",
+          "description": "Its model calls."
+        },
+        "other": {
+          "arrived_in": "0.1",
+          "description": "What it used of a Usage kind this engine does not name, kept as the\nledger holds it.",
+          "items": {
+            "$ref": "#/$defs/KindUsage"
+          },
+          "type": "array"
+        },
+        "paid_fetches": {
+          "arrived_in": "0.1",
+          "description": "Its Paid fetches, by currency (ADR 0045).",
+          "items": {
+            "$ref": "#/$defs/UsageAmount"
+          },
+          "type": "array"
+        },
+        "paid_solves": {
+          "arrived_in": "0.1",
+          "description": "Its paid solves, by currency (ADR 0035).",
+          "items": {
+            "$ref": "#/$defs/UsageAmount"
+          },
+          "type": "array"
+        },
+        "proxy_bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes it sent and received through a proxy.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requests": {
+          "arrived_in": "0.1",
+          "description": "The requests it sent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "uncapped": {
+          "arrived_in": "0.1",
+          "description": "Whether it spent, or reserved, money in a currency no Limit holding\nit caps (ADR 0041): *uncapped*.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "model",
+        "browser_time",
+        "proxy_bytes",
+        "requests"
+      ],
+      "type": "object"
+    },
+    "RunWaitParams": {
+      "additionalProperties": false,
+      "description": "What `run.finish` and `run.stop` take: the Run, and how long the call\nwaits for its end.",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call waits for the Run's end, in milliseconds; past it,\nit fails with `deadline_exceeded` and only the wait ends. None by\ndefault for `run.finish`, which the Run's own `timeout.run` bounds;\n`timeout.close` by default for `run.stop`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunWarning": {
+      "description": "What a Run warns of (ADR 0102): a code of the warning table, or of a\nnewer engine's, kept as it is, with its message and what it concerns.",
+      "properties": {
+        "code": {
+          "arrived_in": "0.1",
+          "description": "Its code.",
+          "type": "string"
+        },
+        "folder": {
+          "arrived_in": "0.1",
+          "description": "The folder it concerns.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What it says, for people.",
+          "type": "string"
+        },
+        "sessions": {
+          "arrived_in": "0.1",
+          "description": "The Sessions it concerns.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
     "SampleEchoParams": {
       "additionalProperties": false,
       "description": "What `sample.echo` repeats.",
@@ -2112,31 +2771,6 @@
     "SessionId": {
       "description": "A Session of a Run, named by the engine when it opens it.",
       "type": "string"
-    },
-    "SettingLimit": {
-      "description": "A setting that decided an outcome: its key, its value and the layer that\nset it (ADRs 0028 and 0079).",
-      "properties": {
-        "key": {
-          "arrived_in": "0.1",
-          "description": "The setting's key.",
-          "type": "string"
-        },
-        "layer": {
-          "$ref": "#/$defs/SettingsLayer",
-          "arrived_in": "0.1",
-          "description": "The layer that set it."
-        },
-        "value": {
-          "arrived_in": "0.1",
-          "description": "Its value."
-        }
-      },
-      "required": [
-        "key",
-        "value",
-        "layer"
-      ],
-      "type": "object"
     },
     "SettingsExplanation": {
       "description": "What `config.explain` answers and `config explain --json` prints:\nevery setting's effective value, the layer that set it and the layer\nthat locked it (ADR 0028), and the files read.",
@@ -2254,7 +2888,7 @@
       ]
     },
     "StopReason": {
-      "description": "Why a Run stopped (ADR 0102); the other causes join with the tickets that\nstop Runs for them.",
+      "description": "Why a Run stopped (ADRs 0029, 0080 and 0102).",
       "oneOf": [
         {
           "description": "Its program, a person or a Client aborted it, a Connection's close\nincluded (ADR 0078).",
@@ -2354,6 +2988,46 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "description": "Its engine was lost while it ran, and another engine stopped it.",
+          "properties": {
+            "kind": {
+              "const": "engine_lost",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The resource governor ran out of a resource for it, and it stopped\nat its next safe point, resumable (ADRs 0040 and 0122).",
+          "properties": {
+            "folder": {
+              "arrived_in": "0.1",
+              "description": "For storage, the folder whose filesystem filled.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "resources",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/$defs/Resource",
+              "arrived_in": "0.1",
+              "description": "The resource that ran out."
+            }
+          },
+          "required": [
+            "kind",
+            "resource"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -2363,6 +3037,11 @@
         {
           "const": "client",
           "description": "A Client, such as through `$/cancel`.",
+          "type": "string"
+        },
+        {
+          "const": "program",
+          "description": "The program, such as through `run.stop` (ADR 0102).",
           "type": "string"
         }
       ]
@@ -2383,6 +3062,88 @@
       },
       "maxItems": 16,
       "type": "array"
+    },
+    "UncertainEffect": {
+      "description": "An Effect a Run left uncertain (ADR 0106), until a person reconciles it.",
+      "properties": {
+        "crawl_request": {
+          "arrived_in": "0.1",
+          "description": "The crawl request it ran for, in a crawl.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entry": {
+          "arrived_in": "0.1",
+          "description": "Its Effect journal entry.",
+          "type": "string"
+        },
+        "first_command": {
+          "arrived_in": "0.1",
+          "description": "The first command sent for it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "instruction": {
+          "arrived_in": "0.1",
+          "description": "Its instruction, for an AI action.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "Its key, for a declared Effect.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why it is uncertain.",
+          "type": "string"
+        },
+        "since": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "Since when it is uncertain."
+        }
+      },
+      "required": [
+        "entry",
+        "reason",
+        "since"
+      ],
+      "type": "object"
+    },
+    "UsageAmount": {
+      "description": "An amount of a Usage kind counted in a currency, or as a count.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "A count, or millionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency, an ISO 4217 code; none for a count.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "amount"
+      ],
+      "type": "object"
     },
     "UsageListParams": {
       "additionalProperties": false,
@@ -2559,6 +3320,43 @@
           "type": "string"
         }
       ]
+    },
+    "WeakenedSetting": {
+      "description": "A setting that weakened a safeguard for a Run (ADR 0028): its key, its\nvalue, the layer that set it and, for the run layer, where the value came\nfrom.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The setting's key.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The layer that set it."
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "For the run layer, where the value came from."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "Its value."
+        }
+      },
+      "required": [
+        "key",
+        "value",
+        "layer"
+      ],
+      "type": "object"
     }
   },
   "error_codes": [
@@ -3631,12 +4429,12 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.",
+      "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait.",
       "events": [],
       "kind": "round_trip",
       "name": "run.finish",
       "params": {
-        "$ref": "#/$defs/RunParams"
+        "$ref": "#/$defs/RunWaitParams"
       },
       "product": "collie",
       "reach": "all_surfaces",
@@ -3765,6 +4563,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Stops a Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by its program, resumable by its Run ID, and answers its Run report; an ended Run's report is answered as it is. The wait is bounded by `timeout.close`, or the call's `timeout`: past it, the call fails with `deadline_exceeded` and the Run still stops at its next safe point. A Run that ended `failed` fails the call as `run.finish` does.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.stop",
+      "params": {
+        "$ref": "#/$defs/RunWaitParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.usage",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunUsage"
       },
       "stability": "experimental"
     },
@@ -4163,7 +4999,7 @@
       "authority": "every",
       "clearable": false,
       "default": "full",
-      "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+      "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened`.",
       "name": "run_state.durability",
       "product": "collie",
       "products": [
@@ -4274,6 +5110,25 @@
       "default": 30000,
       "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
       "name": "timeout.action",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+      "name": "timeout.close",
       "product": "collie",
       "products": [
         "collie",
@@ -4491,6 +5346,48 @@
   "shared_type_values": [
     {
       "arrived_in": "0.1",
+      "description": "The baseline a comparison needs was unavailable.",
+      "name": "baseline_unavailable",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran Firefox.",
+      "name": "browser_build_firefox",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's browser build is outdated.",
+      "name": "browser_build_outdated",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran a browser build a Plugin gave.",
+      "name": "browser_build_plugin",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran a third party's browser build.",
+      "name": "browser_build_third_party",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The time a run held a browser, in milliseconds (ADR 0101).",
+      "name": "browser_time",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A page that asks a person to prove they are human.",
       "name": "captcha",
       "product": "collie",
@@ -4533,6 +5430,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Run's Clean-up rules are older than 14 days.",
+      "name": "clean_up_rules_stale",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Every run a Client connection starts, while it lasts.",
       "name": "connection",
       "product": "collie",
@@ -4544,6 +5448,13 @@
       "name": "consent_required",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The host throttled the engine's CPU.",
+      "name": "cpu_throttled",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",
@@ -4568,6 +5479,55 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A file the Run writes, such as a periodic Checkpoint, could not be written to its storage.",
+      "name": "file_write_failed",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A filter list flags a vendor the Run used.",
+      "name": "filter_vendor_flagged",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran the basic fingerprint.",
+      "name": "fingerprint_basic",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session fell back to the basic fingerprint.",
+      "name": "fingerprint_basic_fallback",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's fingerprint was injected by JavaScript, which a site can detect.",
+      "name": "fingerprint_js_injection",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran with no fingerprint.",
+      "name": "fingerprint_none",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's human input fell back to plain input.",
+      "name": "human_input_fallback",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Every run of the user on the machine, whichever engine runs it.",
       "name": "install",
       "product": "collie",
@@ -4589,10 +5549,31 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Model calls a run made, retries and Repairs included (ADR 0101).",
+      "name": "model_calls",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Model tokens a run used, input and output (ADR 0101).",
+      "name": "model_tokens",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.",
       "name": "paid_solves",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A file the Run writes at its end could not be written at its path.",
+      "name": "path_not_writable",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",
@@ -4607,6 +5588,27 @@
       "name": "person",
       "product": "collie",
       "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Usage figures come from a Plugin.",
+      "name": "plugin_figures",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Plugin reported a quantity above its declared maximum, recorded in full.",
+      "name": "plugin_quantity_above_maximum",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Politeness store was unreachable, and the Run took a degraded share.",
+      "name": "politeness_store_degraded",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",
@@ -4628,6 +5630,13 @@
       "name": "proxy_bytes",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's proxy exit may change between its requests.",
+      "name": "proxy_exit_may_change",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",
@@ -4684,6 +5693,13 @@
       "name": "session_imported",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run met the `low` storage level: the folder, its free space and what was shed.",
+      "name": "storage_low",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",

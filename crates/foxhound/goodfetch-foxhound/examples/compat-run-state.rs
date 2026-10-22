@@ -15,8 +15,9 @@
 //! weakens a guarantee, whose Key-value store keeps a cursor, which
 //! `run.abort` stops; and a Run bound to a
 //! Browser host and holding to a Clean-up rules digest, started through a
-//! contribution of the writer's own since no Client sets those yet, whose
-//! program sets a progress message, which `run.checkpoint` checkpoints and
+//! contribution of the writer's own since no Client sets those yet, with a
+//! warning and `nothingDone` its owners handed over, whose program sets a
+//! progress message, which `run.checkpoint` checkpoints and
 //! `run.pause` pauses with a Checkpoint.
 //! It writes each Run's file, as SQL text, into the folder given as the
 //! only argument: `crawl.sql`, `aborted.sql` and `paused.sql`; and the
@@ -36,7 +37,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::runs::{EndedBy, Start};
+use goodfetch_engine::runs::{EndedBy, Start, Started};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
@@ -47,7 +48,7 @@ use goodfetch_protocol::catalog::{
 };
 use goodfetch_protocol::checkpoint::RunBinding;
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::run::{RunId, RunKind, Tags};
+use goodfetch_protocol::run::{NothingDone, RunId, RunKind, RunWarning, Tags};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
@@ -131,7 +132,7 @@ fn bound() -> Contribution {
     Contribution::new("compat-run-state").with_handler(Handler::new(
         &BOUND,
         |_: Value, context: CallContext| async move {
-            context
+            let started = context
                 .runs()
                 .start(Start {
                     run_id: Some(RunId::parse("paused").expect("a Run ID")),
@@ -142,7 +143,7 @@ fn bound() -> Contribution {
                     ended_by: EndedBy::Finish,
                     initialize: None,
                     policy_version: None,
-                    weakened_by: Vec::new(),
+                    weakened: Vec::new(),
                     binding: Some(RunBinding::BrowserHost {
                         browser_host: "laptop".to_owned(),
                     }),
@@ -153,6 +154,18 @@ fn bound() -> Contribution {
                 })
                 .await
                 .map_err(goodfetch_engine::run::start_error)?;
+            if let Started::New(run) = started {
+                let warning = RunWarning {
+                    code: "storage_low".to_owned(),
+                    message: "The run folder's filesystem met the `low` storage level.".to_owned(),
+                    sessions: vec!["laptop".to_owned()],
+                    folder: Some("runs/paused".to_owned()),
+                };
+                run.warn(warning).await.expect("the warning is kept");
+                run.nothing_done(NothingDone::NothingPending)
+                    .await
+                    .expect("`nothingDone` is kept");
+            }
             Ok::<Value, CallError>(json!({ "run_id": "paused" }))
         },
     ))

@@ -813,7 +813,7 @@
       "product": "foxhound",
       "reach": "all_surfaces",
       "result": {
-        "$ref": "#/$defs/RunReport"
+        "$ref": "#/$defs/CrawlRunReport"
       },
       "stability": "experimental"
     },
@@ -1247,12 +1247,12 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.",
+      "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait.",
       "events": [],
       "kind": "round_trip",
       "name": "run.finish",
       "params": {
-        "$ref": "#/$defs/RunParams"
+        "$ref": "#/$defs/RunWaitParams"
       },
       "product": "collie",
       "reach": "all_surfaces",
@@ -1419,6 +1419,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Stops a Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by its program, resumable by its Run ID, and answers its Run report; an ended Run's report is answered as it is. The wait is bounded by `timeout.close`, or the call's `timeout`: past it, the call fails with `deadline_exceeded` and the Run still stops at its next safe point. A Run that ended `failed` fails the call as `run.finish` does.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.stop",
+      "params": {
+        "$ref": "#/$defs/RunWaitParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.usage",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunUsage"
       },
       "stability": "experimental"
     },
@@ -2100,7 +2138,7 @@
       "authority": "every",
       "clearable": false,
       "default": "full",
-      "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+      "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened`.",
       "name": "run_state.durability",
       "product": "collie",
       "products": [
@@ -2280,6 +2318,25 @@
       "default": 30000,
       "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
       "name": "timeout.action",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+      "name": "timeout.close",
       "product": "collie",
       "products": [
         "collie",
@@ -2515,6 +2572,48 @@
   "shared_type_values": [
     {
       "arrived_in": "0.1",
+      "description": "The baseline a comparison needs was unavailable.",
+      "name": "baseline_unavailable",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran Firefox.",
+      "name": "browser_build_firefox",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's browser build is outdated.",
+      "name": "browser_build_outdated",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran a browser build a Plugin gave.",
+      "name": "browser_build_plugin",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran a third party's browser build.",
+      "name": "browser_build_third_party",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The time a run held a browser, in milliseconds (ADR 0101).",
+      "name": "browser_time",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A page that asks a person to prove they are human.",
       "name": "captcha",
       "product": "collie",
@@ -2557,6 +2656,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Run's Clean-up rules are older than 14 days.",
+      "name": "clean_up_rules_stale",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Every run a Client connection starts, while it lasts.",
       "name": "connection",
       "product": "collie",
@@ -2568,6 +2674,13 @@
       "name": "consent_required",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The host throttled the engine's CPU.",
+      "name": "cpu_throttled",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",
@@ -2599,6 +2712,55 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A file the Run writes, such as a periodic Checkpoint, could not be written to its storage.",
+      "name": "file_write_failed",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A filter list flags a vendor the Run used.",
+      "name": "filter_vendor_flagged",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran the basic fingerprint.",
+      "name": "fingerprint_basic",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session fell back to the basic fingerprint.",
+      "name": "fingerprint_basic_fallback",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's fingerprint was injected by JavaScript, which a site can detect.",
+      "name": "fingerprint_js_injection",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session ran with no fingerprint.",
+      "name": "fingerprint_none",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's human input fell back to plain input.",
+      "name": "human_input_fallback",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Every run of the user on the machine, whichever engine runs it.",
       "name": "install",
       "product": "collie",
@@ -2617,6 +2779,20 @@
       "name": "lent_page_attached",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Model calls a run made, retries and Repairs included (ADR 0101).",
+      "name": "model_calls",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Model tokens a run used, input and output (ADR 0101).",
+      "name": "model_tokens",
+      "product": "collie",
+      "type": "usage_kind"
     },
     {
       "arrived_in": "0.1",
@@ -2641,6 +2817,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A file the Run writes at its end could not be written at its path.",
+      "name": "path_not_writable",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The site asked to be paid for the page (ADR 0045).",
       "name": "payment_required",
       "product": "collie",
@@ -2652,6 +2835,27 @@
       "name": "person",
       "product": "collie",
       "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Usage figures come from a Plugin.",
+      "name": "plugin_figures",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Plugin reported a quantity above its declared maximum, recorded in full.",
+      "name": "plugin_quantity_above_maximum",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Politeness store was unreachable, and the Run took a degraded share.",
+      "name": "politeness_store_degraded",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",
@@ -2673,6 +2877,13 @@
       "name": "proxy_bytes",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's proxy exit may change between its requests.",
+      "name": "proxy_exit_may_change",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",
@@ -2739,6 +2950,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Run met the `low` storage level: the folder, its free space and what was shed.",
+      "name": "storage_low",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "An Exposed Daemon started with `daemon.tls.upstream`, TLS terminated in front of it (ADR 0049).",
       "name": "tls_terminated_upstream",
       "product": "collie",
@@ -2750,6 +2968,13 @@
       "name": "token",
       "product": "collie",
       "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawl ran with its trap-link detection off.",
+      "name": "trap_links_off",
+      "product": "foxhound",
+      "type": "run_warning_code"
     }
   ]
 }

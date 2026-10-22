@@ -35,7 +35,7 @@ use crate::events::{Credits, Events};
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
-use crate::runs::{Driver, Runs};
+use crate::runs::{Driver, ReportPart, Runs};
 use goodfetch_protocol::run::RunKind;
 
 /// A failure a call answers with: an Error code of the catalog, with its
@@ -337,6 +337,7 @@ pub struct Contribution {
     politeness_tables: Vec<PolitenessTables>,
     drivers: Vec<(RunKind, Driver)>,
     admission_gates: Option<Arc<dyn Gates>>,
+    report_parts: Vec<Arc<dyn ReportPart>>,
 }
 
 impl Contribution {
@@ -349,6 +350,7 @@ impl Contribution {
             politeness_tables: Vec::new(),
             drivers: Vec::new(),
             admission_gates: None,
+            report_parts: Vec::new(),
         }
     }
 
@@ -388,6 +390,14 @@ impl Contribution {
     #[must_use]
     pub fn with_admission_gates(mut self, gates: Arc<dyn Gates>) -> Self {
         self.admission_gates = Some(gates);
+        self
+    }
+
+    /// The same, adding `part` to each Run's report when the Run ends (ADR
+    /// 0102).
+    #[must_use]
+    pub fn with_report_part(mut self, part: Arc<dyn ReportPart>) -> Self {
+        self.report_parts.push(part);
         self
     }
 
@@ -485,6 +495,14 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.drivers.iter().cloned())
+            .collect()
+    }
+
+    /// What every contribution adds to each Run's report, in order.
+    pub(crate) fn report_parts(&self) -> Vec<Arc<dyn ReportPart>> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.report_parts.iter().cloned())
             .collect()
     }
 

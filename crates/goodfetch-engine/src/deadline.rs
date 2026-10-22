@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails};
-use goodfetch_protocol::settings::SettingLimit;
+use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 
 use crate::clock::Clock;
 use crate::composition::CallError;
@@ -37,6 +37,19 @@ impl Deadline {
             },
             duration,
         })
+    }
+
+    /// The deadline a call's own `timeout` of `millis` gives in place of
+    /// the timeout `setting`: set by the run layer, the call's argument.
+    pub fn given(setting: &Setting, millis: u64) -> Self {
+        Self {
+            limit: SettingLimit {
+                key: setting.name.to_owned(),
+                value: millis.into(),
+                layer: SettingsLayer::Run,
+            },
+            duration: Duration::from_millis(millis),
+        }
     }
 
     /// How long it allows.

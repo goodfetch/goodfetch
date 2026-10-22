@@ -14,11 +14,12 @@ use std::sync::Arc;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::run::{
-    Completeness, Lifecycle, Presence, RunAxes, RunId, RunIndexRow, RunReport, StopReason, Verdict,
+    Lifecycle, Presence, RunAxes, RunId, RunIndexRow, RunReport, StopReason,
 };
 
 use super::folder::{Recorded, point_in_time, read_recorded, write_end};
 use super::lifecycle::{self, Next, RunEvent};
+use super::report::{self, EndFacts, ReportPart};
 use super::writer::{LockError, RETRIES, backoff, take_lock};
 use super::{Forwarder, RUN_FILE, RunError};
 use crate::clock::Clock;
@@ -46,6 +47,8 @@ pub(super) struct TakeOver {
     pub(super) events: Events,
     pub(super) forwarder: Arc<dyn Forwarder>,
     pub(super) owner: Arc<TaskOwner>,
+    /// What the composition's areas add to the Run's report.
+    pub(super) parts: Vec<Arc<dyn ReportPart>>,
 }
 
 /// What an abort does to the Run its state holds.
@@ -250,26 +253,30 @@ impl TakeOver {
         let state = RunState::open(file, &self.run_state, self.tables.clone(), epoch, &writer)
             .await
             .map_err(|error| self.unavailable(&error))?;
-        let report = RunReport {
+        let facts = EndFacts {
             run_id: self.run_id.clone(),
             lifecycle,
             stop_reason: Some(StopReason::Abort { by: self.by }),
-            verdict: Verdict::Verified,
-            completeness: Completeness::Incomplete,
             started_at: recorded.started_at.clone(),
             ended_at: point_in_time(&self.clock),
             policy_version: recorded.policy_version.clone(),
-            weakened_by: recorded.weakened_by.clone(),
+            weakened: recorded.weakened.clone(),
+            settings: None,
             checkpoint: None,
-            uncapped: recorded.uncapped,
+            console_url: None,
+            limits: Vec::new(),
+            error: None,
         };
-        let written = report.clone();
+        let parts = self.parts.clone();
         let ended = state
-            .write(move |connection| write_end(connection, &written))
+            .write(move |connection| {
+                let report = report::assemble(connection, facts, &parts)?;
+                write_end(connection, &report)?;
+                Ok(report)
+            })
             .await;
         drop(state);
         writer.wait().await;
-        ended.map_err(|error| self.unavailable(&error))?;
-        Ok(report)
+        ended.map_err(|error| self.unavailable(&error))
     }
 }

@@ -8,8 +8,9 @@ use std::collections::BTreeMap;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::Compatibility;
+use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, PointInTime, ReachedLimit};
-use goodfetch_protocol::usage::{Limit, LimitSetter, LimitStanding};
+use goodfetch_protocol::usage::{Limit, LimitStanding};
 use goodfetch_test_support::TestEnv;
 use jiff::Timestamp;
 use rstest::rstest;

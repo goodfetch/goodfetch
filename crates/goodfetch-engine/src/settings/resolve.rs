@@ -13,7 +13,7 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::{Authority, Product, ValueKind};
 use goodfetch_protocol::settings::{
     ExplainedSetting, Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsExplanation,
-    SettingsFile, SettingsLayer,
+    SettingsFile, SettingsLayer, WeakenedSetting,
 };
 use serde_json::Value;
 
@@ -221,16 +221,17 @@ impl Resolved {
     }
 
     /// Every setting whose value weakens a guarantee or switches off a
-    /// costly control, with its value and layer, which the results it
-    /// touches are marked with (ADR 0028).
-    pub fn weakened_by(&self) -> Vec<SettingLimit> {
+    /// costly control, with its value, layer and origin, which the results
+    /// it touches are marked with (ADR 0028).
+    pub fn weakened(&self) -> Vec<WeakenedSetting> {
         self.settings
             .iter()
             .filter(|(_, effective)| effective.weakens)
-            .map(|(key, effective)| SettingLimit {
+            .map(|(key, effective)| WeakenedSetting {
                 key: (*key).to_owned(),
                 value: effective.value.clone(),
                 layer: effective.layer,
+                origin: effective.origin,
             })
             .collect()
     }

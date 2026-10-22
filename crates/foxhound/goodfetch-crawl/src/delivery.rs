@@ -50,7 +50,7 @@ use goodfetch_protocol::foxhound::crawl::{
     CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
 };
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
-use goodfetch_protocol::run::StopReason;
+use goodfetch_protocol::run::{EndingError, RUN_STATE_UNAVAILABLE, RunDetails, StopReason};
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_protocol::usage::REQUESTS;
 use goodfetch_session_pool::{Effect, PoolSettings, SessionPool};
@@ -192,7 +192,7 @@ async fn deliver(
             .await
         {
             tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be leased");
-            end(run, &mut admission, Ending::Failed).await;
+            end(run, &mut admission, failed(run, &error)).await;
             return;
         }
         if attempts.is_empty() {
@@ -221,7 +221,7 @@ async fn deliver(
                 }
                 Err(error) => {
                     tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
-                    end(run, &mut admission, Ending::Failed).await;
+                    end(run, &mut admission, failed(run, &error)).await;
                     return;
                 }
             }
@@ -256,6 +256,23 @@ async fn deliver(
             key = next_wake(wakes.as_mut()) => admission.wake(key.as_deref()),
         }
     }
+}
+
+/// The ending of a crawl whose state or admission failed with `error`:
+/// `failed`, its ending calls raising `run_state_unavailable` (ADR 0102).
+fn failed(run: &Run, error: &dyn std::fmt::Display) -> Ending {
+    let details = RunDetails {
+        run_id: run.id().clone(),
+        path: Some(run.folder().display().to_string()),
+    };
+    Ending::Failed(EndingError {
+        code: RUN_STATE_UNAVAILABLE.name.to_owned(),
+        message: format!("The crawl `{}` failed: {error}", run.id()),
+        details: match serde_json::to_value(details) {
+            Ok(Value::Object(details)) => details,
+            _ => Map::new(),
+        },
+    })
 }
 
 /// Ends the Run as `ending` says, once its admission gave back what it held.
@@ -293,7 +310,7 @@ pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings, craw
         .await
     {
         tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
-        run.end(Ending::Failed).await;
+        run.end(failed(&run, &error)).await;
         return;
     }
     let joined = crawls.open(&run).await;
@@ -527,7 +544,7 @@ async fn opened(run: &Run, settings: &RunSettings) -> Option<(Admission, Session
         Ok(opened) => Some(opened),
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's admission could not open");
-            run.end(Ending::Failed).await;
+            run.end(failed(run, &error)).await;
             None
         }
     }

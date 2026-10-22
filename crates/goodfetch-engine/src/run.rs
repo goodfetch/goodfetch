@@ -25,9 +25,9 @@ use goodfetch_protocol::run::{Checkpoint, Lifecycle};
 use goodfetch_protocol::run::{
     RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN, RUN_IN_USE,
     RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_SET_PROGRESS_MESSAGE, RUN_START, RUN_STATE_UNAVAILABLE,
-    ReachedLimit, RunAbortParams, RunConflictDetails, RunDetails, RunId, RunIdInvalidDetails,
-    RunKind, RunParams, RunProgress, RunReport, RunSetProgressMessageParams, RunStartParams,
-    RunStarted, StartedAs, StopReason,
+    RUN_STOP, RUN_USAGE, ReachedLimit, RunAbortParams, RunConflictDetails, RunDetails, RunId,
+    RunIdInvalidDetails, RunKind, RunParams, RunProgress, RunReport, RunSetProgressMessageParams,
+    RunStartParams, RunStarted, RunUsage, RunWaitParams, StartedAs, StopReason,
 };
 use goodfetch_protocol::usage::{
     LIMIT_NOT_UNDERSTOOD, LIMIT_REACHED, Limit, LimitNotUnderstoodDetails,
@@ -38,19 +38,22 @@ use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
 use goodfetch_protocol::settings::{
     RunOrigin, SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE, SETTING_UNKNOWN,
     SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails,
-    SettingUnknownDetails, TIMEOUT_RUN,
+    SettingUnknownDetails, TIMEOUT_CLOSE, TIMEOUT_RUN,
 };
 
 use crate::composition::{CallContext, CallError, Handler};
+use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
 use crate::runs::{EndedBy, Forwarded, Resume, Resumed, RunError, Start, StartError, Started};
 use crate::settings::{Opening, Resolved, SettingsError};
 
 /// The `run.*` handlers.
-pub(crate) fn handlers() -> [Handler; 8] {
+pub(crate) fn handlers() -> [Handler; 10] {
     [
         Handler::new(&RUN_START, start),
         Handler::new(&RUN_FINISH, finish),
+        Handler::new(&RUN_STOP, stop),
+        Handler::new(&RUN_USAGE, usage),
         Handler::new(&RUN_ABORT, abort),
         Handler::new(&RUN_CHECKPOINT, checkpoint),
         Handler::new(&RUN_PAUSE, pause),
@@ -487,7 +490,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             ended_by: EndedBy::Finish,
             initialize: None,
             policy_version: settings.resolved().policy_version().map(str::to_owned),
-            weakened_by: settings.resolved().weakened_by(),
+            weakened: settings.resolved().weakened(),
             binding: None,
             clean_up_digest: None,
             checkpoint_interval: checkpoint_interval(settings.resolved()),
@@ -507,12 +510,69 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
     })
 }
 
-async fn finish(params: RunParams, context: CallContext) -> Result<RunReport, CallError> {
+async fn finish(params: RunWaitParams, context: CallContext) -> Result<RunReport, CallError> {
+    let finishing = context.runs().finish(params.run_id);
+    let report = match params.timeout {
+        Some(millis) => {
+            Deadline::given(&TIMEOUT_RUN, millis)
+                .within(&context.runs().clock(), "Run's end", finishing)
+                .await?
+        }
+        None => finishing.await,
+    };
+    ending(report.map_err(|error| run_error_of(error, context.identity(), RUN_FINISH.name))?)
+}
+
+/// `run.stop`: the Run stops at its next safe point as an abort by its
+/// program; the wait is bounded by `timeout.close`, or the call's own
+/// `timeout`, and only the wait ends past it (ADR 0102).
+async fn stop(params: RunWaitParams, context: CallContext) -> Result<RunReport, CallError> {
+    let deadline = match params.timeout {
+        Some(millis) => Deadline::given(&TIMEOUT_CLOSE, millis),
+        None => close_deadline(&context, &params.run_id).await,
+    };
+    let stopping = context
+        .runs()
+        .stop_at_safe_point(params.run_id, StoppedBy::Program);
+    let report = deadline
+        .within(&context.runs().clock(), "Run's next safe point", stopping)
+        .await?;
+    ending(report.map_err(|error| run_error_of(error, context.identity(), RUN_STOP.name))?)
+}
+
+/// The `timeout.close` the live Run `run_id` resolved, or its default.
+async fn close_deadline(context: &CallContext, run_id: &RunId) -> Deadline {
+    let resolved = match context.runs().live(run_id.clone()).await {
+        Ok(run) => run.settings().map(|settings| settings.resolved().clone()),
+        Err(_) => None,
+    };
+    resolved
+        .and_then(|resolved| Deadline::of(&resolved, &TIMEOUT_CLOSE))
+        .unwrap_or_else(|| {
+            let default = (TIMEOUT_CLOSE.default)().as_u64().unwrap_or(30_000);
+            Deadline::given(&TIMEOUT_CLOSE, default)
+        })
+}
+
+/// What a call that ends a Run answers once it ended: its report, or the
+/// error its ending raises, the one that failed a `failed` Run or a write
+/// at its end that failed (ADRs 0102 and 0116).
+fn ending(report: RunReport) -> Result<RunReport, CallError> {
+    let Some(error) = &report.error else {
+        return Ok(report);
+    };
+    Err(match goodfetch_protocol::entries::error_code(&error.code) {
+        Some(definition) => CallError::new(definition, error.message.clone(), &error.details),
+        None => internal(format!("{}: {}", error.code, error.message)),
+    })
+}
+
+async fn usage(params: RunParams, context: CallContext) -> Result<RunUsage, CallError> {
     context
         .runs()
-        .finish(params.run_id)
+        .usage(params.run_id)
         .await
-        .map_err(|error| run_error(error, context.identity()))
+        .map_err(|error| run_error_of(error, context.identity(), RUN_USAGE.name))
 }
 
 async fn set_progress_message(

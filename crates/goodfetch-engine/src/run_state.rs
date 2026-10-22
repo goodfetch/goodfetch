@@ -44,12 +44,14 @@ const SCHEMA: &[&str] = &[
         started_at TEXT NOT NULL,
         ended_at TEXT,
         policy_version TEXT,
-        weakened_by TEXT NOT NULL DEFAULT '[]',
+        weakened TEXT NOT NULL DEFAULT '[]',
         journal_position INTEGER NOT NULL DEFAULT 0,
         binding TEXT,
         clean_up_digest TEXT,
         uncapped INTEGER NOT NULL DEFAULT 0,
-        progress_message TEXT
+        progress_message TEXT,
+        nothing_done TEXT,
+        report TEXT
     ) STRICT",
     "CREATE TABLE IF NOT EXISTS tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT",
     // What the Run used of each Slice of the Usage ledger, by run epoch (ADR
@@ -59,6 +61,22 @@ const SCHEMA: &[&str] = &[
         epoch INTEGER NOT NULL,
         used INTEGER NOT NULL,
         PRIMARY KEY (slice_id, epoch)
+    ) STRICT",
+    // What the Run used of each Usage kind, by currency ('' for a count),
+    // which its report and `run.usage` give (ADR 0101).
+    "CREATE TABLE IF NOT EXISTS usage_totals (
+        usage_kind TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        PRIMARY KEY (usage_kind, currency)
+    ) STRICT",
+    // The warnings the Run's owners handed over, in order (ADR 0102).
+    "CREATE TABLE IF NOT EXISTS warnings (
+        position INTEGER NOT NULL PRIMARY KEY,
+        code TEXT NOT NULL,
+        message TEXT NOT NULL,
+        sessions TEXT NOT NULL,
+        folder TEXT
     ) STRICT",
 ];
 

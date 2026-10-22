@@ -25,8 +25,9 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::{Compatibility, USAGE_LEDGER};
+use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, PointInTime, ReachedLimit};
-use goodfetch_protocol::usage::{Limit, LimitSetter, LimitUsage};
+use goodfetch_protocol::usage::{Limit, LimitUsage};
 use jiff::Timestamp;
 use rusqlite::{Connection, OpenFlags, Row, TransactionBehavior};
 

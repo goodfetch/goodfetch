@@ -6,12 +6,14 @@
 //! them goes back. A run that cannot take a Slice it needs is refused the charge
 //! and stops at its next safe point.
 
-use goodfetch_protocol::run::ReachedLimit;
-use goodfetch_protocol::usage::{Limit, LimitSetter};
+use goodfetch_protocol::run::LimitSetter;
+use goodfetch_protocol::run::{AppliedLimit, ReachedLimit};
+use goodfetch_protocol::usage::Limit;
 use jiff::Timestamp;
 
 use super::{
     Holder, Ledger, LedgerError, LimitId, Placement, SliceId, SliceSizing, StoredLimit, TARGET,
+    point_in_time,
 };
 
 /// Why a run may not start, or may not charge more.
@@ -37,6 +39,32 @@ pub enum Refusal {
 pub struct Charged {
     /// Each Slice touched, with its run's Usage of it so far.
     pub used: Vec<(SliceId, u64)>,
+    /// What the run's Usage of its kind changed by, which its report
+    /// counts (ADR 0101).
+    pub counted: Option<Counted>,
+}
+
+/// What a run's Usage of one kind, in one currency or as a count, changed
+/// by.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Counted {
+    /// The Usage kind.
+    pub usage_kind: String,
+    /// The currency, or none for a count.
+    pub currency: Option<String>,
+    /// The change: a charge or a reservation adds, a settlement below its
+    /// worst case takes the rest off.
+    pub delta: i64,
+}
+
+impl Counted {
+    fn of(usage_kind: &str, currency: Option<&str>, delta: i64) -> Option<Self> {
+        Some(Self {
+            usage_kind: usage_kind.to_owned(),
+            currency: currency.map(str::to_owned),
+            delta,
+        })
+    }
 }
 
 /// A worst case a run reserved and has not settled yet: what it took of
@@ -46,6 +74,8 @@ pub struct Charged {
 pub struct Reservation {
     worst: u64,
     taken: Vec<(SliceId, u64)>,
+    usage_kind: String,
+    currency: Option<String>,
 }
 
 /// A Slice the run holds, and what it used of it.
@@ -123,7 +153,8 @@ impl Charging {
         amount: u64,
         now: Timestamp,
     ) -> Result<Charged, Refusal> {
-        let (_, charged) = self.take(usage_kind, None, amount, now)?;
+        let (_, mut charged) = self.take(usage_kind, None, amount, now)?;
+        charged.counted = Counted::of(usage_kind, None, signed(amount));
         if !charged.used.is_empty() {
             tracing::trace!(target: TARGET, transition = "charge", usage_kind, amount, run_id = %self.holder.run_id, epoch = self.holder.epoch, "a run charged Usage against its Slices");
         }
@@ -148,12 +179,21 @@ impl Charging {
         worst: u64,
         now: Timestamp,
     ) -> Result<(Reservation, Charged), Refusal> {
-        let (taken, charged) = self.take(usage_kind, currency, worst, now)?;
+        let (taken, mut charged) = self.take(usage_kind, currency, worst, now)?;
         if taken.is_empty() && currency.is_some() {
             self.uncapped = true;
         }
+        charged.counted = Counted::of(usage_kind, currency, signed(worst));
         tracing::trace!(target: TARGET, transition = "reserve", usage_kind, worst, run_id = %self.holder.run_id, epoch = self.holder.epoch, "a run reserved a worst case against its Slices");
-        Ok((Reservation { worst, taken }, charged))
+        Ok((
+            Reservation {
+                worst,
+                taken,
+                usage_kind: usage_kind.to_owned(),
+                currency: currency.map(str::to_owned),
+            },
+            charged,
+        ))
     }
 
     /// Settles `reservation` at `cost`, what was paid, which its worst case
@@ -161,10 +201,18 @@ impl Charging {
     /// Answers each Slice touched with the run's Usage of it now, for the
     /// run to journal.
     pub fn settle(&mut self, reservation: Reservation, cost: u64) -> Charged {
-        let Reservation { worst, taken } = reservation;
+        let Reservation {
+            worst,
+            taken,
+            usage_kind,
+            currency,
+        } = reservation;
         let refund = worst.saturating_sub(cost);
         let mut owed: Vec<(LimitId, u64)> = Vec::new();
-        let mut charged = Charged::default();
+        let mut charged = Charged {
+            counted: Counted::of(&usage_kind, currency.as_deref(), -signed(refund)),
+            ..Charged::default()
+        };
         for (slice, taken) in taken.into_iter().rev() {
             let Some(held) = self.held.iter_mut().find(|held| held.id == slice) else {
                 continue;
@@ -218,6 +266,37 @@ impl Charging {
             })
             .min_by_key(|(amount, _)| *amount)
             .map(|(_, set_by)| set_by))
+    }
+
+    /// Each Limit that holds the run, with what is left of it in the period
+    /// that holds `now` (ADRs 0041 and 0101).
+    ///
+    /// # Errors
+    ///
+    /// `NotUnderstood` when a Limit the run cannot be placed outside of
+    /// appeared, `Ledger` when the ledger cannot be read.
+    pub fn applied(&self, now: Timestamp) -> Result<Vec<AppliedLimit>, Refusal> {
+        let limits = self.ledger.limits()?;
+        let holding = self
+            .placement
+            .holding(&limits)
+            .map_err(|stored| Refusal::NotUnderstood(Box::new(stored.limit())))?;
+        holding
+            .into_iter()
+            .map(|stored| {
+                let (_, bounds) = stored.period_key(now);
+                Ok(AppliedLimit {
+                    scope: stored.scope.clone(),
+                    usage_kind: stored.usage_kind.clone(),
+                    currency: stored.currency.clone(),
+                    period: stored.known_period(),
+                    resets_at: bounds.map(|bounds| point_in_time(bounds.end)),
+                    amount: stored.amount,
+                    left: self.ledger.left(stored, now)?,
+                    set_by: stored.limit().set_by,
+                })
+            })
+            .collect()
     }
 
     /// Whether a reservation of this run found a currency no Limit caps.
@@ -315,6 +394,11 @@ impl Charging {
         self.held.clear();
         Ok(())
     }
+}
+
+/// `amount` as a change of a run's Usage.
+fn signed(amount: u64) -> i64 {
+    i64::try_from(amount).unwrap_or(i64::MAX)
 }
 
 fn reached(stored: &StoredLimit, now: Timestamp) -> Refusal {

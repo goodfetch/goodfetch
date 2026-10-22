@@ -108,7 +108,7 @@ fn keeping() -> Contribution {
                             ended_by: EndedBy::Finish,
                             initialize: None,
                             policy_version: None,
-                            weakened_by: Vec::new(),
+                            weakened: Vec::new(),
                             binding,
                             clean_up_digest: params["clean_up_digest"].as_str().map(str::to_owned),
                             checkpoint_interval: None,

@@ -122,7 +122,7 @@ async fn start(
                 goodfetch_frontier::seeds::answered(connection, &answers)
             })),
             policy_version: settings.resolved().policy_version().map(str::to_owned),
-            weakened_by: settings.resolved().weakened_by(),
+            weakened: settings.resolved().weakened(),
             binding: None,
             clean_up_digest: None,
             checkpoint_interval: checkpoint_interval(settings.resolved()),

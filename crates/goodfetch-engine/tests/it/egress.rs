@@ -5,7 +5,8 @@
 //! shows; a refused request no call waits on is a `page.request_failed`
 //! event in the Run trace. The `resolve` setting maps every host name to
 //! the Proving ground's loopback address, whose certificate authority the
-//! client trusts: no test reaches the internet.
+//! client trusts for `scope.test`, as `tls.trusted_cas` would: no test
+//! reaches the internet.
 
 use std::net::{IpAddr, SocketAddr};
 
@@ -15,6 +16,7 @@ use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::http_client::{FetchError, PageTraffic, Resolve, Waiter};
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
+use goodfetch_engine::tls::Trust;
 use goodfetch_protocol::egress::{EgressRefusedDetails, EgressRule};
 use goodfetch_test_support::{
     Answer, CaseDomains, Family, Outcome, ProvingGround, Refusal, SsrfCase, SsrfTable, TestEnv,
@@ -40,7 +42,12 @@ fn traffic(proving_ground: &ProvingGround, allowed: &[&str], blocked: &[&str]) -
     PageTraffic {
         egress: Policy::new(allowed, blocked).unwrap(),
         resolve,
-        trusted_certificates: vec![CertificateDer::from_pem_file(&description.ca).unwrap()],
+        trust: Trust::default_roots()
+            .with_trusted_cas(
+                "scope.test",
+                vec![CertificateDer::from_pem_file(&description.ca).unwrap()],
+            )
+            .unwrap(),
         clock: Clock::system(),
         delays: Delays::BUILT_IN,
     }
@@ -264,7 +271,7 @@ fn run_case(proving_ground: &ProvingGround, case: &SsrfCase) -> Outcome {
     let traffic = PageTraffic {
         egress: Policy::new(&domains.allowed, &domains.blocked).unwrap(),
         resolve,
-        trusted_certificates: Vec::new(),
+        trust: Trust::default_roots(),
         clock: Clock::system(),
         delays: Delays::BUILT_IN,
     };

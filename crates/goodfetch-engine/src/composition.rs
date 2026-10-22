@@ -32,6 +32,7 @@ use crate::admission::Gates;
 use crate::client::Client;
 use crate::console::ConsoleBuild;
 use crate::events::{Credits, Events};
+use crate::log::ConnectionLog;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
@@ -162,6 +163,8 @@ pub(crate) struct ConnectionContext {
     pub(crate) runs: Runs,
     pub(crate) events: Events,
     pub(crate) daemon: Option<Arc<dyn DaemonSide>>,
+    /// The log events the Connection receives, at the level it asks for.
+    pub(crate) log: ConnectionLog,
 }
 
 /// A boxed future of a [`DaemonSide`]'s answer.
@@ -313,6 +316,11 @@ impl CallContext {
     /// The running engine's Product and version.
     pub fn identity(&self) -> &Identity {
         &self.connection.identity
+    }
+
+    /// The log events of the call's Connection.
+    pub(crate) fn log(&self) -> &ConnectionLog {
+        &self.connection.log
     }
 
     /// The Daemon the call's Connection reaches, or `None` on an Attached

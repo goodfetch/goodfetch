@@ -1379,6 +1379,17 @@
       ]
     },
     {
+      "id": "operation:connection.set_log_level",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:crawl.serve",
       "kind": "operation",
       "area": 3,
@@ -1609,7 +1620,7 @@
     {
       "id": "operation:run.add_seed",
       "kind": "operation",
-      "area": null,
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1619,7 +1630,7 @@
     {
       "id": "operation:run.add_seeds",
       "kind": "operation",
-      "area": null,
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3795,6 +3806,36 @@
       ]
     },
     {
+      "id": "setting:crawl.scope.exclude",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.scope.include",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.scope.strategy",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:daemon.address",
       "kind": "setting",
       "area": 3,
@@ -3870,7 +3911,29 @@
       ]
     },
     {
+      "id": "setting:log.format",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:network.resolve",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:otlp.traces_endpoint",
       "kind": "setting",
       "area": 3,
       "milestone": null,
@@ -14683,10 +14746,43 @@
       ]
     },
     {
+      "id": "story:6-208",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-209",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-21",
       "kind": "story",
       "area": 6,
       "milestone": "M3 Browser automation",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-210",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
       "status": "active",
       "products": [
         "collie",
@@ -14761,6 +14857,39 @@
     },
     {
       "id": "story:6-220",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-224",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-225",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-226",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

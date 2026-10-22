@@ -230,6 +230,7 @@ struct OpenPage {
 }
 
 impl Pages {
+    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(run_id = %params.run_id, page_id = tracing::field::Empty, session_id = tracing::field::Empty))]
     async fn new_page(
         &self,
         params: NewPageParams,
@@ -263,6 +264,9 @@ impl Pages {
         let mut state = self.state.lock().await;
         state.opened_pages += 1;
         let page = PageId(format!("page-{}", state.opened_pages));
+        let span = tracing::Span::current();
+        span.record("page_id", page.0.as_str());
+        span.record("session_id", run_pages.session.0.as_str());
         state.pages.insert(
             page.clone(),
             OpenPage {
@@ -317,6 +321,7 @@ impl Pages {
     /// Navigates the page `page_id` to `destination`, answering once its
     /// document reached the state `wait_until` names; a download it turns
     /// into is published on `events`.
+    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %page_id.0, operation = destination.operation(), run_id = tracing::field::Empty, url.origin = tracing::field::Empty))]
     async fn navigate(
         &self,
         page_id: &PageId,
@@ -324,7 +329,12 @@ impl Pages {
         wait_until: WaitUntil,
         events: &Events,
     ) -> Result<Navigated, CallError> {
+        let span = tracing::Span::current();
+        if let Destination::Url(url) = destination {
+            span.record("url.origin", goodfetch_engine::log::origin(url));
+        }
         let page = self.open(page_id).await?;
+        span.record("run_id", page.run.id().as_str());
         match page.driver.navigate(destination, wait_until).await? {
             Arrived::Document(response) => Ok(Navigated { response }),
             Arrived::Download {
@@ -349,6 +359,7 @@ impl Pages {
 
     /// Performs `action` on the element `locator` matches, through the
     /// guard; `action` is the params' own failure when they name none.
+    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %locator.page_id.0, operation = operation, run_id = tracing::field::Empty))]
     async fn act(
         &self,
         operation: &'static str,
@@ -358,6 +369,7 @@ impl Pages {
     ) -> Result<Acted, CallError> {
         let action = action?;
         let page = self.open(&locator.page_id).await?;
+        tracing::Span::current().record("run_id", page.run.id().as_str());
         let (limit, duration) = page.action_timeout.clone();
         let request = Request {
             operation,
@@ -389,8 +401,10 @@ impl Pages {
 
     /// The formats the request names, read from one serialization of the
     /// page's document on a blocking thread of its Run's.
+    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_FORMATS.name, run_id = tracing::field::Empty))]
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
         let page = self.open(&params.page_id).await?;
+        tracing::Span::current().record("run_id", page.run.id().as_str());
         let document = page.driver.document().await?;
         let request = params.formats;
         Ok(page

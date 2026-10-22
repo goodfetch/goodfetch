@@ -19,7 +19,9 @@ use std::collections::BTreeMap;
 use goodfetch_engine::admission::{Ended, Gate as _};
 use goodfetch_engine::run_state::{RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
-use goodfetch_frontier::{Candidate, Declared, DomainKeys, DomainQueues, VISITED_TABLES, admit};
+use goodfetch_frontier::{
+    Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope, VISITED_TABLES, admit,
+};
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
@@ -113,7 +115,7 @@ impl Subject {
                     vfs: Some(vfs.name().to_owned()),
                     ..RunStateOptions::default()
                 },
-                vec![TABLES, VISITED_TABLES],
+                vec![TABLES, VISITED_TABLES, SCOPE_TABLES],
                 1,
                 &owner,
             ))
@@ -152,6 +154,7 @@ impl Subject {
             };
             admit(
                 connection,
+                &Scope::default(),
                 Candidate::Seed {
                     url: &url,
                     declared,

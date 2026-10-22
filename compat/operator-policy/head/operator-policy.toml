@@ -1,6 +1,12 @@
 version = "0.1"
 lowest_minor = 0
 
+[settings.log]
+format = "text"
+
+[settings.otlp]
+traces_endpoint = "example"
+
 [settings.console]
 address = "example"
 
@@ -98,6 +104,11 @@ handler_failed = true
 [settings.crawl.handler]
 concurrency = 4
 
+[settings.crawl.scope]
+strategy = "same_hostname"
+include = ["example"]
+exclude = ["example"]
+
 [settings.paid_fetch]
 domains = ["example"]
 max_price_per_page = "0.05 USD"
@@ -107,6 +118,12 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [settings.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
+
+[lock.log]
+format = "text"
+
+[lock.otlp]
+traces_endpoint = "example"
 
 [lock.console]
 address = "example"
@@ -204,6 +221,11 @@ handler_failed = true
 
 [lock.crawl.handler]
 concurrency = 4
+
+[lock.crawl.scope]
+strategy = "same_hostname"
+include = ["example"]
+exclude = ["example"]
 
 [lock.paid_fetch]
 domains = ["example"]

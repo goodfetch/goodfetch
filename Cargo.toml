@@ -189,8 +189,22 @@ tokio-util = { version = "0.7.20", default-features = false }
 # value it writes (ADRs 0028, 0098).
 toml_edit = { version = "0.25.17", default-features = false, features = ["parse", "display"] }
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "serde"] }
-tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing = { version = "0.1.44", default-features = false, features = ["std", "attributes"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt"] }
+# The executables' opt-in OTLP export of the engine's spans (RT-18, ADR
+# 0132): tracing-opentelemetry turns spans into OpenTelemetry's, which the
+# SDK's batch processor exports over OTLP/HTTP in protobuf on its own thread,
+# through ureq, the blocking client ureq's users already link.
+opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "trace"] }
+opentelemetry-http = { version = "0.33.1", default-features = false }
+opentelemetry-proto = { version = "0.33.1", default-features = false, features = ["gen-tonic-messages", "trace"] }
+tracing-opentelemetry = { version = "0.34.0", default-features = false }
+async-trait = { version = "0.1.92", default-features = false }
+bytes = { version = "1.12.1", default-features = false, features = ["std"] }
+http = { version = "1.5.0", default-features = false, features = ["std"] }
+prost = { version = "0.14.1", default-features = false, features = ["std"] }
 # Run IDs, from the Clock and Entropy (ADRs 0036 and 0059).
 ulid = { version = "3.0.0", default-features = false }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }

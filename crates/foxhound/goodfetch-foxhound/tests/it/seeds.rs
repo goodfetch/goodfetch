@@ -87,9 +87,9 @@ fn a_seed_added_to_a_running_crawl_is_committed_at_once_and_answered_as_an_enque
     let env = TestEnv::new();
     let mut engine = Attached::start(&env);
     start_keep_alive(&mut engine, "adding", "https://shop.test/a");
-    let handled = RefCell::new(Vec::new());
+    let pages = RefCell::new(Vec::new());
     let mut handler = |params: &Value| {
-        handled
+        pages
             .borrow_mut()
             .push(params["crawl_request"]["url"].clone());
         Some(record_the_page(params))
@@ -112,8 +112,8 @@ fn a_seed_added_to_a_running_crawl_is_committed_at_once_and_answered_as_an_enque
             &mut handler,
         ),
     ];
-    serve_until(&mut engine, &mut handler, || handled.borrow().len() == 2);
-    let handled_while_running = handled.borrow().clone();
+    serve_until(&mut engine, &mut handler, || pages.borrow().len() == 2);
+    let handled_while_running = pages.borrow().clone();
     let report = engine.call(
         "finish",
         "run.finish",
@@ -296,9 +296,9 @@ fn a_keep_alive_crawl_with_nothing_to_do_takes_seeds_from_add_seed_and_add_seeds
     let mut engine = Attached::start(&env);
     start_keep_alive(&mut engine, "service", "ftp://shop.test/");
     let idle = engine.is_quiet_for(Duration::from_millis(500));
-    let handled = RefCell::new(Vec::new());
+    let pages = RefCell::new(Vec::new());
     let mut handler = |params: &Value| {
-        handled
+        pages
             .borrow_mut()
             .push(params["crawl_request"]["url"].clone());
         Some(record_the_page(params))
@@ -310,7 +310,7 @@ fn a_keep_alive_crawl_with_nothing_to_do_takes_seeds_from_add_seed_and_add_seeds
         "https://shop.test/one",
         &mut handler,
     );
-    serve_until(&mut engine, &mut handler, || handled.borrow().len() == 1);
+    serve_until(&mut engine, &mut handler, || pages.borrow().len() == 1);
     engine.send(&json!({
         "jsonrpc": "2.0", "id": STREAM, "method": "run.add_seeds",
         "params": { "run_id": "service" },
@@ -321,8 +321,8 @@ fn a_keep_alive_crawl_with_nothing_to_do_takes_seeds_from_add_seed_and_add_seeds
         next_for_stream(&mut engine, &mut handler),
         next_for_stream(&mut engine, &mut handler),
     ];
-    serve_until(&mut engine, &mut handler, || handled.borrow().len() == 2);
-    let handled_before_finish = handled.borrow().clone();
+    serve_until(&mut engine, &mut handler, || pages.borrow().len() == 2);
+    let handled_before_finish = pages.borrow().clone();
     let report = engine.call(
         "finish",
         "run.finish",
@@ -432,9 +432,14 @@ fn add_seeds_answers_each_seed_in_order_under_the_credits_it_grants() {
     );
 }
 
-/// The engine's resident memory in bytes, as `ps` reads it.
-fn resident_bytes(pid: u32) -> u64 {
-    let output = std::process::Command::new("ps")
+/// The engine's resident memory in bytes, as `ps` reads it; `None` on
+/// Windows, which has no `ps`.
+fn resident_bytes(env: &TestEnv, pid: u32) -> Option<u64> {
+    if cfg!(windows) {
+        return None;
+    }
+    let output = env
+        .process_command("/bin/ps")
         .args(["-o", "rss=", "-p", &pid.to_string()])
         .output()
         .unwrap();
@@ -443,14 +448,14 @@ fn resident_bytes(pid: u32) -> u64 {
         .trim()
         .parse()
         .unwrap();
-    kibibytes * 1024
+    Some(kibibytes * 1024)
 }
 
 /// A million seeds streamed through `run.add_seeds` (a hundred thousand
-/// outside the Release suite) are each answered in order,
-/// while the engine holds no more than its credits of them: its resident
-/// memory once they are all added is within 64 MiB of what it was after
-/// the first tenth, where buffering the stream would take hundreds.
+/// outside the Release suite) are each answered in order, while the engine
+/// holds no more than its credits of them: on macOS and Linux, its resident
+/// memory once they are all added is within 64 MiB of what it was after the
+/// first tenth, where buffering the stream would take hundreds.
 ///
 /// Covers: story:6-209, operation:run.add_seeds
 #[test]
@@ -471,8 +476,8 @@ fn a_million_seeds_stream_through_add_seeds_with_the_engines_memory_bounded_by_i
     let mut next = 1;
     let mut answered = 0;
     let mut out_of_order = 0;
-    let mut after_a_tenth = None;
-    let mut highest = 0;
+    let mut after_a_tenth: Option<Option<u64>> = None;
+    let mut highest: Option<u64> = None;
     while answered < count {
         if credits > 0 && next <= count {
             let batch: Vec<Value> = (next..(next + credits).min(count + 1))
@@ -501,20 +506,19 @@ fn a_million_seeds_stream_through_add_seeds_with_the_engines_memory_bounded_by_i
                     }
                 }
                 if after_a_tenth.is_none() && answered >= count / 10 {
-                    after_a_tenth = Some(resident_bytes(engine.pid()));
+                    after_a_tenth = Some(resident_bytes(&env, engine.pid()));
                 }
                 if answered % 50_000 == 0 {
-                    highest = highest.max(resident_bytes(engine.pid()));
+                    highest = highest.max(resident_bytes(&env, engine.pid()));
                 }
             }
             Came::Reply(reply) => panic!("the stream ended early: {reply}"),
         }
     }
     let reply = next_for_stream(&mut engine, &mut unanswered);
-    highest = highest.max(resident_bytes(engine.pid()));
+    highest = highest.max(resident_bytes(&env, engine.pid()));
     engine.kill();
 
-    let after_a_tenth = after_a_tenth.unwrap();
     assert_eq!(
         (out_of_order, reply),
         (
@@ -524,8 +528,10 @@ fn a_million_seeds_stream_through_add_seeds_with_the_engines_memory_bounded_by_i
             )
         )
     );
-    assert!(
-        highest < after_a_tenth + 64 * 1024 * 1024,
-        "the engine grew from {after_a_tenth} to {highest} bytes"
-    );
+    if let (Some(Some(after_a_tenth)), Some(highest)) = (after_a_tenth, highest) {
+        assert!(
+            highest < after_a_tenth + 64 * 1024 * 1024,
+            "the engine grew from {after_a_tenth} to {highest} bytes"
+        );
+    }
 }

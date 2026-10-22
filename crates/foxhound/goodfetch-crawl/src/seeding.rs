@@ -3,15 +3,18 @@
 //! start admits its seeds, committed at once in the Run's state, and
 //! answers it as an enqueue is answered; named by a handler's attempt, it
 //! is bound to that attempt and fails with `attempt_ended` once the attempt
-//! ended. `run.add_seeds` takes a stream of seeds under credits it grants
-//! its Client, at most [`SEED_CREDITS`] seeds unanswered at a time, commits
-//! each batch in one write and answers its seeds in order, so a million
-//! seeds never sit in the engine's memory. Each seed added wakes the
-//! crawl's delivery, which keys it and queues it under its domain, an idle
-//! `crawl.keep_alive` crawl included.
+//! ended. Each seed added widens the crawl's scope, which the run file
+//! holds, by its host, as the start's seeds do. `run.add_seeds` takes a
+//! stream of seeds under credits it grants its Client, at most
+//! [`SEED_CREDITS`] seeds unanswered at a time, commits each batch in one
+//! write and answers its seeds in order, so a million seeds never sit in
+//! the engine's memory. Each seed added wakes the crawl's delivery, which
+//! keys it and queues it under its domain, an idle `crawl.keep_alive`
+//! crawl included.
 
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, Handler};
+use goodfetch_frontier::Scope;
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, Seed};
 use goodfetch_protocol::foxhound::frontier::{
@@ -86,23 +89,19 @@ async fn add_seed(
         .write(move |connection| admit_within(connection, &seed, bound.as_ref()))
         .await
         .map_err(|error| unwritten(&run_id, &error))?;
-    match answered {
-        Some(answer) => {
-            seeded.notify_one();
-            Ok(answer)
-        }
-        None => {
-            let attempt = attempt.expect("invariant: only an attempt ends");
-            Err(CallError::new(
-                &ATTEMPT_ENDED,
-                format!(
-                    "Attempt {} of crawl request `{}` of the crawl `{run_id}` already ended, so no seed was added.",
-                    attempt.lease_epoch, attempt.crawl_request_id
-                ),
-                &(),
-            ))
-        }
+    if let Some(answer) = answered {
+        seeded.notify_one();
+        return Ok(answer);
     }
+    let attempt = attempt.expect("invariant: only an attempt ends");
+    Err(CallError::new(
+        &ATTEMPT_ENDED,
+        format!(
+            "Attempt {} of crawl request `{}` of the crawl `{run_id}` already ended, so no seed was added.",
+            attempt.lease_epoch, attempt.crawl_request_id
+        ),
+        &(),
+    ))
 }
 
 /// Admits `seed`, while `attempt`, when given, holds its lease; `None`
@@ -118,7 +117,11 @@ fn admit_within(
     {
         return Ok(None);
     }
-    let mut answers = work_items::admit_seeds(connection, std::slice::from_ref(seed))?;
+    let mut answers = work_items::admit_seeds(
+        connection,
+        &Scope::read(connection)?,
+        std::slice::from_ref(seed),
+    )?;
     Ok(Some(
         answers
             .pop()
@@ -215,7 +218,9 @@ async fn admit_batch(
         return Ok(Vec::new());
     }
     run.state()
-        .write(move |connection| work_items::admit_seeds(connection, &seeds))
+        .write(move |connection| {
+            work_items::admit_seeds(connection, &Scope::read(connection)?, &seeds)
+        })
         .await
         .map_err(|error| unwritten(run_id, &error))
 }

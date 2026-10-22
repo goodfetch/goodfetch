@@ -49,6 +49,7 @@ use crate::composition::{
     CallContext, CallError, CallInput, CallStream, ConnectionContext, DaemonSide, Handler,
 };
 use crate::events::{Credits, Events};
+use crate::log::LogEvents;
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
@@ -67,6 +68,9 @@ const MAX_IN_FLIGHT: usize = 256;
 /// How many lines wait for the writer before their senders wait.
 const OUTGOING_LINES: usize = 64;
 
+/// What a dispatch record names a method no catalog holds.
+const UNKNOWN_METHOD: &str = "(unknown)";
+
 /// The `tracing` target of a listener's refusals of a Connection.
 pub const REFUSAL_TARGET: &str = "goodfetch::rpc::refusal";
 
@@ -74,6 +78,9 @@ pub const REFUSAL_TARGET: &str = "goodfetch::rpc::refusal";
 pub(crate) struct Dispatch {
     pub(crate) identity: Arc<Identity>,
     pub(crate) handlers: BTreeMap<&'static str, Handler>,
+    /// The process's log events, which each Connection receives at its
+    /// own level.
+    pub(crate) log_events: LogEvents,
 }
 
 /// How a Connection reached the engine, which says what its `hello` must
@@ -131,6 +138,19 @@ pub(crate) async fn serve(
         Access::Daemon(daemon) => Some(Arc::clone(daemon)),
         Access::Attached(_) | Access::PrivateEndpoint(_) => None,
     };
+    let log = dispatch.log_events.connection();
+    let logging = CancellationToken::new();
+    let forwarding = log.forward(outgoing.clone());
+    let stop_logging = logging.clone();
+    owner.spawn(async move {
+        // Polled first, it sends every log event already waiting before
+        // the Connection's end stops it.
+        tokio::select! {
+            biased;
+            () = forwarding => {}
+            () = stop_logging.cancelled() => {}
+        }
+    });
     let connection = Arc::new(ConnectionContext {
         identity: Arc::clone(&dispatch.identity),
         client,
@@ -138,6 +158,7 @@ pub(crate) async fn serve(
         runs,
         events,
         daemon,
+        log,
     });
     let mut session = Session {
         dispatch,
@@ -156,6 +177,7 @@ pub(crate) async fn serve(
         access,
     };
     session.run(&mut reader).await;
+    logging.cancel();
     session.cancel_in_flight();
     drop(session);
     owner.wait().await;
@@ -389,15 +411,15 @@ impl Session<'_> {
                     ProtocolFailure::InvalidRequest,
                     "a Connection opens with `hello`",
                 );
-                record(&request.method, Some(error.code()));
+                record(self.named(&request.method), Some(error.code()));
                 self.send(failure_line(Some(request.id), &error)).await;
             }
             Message::Unreadable(error) => {
                 let failure = CallError::protocol(error.failure, error.detail);
                 self.send(failure_line(error.id, &failure)).await;
             }
-            Message::Notification(notification) => {
-                tracing::debug!(method = %notification.method, "a Connection that does not open with `hello` closes");
+            Message::Notification(_) => {
+                tracing::debug!("a notification before `hello` closes the Connection");
             }
             Message::Reply { id, .. } => {
                 tracing::debug!(?id, "a Connection that does not open with `hello` closes");
@@ -423,7 +445,7 @@ impl Session<'_> {
             ProtocolFailure::InvalidRequest,
             "a Connection opens with `hello` once",
         );
-        record(&request.method, Some(error.code()));
+        record(self.named(&request.method), Some(error.code()));
         if self.send(failure_line(Some(request.id), &error)).await {
             Flow::Continue
         } else {
@@ -506,7 +528,7 @@ impl Session<'_> {
                 self.connection.events.instance(),
                 &hello,
             )
-            .map(|accepted| (accepted, hello.surface)),
+            .map(|accepted| (accepted, hello.surface, hello.log_level)),
             Err(error) => Err(handshake::Refused::Invalid(CallError::protocol(
                 ProtocolFailure::InvalidParams,
                 error.to_string(),
@@ -523,8 +545,9 @@ impl Session<'_> {
             }
         };
         match answered {
-            Ok((mut accepted, surface)) => {
+            Ok((mut accepted, surface, log_level)) => {
                 record(HELLO, None);
+                self.connection.log.set(log_level.unwrap_or_default());
                 if let Err(refused) = self.transition(ConnectionEvent::Accepted) {
                     let _ = refused.logged();
                     return Flow::Close;
@@ -608,7 +631,7 @@ impl Session<'_> {
         let Some(error) = refusal else {
             return Flow::Continue;
         };
-        record(&method, Some(error.code()));
+        record(self.named(&method), Some(error.code()));
         if self.send(failure_line(Some(id), &error)).await {
             Flow::Continue
         } else {
@@ -692,16 +715,15 @@ impl Session<'_> {
             return;
         }
         let params = notification.params.clone().unwrap_or(Value::Null);
-        match serde_json::from_value::<CancelParams>(params) {
-            Ok(CancelParams { id }) => {
-                if let Some(call) = self.in_flight.get(&id)
-                    && call.cancellable
-                {
-                    record_cancel(CANCEL);
-                    call.token.cancel();
-                }
-            }
-            Err(error) => tracing::debug!(%error, "a `$/cancel` without a call's id is ignored"),
+        let Ok(CancelParams { id }) = serde_json::from_value::<CancelParams>(params) else {
+            tracing::debug!("a `$/cancel` without a call's id is ignored");
+            return;
+        };
+        if let Some(call) = self.in_flight.get(&id)
+            && call.cancellable
+        {
+            record_cancel(CANCEL);
+            call.token.cancel();
         }
     }
 
@@ -718,13 +740,10 @@ impl Session<'_> {
             .and_then(|Named { id }| self.in_flight.get(&id))
             .and_then(|call| call.input.as_ref())
             .filter(|(method, _)| *method == notification.method);
-        match taker {
-            Some((_, sender)) => {
-                let _ = sender.send(params);
-            }
-            None => {
-                tracing::debug!(method = %notification.method, "an unknown notification is ignored");
-            }
+        if let Some((_, sender)) = taker {
+            let _ = sender.send(params);
+        } else {
+            tracing::debug!("an unknown notification is ignored");
         }
     }
 
@@ -732,17 +751,17 @@ impl Session<'_> {
     /// longer in flight, or for one that does not stream, is ignored.
     fn credit(&self, notification: &Notification) {
         let params = notification.params.clone().unwrap_or(Value::Null);
-        match serde_json::from_value::<CreditParams>(params) {
-            Ok(CreditParams { id, credits }) => {
-                if let Some(call_credits) = self
-                    .in_flight
-                    .get(&id)
-                    .and_then(|call| call.credits.as_ref())
-                {
-                    call_credits.grant(credits);
-                }
-            }
-            Err(error) => tracing::debug!(%error, "a `$/credit` that is not one is ignored"),
+        let Ok(CreditParams { id, credits }) = serde_json::from_value::<CreditParams>(params)
+        else {
+            tracing::debug!("a `$/credit` that is not one is ignored");
+            return;
+        };
+        if let Some(call_credits) = self
+            .in_flight
+            .get(&id)
+            .and_then(|call| call.credits.as_ref())
+        {
+            call_credits.grant(credits);
         }
     }
 
@@ -753,6 +772,17 @@ impl Session<'_> {
 }
 
 impl Session<'_> {
+    /// `method` as a record names it: a name of the catalog, `hello` or
+    /// `$/cancel`, or [`UNKNOWN_METHOD`] for any other, which a Client
+    /// wrote and no log keeps (ADR 0132's bounded values).
+    fn named<'method>(&self, method: &'method str) -> &'method str {
+        let known = method == HELLO
+            || method == CANCEL
+            || self.dispatch.handlers.contains_key(method)
+            || foxhound_names::OPERATIONS.contains(&method);
+        if known { method } else { UNKNOWN_METHOD }
+    }
+
     /// Logs the listener's refusal of the Connection, with its reason.
     fn refused(&self, reason: &'static str) {
         let listener = self.access.listener();

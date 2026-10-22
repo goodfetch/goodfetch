@@ -621,6 +621,30 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 224
+title = "As a crawl developer, I want `crawl.scope.strategy` (`same_hostname` by default, or `same_domain`, `same_origin` or `all`) measured against every seed and checked on every enqueue, redirect and Hook rewrite, so that a crawl never leaks off-site (CO-05, ADRs 0093, 0104; pitfall U15)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 225
+title = "As a crawl developer, I want `crawl.scope.include` and `crawl.scope.exclude` patterns to narrow the strategy and never replace it, and `enqueueLinks`'s own `include` and `exclude` to narrow further, so that patterns never widen a crawl (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 226
+title = "As a crawl developer, I want the scope to ignore one leading `www.` label, and an `http` seed under `same_origin` to admit its host's `https` origin, so that the scope does not wait for evidence (ADR 0120)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 231
 title = "As a crawl developer, I want `ctx.enqueue(url, label, payload?, options)` to resolve a relative URL against the document's base URL and answer added or not added with its reason, so that \"enqueued nothing\" says why (ADRs 0093, 0120; pitfall U08)."
 milestone = "M1 Core"

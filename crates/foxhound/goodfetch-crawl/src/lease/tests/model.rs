@@ -316,14 +316,25 @@ impl StateMachineTest for Subject {
                     vfs: Some(vfs.name().to_owned()),
                     ..RunStateOptions::default()
                 },
-                vec![work_items::TABLES, goodfetch_frontier::VISITED_TABLES],
+                vec![
+                    work_items::TABLES,
+                    goodfetch_frontier::VISITED_TABLES,
+                    goodfetch_frontier::SCOPE_TABLES,
+                ],
                 1,
                 &owner,
             )
             .await
             .unwrap();
             state
-                .write(move |connection| work_items::admit_seeds(connection, &seeds).map(drop))
+                .write(move |connection| {
+                    work_items::admit_seeds(
+                        connection,
+                        &goodfetch_frontier::Scope::default(),
+                        &seeds,
+                    )
+                    .map(drop)
+                })
                 .await
                 .unwrap();
             (

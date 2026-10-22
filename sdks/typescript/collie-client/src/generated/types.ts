@@ -142,6 +142,14 @@ export type MarkdownFormat = true | MarkdownOptions;
  */
 export type WaitUntil = "commit" | "domcontentloaded" | "load";
 /**
+ * The level of the engine's log events a Connection receives: those at
+ * it and above; `off`, the default, receives none.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LogLevel".
+ */
+export type LogLevel = "off" | "error" | "warn" | "info" | "debug" | "trace";
+/**
  * The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1015,6 +1023,12 @@ export interface GotoParams {
  */
 export interface HelloParams {
   /**
+   * The level of the engine's log events the Client receives as `$/log`
+   * notifications, until `connection.set_log_level` changes it; none,
+   * as `off`, receives none (ADR 0078).
+   */
+  log_level?: LogLevel | null;
+  /**
    * The Product the Client needs, which every surface but a Browser
    * host's must name (ADR 0095).
    */
@@ -1396,6 +1410,46 @@ export interface Locator2 {
    */
   selector: string;
 }
+/**
+ * What `$/log` carries: one log event of the engine.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LogEvent".
+ */
+export interface LogEvent {
+  /**
+   * How many log events the Connection was too slow to receive since the
+   * one before: logs are telemetry, and never slow a Run.
+   */
+  dropped?: number;
+  /**
+   * Its fields, by name: Experimental (ADR 0132).
+   */
+  fields?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The level of the engine's log events a Connection receives: those at
+   * it and above; `off`, the default, receives none.
+   */
+  level: "off" | "error" | "warn" | "info" | "debug" | "trace";
+  /**
+   * Its message.
+   */
+  message: string;
+  /**
+   * Where in the engine it comes from, such as `goodfetch::rpc::dispatch`:
+   * Experimental (ADR 0132).
+   */
+  target: string;
+}
+/**
+ * What `connection.set_log_level` answers: nothing more.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LogLevelSet".
+ */
+export interface LogLevelSet {}
 /**
  * The options of the `markdown` format.
  *
@@ -2195,6 +2249,19 @@ export interface SeedBatch {
    * The seeds, in order.
    */
   seeds?: Seed[];
+}
+/**
+ * What `connection.set_log_level` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SetLogLevelParams".
+ */
+export interface SetLogLevelParams {
+  /**
+   * The level of the engine's log events a Connection receives: those at
+   * it and above; `off`, the default, receives none.
+   */
+  log_level: "off" | "error" | "warn" | "info" | "debug" | "trace";
 }
 /**
  * What `config.explain` answers and `config explain --json` prints:

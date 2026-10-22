@@ -7,7 +7,8 @@
 
 use goodfetch_engine::admission::{Ended, Gate, Waiting};
 use goodfetch_frontier::{
-    Candidate, Declared, DomainKeys, DomainQueues, Url, VISITED_TABLES, admit, url_key,
+    Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope, Url, VISITED_TABLES, admit,
+    url_key,
 };
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
 use rusqlite::Connection;
@@ -98,11 +99,16 @@ pub(crate) fn key_all(links: &[Url]) -> usize {
 pub(crate) fn admit_seeds(links: &[String]) -> usize {
     let connection =
         Connection::open_in_memory().expect("invariant: SQLite opens a database in memory");
-    for statement in VISITED_TABLES.statements {
+    for statement in VISITED_TABLES
+        .statements
+        .iter()
+        .chain(SCOPE_TABLES.statements)
+    {
         connection
             .execute(statement, [])
-            .expect("invariant: the visited set's table is created");
+            .expect("invariant: the visited set's and the scope's tables are created");
     }
+    let scope = Scope::default();
     let get = HttpMethod::get();
     let mut added = 0_usize;
     for link in links {
@@ -114,8 +120,10 @@ pub(crate) fn admit_seeds(links: &[String]) -> usize {
                 key: None,
             },
         };
-        let answer = admit(&connection, candidate, |_| Ok((added + 1).to_string()))
-            .expect("invariant: the visited set in memory is written");
+        let answer = admit(&connection, &scope, candidate, |_| {
+            Ok((added + 1).to_string())
+        })
+        .expect("invariant: the visited set in memory is written");
         if matches!(answer, Enqueued::Added { .. }) {
             added += 1;
         }

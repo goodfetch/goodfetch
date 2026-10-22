@@ -292,6 +292,7 @@ pub(crate) async fn download(
         .map_err(|_| Failure::Network)?;
     let trust = Trust::endpoint(&fetching.trusted_certificates);
     let network = http_client::Network {
+        exceptions: None,
         resolve: &fetching.resolve,
         trust: &trust,
         clock: fetching.clock,

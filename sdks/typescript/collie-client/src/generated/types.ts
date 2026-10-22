@@ -621,7 +621,7 @@ export interface CertificatePin {
    */
   run_id?: RunId | null;
   /**
-   * The SHA-256 of the pinned certificate's SubjectPublicKeyInfo, as
+   * The SHA-256 of the pinned certificate's `SubjectPublicKeyInfo`, as
    * `sha256/` and its standard base64; none when the row cannot be read,
    * which stops the host as a changed key.
    */

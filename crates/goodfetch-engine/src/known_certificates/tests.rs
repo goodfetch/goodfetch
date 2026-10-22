@@ -9,10 +9,6 @@
     clippy::disallowed_methods,
     reason = "the tests read the corpus files and edit the store's rows as a damaged disk would"
 )]
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
 
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::run::{PointInTime, RunId};
@@ -48,7 +44,7 @@ fn run(id: &str) -> RunId {
     RunId::parse(id).unwrap()
 }
 
-/// The hash of a key is SHA-256 over its SubjectPublicKeyInfo, written as
+/// The hash of a key is SHA-256 over its `SubjectPublicKeyInfo`, written as
 /// `sha256/` and standard base64: here the SHA-256 of no bytes, whose
 /// base64 is the well-known `47DEQ…`.
 #[test]

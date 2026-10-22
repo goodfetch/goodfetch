@@ -4,10 +4,22 @@
 //! to the certificate authorities trusted for its domain: those
 //! `tls.trusted_cas` lists for an address a page can reach, or an
 //! Operator-configured endpoint's own. Nothing turns verification off.
+//!
+//! A domain `tls.accept_invalid_certs` lists for trust on first use takes
+//! [`exceptions`]' decision instead, once the handshake shows the key its
+//! host presents: the pin, never the roots, decides from its first pin on.
+
+mod exceptions;
 
 use std::collections::BTreeMap;
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+pub(crate) use exceptions::Presented;
+pub use exceptions::{
+    CertificateChanged, CertificateExceptions, ExceptionHosts, ExceptionKind, ExceptionUsed,
+    PinBook,
+};
 
 use goodfetch_protocol::tls::{
     CERTIFICATE_INVALID, CertificateFailure, CertificateInvalidDetails, KnownCertificateFailure,
@@ -22,6 +34,7 @@ use rustls::{CertificateError, DigitallySignedStruct, OtherError, RootCertStore,
 use url::Host;
 
 use crate::composition::CallError;
+use crate::known_certificates::KeyHash;
 
 /// What a host's certificate may chain to beside Mozilla's roots.
 #[derive(Clone, Debug, Default)]
@@ -153,8 +166,21 @@ impl Trust {
 
     /// The rustls configuration of a connection under this trust.
     pub(crate) fn client_config(&self) -> rustls::ClientConfig {
+        self.config(None)
+    }
+
+    /// The rustls configuration of a connection to a host listed for trust
+    /// on first use: its handshake goes on whatever its certificate, and
+    /// `seen` keeps the key it presented and how it failed verification,
+    /// for [`CertificateExceptions`] to decide before anything is sent. The
+    /// handshake's signature is still checked against that key.
+    pub(crate) fn client_config_presenting(&self, seen: Arc<Seen>) -> rustls::ClientConfig {
+        self.config(Some(seen))
+    }
+
+    fn config(&self, seen: Option<Arc<Seen>>) -> rustls::ClientConfig {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let verifier = Verifier::new(self, &provider);
+        let verifier = Verifier::new(self, &provider, seen);
         let mut config = rustls::ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
             .expect("invariant: ring supports rustls's default protocol versions")
@@ -183,6 +209,44 @@ fn domain_key(domain: &str) -> Option<String> {
     (!key.is_empty()).then_some(key)
 }
 
+/// Whether `host` is, or is a subdomain of, a domain `listed` holds, each
+/// as [`domain_key`] leaves it; an address is listed only as itself.
+fn covered(host: &str, listed: impl Fn(&str) -> bool) -> bool {
+    let Some(mut name) = domain_key(host) else {
+        return false;
+    };
+    if name.parse::<std::net::IpAddr>().is_ok() {
+        return listed(&name);
+    }
+    loop {
+        if listed(&name) {
+            return true;
+        }
+        match name.split_once('.') {
+            Some((_, parent)) => name = parent.to_owned(),
+            None => return false,
+        }
+    }
+}
+
+/// What one connection's handshake showed of a listed host's certificate,
+/// kept by its verifier.
+#[derive(Debug, Default)]
+pub(crate) struct Seen(OnceLock<Presented>);
+
+impl Seen {
+    /// What the handshake showed; none before it reached the certificate.
+    pub(crate) fn take(&self) -> Option<Presented> {
+        self.0.get().cloned()
+    }
+
+    /// Keeps what the handshake showed: a connection verifies one
+    /// certificate, so a second is never kept.
+    fn keep(&self, presented: Presented) {
+        let _ = self.0.set(presented);
+    }
+}
+
 /// The per-host decision: a host's certificate is checked against
 /// Mozilla's roots and the authorities trusted for it, by the verifier
 /// built for its most specific listed domain.
@@ -195,6 +259,9 @@ struct Verifier {
     by_domain: BTreeMap<String, Arc<WebPkiServerVerifier>>,
     trust: Trust,
     provider: Arc<CryptoProvider>,
+    /// For a host listed for trust on first use: where the key it presents
+    /// is kept, its certificate let through to the exception's decision.
+    seen: Option<Arc<Seen>>,
 }
 
 /// How a certificate failed, carried from the verifier through rustls's
@@ -295,7 +362,7 @@ fn self_signed(end_entity: &CertificateDer<'_>, now: UnixTime, provider: &Crypto
 }
 
 impl Verifier {
-    fn new(trust: &Trust, provider: &Arc<CryptoProvider>) -> Self {
+    fn new(trust: &Trust, provider: &Arc<CryptoProvider>, seen: Option<Arc<Seen>>) -> Self {
         let build = |extra: &[&CertificateDer<'static>]| {
             let mut roots = RootCertStore::empty();
             roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -325,6 +392,7 @@ impl Verifier {
             by_domain,
             trust: trust.clone(),
             provider: Arc::clone(provider),
+            seen,
         }
     }
 
@@ -348,23 +416,38 @@ impl ServerCertVerifier for Verifier {
         ocsp_response: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        self.for_server(server_name)
-            .verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
-            .map_err(|error| match error {
-                rustls::Error::InvalidCertificate(error) => {
-                    let failure = if matches!(error, CertificateError::UnknownIssuer)
-                        && self_signed(end_entity, now, &self.provider)
-                    {
-                        CertificateFailure::Known(KnownCertificateFailure::SelfSigned)
-                    } else {
-                        failure_of(&error)
-                    };
-                    rustls::Error::InvalidCertificate(CertificateError::Other(OtherError(
-                        Arc::new(Rejected(failure)),
-                    )))
-                }
-                other => other,
-            })
+        let failure = match self.for_server(server_name).verify_server_cert(
+            end_entity,
+            intermediates,
+            server_name,
+            ocsp_response,
+            now,
+        ) {
+            Ok(verified) if self.seen.is_none() => return Ok(verified),
+            Ok(_) => None,
+            Err(rustls::Error::InvalidCertificate(error)) => Some(
+                if matches!(error, CertificateError::UnknownIssuer)
+                    && self_signed(end_entity, now, &self.provider)
+                {
+                    CertificateFailure::Known(KnownCertificateFailure::SelfSigned)
+                } else {
+                    failure_of(&error)
+                },
+            ),
+            Err(other) => return Err(other),
+        };
+        let Some(seen) = &self.seen else {
+            let failure = failure.expect("invariant: a verified certificate returned above");
+            return Err(rustls::Error::InvalidCertificate(CertificateError::Other(
+                OtherError(Arc::new(Rejected(failure))),
+            )));
+        };
+        let parsed = ParsedCertificate::try_from(end_entity)?;
+        seen.keep(Presented {
+            key: KeyHash::of_public_key(parsed.subject_public_key_info().as_ref()),
+            failure,
+        });
+        Ok(ServerCertVerified::assertion())
     }
 
     fn verify_tls12_signature(
@@ -483,9 +566,10 @@ fn is_pem(file: &[u8]) -> bool {
 const PEM_BEGIN: &[u8] = b"-----BEGIN ";
 
 /// The fuzz target `certificate_file`'s body (ADR 0067): any bytes read as
-/// a certificate file and as a key file, which a person named in a setting.
-/// Each certificate read reads back from its own bytes as itself; it
-/// panics only on a bug.
+/// a certificate file and as a key file, which a person named in a setting,
+/// and as a pin row's key bytes in the known-certificates store. Each
+/// certificate read reads back from its own bytes as itself, its pin from
+/// its key bytes; it panics only on a bug.
 pub fn fuzz_certificate_file(data: &[u8]) {
     if let Ok(certificates) = read_certificates(data) {
         for certificate in &certificates {
@@ -494,7 +578,26 @@ pub fn fuzz_certificate_file(data: &[u8]) {
                 Ok(std::slice::from_ref(certificate)),
                 "a certificate read reads back as another"
             );
+            if let Ok(parsed) = ParsedCertificate::try_from(certificate) {
+                let key = KeyHash::of_public_key(parsed.subject_public_key_info().as_ref());
+                assert_eq!(
+                    KeyHash::from_stored(key.stored()),
+                    Some(key),
+                    "a certificate's pin does not read back from its row's key bytes"
+                );
+            }
         }
+    }
+    // The same bytes as a pin row's key bytes in the known-certificates
+    // store, which a damaged disk or a newer minor may hold: a key read
+    // stores as those very bytes, and any other length reads as no key.
+    match KeyHash::from_stored(data) {
+        Some(key) => assert_eq!(
+            key.stored(),
+            data,
+            "a pin row's key bytes read as another key"
+        ),
+        None => assert_ne!(data.len(), 32, "32 key bytes read as no key"),
     }
     if let Ok(key) = read_private_key(data) {
         assert!(

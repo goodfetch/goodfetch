@@ -6,7 +6,7 @@
 //! setting that makes an exception. No setting turns verification off.
 //!
 //! A certificate a domain's trust-on-first-use exception accepted is pinned
-//! by the SHA-256 of its SubjectPublicKeyInfo in the user's known-certificates
+//! by the SHA-256 of its `SubjectPublicKeyInfo` in the user's known-certificates
 //! store, one partition per person; `certs.list` reads the caller's pins.
 
 use schemars::JsonSchema;
@@ -145,7 +145,7 @@ pub struct CertificatePin {
     /// The host, as the URL parser leaves it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub host: String,
-    /// The SHA-256 of the pinned certificate's SubjectPublicKeyInfo, as
+    /// The SHA-256 of the pinned certificate's `SubjectPublicKeyInfo`, as
     /// `sha256/` and its standard base64; none when the row cannot be read,
     /// which stops the host as a changed key.
     #[serde(default, skip_serializing_if = "Option::is_none")]

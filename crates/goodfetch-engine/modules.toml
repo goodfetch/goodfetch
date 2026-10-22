@@ -49,15 +49,20 @@ run = ["composition", "deadline", "product", "runs", "secrets", "settings"]
 run_index = ["lowest_minor", "run_state"]
 run_state = ["home", "lowest_minor", "tasks"]
 run_trace = ["tasks"]
-secrets = ["audit", "clock", "tasks"]
+secrets = ["audit", "clock", "tasks", "tls"]
 runs = ["admission", "audit", "body", "checkpoint", "client", "clock", "entropy", "events", "home", "known_certificates", "ledger", "metrics", "politeness", "run_index", "run_state", "secrets", "settings", "tasks", "trace", "transition"]
 settings = ["home", "lowest_minor", "tasks"]
 tasks = []
-tls = ["composition", "settings"]
+tls = ["audit", "clock", "composition", "known_certificates", "settings", "tasks"]
 trace = ["entropy"]
 transition = []
 transport = []
 upgrade = ["home", "ledger"]
+
+# Which of `settings`'s own modules may import which.
+# Which of `tls`'s own modules may import which.
+[submodules.tls]
+exceptions = []
 
 # Which of `settings`'s own modules may import which.
 [submodules.settings]

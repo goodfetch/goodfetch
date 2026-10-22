@@ -801,7 +801,7 @@
         },
         "spki_sha256": {
           "arrived_in": "0.1",
-          "description": "The SHA-256 of the pinned certificate's SubjectPublicKeyInfo, as\n`sha256/` and its standard base64; none when the row cannot be read,\nwhich stops the host as a changed key.",
+          "description": "The SHA-256 of the pinned certificate's `SubjectPublicKeyInfo`, as\n`sha256/` and its standard base64; none when the row cannot be read,\nwhich stops the host as a changed key.",
           "type": [
             "string",
             "null"

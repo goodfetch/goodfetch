@@ -1,7 +1,7 @@
 //! The known-certificates store (ADRs 0042, 0066 and 0098): one per-user
 //! SQLite file in Goodfetch home, beside the Usage ledger, outside the
 //! per-major folders, as SSH's `known_hosts` remembers hosts. Each row pins
-//! one host for one person: the SHA-256 of the SubjectPublicKeyInfo of the
+//! one host for one person: the SHA-256 of the `SubjectPublicKeyInfo` of the
 //! certificate a trust-on-first-use exception accepted, when it was pinned
 //! and by which Run. On a shared Daemon every person's pins sit in their own
 //! partition, so nothing reads or lists another person's.
@@ -48,13 +48,13 @@ const SCHEMA: &[&str] = &[
     ) STRICT",
 ];
 
-/// The SHA-256 of a certificate's SubjectPublicKeyInfo: what a pin holds,
+/// The SHA-256 of a certificate's `SubjectPublicKeyInfo`: what a pin holds,
 /// written as `sha256/` and its standard base64.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct KeyHash([u8; 32]);
 
 impl KeyHash {
-    /// The hash of `spki`, a SubjectPublicKeyInfo's DER, its outer
+    /// The hash of `spki`, a `SubjectPublicKeyInfo`'s DER, its outer
     /// `SEQUENCE` included.
     pub fn of_public_key(spki: &[u8]) -> Self {
         Self(Sha256::digest(spki).into())

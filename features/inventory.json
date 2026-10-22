@@ -123,7 +123,7 @@
     {
       "id": "command:certs.list",
       "kind": "command",
-      "area": null,
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1688,7 +1688,7 @@
     {
       "id": "format:known-certificates",
       "kind": "format",
-      "area": null,
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1787,7 +1787,7 @@
     {
       "id": "operation:certs.list",
       "kind": "operation",
-      "area": null,
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [

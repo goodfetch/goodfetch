@@ -1,8 +1,9 @@
 //! The keys of Foxhound's areas whose own modules do not exist yet, each with
 //! its area first (ADR 0083): Paid fetches' (ADR 0045), which a Recipe or a
-//! run only narrows or never sets, and the delivery's honesty guarantees,
-//! which stay locked whatever the layer (ADR 0028). Each later area moves its
-//! keys into its own module.
+//! run only narrows or never sets, the delivery's honesty guarantees, which
+//! stay locked whatever the layer (ADR 0028), and a crawl's per-domain
+//! Politeness (ADRs 0053 and 0086), shared by every run of the user. Each
+//! later area moves its keys into its own module.
 
 use serde_json::{Value, json};
 
@@ -98,6 +99,30 @@ pub const DELIVERY_REPORT_GUARANTEE_CLASS: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `politeness.domain.concurrency` (ADRs 0053 and 0086).
+pub const POLITENESS_DOMAIN_CONCURRENCY: Setting = Setting {
+    name: "politeness.domain.concurrency",
+    description: "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1.",
+    kind: ValueKind::Count,
+    default: null,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `politeness.domain.delay` (ADRs 0053 and 0086).
+pub const POLITENESS_DOMAIN_DELAY: Setting = Setting {
+    name: "politeness.domain.delay",
+    description: "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s.",
+    kind: ValueKind::Duration,
+    default: null,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -114,6 +139,8 @@ pub const ENTRIES: Entries = Entries {
         PAID_FETCH_CHAIN_RPC_ENDPOINTS,
         DELIVERY_WRITE_IDS_AND_EPOCHS,
         DELIVERY_REPORT_GUARANTEE_CLASS,
+        POLITENESS_DOMAIN_CONCURRENCY,
+        POLITENESS_DOMAIN_DELAY,
     ],
     hook_stages: &[],
     shared_type_values: &[],

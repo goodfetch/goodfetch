@@ -139,6 +139,43 @@ fn without_all_the_suites_run_over_what_changed() {
     assert_eq!(ran, expected);
 }
 
+/// The quick form's steps, in order: those that judge every change, never a
+/// test of the Pre-merge suite or a step beside the host's.
+const QUICK_STEPS: [&str; 8] = [
+    "dco",
+    "commit-messages",
+    "lint",
+    "audit",
+    "commit-leaks",
+    "_suite quick all",
+    "journeys-tasks --check",
+    "notices",
+];
+
+#[test]
+fn the_quick_form_runs_the_checks_every_change_needs_and_nothing_beside() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+
+    let run = pre_merge(&workspace, &stand_in, &["quick"]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let mut expected: Vec<String> = QUICK_STEPS.map(str::to_owned).to_vec();
+    expected.push("_skips-report".to_owned());
+    assert_eq!(run.calls, expected);
+}
+
+#[test]
+fn an_unknown_argument_is_refused_before_any_step() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+
+    let run = pre_merge(&workspace, &stand_in, &["most"]);
+
+    assert_eq!(run.code, Some(2), "{}", run.stderr);
+    assert!(run.calls.is_empty(), "{:?}", run.calls);
+}
+
 #[rstest]
 #[case::perf("perf")]
 #[case::linux("linux")]

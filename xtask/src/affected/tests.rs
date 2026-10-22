@@ -243,6 +243,29 @@ fn changed_paths_select_their_jobs(#[case] paths: &[&str], #[case] jobs: &str) {
     assert_eq!(value(&selection, "jobs"), jobs);
 }
 
+// The local gate runs its quick form only when no test, benchmark, model,
+// container or Evaluation reads the change (ADR 0135).
+#[rstest]
+#[case::top_level_markdown(&["TESTING.md", "AGENTS.md"], "quick")]
+#[case::an_adr(&["docs/adr/0135-local-gate.md"], "quick")]
+#[case::docs_and_website(&["docs/collie/index.md", "website/index.html"], "quick")]
+#[case::the_lab(&["rnd/lab/src/cli.ts"], "quick")]
+#[case::a_crate(&["crates/goodfetch-collie/src/main.rs"], "full")]
+#[case::markdown_a_crate_owns(&["crates/foxhound/README.md"], "full")]
+#[case::a_skill(&["skills/collie/SKILL.md"], "full")]
+#[case::a_prompt(&["crates/goodfetch-engine/src/agent/prompts/act.md"], "full")]
+#[case::a_workspace_input(&["Cargo.lock"], "full")]
+#[case::docs_with_a_crate(&["docs/adr/0135-local-gate.md", "crates/goodfetch-collie/src/main.rs"], "full")]
+#[case::a_visual_input(&["ci/visual/image.toml"], "full")]
+fn the_gate_is_quick_only_when_no_job_but_the_docs_runs(
+    #[case] paths: &[&str],
+    #[case] gate: &str,
+) {
+    let selection = select_paths(paths);
+
+    assert_eq!(value(&selection, "gate"), gate);
+}
+
 #[rstest]
 #[case::sink_protocol_reaches_every_sink(&["crates/goodfetch-protocol/src/sink.rs"], "goodfetch-sink-kafka goodfetch-sink-s3")]
 #[case::shared_sink_code_reaches_every_sink(&["crates/foxhound/sinks/goodfetch-sink-shared/src/lib.rs"], "goodfetch-sink-kafka goodfetch-sink-s3")]
@@ -370,6 +393,7 @@ fn shared_crate_change_selects_both_products_tests() {
     sinks-touched=
     bench-targets=goodfetch-engine/engine goodfetch-frontier/frontier
     models=
+    gate=full
     "#);
 }
 
@@ -388,6 +412,7 @@ fn foxhound_side_change_outside_any_package_selects_all_of_foxhounds_tests() {
     sinks-touched=goodfetch-sink-kafka goodfetch-sink-s3
     bench-targets=goodfetch-frontier/frontier
     models=
+    gate=full
     "#);
 }
 
@@ -406,5 +431,6 @@ fn workspace_input_change_selects_everything() {
     sinks-touched=goodfetch-sink-kafka goodfetch-sink-s3
     bench-targets=goodfetch-engine/engine goodfetch-frontier/frontier
     models=
+    gate=full
     "#);
 }

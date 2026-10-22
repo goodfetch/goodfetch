@@ -191,26 +191,26 @@ fn the_default_repeat_cap_ends_a_relative_link_loop_and_null_turns_it_off() {
 }
 
 /// The built-in caps refuse a 3,000-character URL, a 25-segment path and a
-/// path repeating a segment three times, each counted, and the Run is
-/// `unverified`; an over-long link to another host is `out_of_scope` and
-/// no cap's; with the three caps set to `null`, the Run admits them all
-/// and is `complete`.
+/// path repeating a segment three times, enqueued or added as a seed to the
+/// running crawl, each counted, and the Run is `unverified`; an over-long
+/// link to another host is `out_of_scope` and no cap's; with the three caps
+/// set to `null`, the Run admits them all and is `complete`.
 ///
-/// Covers: story:6-228, setting:crawl.max_url_length, setting:crawl.max_path_segments, setting:crawl.max_segment_repeats
+/// Covers: story:6-228, setting:crawl.max_url_length, setting:crawl.max_path_segments, setting:crawl.max_segment_repeats, operation:run.add_seed
 #[rstest]
 #[case::built_in(
     json!({}),
-    &["max_url_length", "max_path_segments", "max_segment_repeats", "out_of_scope", "added"],
+    &["max_url_length", "max_path_segments", "max_segment_repeats", "out_of_scope", "added", "max_segment_repeats"],
     json!("unverified"),
     json!([
         { "name": "crawl.max_path_segments", "completeness": "unverified", "count": 1 },
-        { "name": "crawl.max_segment_repeats", "completeness": "unverified", "count": 1 },
+        { "name": "crawl.max_segment_repeats", "completeness": "unverified", "count": 2 },
         { "name": "crawl.max_url_length", "completeness": "unverified", "count": 1 },
     ]),
 )]
 #[case::off(
     json!({ "max_url_length": null, "max_path_segments": null, "max_segment_repeats": null }),
-    &["added", "added", "added", "out_of_scope", "added"],
+    &["added", "added", "added", "out_of_scope", "added", "added"],
     json!("complete"),
     Value::Null,
 )]
@@ -234,6 +234,7 @@ fn the_url_caps_refuse_a_long_url_a_deep_path_and_a_repeated_segment(
         proving_ground.url("elsewhere.test", &format!("/{}", "a".repeat(3_000))),
         "/a/a/".to_owned(),
     ];
+    let looping_seed = proving_ground.url("traps.test", "/b/b/b/");
     let mut engine = Attached::start(&env);
 
     let mut given = Vec::new();
@@ -247,6 +248,11 @@ fn the_url_caps_refuse_a_long_url_a_deep_path_and_a_repeated_segment(
                 for link in &links {
                     given.push(answered(&inside.enqueue(handle, link, "page", None)));
                 }
+                let added = inside.call(
+                    "run.add_seed",
+                    &json!({ "run_id": "caps", "seed": { "url": looping_seed, "label": "page" } }),
+                );
+                given.push(answered(&added["result"]));
             }
             json!({ "result": { "records": [] } })
         },

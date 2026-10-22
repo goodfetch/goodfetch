@@ -120,6 +120,7 @@ fn report(lifecycle: Lifecycle, verdict: Verdict) -> RunReport {
         stop_reason: None,
         verdict,
         completeness: Completeness::Complete,
+        completeness_reasons: Vec::new(),
         started_at: PointInTime::from_rfc3339("2026-10-22T06:00:00Z".to_owned()),
         ended_at: PointInTime::from_rfc3339("2026-10-22T06:00:01Z".to_owned()),
         policy_version: None,

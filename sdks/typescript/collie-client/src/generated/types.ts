@@ -454,6 +454,28 @@ export interface Locator {
   selector: string;
 }
 /**
+ * A reason a finished Run's results do not cover its scope (ADRs 0005,
+ * 0093 and 0120): the setting or cause that cut its work, the Completeness
+ * it gives the Run, and how many requests or URLs it refused.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CompletenessReason".
+ */
+export interface CompletenessReason {
+  /**
+   * What it makes the Run: `incomplete` or `unverified`.
+   */
+  completeness: "complete" | "incomplete" | "unverified";
+  /**
+   * How many requests or URLs it refused.
+   */
+  count: number;
+  /**
+   * The setting or cause, such as `crawl.max_depth`.
+   */
+  name: string;
+}
+/**
  * What `config.explain` takes.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1811,6 +1833,11 @@ export interface RunReport {
    * 0029).
    */
   completeness: "complete" | "incomplete" | "unverified";
+  /**
+   * What cut a finished Run's work, each reason with its count, in the
+   * order of their names; none when nothing did.
+   */
+  completeness_reasons?: CompletenessReason[];
   /**
    * A point in time in UTC, as RFC 3339.
    */

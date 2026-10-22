@@ -72,7 +72,7 @@ fn use_foxhound() -> Contribution {
                 panic!("the Run began before");
             };
             run.uses(Product::Foxhound).await;
-            run.end(Ending::Finished).await;
+            run.end(Ending::Finished(Vec::new())).await;
             Ok::<Value, CallError>(json!({ "run_id": run.id() }))
         },
     ))

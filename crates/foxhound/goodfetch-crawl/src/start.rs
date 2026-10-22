@@ -1,7 +1,7 @@
 //! `crawl.start` and Foxhound's crawl contribution (ADRs 0028, 0087, 0093
 //! and 0102): the start resolves the Run's settings, refused before the Run
-//! begins, begins a crawl's Run through the engine's Runs, its scope
-//! recorded and each seed admitted by the Frontier as its first work items,
+//! begins, begins a crawl's Run through the engine's Runs, its scope and
+//! bounds recorded and each seed admitted by the Frontier as its first work items,
 //! and each seed's answer kept, in the transaction that records the Run, and hands the Run
 //! to its delivery on the starting Connection's Client. A start whose
 //! every seed was refused still starts, and its Run finishes at once. A
@@ -15,7 +15,7 @@ use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_err
 use goodfetch_engine::runs::{EndedBy, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
-use goodfetch_frontier::Scope;
+use goodfetch_frontier::{Bounds, Scope};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::crawl::{CRAWL_SERVE, CRAWL_START, CrawlStartParams, Seed};
 use goodfetch_protocol::run::{
@@ -105,6 +105,7 @@ async fn start(
         .await
         .map_err(|error| settings_error(&error, context.identity()))?;
     let scope = Scope::of_settings(settings.resolved()).map_err(CallError::from)?;
+    let bounds = Bounds::of_settings(settings.resolved());
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
     let inputs = BTreeMap::from([(
         StartInput::Seeds,
@@ -121,6 +122,7 @@ async fn start(
             ended_by: EndedBy::Driver,
             initialize: Some(Box::new(move |connection| {
                 scope.record(connection)?;
+                bounds.record(connection)?;
                 let answers = work_items::admit_seeds(connection, &scope, &seeds)?;
                 goodfetch_frontier::seeds::answered(connection, &answers)
             })),

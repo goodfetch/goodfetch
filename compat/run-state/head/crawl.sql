@@ -8,6 +8,25 @@ CREATE TABLE attempt_errors (
             PRIMARY KEY (work_item, attempt)
         ) STRICT;
 INSERT INTO "attempt_errors" VALUES('2',1,'deadline_exceeded','no first byte');
+CREATE TABLE bounds (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            max_depth INTEGER,
+            max_requests INTEGER,
+            max_url_length INTEGER,
+            max_path_segments INTEGER,
+            max_segment_repeats INTEGER
+        ) STRICT;
+INSERT INTO "bounds" VALUES(1,3,100,2083,20,2);
+CREATE TABLE bounds_admitted (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            count INTEGER NOT NULL
+        ) STRICT;
+INSERT INTO "bounds_admitted" VALUES(1,5);
+CREATE TABLE bounds_refusals (
+            setting TEXT NOT NULL PRIMARY KEY,
+            count INTEGER NOT NULL
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "bounds_refusals" VALUES('crawl.max_segment_repeats',1);
 CREATE TABLE domains (
             key TEXT NOT NULL PRIMARY KEY,
             ready_at INTEGER,
@@ -72,6 +91,7 @@ CREATE TABLE run (
         stop_reason TEXT,
         verdict TEXT,
         completeness TEXT,
+        completeness_reasons TEXT NOT NULL DEFAULT '[]',
         started_at TEXT NOT NULL,
         ended_at TEXT,
         policy_version TEXT,
@@ -82,7 +102,7 @@ CREATE TABLE run (
         uncapped INTEGER NOT NULL DEFAULT 0,
         progress_message TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"},{"label":"guarded","url":"https://guarded.test/"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',41,NULL,NULL,0,NULL);
+INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"},{"label":"guarded","url":"https://guarded.test/"},{"label":"home","url":"https://shop.test/more/more/more/"}]}','finished',NULL,'verified','unverified','[{"name":"crawl.max_segment_repeats","completeness":"unverified","count":1}]','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',42,NULL,NULL,0,NULL);
 CREATE TABLE scope (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             strategy TEXT NOT NULL,
@@ -109,6 +129,7 @@ INSERT INTO "seeds" VALUES(2,'{"kind":"added","id":"2","url":"https://shop.test/
 INSERT INTO "seeds" VALUES(3,'{"kind":"not_added","reason":"duplicate","url":"https://SHOP.test:443/"}');
 INSERT INTO "seeds" VALUES(4,'{"kind":"added","id":"3","url":"https://api.test/search"}');
 INSERT INTO "seeds" VALUES(5,'{"kind":"added","id":"4","url":"https://guarded.test/"}');
+INSERT INTO "seeds" VALUES(6,'{"kind":"not_added","reason":"max_segment_repeats","url":"https://shop.test/more/more/more/"}');
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 INSERT INTO "tags" VALUES(0,'schedule:nightly');
 CREATE TABLE usage (

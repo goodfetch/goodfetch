@@ -256,6 +256,7 @@ impl TakeOver {
             stop_reason: Some(StopReason::Abort { by: self.by }),
             verdict: Verdict::Verified,
             completeness: Completeness::Incomplete,
+            completeness_reasons: Vec::new(),
             started_at: recorded.started_at.clone(),
             ended_at: point_in_time(&self.clock),
             policy_version: recorded.policy_version.clone(),

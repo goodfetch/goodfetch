@@ -197,6 +197,34 @@
         }
       ]
     },
+    "CompletenessReason": {
+      "description": "A reason a finished Run's results do not cover its scope (ADRs 0005,\n0093 and 0120): the setting or cause that cut its work, the Completeness\nit gives the Run, and how many requests or URLs it refused.",
+      "properties": {
+        "completeness": {
+          "$ref": "#/$defs/Completeness",
+          "arrived_in": "0.1",
+          "description": "What it makes the Run: `incomplete` or `unverified`."
+        },
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many requests or URLs it refused.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The setting or cause, such as `crawl.max_depth`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "completeness",
+        "count"
+      ],
+      "type": "object"
+    },
     "ConfigExplainParams": {
       "additionalProperties": false,
       "description": "What `config.explain` takes.",
@@ -1854,6 +1882,14 @@
           "$ref": "#/$defs/Completeness",
           "arrived_in": "0.1",
           "description": "Whether its results cover its scope."
+        },
+        "completeness_reasons": {
+          "arrived_in": "0.1",
+          "description": "What cut a finished Run's work, each reason with its count, in the\norder of their names; none when nothing did.",
+          "items": {
+            "$ref": "#/$defs/CompletenessReason"
+          },
+          "type": "array"
         },
         "ended_at": {
           "$ref": "#/$defs/PointInTime",

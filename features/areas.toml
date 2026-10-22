@@ -729,6 +729,13 @@ number = 6
 kind = "setting"
 prefix = "crawl.scope."
 
+# Area 6, Collection, Foxhound: the crawl's bounds and the caps on a URL's
+# shape (#843).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.max_"
+
 # Area 6, Collection (spec #580, Collie's part): a Run's Key-value store
 # (#791).
 [[area]]

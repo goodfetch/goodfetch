@@ -1,8 +1,15 @@
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
+use goodfetch_protocol::run::{Completeness, CompletenessReason};
 use rusqlite::Connection;
 use url::Url;
 
 use super::{Candidate, admit};
+use crate::bounds::{self, Bounds, completeness_reasons};
 use crate::identity::{Declared, TABLES};
 use crate::scope::{self, Narrowing, Patterns, Scope, Strategy};
 
@@ -21,7 +28,12 @@ impl Frontier {
 
     fn of(strategy: Strategy) -> Self {
         let connection = Connection::open_in_memory().unwrap();
-        for statement in TABLES.statements.iter().chain(scope::TABLES.statements) {
+        for statement in TABLES
+            .statements
+            .iter()
+            .chain(scope::TABLES.statements)
+            .chain(bounds::TABLES.statements)
+        {
             connection.execute(statement, []).unwrap();
         }
         Self {
@@ -44,6 +56,18 @@ impl Frontier {
         self.admit(Candidate::Seed {
             url,
             declared: get(),
+        })
+    }
+
+    /// Enqueues `url` at `depth` from a document at `http://shop.test/`.
+    fn enqueue(&mut self, url: &str, depth: u32) -> Enqueued {
+        let base = Url::parse("http://shop.test/").unwrap();
+        self.admit(Candidate::Enqueue {
+            url,
+            base: &base,
+            declared: get(),
+            narrowing: Narrowing::none(),
+            depth,
         })
     }
 }
@@ -121,6 +145,7 @@ fn an_enqueue_resolves_against_its_documents_base_and_is_answered_as_a_seed_is()
                 base: &base,
                 declared: get(),
                 narrowing: Narrowing::none(),
+                depth: 1,
             })
         })
         .collect();
@@ -288,6 +313,7 @@ fn an_enqueue_outside_every_seeds_scope_is_out_of_scope() {
             base: &base,
             declared: get(),
             narrowing: Narrowing::none(),
+            depth: 1,
         })
     })
     .collect();
@@ -307,6 +333,159 @@ fn an_enqueue_outside_every_seeds_scope_is_out_of_scope() {
                 not_added(NotAddedReason::OutOfScope, "http://elsewhere.test/"),
                 not_added(NotAddedReason::UnsupportedScheme, "ftp://elsewhere.test/"),
             ]
+        )
+    );
+}
+
+fn reason(name: &str, completeness: Completeness, count: u64) -> CompletenessReason {
+    CompletenessReason {
+        name: name.to_owned(),
+        completeness,
+        count,
+    }
+}
+
+/// `crawl.max_depth` refuses an enqueue deeper than it, seeds at depth 0,
+/// and `crawl.max_requests` one past the requests admitted, seeds
+/// included, each with its reason; a duplicate stays a `duplicate` and an
+/// enqueue outside the scope `out_of_scope`, so only what the crawl would
+/// otherwise have fetched counts as cut, and the run file reports each
+/// bound's refusals as making the Run `incomplete`.
+///
+/// Covers: story:6-227, setting:crawl.max_depth, setting:crawl.max_requests
+#[test]
+fn a_bound_refuses_past_it_with_its_reason_and_counts_what_it_cut() {
+    let mut frontier = Frontier::new();
+    Bounds {
+        max_depth: Some(1),
+        max_requests: Some(3),
+        ..Bounds::default()
+    }
+    .record(&frontier.connection)
+    .unwrap();
+
+    let answers = [
+        frontier.seed("http://shop.test/"),
+        frontier.enqueue("/shelf", 1),
+        frontier.enqueue("/shelf/book", 2),
+        frontier.enqueue("/shelf", 2),
+        frontier.enqueue("http://elsewhere.test/", 2),
+        frontier.enqueue("/cart", 1),
+        frontier.enqueue("/account", 1),
+        frontier.enqueue("/basket", 0),
+        frontier.enqueue("/cart", 1),
+    ];
+
+    assert_eq!(
+        (
+            answers.to_vec(),
+            completeness_reasons(&frontier.connection).unwrap()
+        ),
+        (
+            vec![
+                added("1", "http://shop.test/"),
+                added("2", "http://shop.test/shelf"),
+                not_added(NotAddedReason::MaxDepth, "/shelf/book"),
+                not_added(NotAddedReason::Duplicate, "/shelf"),
+                not_added(NotAddedReason::OutOfScope, "http://elsewhere.test/"),
+                added("3", "http://shop.test/cart"),
+                not_added(NotAddedReason::MaxRequests, "/account"),
+                not_added(NotAddedReason::MaxRequests, "/basket"),
+                not_added(NotAddedReason::Duplicate, "/cart"),
+            ],
+            vec![
+                reason("crawl.max_depth", Completeness::Incomplete, 1),
+                reason("crawl.max_requests", Completeness::Incomplete, 2),
+            ]
+        )
+    );
+}
+
+/// The built-in caps refuse a seed and an enqueue past them, after the
+/// bounds, and their refusals make the Run `unverified`; an over-long link
+/// to another host stays `out_of_scope` and is no cap's (ADR 0120).
+///
+/// Covers: story:6-228, setting:crawl.max_url_length, setting:crawl.max_path_segments, setting:crawl.max_segment_repeats
+#[test]
+fn a_cap_refuses_what_would_otherwise_be_admitted_and_leaves_the_run_unverified() {
+    let mut frontier = Frontier::new();
+    let long = format!("http://shop.test/{}", "a".repeat(3_000));
+    let long_elsewhere = format!("http://elsewhere.test/{}", "a".repeat(3_000));
+    let deep = (1..=25)
+        .map(|n| format!("/{n}"))
+        .collect::<Vec<_>>()
+        .concat();
+
+    let answers = [
+        frontier.seed(&long),
+        frontier.seed("http://shop.test/"),
+        frontier.enqueue(&long_elsewhere, 1),
+        frontier.enqueue(&deep, 1),
+        frontier.enqueue("/archive/more/more/more/", 1),
+        frontier.enqueue("/archive/more/more/", 1),
+    ];
+
+    assert_eq!(
+        (
+            answers.to_vec(),
+            completeness_reasons(&frontier.connection).unwrap()
+        ),
+        (
+            vec![
+                not_added(NotAddedReason::MaxUrlLength, &long),
+                added("1", "http://shop.test/"),
+                not_added(NotAddedReason::OutOfScope, &long_elsewhere),
+                not_added(NotAddedReason::MaxPathSegments, &deep),
+                not_added(
+                    NotAddedReason::MaxSegmentRepeats,
+                    "/archive/more/more/more/"
+                ),
+                added("2", "http://shop.test/archive/more/more/"),
+            ],
+            vec![
+                reason("crawl.max_path_segments", Completeness::Unverified, 1),
+                reason("crawl.max_segment_repeats", Completeness::Unverified, 1),
+                reason("crawl.max_url_length", Completeness::Unverified, 1),
+            ]
+        )
+    );
+}
+
+/// Bounds recorded again, as a resume records its new settings, take
+/// effect from then on, while the requests already admitted still count.
+///
+/// Covers: story:6-227, setting:crawl.max_requests
+#[test]
+fn bounds_recorded_again_apply_to_the_requests_already_admitted() {
+    let mut frontier = Frontier::new();
+    let bounded = |max_requests| Bounds {
+        max_requests: Some(max_requests),
+        ..Bounds::default()
+    };
+    bounded(1).record(&frontier.connection).unwrap();
+    let first = [
+        frontier.seed("http://shop.test/"),
+        frontier.enqueue("/a", 1),
+    ];
+    bounded(2).record(&frontier.connection).unwrap();
+    let resumed = [frontier.enqueue("/a", 1), frontier.enqueue("/b", 1)];
+
+    assert_eq!(
+        (
+            first.to_vec(),
+            resumed.to_vec(),
+            Bounds::read(&frontier.connection).unwrap()
+        ),
+        (
+            vec![
+                added("1", "http://shop.test/"),
+                not_added(NotAddedReason::MaxRequests, "/a"),
+            ],
+            vec![
+                added("2", "http://shop.test/a"),
+                not_added(NotAddedReason::MaxRequests, "/b"),
+            ],
+            bounded(2)
         )
     );
 }

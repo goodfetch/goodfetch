@@ -622,6 +622,22 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 227
+title = "As a crawl developer, I want `crawl.max_depth` and `crawl.max_requests` to refuse further enqueues with their reasons and end the Run `incomplete`, so that a bounded crawl never reads as complete (CO-07, CO-08; pitfall U01)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 228
+title = "As a crawl developer, I want `crawl.max_url_length` (2,083), `crawl.max_path_segments` (20) and `crawl.max_segment_repeats` (2) on by default, a refused URL making a finished Run `unverified`, so that traps the learned rules miss still end (ADR 0120; pitfall U10)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 231
 title = "As a crawl developer, I want `ctx.enqueue(url, label, payload?, options)` to resolve a relative URL against the document's base URL and answer added or not added with its reason, so that \"enqueued nothing\" says why (ADRs 0093, 0120; pitfall U08)."
 milestone = "M1 Core"

@@ -12,6 +12,7 @@
 //! links it (STYLE.md, reason 2).
 
 mod admit;
+mod bounds;
 mod domain_key;
 mod identity;
 mod politeness;
@@ -25,6 +26,7 @@ use std::sync::Arc;
 use goodfetch_engine::Contribution;
 
 pub use admit::{Candidate, admit};
+pub use bounds::{Bounds, TABLES as BOUNDS_TABLES, completeness_reasons};
 pub use domain_key::DomainKeys;
 pub use identity::{
     Declared, Hop, TABLES as VISITED_TABLES, fuzz_url_key, redirect_hop, redirect_reached, url_key,
@@ -48,6 +50,7 @@ pub fn contribution() -> Contribution {
         .with_run_state_tables(seeds::TABLES)
         .with_run_state_tables(identity::TABLES)
         .with_run_state_tables(scope::TABLES)
+        .with_run_state_tables(bounds::TABLES)
         .with_politeness_tables(politeness::TABLES)
         .with_admission_gates(Arc::new(queues::DomainGates))
 }

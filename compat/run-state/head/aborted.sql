@@ -7,6 +7,22 @@ CREATE TABLE attempt_errors (
             message TEXT NOT NULL,
             PRIMARY KEY (work_item, attempt)
         ) STRICT;
+CREATE TABLE bounds (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            max_depth INTEGER,
+            max_requests INTEGER,
+            max_url_length INTEGER,
+            max_path_segments INTEGER,
+            max_segment_repeats INTEGER
+        ) STRICT;
+CREATE TABLE bounds_admitted (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            count INTEGER NOT NULL
+        ) STRICT;
+CREATE TABLE bounds_refusals (
+            setting TEXT NOT NULL PRIMARY KEY,
+            count INTEGER NOT NULL
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE domains (
             key TEXT NOT NULL PRIMARY KEY,
             ready_at INTEGER,
@@ -54,6 +70,7 @@ CREATE TABLE run (
         stop_reason TEXT,
         verdict TEXT,
         completeness TEXT,
+        completeness_reasons TEXT NOT NULL DEFAULT '[]',
         started_at TEXT NOT NULL,
         ended_at TEXT,
         policy_version TEXT,
@@ -64,7 +81,7 @@ CREATE TABLE run (
         uncapped INTEGER NOT NULL DEFAULT 0,
         progress_message TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('aborted','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run"}]',3,NULL,NULL,0,NULL);
+INSERT INTO "run" VALUES('aborted','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','[]','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run"}]',3,NULL,NULL,0,NULL);
 CREATE TABLE scope (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             strategy TEXT NOT NULL,

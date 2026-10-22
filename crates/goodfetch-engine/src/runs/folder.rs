@@ -176,7 +176,7 @@ pub(super) fn read_report(file: &Path, vfs: Option<&str>) -> rusqlite::Result<Op
 fn report(connection: &Connection) -> rusqlite::Result<Option<RunReport>> {
     connection
         .query_row(
-            "SELECT run_id, lifecycle, stop_reason, verdict, completeness, started_at, ended_at, policy_version, weakened_by, uncapped FROM run
+            "SELECT run_id, lifecycle, stop_reason, verdict, completeness, started_at, ended_at, policy_version, weakened_by, uncapped, completeness_reasons FROM run
              WHERE ended_at IS NOT NULL",
             [],
             |row| {
@@ -193,6 +193,8 @@ fn report(connection: &Connection) -> rusqlite::Result<Option<RunReport>> {
                         .transpose()?,
                     verdict: parsed(&row.get::<_, String>(3)?)?,
                     completeness: parsed(&row.get::<_, String>(4)?)?,
+                    completeness_reasons: serde_json::from_str(&row.get::<_, String>(10)?)
+                        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
                     started_at: PointInTime::from_rfc3339(row.get(5)?),
                     ended_at: PointInTime::from_rfc3339(row.get(6)?),
                     policy_version: row.get(7)?,
@@ -325,7 +327,7 @@ pub(super) fn machine_identity(path: &Path, drawn: &str) -> io::Result<String> {
 /// Writes the Run's end, as `report` states it, into its own row.
 pub(super) fn write_end(connection: &Connection, report: &RunReport) -> rusqlite::Result<()> {
     connection.execute(
-        "UPDATE run SET lifecycle = ?1, stop_reason = ?2, verdict = ?3, completeness = ?4, ended_at = ?5, uncapped = ?6",
+        "UPDATE run SET lifecycle = ?1, stop_reason = ?2, verdict = ?3, completeness = ?4, ended_at = ?5, uncapped = ?6, completeness_reasons = ?7",
         (
             report.lifecycle.as_str(),
             report.stop_reason.as_ref().map(|reason| {
@@ -335,6 +337,8 @@ pub(super) fn write_end(connection: &Connection, report: &RunReport) -> rusqlite
             report.completeness.as_str(),
             report.ended_at.as_str(),
             report.uncapped,
+            serde_json::to_string(&report.completeness_reasons)
+                .expect("invariant: Completeness reasons encode"),
         ),
     )?;
     Ok(())

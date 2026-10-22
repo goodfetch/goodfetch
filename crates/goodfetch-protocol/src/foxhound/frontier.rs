@@ -7,7 +7,9 @@
 //! URL. A crawl request is sent with a method and a body, which with its
 //! URL's key make its identity, unless the program declares its `key`.
 //! The `crawl.scope.*` settings say which links a crawl may follow, fixed
-//! for the Run's life. Foxhound's own.
+//! for the Run's life; `crawl.max_depth` and `crawl.max_requests` bound it,
+//! and three caps on a URL's shape end the traps no rule learned. Foxhound's
+//! own.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -363,7 +365,7 @@ pub const RUN_SEEDS: Operation = Operation {
 /// `crawl_request.enqueue`.
 pub const CRAWL_REQUEST_ENQUEUE: Operation = Operation {
     name: "crawl_request.enqueue",
-    description: "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
+    description: "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `out_of_scope`, `unsupported_scheme`, `invalid_url`, `max_depth`, `max_requests` or a URL cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::SdkOnly,
@@ -415,12 +417,88 @@ pub const CRAWL_SCOPE_EXCLUDE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `crawl.max_depth` (ADRs 0005 and 0093; CO-07).
+pub const CRAWL_MAX_DEPTH: Setting = Setting {
+    name: "crawl.max_depth",
+    description: "How deep a crawl goes, its seeds at depth 0 and each enqueue one level deeper than the request whose attempt added it: a deeper request is not added, with `max_depth`, and a Run that refused one ends `incomplete`. None by default; `null` clears it.",
+    kind: ValueKind::Count,
+    default: no_bound,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.max_requests` (ADRs 0005 and 0093; CO-08).
+pub const CRAWL_MAX_REQUESTS: Setting = Setting {
+    name: "crawl.max_requests",
+    description: "How many requests a crawl admits, its seeds included: once it admitted this many, a further one is not added, with `max_requests`, and a Run that refused one ends `incomplete`. None by default; `null` clears it.",
+    kind: ValueKind::Count,
+    default: no_bound,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.max_url_length` (ADR 0120; pitfall U10).
+pub const CRAWL_MAX_URL_LENGTH: Setting = Setting {
+    name: "crawl.max_url_length",
+    description: "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off.",
+    kind: ValueKind::Count,
+    default: max_url_length,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.max_path_segments` (ADR 0120; pitfall U10).
+pub const CRAWL_MAX_PATH_SEGMENTS: Setting = Setting {
+    name: "crawl.max_path_segments",
+    description: "The most segments a URL's path may have, as the WHATWG parser splits it, an empty last segment (a trailing slash) not counted (Heritrix's `maxPathDepth`): a URL with more is not added, with `max_path_segments`, and a finished Run that refused one is `unverified`. 20 by default; `null` turns the cap off.",
+    kind: ValueKind::Count,
+    default: max_path_segments,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.max_segment_repeats` (ADR 0120; pitfall U10).
+pub const CRAWL_MAX_SEGMENT_REPEATS: Setting = Setting {
+    name: "crawl.max_segment_repeats",
+    description: "How many times back to back a segment of a URL's path, or a run of segments, may appear (Heritrix's `maxRepetitions`), so `/a/a` passes and `/a/a/a` and `/a/b/a/b/a/b` do not, while numbers that recur apart, as in `/page/1/tag/1/sort/1`, do: a URL past it is not added, with `max_segment_repeats`, and a finished Run that refused one is `unverified`. 2 by default; `null` turns the cap off.",
+    kind: ValueKind::Count,
+    default: max_segment_repeats,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 fn same_hostname() -> Value {
     Value::from("same_hostname")
 }
 
 fn no_patterns() -> Value {
     Value::Array(Vec::new())
+}
+
+fn no_bound() -> Value {
+    Value::Null
+}
+
+fn max_url_length() -> Value {
+    Value::from(2_083)
+}
+
+fn max_path_segments() -> Value {
+    Value::from(20)
+}
+
+fn max_segment_repeats() -> Value {
+    Value::from(2)
 }
 
 /// Every entry this module defines.
@@ -436,6 +514,11 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_SCOPE_STRATEGY,
         CRAWL_SCOPE_INCLUDE,
         CRAWL_SCOPE_EXCLUDE,
+        CRAWL_MAX_DEPTH,
+        CRAWL_MAX_REQUESTS,
+        CRAWL_MAX_URL_LENGTH,
+        CRAWL_MAX_PATH_SEGMENTS,
+        CRAWL_MAX_SEGMENT_REPEATS,
     ],
     hook_stages: &[],
     shared_type_values: &[],

@@ -99,6 +99,24 @@ class Completeness(StrEnum):
     """It finished, but the engine cannot vouch that nothing was missed."""
 
 
+class CompletenessReason(BaseModel):
+    """
+    A reason a finished Run's results do not cover its scope (ADRs 0005,
+    0093 and 0120): the setting or cause that cut its work, the Completeness
+    it gives the Run, and how many requests or URLs it refused.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    completeness: Completeness
+    """What it makes the Run: `incomplete` or `unverified`."""
+    count: Annotated[int, Field(ge=0)]
+    """How many requests or URLs it refused."""
+    name: str
+    """The setting or cause, such as `crawl.max_depth`."""
+
+
 class ConsoleFailure(BaseModel):
     """
     Why a Daemon's Console did not start: an Error code, its message and
@@ -1876,6 +1894,11 @@ class RunReport(BaseModel):
     """
     completeness: Completeness
     """Whether its results cover its scope."""
+    completeness_reasons: list[CompletenessReason] | None = None
+    """
+    What cut a finished Run's work, each reason with its count, in the
+    order of their names; none when nothing did.
+    """
     ended_at: PointInTime
     """When it ended."""
     lifecycle: Lifecycle

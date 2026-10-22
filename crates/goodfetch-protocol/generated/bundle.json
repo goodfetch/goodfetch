@@ -926,6 +926,34 @@
         }
       ]
     },
+    "CompletenessReason": {
+      "description": "A reason a finished Run's results do not cover its scope (ADRs 0005,\n0093 and 0120): the setting or cause that cut its work, the Completeness\nit gives the Run, and how many requests or URLs it refused.",
+      "properties": {
+        "completeness": {
+          "$ref": "#/$defs/Completeness",
+          "arrived_in": "0.1",
+          "description": "What it makes the Run: `incomplete` or `unverified`."
+        },
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many requests or URLs it refused.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The setting or cause, such as `crawl.max_depth`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "completeness",
+        "count"
+      ],
+      "type": "object"
+    },
     "ConfigExplainParams": {
       "additionalProperties": false,
       "description": "What `config.explain` takes.",
@@ -5208,6 +5236,14 @@
           "arrived_in": "0.1",
           "description": "Whether its results cover its scope."
         },
+        "completeness_reasons": {
+          "arrived_in": "0.1",
+          "description": "What cut a finished Run's work, each reason with its count, in the\norder of their names; none when nothing did.",
+          "items": {
+            "$ref": "#/$defs/CompletenessReason"
+          },
+          "type": "array"
+        },
         "ended_at": {
           "$ref": "#/$defs/PointInTime",
           "arrived_in": "0.1",
@@ -6993,6 +7029,66 @@
                     },
                     "type": "object"
                   },
+                  "max_depth": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How deep a crawl goes, its seeds at depth 0 and each enqueue one level deeper than the request whose attempt added it: a deeper request is not added, with `max_depth`, and a Run that refused one ends `incomplete`. None by default; `null` clears it."
+                  },
+                  "max_path_segments": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The most segments a URL's path may have, as the WHATWG parser splits it, an empty last segment (a trailing slash) not counted (Heritrix's `maxPathDepth`): a URL with more is not added, with `max_path_segments`, and a finished Run that refused one is `unverified`. 20 by default; `null` turns the cap off."
+                  },
+                  "max_requests": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests a crawl admits, its seeds included: once it admitted this many, a further one is not added, with `max_requests`, and a Run that refused one ends `incomplete`. None by default; `null` clears it."
+                  },
+                  "max_segment_repeats": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many times back to back a segment of a URL's path, or a run of segments, may appear (Heritrix's `maxRepetitions`), so `/a/a` passes and `/a/a/a` and `/a/b/a/b/a/b` do not, while numbers that recur apart, as in `/page/1/tag/1/sort/1`, do: a URL past it is not added, with `max_segment_repeats`, and a finished Run that refused one is `unverified`. 2 by default; `null` turns the cap off."
+                  },
+                  "max_url_length": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
+                  },
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
@@ -7289,6 +7385,66 @@
                   "keep_alive": {
                     "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
                     "type": "boolean"
+                  },
+                  "max_depth": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How deep a crawl goes, its seeds at depth 0 and each enqueue one level deeper than the request whose attempt added it: a deeper request is not added, with `max_depth`, and a Run that refused one ends `incomplete`. None by default; `null` clears it."
+                  },
+                  "max_path_segments": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The most segments a URL's path may have, as the WHATWG parser splits it, an empty last segment (a trailing slash) not counted (Heritrix's `maxPathDepth`): a URL with more is not added, with `max_path_segments`, and a finished Run that refused one is `unverified`. 20 by default; `null` turns the cap off."
+                  },
+                  "max_requests": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests a crawl admits, its seeds included: once it admitted this many, a further one is not added, with `max_requests`, and a Run that refused one ends `incomplete`. None by default; `null` clears it."
+                  },
+                  "max_segment_repeats": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many times back to back a segment of a URL's path, or a run of segments, may appear (Heritrix's `maxRepetitions`), so `/a/a` passes and `/a/a/a` and `/a/b/a/b/a/b` do not, while numbers that recur apart, as in `/page/1/tag/1/sort/1`, do: a URL past it is not added, with `max_segment_repeats`, and a finished Run that refused one is `unverified`. 2 by default; `null` turns the cap off."
+                  },
+                  "max_url_length": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
                   },
                   "retry": {
                     "additionalProperties": false,
@@ -7919,6 +8075,66 @@
                   "keep_alive": {
                     "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
                     "type": "boolean"
+                  },
+                  "max_depth": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How deep a crawl goes, its seeds at depth 0 and each enqueue one level deeper than the request whose attempt added it: a deeper request is not added, with `max_depth`, and a Run that refused one ends `incomplete`. None by default; `null` clears it."
+                  },
+                  "max_path_segments": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The most segments a URL's path may have, as the WHATWG parser splits it, an empty last segment (a trailing slash) not counted (Heritrix's `maxPathDepth`): a URL with more is not added, with `max_path_segments`, and a finished Run that refused one is `unverified`. 20 by default; `null` turns the cap off."
+                  },
+                  "max_requests": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests a crawl admits, its seeds included: once it admitted this many, a further one is not added, with `max_requests`, and a Run that refused one ends `incomplete`. None by default; `null` clears it."
+                  },
+                  "max_segment_repeats": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many times back to back a segment of a URL's path, or a run of segments, may appear (Heritrix's `maxRepetitions`), so `/a/a` passes and `/a/a/a` and `/a/b/a/b/a/b` do not, while numbers that recur apart, as in `/page/1/tag/1/sort/1`, do: a URL past it is not added, with `max_segment_repeats`, and a finished Run that refused one is `unverified`. 2 by default; `null` turns the cap off."
+                  },
+                  "max_url_length": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
                   },
                   "retry": {
                     "additionalProperties": false,
@@ -8565,6 +8781,66 @@
                   "keep_alive": {
                     "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
                     "type": "boolean"
+                  },
+                  "max_depth": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How deep a crawl goes, its seeds at depth 0 and each enqueue one level deeper than the request whose attempt added it: a deeper request is not added, with `max_depth`, and a Run that refused one ends `incomplete`. None by default; `null` clears it."
+                  },
+                  "max_path_segments": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The most segments a URL's path may have, as the WHATWG parser splits it, an empty last segment (a trailing slash) not counted (Heritrix's `maxPathDepth`): a URL with more is not added, with `max_path_segments`, and a finished Run that refused one is `unverified`. 20 by default; `null` turns the cap off."
+                  },
+                  "max_requests": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests a crawl admits, its seeds included: once it admitted this many, a further one is not added, with `max_requests`, and a Run that refused one ends `incomplete`. None by default; `null` clears it."
+                  },
+                  "max_segment_repeats": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many times back to back a segment of a URL's path, or a run of segments, may appear (Heritrix's `maxRepetitions`), so `/a/a` passes and `/a/a/a` and `/a/b/a/b/a/b` do not, while numbers that recur apart, as in `/page/1/tag/1/sort/1`, do: a URL past it is not added, with `max_segment_repeats`, and a finished Run that refused one is `unverified`. 2 by default; `null` turns the cap off."
+                  },
+                  "max_url_length": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
                   },
                   "retry": {
                     "additionalProperties": false,

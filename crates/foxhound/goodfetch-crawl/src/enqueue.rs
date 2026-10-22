@@ -104,6 +104,7 @@ fn add(
             key: params.key.as_deref(),
         },
         narrowing: Narrowing::none(),
+        depth: depth + 1,
     };
     admit(connection, &Scope::read(connection)?, candidate, |url| {
         work_items::add(

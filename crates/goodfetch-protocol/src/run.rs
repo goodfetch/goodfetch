@@ -362,6 +362,22 @@ impl Completeness {
     }
 }
 
+/// A reason a finished Run's results do not cover its scope (ADRs 0005,
+/// 0093 and 0120): the setting or cause that cut its work, the Completeness
+/// it gives the Run, and how many requests or URLs it refused.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CompletenessReason {
+    /// The setting or cause, such as `crawl.max_depth`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// What it makes the Run: `incomplete` or `unverified`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub completeness: Completeness,
+    /// How many requests or URLs it refused.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub count: u64,
+}
+
 /// Why a Run stopped (ADR 0102); the other causes join with the tickets that
 /// stop Runs for them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -620,6 +636,11 @@ pub struct RunReport {
     /// Whether its results cover its scope.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub completeness: Completeness,
+    /// What cut a finished Run's work, each reason with its count, in the
+    /// order of their names; none when nothing did.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub completeness_reasons: Vec<CompletenessReason>,
     /// When it started.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub started_at: PointInTime,

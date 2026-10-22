@@ -3,9 +3,11 @@
 //! both Products' compositions add, over the in-memory network, on the test
 //! `Clock` and a fixed `Entropy` seed, in a home of its own: under an
 //! install Limit, whose Slices its run state journals, a tagged crawl of
-//! five seeds, one with a Payload, one the Frontier answers `duplicate`
-//! and one sent as a `POST` with a body under a declared key, under a
-//! scope of every host narrowed by an `include` and an `exclude` pattern,
+//! six seeds, one with a Payload, one the Frontier answers `duplicate`,
+//! one sent as a `POST` with a body under a declared key and one
+//! `crawl.max_segment_repeats` refuses, under a scope of every host
+//! narrowed by an `include` and an `exclude` pattern and under a depth and
+//! a request bound,
 //! whose handler enqueues a `forefront` request on another domain from the
 //! first, pushes Records for the first, the `POST` and that request and
 //! fails on the second, whose first byte never came, so its
@@ -78,8 +80,13 @@ fn scenario() -> Vec<Value> {
                     { "url": "https://SHOP.test:443/", "label": "home" },
                     { "url": "https://api.test/search", "label": "home", "method": "POST", "body": "eyJwYWdlIjoxfQ==", "key": "search-1" },
                     { "url": "https://guarded.test/", "label": "guarded" },
+                    { "url": "https://shop.test/more/more/more/", "label": "home" },
                 ],
-                "settings": { "crawl": { "scope": { "strategy": "all", "include": ["**/sale"], "exclude": ["**/admin/**"] } } },
+                "settings": { "crawl": {
+                    "scope": { "strategy": "all", "include": ["**/sale"], "exclude": ["**/admin/**"] },
+                    "max_depth": 3,
+                    "max_requests": 100,
+                } },
             }),
         ),
         call(2, "run.finish", json!({ "run_id": "crawl" })),

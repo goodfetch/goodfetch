@@ -60,10 +60,10 @@ use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
-    Checkpoint, Completeness, Lifecycle, NotUnderstoodLimit, PointInTime, Presence,
-    ProgressMessage, RUN_IN_USE, RUN_PROGRESS, RUN_STATE_DURABILITY, ReachedLimit, RunAxes, RunId,
-    RunIndexRow, RunKind, RunOwner, RunProgress, RunReport, RunStarted, StartInput, StartedAs,
-    StopReason, Tags, Verdict,
+    Checkpoint, Completeness, CompletenessReason, Lifecycle, NotUnderstoodLimit, PointInTime,
+    Presence, ProgressMessage, RUN_IN_USE, RUN_PROGRESS, RUN_STATE_DURABILITY, ReachedLimit,
+    RunAxes, RunId, RunIndexRow, RunKind, RunOwner, RunProgress, RunReport, RunStarted, StartInput,
+    StartedAs, StopReason, Tags, Verdict,
 };
 use goodfetch_protocol::secrets::{RUN_STATE_KEY_REFERENCE, TIMEOUT_SECRET};
 use goodfetch_protocol::settings::SettingLimit;
@@ -544,8 +544,9 @@ enum Waiting {
 /// How a Run's driver ends it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ending {
-    /// Its work is done: `finished`.
-    Finished,
+    /// Its work is done: `finished`, `complete` unless its Completeness
+    /// reasons say what cut its work, the worst of which it takes.
+    Finished(Vec<CompletenessReason>),
     /// An error in the engine ended it: `failed`.
     Failed,
     /// It reached the safe point a stop asked for: `stopped`, for the
@@ -553,10 +554,27 @@ pub enum Ending {
     Stopped(StopReason),
 }
 
+/// The Completeness of a finished Run whose work `reasons` cut: the
+/// worst they give, `incomplete` before `unverified`, else `complete`.
+fn finished_completeness(reasons: &[CompletenessReason]) -> Completeness {
+    let gives = |completeness| {
+        reasons
+            .iter()
+            .any(|reason| reason.completeness == completeness)
+    };
+    if gives(Completeness::Incomplete) {
+        Completeness::Incomplete
+    } else if gives(Completeness::Unverified) {
+        Completeness::Unverified
+    } else {
+        Completeness::Complete
+    }
+}
+
 /// Why a Run ends.
 #[derive(Clone, Debug)]
 enum End {
-    Finished,
+    Finished(Vec<CompletenessReason>),
     Failed,
     Stopped(StopReason),
 }
@@ -565,7 +583,7 @@ impl End {
     /// The event of the Run's table it is.
     fn event(&self) -> RunEvent {
         match self {
-            Self::Finished => RunEvent::Finish,
+            Self::Finished(_) => RunEvent::Finish,
             Self::Failed => RunEvent::Fail,
             Self::Stopped(reason) => match reason {
                 StopReason::Abort { .. } => RunEvent::Abort,
@@ -922,7 +940,7 @@ impl Run {
     /// Dropping the future after the end was sent still ends the Run.
     pub async fn end(&self, ending: Ending) {
         let end = match ending {
-            Ending::Finished => End::Finished,
+            Ending::Finished(reasons) => End::Finished(reasons),
             Ending::Failed => End::Failed,
             Ending::Stopped(reason) => End::Stopped(reason),
         };
@@ -2282,7 +2300,9 @@ impl Registry {
             return self.report_of(run_id).await;
         };
         match (live.ended_by, letting) {
-            (EndedBy::Finish, Letting::Finish) => self.end_or_report(run_id, End::Finished).await,
+            (EndedBy::Finish, Letting::Finish) => {
+                self.end_or_report(run_id, End::Finished(Vec::new())).await
+            }
             (EndedBy::Driver, Letting::Finish) => {
                 if let Some(run) = &live.run {
                     run.shared.finish.send_replace(true);
@@ -2426,7 +2446,7 @@ impl Registry {
         };
         let stopping = match &end {
             End::Stopped(cause) => Some(cause.clone()),
-            End::Finished | End::Failed => None,
+            End::Finished(_) | End::Failed => None,
         };
         if let Some(cause) = &stopping {
             announce_stop(&events, run_id, cause).await;
@@ -2902,7 +2922,7 @@ impl Registry {
                 connection
                     .execute(
                         "UPDATE run SET lifecycle = 'running', stop_reason = NULL, verdict = NULL,
-                         completeness = NULL, ended_at = NULL",
+                         completeness = NULL, completeness_reasons = '[]', ended_at = NULL",
                         [],
                     )
                     .map(drop)
@@ -3102,10 +3122,10 @@ impl Closing {
             last_checkpoint,
         } = self;
         run.owner.stop().await;
-        let (stop_reason, completeness) = match end {
-            End::Finished => (None, Completeness::Complete),
-            End::Failed => (None, Completeness::Incomplete),
-            End::Stopped(reason) => (Some(reason), Completeness::Incomplete),
+        let (stop_reason, completeness, completeness_reasons) = match end {
+            End::Finished(reasons) => (None, finished_completeness(&reasons), reasons),
+            End::Failed => (None, Completeness::Incomplete, Vec::new()),
+            End::Stopped(reason) => (Some(reason), Completeness::Incomplete, Vec::new()),
         };
         let charging = run.shared.charging.lock().await.take();
         let mut report = RunReport {
@@ -3114,6 +3134,7 @@ impl Closing {
             stop_reason,
             verdict: Verdict::Verified,
             completeness,
+            completeness_reasons,
             started_at,
             ended_at: point_in_time(&clock),
             policy_version,

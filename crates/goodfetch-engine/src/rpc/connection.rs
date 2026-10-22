@@ -21,7 +21,12 @@
 //! Exposed Daemon's address carries its Connections as lines or over
 //! WebSocket (ADR 0049), whose refused handshakes are logged the same way.
 //! Only the Client of an Attached engine's stdio is told its private
-//! endpoint, in the reply to its `hello`.
+//! endpoint, in the reply to its `hello`. The Console's WebSocket, whose
+//! sign-in its handshake proved, opens with a `hello` that carries no token
+//! (ADR 0031).
+//!
+//! Size: one Connection's life, the transition table's states and every
+//! carriage that reaches them, kept whole so each message passes one loop.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};

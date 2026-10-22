@@ -44,7 +44,8 @@ const SCHEMA: &[&str] = &[
         weakened_by TEXT NOT NULL DEFAULT '[]',
         journal_position INTEGER NOT NULL DEFAULT 0,
         binding TEXT,
-        clean_up_digest TEXT
+        clean_up_digest TEXT,
+        uncapped INTEGER NOT NULL DEFAULT 0
     ) STRICT",
     "CREATE TABLE IF NOT EXISTS tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT",
     // What the Run used of each Slice of the Usage ledger, by run epoch (ADR

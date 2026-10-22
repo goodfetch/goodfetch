@@ -336,6 +336,15 @@ pub enum StopReason {
     /// safe point, resumable once the period starts again or a person
     /// raises the Limit (ADR 0041).
     Limit(ReachedLimit),
+    /// A Limit flagged *must understand* that its engine cannot evaluate
+    /// came to cover it when it charged, and it stopped at its next safe
+    /// point, resumable by an engine that can (ADR 0041): the stop of the
+    /// Error code `limit_not_understood`.
+    LimitNotUnderstood {
+        /// The Limit.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        limit: crate::usage::Limit,
+    },
 }
 
 /// What a Limit is on: a scope kind, a value of a type both Products share
@@ -560,6 +569,11 @@ pub struct RunReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub checkpoint: Option<Checkpoint>,
+    /// Whether it spent, or reserved, money in a currency no Limit holding
+    /// it caps (ADR 0041): *uncapped*.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub uncapped: bool,
 }
 
 /// A Checkpoint as the engine reports it (ADRs 0002, 0102 and 0116): a

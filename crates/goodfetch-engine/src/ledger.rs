@@ -30,7 +30,7 @@ use goodfetch_protocol::usage::{Limit, LimitSetter, LimitUsage};
 use jiff::Timestamp;
 use rusqlite::{Connection, OpenFlags, Row, TransactionBehavior};
 
-pub use self::charging::{Charged, Charging, Refusal};
+pub use self::charging::{Charged, Charging, Refusal, Reservation};
 pub use self::period::{PeriodBounds, bounds};
 pub use self::sizing::{SliceSizing, slice_size};
 pub use self::standing::{Placement, standing};
@@ -59,7 +59,8 @@ const SCHEMA: &[&str] = &[
         amount INTEGER NOT NULL,
         must_understand INTEGER NOT NULL,
         set_by TEXT NOT NULL,
-        set_at TEXT NOT NULL
+        set_at TEXT NOT NULL,
+        managed_major TEXT
     ) STRICT",
     "CREATE TABLE IF NOT EXISTS slices (
         slice_id INTEGER PRIMARY KEY,
@@ -330,26 +331,71 @@ impl Ledger {
     /// When the ledger cannot be written.
     pub fn add_limit(&self, limit: &Limit, now: Timestamp) -> Result<LimitId, LedgerError> {
         let connection = self.open()?;
-        connection
-            .execute(
-                "INSERT INTO limits (scope_kind, scope_id, usage_kind, currency, period, time_zone, amount, must_understand, set_by, set_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        let id =
+            insert_limit(&connection, limit, None, now).map_err(|error| self.failed(&error))?;
+        tracing::trace!(target: TARGET, transition = "set_limit", limit = id, amount = limit.amount, "a Limit was added");
+        Ok(id)
+    }
+
+    /// Sets `limit`, a person's, in place of every Limit row of its scope,
+    /// Usage kind, currency and period that a managed Operator policy did
+    /// not set, keeping the Usage counted against each, in one
+    /// transaction; adds it when there is none (ADR 0041). Answers its row,
+    /// the first when there are several.
+    ///
+    /// # Errors
+    ///
+    /// When the ledger cannot be written.
+    pub fn raise(&self, limit: &Limit, now: Timestamp) -> Result<LimitId, LedgerError> {
+        let mut connection = self.open()?;
+        let period = limit.period.as_ref().map(|period| period.every.as_str());
+        let time_zone = limit
+            .period
+            .as_ref()
+            .map(|period| period.time_zone.as_str());
+        let id = (|| {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute(
+                "UPDATE limits SET amount = ?1, must_understand = ?2, set_by = ?3, set_at = ?4
+                 WHERE scope_kind = ?5 AND scope_id = ?6 AND usage_kind = ?7 AND currency IS ?8
+                   AND period IS ?9 AND time_zone IS ?10 AND set_by <> 'managed_policy'",
+                (
+                    amount(limit.amount),
+                    limit.must_understand,
+                    limit.set_by.as_str(),
+                    now.to_string(),
+                    &limit.scope.kind,
+                    &limit.scope.id,
+                    &limit.usage_kind,
+                    &limit.currency,
+                    period,
+                    time_zone,
+                ),
+            )?;
+            let found: Option<LimitId> = transaction.query_row(
+                "SELECT MIN(limit_id) FROM limits
+                 WHERE scope_kind = ?1 AND scope_id = ?2 AND usage_kind = ?3 AND currency IS ?4
+                   AND period IS ?5 AND time_zone IS ?6 AND set_by <> 'managed_policy'",
                 (
                     &limit.scope.kind,
                     &limit.scope.id,
                     &limit.usage_kind,
                     &limit.currency,
-                    limit.period.as_ref().map(|period| period.every.as_str()),
-                    limit.period.as_ref().map(|period| period.time_zone.as_str()),
-                    amount(limit.amount),
-                    limit.must_understand,
-                    limit.set_by.as_str(),
-                    now.to_string(),
+                    period,
+                    time_zone,
                 ),
-            )
-            .map_err(|error| self.failed(&error))?;
-        let id = connection.last_insert_rowid();
-        tracing::trace!(target: TARGET, transition = "set_limit", limit = id, amount = limit.amount, "a Limit was added");
+                |row| row.get(0),
+            )?;
+            let id = match found {
+                Some(id) => id,
+                None => insert_limit(&transaction, limit, None, now)?,
+            };
+            transaction.commit()?;
+            Ok(id)
+        })()
+        .map_err(|error: rusqlite::Error| self.failed(&error))?;
+        tracing::trace!(target: TARGET, transition = "set_limit", limit = id, amount = limit.amount, "a person set a Limit");
         Ok(id)
     }
 
@@ -419,7 +465,9 @@ impl Ledger {
 
     /// Takes a Slice of the Limit `stored` for `holder`, in the period that
     /// holds `now`, in one transaction: sized by `sizing` from what is left
-    /// and the live runs holding Slices of it; none when nothing is left.
+    /// and the live runs holding Slices of it, and at least `needing`, as a
+    /// reserved worst case needs; none when less than that is left, or
+    /// nothing.
     ///
     /// # Errors
     ///
@@ -430,6 +478,7 @@ impl Ledger {
         holder: &Holder,
         now: Timestamp,
         sizing: SliceSizing,
+        needing: u64,
     ) -> Result<Option<Slice>, LedgerError> {
         let mut connection = self.open()?;
         let (key, _) = stored.period_key(now);
@@ -444,8 +493,8 @@ impl Ledger {
                 |row| row.get::<_, i64>(0),
             )
             .map(|count| u64::try_from(count).unwrap_or_default())?;
-            let size = slice_size(sizing, stored.amount, left, others + 1);
-            if size == 0 {
+            let size = slice_size(sizing, stored.amount, left, others + 1).max(needing);
+            if size == 0 || size > left {
                 return Ok(None);
             }
             transaction.execute(
@@ -564,6 +613,34 @@ impl Ledger {
         }
         Ok(reclaimed)
     }
+}
+
+/// Adds the row of `limit`, set at `now`, a managed Operator policy's of
+/// `managed_major` when it names one.
+fn insert_limit(
+    connection: &Connection,
+    limit: &Limit,
+    managed_major: Option<&str>,
+    now: Timestamp,
+) -> rusqlite::Result<LimitId> {
+    connection.execute(
+        "INSERT INTO limits (scope_kind, scope_id, usage_kind, currency, period, time_zone, amount, must_understand, set_by, set_at, managed_major)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        (
+            &limit.scope.kind,
+            &limit.scope.id,
+            &limit.usage_kind,
+            &limit.currency,
+            limit.period.as_ref().map(|period| period.every.as_str()),
+            limit.period.as_ref().map(|period| period.time_zone.as_str()),
+            amount(limit.amount),
+            limit.must_understand,
+            limit.set_by.as_str(),
+            now.to_string(),
+            managed_major,
+        ),
+    )?;
+    Ok(connection.last_insert_rowid())
 }
 
 /// A Slice held under one run's holder.

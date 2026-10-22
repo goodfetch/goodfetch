@@ -1,8 +1,9 @@
 //! One run's charging against the Limits that hold it (ADR 0041): before a
 //! run starts, every Limit covering it must have something left in its
 //! period; while it runs, each Usage it charges comes out of its Slices, a
-//! new Slice taken when they run out; when it ends, what is left of them
-//! goes back. A run that cannot take a Slice it needs is refused the charge
+//! new Slice taken when they run out; a cost about to be paid reserves its
+//! worst case first, settled at what it cost; when it ends, what is left of
+//! them goes back. A run that cannot take a Slice it needs is refused the charge
 //! and stops at its next safe point.
 
 use goodfetch_protocol::run::ReachedLimit;
@@ -38,6 +39,15 @@ pub struct Charged {
     pub used: Vec<(SliceId, u64)>,
 }
 
+/// A worst case a run reserved and has not settled yet: what it took of
+/// each Slice.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[must_use = "a reservation is settled once the cost is known"]
+pub struct Reservation {
+    worst: u64,
+    taken: Vec<(SliceId, u64)>,
+}
+
 /// A Slice the run holds, and what it used of it.
 #[derive(Clone, Debug)]
 struct Held {
@@ -56,6 +66,7 @@ pub struct Charging {
     placement: Placement,
     sizing: SliceSizing,
     held: Vec<Held>,
+    uncapped: bool,
 }
 
 impl Charging {
@@ -67,6 +78,7 @@ impl Charging {
             placement,
             sizing,
             held: Vec::new(),
+            uncapped: false,
         }
     }
 
@@ -97,7 +109,7 @@ impl Charging {
 
     /// Charges `amount` of `usage_kind` against every Limit on it that
     /// holds the run, out of its Slices of each Limit's period at `now`,
-    /// taking more Slices as needed.
+    /// taking another Slice, large enough, when they run short.
     ///
     /// # Errors
     ///
@@ -111,32 +123,115 @@ impl Charging {
         amount: u64,
         now: Timestamp,
     ) -> Result<Charged, Refusal> {
+        let (_, charged) = self.take(usage_kind, None, amount, now)?;
+        if !charged.used.is_empty() {
+            tracing::trace!(target: TARGET, transition = "charge", usage_kind, amount, run_id = %self.holder.run_id, epoch = self.holder.epoch, "a run charged Usage against its Slices");
+        }
+        Ok(charged)
+    }
+
+    /// Reserves `worst`, the worst case of a cost about to be paid, such as
+    /// a model call or a paid solve, against every Limit on `usage_kind` in
+    /// `currency` that holds the run (ADR 0041): out of its Slices, or a
+    /// Slice taken at least as large in one transaction. The run journals
+    /// what it charged before it pays, so a reclaimer charges an open
+    /// reservation at its worst case. A cost in a currency no Limit holding
+    /// the run caps marks the run *uncapped*.
+    ///
+    /// # Errors
+    ///
+    /// As [`Charging::charge`]: the cost is then not to be paid.
+    pub fn reserve(
+        &mut self,
+        usage_kind: &str,
+        currency: Option<&str>,
+        worst: u64,
+        now: Timestamp,
+    ) -> Result<(Reservation, Charged), Refusal> {
+        let (taken, charged) = self.take(usage_kind, currency, worst, now)?;
+        if taken.is_empty() && currency.is_some() {
+            self.uncapped = true;
+        }
+        tracing::trace!(target: TARGET, transition = "reserve", usage_kind, worst, run_id = %self.holder.run_id, epoch = self.holder.epoch, "a run reserved a worst case against its Slices");
+        Ok((Reservation { worst, taken }, charged))
+    }
+
+    /// Settles `reservation` at `cost`, what was paid, which its worst case
+    /// bounds: what it reserved beyond `cost` is the run's to use again.
+    /// Answers each Slice touched with the run's Usage of it now, for the
+    /// run to journal.
+    pub fn settle(&mut self, reservation: Reservation, cost: u64) -> Charged {
+        let Reservation { worst, taken } = reservation;
+        let refund = worst.saturating_sub(cost);
+        let mut owed: Vec<(LimitId, u64)> = Vec::new();
+        let mut charged = Charged::default();
+        for (slice, taken) in taken.into_iter().rev() {
+            let Some(held) = self.held.iter_mut().find(|held| held.id == slice) else {
+                continue;
+            };
+            let index = owed
+                .iter()
+                .position(|(limit, _)| *limit == held.limit)
+                .unwrap_or_else(|| {
+                    owed.push((held.limit, refund));
+                    owed.len() - 1
+                });
+            let back = owed[index].1.min(taken).min(held.used);
+            held.used -= back;
+            owed[index].1 -= back;
+            charged.used.push((held.id, held.used));
+        }
+        tracing::trace!(target: TARGET, transition = "settle", cost, refund, run_id = %self.holder.run_id, epoch = self.holder.epoch, "a run settled a reservation at what it cost");
+        charged
+    }
+
+    /// Whether a reservation of this run found a currency no Limit caps.
+    pub fn uncapped(&self) -> bool {
+        self.uncapped
+    }
+
+    /// Takes `amount` from the run's Slices of every Limit on `usage_kind`
+    /// in `currency` that holds it, taking a Slice of each Limit that runs
+    /// short; answers what it took of each Slice, and the run's Usage of
+    /// each Slice touched.
+    fn take(
+        &mut self,
+        usage_kind: &str,
+        currency: Option<&str>,
+        amount: u64,
+        now: Timestamp,
+    ) -> Result<(Vec<(SliceId, u64)>, Charged), Refusal> {
         let limits = self.ledger.limits()?;
         let holding: Vec<StoredLimit> = self
             .placement
             .holding(&limits)
             .map_err(|stored| Refusal::NotUnderstood(Box::new(stored.limit())))?
             .into_iter()
-            .filter(|stored| stored.usage_kind == usage_kind && stored.currency.is_none())
+            .filter(|stored| {
+                stored.usage_kind == usage_kind && stored.currency.as_deref() == currency
+            })
             .cloned()
             .collect();
         let mut periods = Vec::new();
         for stored in &holding {
             let (period, _) = stored.period_key(now);
-            let mut room: u64 = self
+            let room: u64 = self
                 .held
                 .iter()
                 .filter(|held| held.limit == stored.id && held.period == period)
                 .map(|held| held.size - held.used)
                 .sum();
-            while room < amount {
-                let Some(slice) = self
-                    .ledger
-                    .take_slice(stored, &self.holder, now, self.sizing)?
+            if room < amount {
+                let Some(slice) = self.ledger.take_slice(
+                    stored,
+                    &self.holder,
+                    now,
+                    self.sizing,
+                    amount - room,
+                )?
                 else {
                     return Err(reached(stored, now));
                 };
-                room += slice.size;
                 self.held.push(Held {
                     limit: stored.id,
                     period: period.clone(),
@@ -147,6 +242,7 @@ impl Charging {
             }
             periods.push((stored.id, period));
         }
+        let mut taken = Vec::new();
         let mut charged = Charged::default();
         for (limit, period) in periods {
             let mut owed = amount;
@@ -155,22 +251,20 @@ impl Charging {
                 .iter_mut()
                 .filter(|held| held.limit == limit && held.period == period)
             {
-                let taken = owed.min(held.size - held.used);
-                if taken == 0 {
+                let took = owed.min(held.size - held.used);
+                if took == 0 {
                     continue;
                 }
-                held.used += taken;
-                owed -= taken;
+                held.used += took;
+                owed -= took;
+                taken.push((held.id, took));
                 charged.used.push((held.id, held.used));
                 if owed == 0 {
                     break;
                 }
             }
         }
-        if !charged.used.is_empty() {
-            tracing::trace!(target: TARGET, transition = "charge", usage_kind, amount, run_id = %self.holder.run_id, epoch = self.holder.epoch, "a run charged Usage against its Slices");
-        }
-        Ok(charged)
+        Ok((taken, charged))
     }
 
     /// Gives back what is left of every Slice the run holds, charging what

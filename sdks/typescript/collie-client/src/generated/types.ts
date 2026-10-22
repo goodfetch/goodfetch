@@ -179,7 +179,11 @@ export type StopReason =
   | {
       kind: "timeout";
     }
-  | ReachedLimit1;
+  | ReachedLimit1
+  | {
+      kind: "limit_not_understood";
+      limit: Limit2;
+    };
 /**
  * An opaque text a Run is tagged with (ADR 0036).
  *
@@ -1272,6 +1276,11 @@ export interface RunReport {
    */
   stop_reason?: StopReason | null;
   /**
+   * Whether it spent, or reserved, money in a currency no Limit holding
+   * it caps (ADR 0041): *uncapped*.
+   */
+  uncapped?: boolean;
+  /**
    * Whether a Run's own checks prove what it committed (ADR 0029).
    */
   verdict: "verified" | "rejected" | "needs_review";
@@ -1288,6 +1297,40 @@ export interface RunReport {
  */
 export interface ReachedLimit1 {
   kind: "limit";
+}
+/**
+ * The Limit.
+ */
+export interface Limit2 {
+  /**
+   * How much it allows per period: a count of the Usage kind, or
+   * millionths of the currency.
+   */
+  amount: number;
+  /**
+   * The currency it caps the Usage kind's price in, an ISO 4217 code;
+   * none for a Limit on the Usage itself.
+   */
+  currency?: string | null;
+  /**
+   * Whether an engine that cannot evaluate it must refuse the runs it
+   * cannot place outside it, with `limit_not_understood`.
+   */
+  must_understand: boolean;
+  /**
+   * The period it counts over; none for a Limit that never starts again,
+   * such as a Client connection's.
+   */
+  period?: Period | null;
+  scope: LimitScope;
+  /**
+   * Who set it.
+   */
+  set_by: "person" | "managed_policy" | "client";
+  /**
+   * The Usage kind it caps, a value of a type both Products share.
+   */
+  usage_kind: string;
 }
 /**
  * A setting that decided an outcome: its key, its value and the layer that
@@ -1419,7 +1462,11 @@ export interface RunStopping {
     | {
         kind: "timeout";
       }
-    | ReachedLimit1;
+    | ReachedLimit1
+    | {
+        kind: "limit_not_understood";
+        limit: Limit2;
+      };
   /**
    * The Run's ID.
    */

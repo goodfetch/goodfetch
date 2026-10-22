@@ -5,9 +5,11 @@
 //! Limit; a new Run refused with `limit_reached` or `limit_not_understood`;
 //! a value only Foxhound carries refused by a Collie engine; and the Slices
 //! of a dead engine's Run reclaimed by the next engine that opens the Usage
-//! ledger, from what the Run journaled. A test's own operation, `test.charge`,
-//! starts a Run that charges `requests` one at a time, as a crawl does
-//! before each request.
+//! ledger, from what the Run journaled, open reservations at their worst
+//! case. A test's own operation, `test.charge`, starts a Run that charges
+//! `requests` one at a time, as a crawl does before each request; another,
+//! `test.reserve`, one that reserves a paid solve's worst case and settles
+//! it, as area 8's solvers will.
 
 use std::collections::BTreeMap;
 
@@ -47,48 +49,105 @@ const CHARGE: Operation = Operation {
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
 };
 
-fn charging() -> Contribution {
-    Contribution::new("test-usage").with_handler(Handler::new(
-        &CHARGE,
-        |params: Value, context: CallContext| async move {
-            let started = context
-                .runs()
-                .start(Start {
-                    run_id: Some(RunId::parse(params["run_id"].as_str().unwrap()).unwrap()),
-                    tags: Tags::default(),
-                    kind: RunKind::Collie,
-                    needs: Product::Collie,
-                    inputs: BTreeMap::new(),
-                    ended_by: EndedBy::Finish,
-                    initialize: None,
-                    policy_version: None,
-                    weakened_by: Vec::new(),
-                    binding: None,
-                    clean_up_digest: None,
-                    checkpoint_interval: None,
-                    timeout: None,
-                    settings: None,
-                })
-                .await
-                .map_err(crate::run::start_error)?;
-            let Started::New(run) = started else {
-                panic!("the Run began before");
-            };
-            let mut charged = 0;
-            let mut refused = false;
-            for _ in 0..params["amount"].as_u64().unwrap() {
-                match run.charge("requests", 1).await {
-                    Ok(()) => charged += 1,
-                    Err(ChargeError::Refused(_)) => {
-                        refused = true;
-                        break;
-                    }
-                    Err(error) => panic!("the charge failed: {error}"),
-                }
-            }
-            Ok::<Value, CallError>(json!({ "charged": charged, "refused": refused }))
+/// Starts a Run of its own that reserves a paid solve's worst case in USD,
+/// then settles it at its cost when one is given.
+const RESERVE: Operation = Operation {
+    name: "test.reserve",
+    description: "Starts a Run that reserves a paid solve's worst case.",
+    ..CHARGE
+};
+
+/// Starts a new Collie Run named by `params`' `run_id`.
+async fn started(params: &Value, context: &CallContext) -> Result<crate::runs::Run, CallError> {
+    let started = context
+        .runs()
+        .start(Start {
+            run_id: Some(RunId::parse(params["run_id"].as_str().unwrap()).unwrap()),
+            tags: Tags::default(),
+            kind: RunKind::Collie,
+            needs: Product::Collie,
+            inputs: BTreeMap::new(),
+            ended_by: EndedBy::Finish,
+            initialize: None,
+            policy_version: None,
+            weakened_by: Vec::new(),
+            binding: None,
+            clean_up_digest: None,
+            checkpoint_interval: None,
+            timeout: None,
+            settings: None,
+        })
+        .await
+        .map_err(crate::run::start_error)?;
+    let Started::New(run) = started else {
+        panic!("the Run began before");
+    };
+    Ok(run)
+}
+
+/// A Limit a newer engine wrote, flagged *must understand*, on a scope kind
+/// no engine of today knows.
+fn newer_limit() -> Limit {
+    Limit {
+        scope: LimitScope {
+            kind: "galaxy".to_owned(),
+            id: "milky-way".to_owned(),
         },
-    ))
+        usage_kind: "requests".to_owned(),
+        currency: None,
+        period: None,
+        amount: 10,
+        must_understand: true,
+        set_by: LimitSetter::Person,
+    }
+}
+
+fn charging() -> Contribution {
+    Contribution::new("test-usage")
+        .with_handler(Handler::new(
+            &CHARGE,
+            |params: Value, context: CallContext| async move {
+                let run = started(&params, &context).await?;
+                let mut charged = 0;
+                let mut refused = false;
+                for _ in 0..params["amount"].as_u64().unwrap() {
+                    if params["newer_limit_after"].as_u64() == Some(charged) {
+                        Ledger::at(context.runs().home().usage_ledger(), None)
+                            .add_limit(&newer_limit(), Timestamp::UNIX_EPOCH)
+                            .unwrap();
+                    }
+                    match run.charge("requests", 1).await {
+                        Ok(()) => charged += 1,
+                        Err(ChargeError::Refused(_)) => {
+                            refused = true;
+                            break;
+                        }
+                        Err(error) => panic!("the charge failed: {error}"),
+                    }
+                }
+                Ok::<Value, CallError>(json!({ "charged": charged, "refused": refused }))
+            },
+        ))
+        .with_handler(Handler::new(
+            &RESERVE,
+            |params: Value, context: CallContext| async move {
+                let run = started(&params, &context).await?;
+                let reserved = run
+                    .reserve(
+                        "paid_solves",
+                        Some("USD"),
+                        params["worst"].as_u64().unwrap(),
+                    )
+                    .await;
+                let Ok(reservation) = reserved else {
+                    return Ok::<Value, CallError>(json!({ "refused": true }));
+                };
+                if let Some(cost) = params["cost"].as_u64() {
+                    run.settle(reservation, cost).await.unwrap();
+                }
+                Ok(json!({ "refused": false }))
+            },
+        ))
 }
 
 fn monthly_install_limit(amount: u64) -> Value {
@@ -349,5 +408,140 @@ fn the_next_engine_to_open_the_ledger_charges_a_dead_engines_slices_what_its_run
     assert_eq!(
         (&install["charged"], &install["held"], &install["left"]),
         (&json!(4), &json!(0), &json!(996))
+    );
+}
+
+/// A monthly install Limit of `amount` millionths of a dollar on paid
+/// solves.
+fn dollars_a_month(amount: u64) -> Value {
+    json!({
+        "scope": "install",
+        "usage_kind": "paid_solves",
+        "currency": "USD",
+        "period": { "every": "month", "time_zone": "UTC" },
+        "amount": amount,
+    })
+}
+
+/// Covers: story:3-70
+#[rstest]
+#[case::an_open_reservation_at_its_worst_case(json!({ "run_id": "solver", "worst": 50_000 }), 50_000)]
+#[case::a_settled_one_at_its_cost(json!({ "run_id": "solver", "worst": 50_000, "cost": 30_000 }), 30_000)]
+fn the_next_engine_charges_a_dead_engines_reservations_as_its_run_journaled_them(
+    #[case] reserve: Value,
+    #[case] charged: u64,
+) {
+    let env = TestEnv::new();
+    killed_after(
+        &env,
+        &[
+            ("usage.set", dollars_a_month(1_000_000)),
+            ("test.reserve", reserve),
+        ],
+    );
+
+    let replies = replies(&env, Product::Collie, &[("usage.list", json!({}))]);
+
+    let install = &replies[0]["result"]["limits"][0];
+    assert_eq!(
+        (&install["charged"], &install["held"]),
+        (&json!(charged), &json!(0))
+    );
+}
+
+/// Covers: story:3-70
+#[test]
+fn a_worst_case_beyond_what_a_currency_limit_has_left_is_refused_before_it_is_paid() {
+    let env = TestEnv::new();
+
+    let replies = replies(
+        &env,
+        Product::Collie,
+        &[
+            ("usage.set", dollars_a_month(40_000)),
+            (
+                "test.reserve",
+                json!({ "run_id": "solver", "worst": 50_000 }),
+            ),
+            ("run.finish", json!({ "run_id": "solver" })),
+            ("usage.list", json!({})),
+        ],
+    );
+
+    let install = &replies[3]["result"]["limits"][0];
+    assert_eq!(
+        (
+            &replies[1]["result"]["refused"],
+            &replies[2]["result"]["stop_reason"]["kind"],
+            &install["charged"],
+        ),
+        (&json!(true), &json!("limit"), &json!(0))
+    );
+}
+
+/// Covers: story:3-76
+#[rstest]
+#[case::with_no_currency_limit(None, json!(true))]
+#[case::under_a_currency_limit(Some(dollars_a_month(1_000_000)), Value::Null)]
+fn a_run_that_can_spend_money_no_limit_caps_is_marked_uncapped(
+    #[case] limit: Option<Value>,
+    #[case] uncapped: Value,
+) {
+    let env = TestEnv::new();
+    let mut calls: Vec<(&str, Value)> = limit
+        .into_iter()
+        .map(|limit| ("usage.set", limit))
+        .collect();
+    calls.push((
+        "test.reserve",
+        json!({ "run_id": "solver", "worst": 50_000, "cost": 20_000 }),
+    ));
+    calls.push(("run.finish", json!({ "run_id": "solver" })));
+
+    let replies = replies(&env, Product::Collie, &calls);
+
+    assert_eq!(replies.last().unwrap()["result"]["uncapped"], uncapped);
+}
+
+/// Covers: story:3-74
+#[test]
+fn a_live_run_meeting_a_limit_it_cannot_evaluate_stops_at_its_next_safe_point() {
+    let env = TestEnv::new();
+
+    let replies = replies(
+        &env,
+        Product::Collie,
+        &[
+            (
+                "test.charge",
+                json!({ "run_id": "outrun", "amount": 3, "newer_limit_after": 1 }),
+            ),
+            ("run.finish", json!({ "run_id": "outrun" })),
+        ],
+    );
+
+    let report = &replies[1]["result"];
+    assert_eq!(
+        (
+            &replies[0]["result"],
+            &report["lifecycle"],
+            &report["completeness"],
+            &report["stop_reason"],
+        ),
+        (
+            &json!({ "charged": 1, "refused": true }),
+            &json!("stopped"),
+            &json!("incomplete"),
+            &json!({
+                "kind": "limit_not_understood",
+                "limit": {
+                    "scope": { "kind": "galaxy", "id": "milky-way" },
+                    "usage_kind": "requests",
+                    "amount": 10,
+                    "must_understand": true,
+                    "set_by": "person",
+                },
+            }),
+        )
     );
 }

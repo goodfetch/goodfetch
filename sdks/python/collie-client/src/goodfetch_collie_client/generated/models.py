@@ -1176,16 +1176,6 @@ class StopReason5(BaseModel):
     kind: Literal["limit"]
 
 
-class StopReason(
-    RootModel[StopReason1 | StopReason2 | StopReason3 | StopReason4 | StopReason5]
-):
-    root: StopReason1 | StopReason2 | StopReason3 | StopReason4 | StopReason5
-    """
-    Why a Run stopped (ADR 0102); the other causes join with the tickets that
-    stop Runs for them.
-    """
-
-
 class UsageSetParams(BaseModel):
     """
     What `usage.set` takes: a Limit of the caller's own, which holds beside
@@ -1306,6 +1296,78 @@ class Resync(BaseModel):
     """The axes of each Run the engine knows, live or ended."""
 
 
+class SettingsExplanation(BaseModel):
+    """
+    What `config.explain` answers and `config explain --json` prints:
+    every setting's effective value, the layer that set it and the layer
+    that locked it (ADR 0028), and the files read.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    files: list[SettingsFile]
+    """The files of the configuration layers, lowest first."""
+    policy_version: str | None = None
+    """
+    The Operator policy's version, `sha256:` and the first 16 hex digits
+    of its file's digest, which the run report names; `None` without a
+    policy.
+    """
+    settings: list[ExplainedSetting]
+    """Each setting, by key."""
+
+
+class StopReason6(BaseModel):
+    """
+    A Limit flagged *must understand* that its engine cannot evaluate
+    came to cover it when it charged, and it stopped at its next safe
+    point, resumable by an engine that can (ADR 0041): the stop of the
+    Error code `limit_not_understood`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["limit_not_understood"]
+    limit: Limit
+    """The Limit."""
+
+
+class StopReason(
+    RootModel[
+        StopReason1
+        | StopReason2
+        | StopReason3
+        | StopReason4
+        | StopReason5
+        | StopReason6
+    ]
+):
+    root: (
+        StopReason1
+        | StopReason2
+        | StopReason3
+        | StopReason4
+        | StopReason5
+        | StopReason6
+    )
+    """
+    Why a Run stopped (ADR 0102); the other causes join with the tickets that
+    stop Runs for them.
+    """
+
+
+class UsageListResult(BaseModel):
+    """What `usage.list` answers, and what `usage --json` prints."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    limits: list[LimitUsage]
+    """Every Limit of the Usage ledger, by scope, with its Usage."""
+
+
 class RunReport(BaseModel):
     """
     What a Run states about itself when it ends (ADR 0102): its three axes
@@ -1337,6 +1399,11 @@ class RunReport(BaseModel):
     """When it started."""
     stop_reason: StopReason | None = None
     """Why it stopped, when it did."""
+    uncapped: bool | None = None
+    """
+    Whether it spent, or reserved, money in a currency no Limit holding
+    it caps (ADR 0041): *uncapped*.
+    """
     verdict: Verdict
     """Whether its own checks prove what it committed."""
     weakened_by: list[SettingLimit] | None = None
@@ -1356,35 +1423,3 @@ class RunStopping(BaseModel):
     """Why it stops."""
     run_id: RunId
     """The Run's ID."""
-
-
-class SettingsExplanation(BaseModel):
-    """
-    What `config.explain` answers and `config explain --json` prints:
-    every setting's effective value, the layer that set it and the layer
-    that locked it (ADR 0028), and the files read.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    files: list[SettingsFile]
-    """The files of the configuration layers, lowest first."""
-    policy_version: str | None = None
-    """
-    The Operator policy's version, `sha256:` and the first 16 hex digits
-    of its file's digest, which the run report names; `None` without a
-    policy.
-    """
-    settings: list[ExplainedSetting]
-    """Each setting, by key."""
-
-
-class UsageListResult(BaseModel):
-    """What `usage.list` answers, and what `usage --json` prints."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    limits: list[LimitUsage]
-    """Every Limit of the Usage ledger, by scope, with its Usage."""

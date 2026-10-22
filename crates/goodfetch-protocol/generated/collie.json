@@ -1334,6 +1334,11 @@
           "arrived_in": "0.1",
           "description": "Why it stopped, when it did."
         },
+        "uncapped": {
+          "arrived_in": "0.1",
+          "description": "Whether it spent, or reserved, money in a currency no Limit holding\nit caps (ADR 0041): *uncapped*.",
+          "type": "boolean"
+        },
         "verdict": {
           "$ref": "#/$defs/Verdict",
           "arrived_in": "0.1",
@@ -1778,6 +1783,25 @@
           },
           "required": [
             "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A Limit flagged *must understand* that its engine cannot evaluate\ncame to cover it when it charged, and it stopped at its next safe\npoint, resumable by an engine that can (ADR 0041): the stop of the\nError code `limit_not_understood`.",
+          "properties": {
+            "kind": {
+              "const": "limit_not_understood",
+              "type": "string"
+            },
+            "limit": {
+              "$ref": "#/$defs/Limit",
+              "arrived_in": "0.1",
+              "description": "The Limit."
+            }
+          },
+          "required": [
+            "kind",
+            "limit"
           ],
           "type": "object"
         }

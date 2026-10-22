@@ -10,7 +10,6 @@
 
 use std::time::Duration;
 
-use bytes::Bytes;
 use goodfetch_engine::metrics::{METER, Metrics};
 use goodfetch_engine::ops::Scrape;
 use goodfetch_protocol::catalog::Product;
@@ -19,8 +18,7 @@ use opentelemetry_otlp::{WithExportConfig as _, WithHttpConfig as _};
 use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use prometheus::{Encoder as _, TextEncoder};
 
-/// How long one export to the collector may take.
-const EXPORT_TIMEOUT: Duration = Duration::from_secs(10);
+use super::otlp::{EXPORT_TIMEOUT, Ureq};
 
 /// How often the metrics are exported to the collector: OpenTelemetry's
 /// default.
@@ -80,14 +78,9 @@ impl Export {
             None
         };
         if let Some(endpoint) = otlp {
-            let agent = ureq::Agent::config_builder()
-                .http_status_as_error(false)
-                .timeout_global(Some(EXPORT_TIMEOUT))
-                .build()
-                .new_agent();
             let exporter = opentelemetry_otlp::MetricExporter::builder()
                 .with_http()
-                .with_http_client(Ureq(agent))
+                .with_http_client(Ureq::new())
                 .with_endpoint(endpoint)
                 .with_timeout(EXPORT_TIMEOUT)
                 .build()
@@ -130,23 +123,5 @@ impl Scrape for PrometheusText {
             tracing::warn!(%error, "the metrics cannot be written as Prometheus' text");
         }
         String::from_utf8(text).unwrap_or_default()
-    }
-}
-
-/// The OTLP export's HTTP client: ureq, blocking, on the periodic reader's
-/// own thread, which waits on each export.
-#[derive(Debug)]
-struct Ureq(ureq::Agent);
-
-#[async_trait::async_trait]
-impl opentelemetry_http::HttpClient for Ureq {
-    async fn send_bytes(
-        &self,
-        request: http::Request<Bytes>,
-    ) -> Result<http::Response<Bytes>, opentelemetry_http::HttpError> {
-        let response = self.0.run(request.map(|body| body.to_vec()))?;
-        let (parts, mut body) = response.into_parts();
-        let body = body.read_to_vec()?;
-        Ok(http::Response::from_parts(parts, Bytes::from(body)))
     }
 }

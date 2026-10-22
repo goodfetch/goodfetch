@@ -70,6 +70,7 @@ mod config;
 mod daemon;
 mod logs;
 mod metrics;
+mod otlp;
 mod runs;
 mod service;
 mod upgrade;

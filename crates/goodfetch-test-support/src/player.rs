@@ -12,6 +12,7 @@ use std::io::{self, BufRead, Write};
 use serde_json::{Value, json};
 
 use crate::script::{Call, Reply, Script, Sent, Step};
+use crate::strict_stdout::is_json_rpc;
 
 /// Where an Attached engine started as an SDK starts one,
 /// `goodfetch-scripted-engine attached-engine`, finds its script: under
@@ -183,6 +184,11 @@ impl<C: BufRead, E: Write, R: Write> Player<C, E, R> {
             });
         };
         self.note(&json!({ "from": "client", "message": message }))?;
+        // The real engine refuses what is not one JSON-RPC 2.0 message: a
+        // missing or other `jsonrpc`, a reply with both `result` and `error`.
+        if !is_json_rpc(&message) {
+            return Err(unexpected(index, "a JSON-RPC 2.0 message", &message));
+        }
         Ok(message)
     }
 

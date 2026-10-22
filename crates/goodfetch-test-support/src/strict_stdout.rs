@@ -226,7 +226,7 @@ fn message(chunk: Chunk, number: usize) -> Result<serde_json::Value, StrictStdou
 /// `id`), a notification (`method`, no `id`) or a reply (`id` and either
 /// `result` or `error`), with no member JSON-RPC does not define. A batch
 /// is none.
-fn is_json_rpc(value: &serde_json::Value) -> bool {
+pub(crate) fn is_json_rpc(value: &serde_json::Value) -> bool {
     let Some(message) = value.as_object() else {
         return false;
     };

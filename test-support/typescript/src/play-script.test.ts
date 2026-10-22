@@ -246,6 +246,51 @@ describe("playScript", () => {
     expect(() => played.done()).toThrow(expect.objectContaining({ code: "unexpected_message" }));
   });
 
+  test("a message without the jsonrpc member fails the play at once", async () => {
+    const played = playScript("self-test/call-answered.json");
+    const client = new TinyClient(played.transport);
+
+    const sent = client.send({ id: 0, method: "hello", params: collieHello });
+
+    await expect(sent).rejects.toMatchObject({ code: "unexpected_message" });
+  });
+
+  test("an answer with both a result and an error fails the play at once", async () => {
+    const played = playScript("self-test/handler-call-and-event.json");
+    const client = new TinyClient(played.transport);
+    await client.request("hello", collieHello);
+    await client.next();
+    await client.request("sample.echo", { text: "hello" });
+    await client.next();
+
+    const answered = client.send({
+      jsonrpc: "2.0",
+      id: 1,
+      result: { replaced: false },
+      error: { code: -32000, message: "both" },
+    });
+
+    await expect(answered).rejects.toMatchObject({ code: "unexpected_message" });
+  });
+
+  test("an await_reply that follows no request fails with nothing_to_answer", () => {
+    const script = new URL("fixtures/engine-scripts/await-reply-first.json", import.meta.url);
+
+    const played = playScript(script);
+
+    expect(() => played.done()).toThrow(expect.objectContaining({ code: "nothing_to_answer" }));
+  });
+
+  test("a JSON line that is not an object is recorded as a message", async () => {
+    const played = playScript("self-test/call-answered.json");
+    const client = new TinyClient(played.transport);
+
+    const written = client.write("[1]\n");
+
+    await expect(written).rejects.toMatchObject({ code: "unexpected_message" });
+    expect(played.messages).toEqual([{ from: "client", message: [1] }]);
+  });
+
   test("a line that is not JSON fails the play at once", async () => {
     const played = playScript("self-test/call-answered.json");
     const client = new TinyClient(played.transport);

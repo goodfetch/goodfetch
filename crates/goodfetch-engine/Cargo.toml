@@ -29,10 +29,12 @@ hyper-util = { workspace = true, features = ["tokio"] }
 # Period Limits count in an explicit IANA time zone (ADR 0041), read from the
 # system database, or a bundled one where the OS has none.
 jiff = { workspace = true, features = ["tzdb-zoneinfo", "tzdb-bundle-platform"] }
-# The Trace context each request carries, the request spans' parents and
-# links, and trace and span IDs drawn from the Entropy (ADR 0132):
-# OpenTelemetry's API, its SDK's ID generator and the bridge from `tracing`.
-opentelemetry.workspace = true
+# The runtime's metrics, through OpenTelemetry's API: the meter is a value
+# the executable gives the engine, a no-op one otherwise (ADR 0050). The
+# Trace context each request carries, the request spans' parents and links,
+# and trace and span IDs drawn from the Entropy (ADR 0132): the API, its
+# SDK's ID generator and the bridge from `tracing`.
+opentelemetry = { workspace = true, features = ["metrics"] }
 opentelemetry_sdk.workspace = true
 tracing-opentelemetry.workspace = true
 rusqlite.workspace = true
@@ -90,6 +92,11 @@ hyper = { workspace = true, features = ["server"] }
 rcgen = { workspace = true, features = ["ring"] }
 insta.workspace = true
 mimalloc.workspace = true
+# The metrics tests read what the engine records through the SDK and the
+# Prometheus exporter the executables use (src/engine/tests/metrics.rs).
+opentelemetry_sdk = { workspace = true, features = ["metrics"] }
+opentelemetry-prometheus.workspace = true
+prometheus.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true
 rstest.workspace = true

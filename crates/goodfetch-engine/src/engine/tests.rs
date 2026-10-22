@@ -19,6 +19,7 @@ mod key_value_store;
 mod layout;
 mod lifecycle;
 mod log;
+mod ops;
 mod progress;
 mod refusals;
 mod run;

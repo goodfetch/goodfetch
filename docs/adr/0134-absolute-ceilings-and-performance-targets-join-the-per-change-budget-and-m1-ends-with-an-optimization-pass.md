@@ -16,6 +16,7 @@ Decided with the owner in a grilling session on 2026-10-18, before the engine tr
 ### Two kinds of absolute figures
 
 - **Absolute ceilings are counted, and they gate.** `xtask perf` checks each one on every change, beside ADR 0071's +5% comparison with the base. A "Performance change" section cannot pass a change over a ceiling. Only the owner moves one, in either direction.
+  > Amended on 2026-10-22 (owner decision of 2026-10-22): until the optimization pass below ends, performance is measured for information only. `xtask perf` still checks every ceiling and ADR 0071's +5% threshold and lists each figure over one with its change or value in the gate's log, as a note, but no merge gate fails on it, and no pull request needs a "Performance change" section or a "Performance change accepted" comment. From a nearly empty `main`, almost every ticket legitimately raises the startup, memory and instruction figures, so the per-change budget produced paperwork rather than signal; real waste is still found by the informational `just perf` the M1 run does every 10 merged tickets. A broken measurement still fails: a benchmark that fails its admission, or a ceiling whose figure the head lost. The switch is one constant, `GATING` in `xtask/src/perf/budget.rs`.
 - **Performance targets are timed or resident, and they inform the owner test.** They are measured on the owner's machine, never on a hosted runner, and never fail a change. ADR 0071's rule that only counted figures gate a change stands.
 - **A missed target is written up, and the owner decides at the owner test.** The milestone's report names each target, its measured figure and, for a miss, the gap and its cause. The owner signs the milestone off or keeps it open.
 - **Targets move only by amending this ADR.**
@@ -45,6 +46,7 @@ Decided with the owner in a grilling session on 2026-10-18, before the engine tr
 - **One M1 ticket,** blocked by every other M1 ticket of the engine, the Frontier and the fetch tiers, and blocking the M1 owner test ([#289](https://github.com/goodfetch/goodfetch/issues/289)). It is a ticket, not a standing process step (ADR 0133).
 - **It profiles an idle Attached engine, an idle Daemon and the 1,000-page crawl** with the tools `TESTING.md` names, cuts the largest costs until each target is met or its gap is written up, and records before-and-after figures in its pull request's Evidence.
 - **It then proposes the 1.10× ceilings** and the resident-memory ceilings below, for the owner to approve.
+  > Amended on 2026-10-22 (owner decision of 2026-10-22): the pass's pull request, which sets the ceilings from the tuned build, also sets `GATING` in `xtask/src/perf/budget.rs` back to `Enforced`, with the tests that expect a note in its place. From then on the per-change budget and the ceilings gate again, and a figure past its threshold needs its "Performance change" section and the owner's acceptance.
 
 ### Resident-memory ceilings come from the tuned build, in M1
 

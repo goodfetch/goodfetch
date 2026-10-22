@@ -103,6 +103,9 @@ echo "Running the local gate ($gate) on #$number at $head in $worktree"
   else
     # What the pull request's "Performance change" section and its owner's
     # acceptance comment accept, read at this head for `just perf` (ADR 0134).
+    # Until M1's optimization pass it only marks figures accepted in the
+    # table: no figure past its threshold fails (ADR 0134, as amended on
+    # 2026-10-22).
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet -p xtask -- \
       perf pull-request --number "$number" --save target/perf-pull-request.json
     GOODFETCH_PERF_PULL_REQUEST="$worktree/target/perf-pull-request.json" just pre-merge all

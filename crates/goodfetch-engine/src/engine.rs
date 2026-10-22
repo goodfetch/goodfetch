@@ -28,6 +28,7 @@ use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
 use crate::home::{Home, RunStateLocation};
 use crate::log::LogEvents;
+use crate::metrics::Metrics;
 use crate::politeness::{PolitenessOptions, PolitenessTables};
 use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
@@ -52,6 +53,7 @@ pub struct Engine {
     gates: Option<Arc<dyn Gates>>,
     events: EventsOptions,
     console: Option<&'static ConsoleBuild>,
+    metrics: Metrics,
 }
 
 /// What an engine runs on, which `main` builds once (the system versions)
@@ -91,7 +93,15 @@ impl Engine {
             gates: composition.admission_gates()?,
             events: EventsOptions::default(),
             console: composition.console(),
+            metrics: Metrics::none(),
         })
+    }
+
+    /// The same, recording the runtime's metrics on `metrics` (ADR 0050).
+    #[must_use]
+    pub fn with_metrics(mut self, metrics: Metrics) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     /// The same, each of its Connections receiving the log events of
@@ -191,6 +201,7 @@ impl Engine {
                 events,
                 clock,
                 console,
+                metrics: self.metrics.clone(),
             },
             listener,
             options,
@@ -259,6 +270,7 @@ impl Engine {
                 clock: dependencies.clock,
                 entropy: dependencies.entropy,
                 events: events.clone(),
+                metrics: self.metrics.clone(),
                 environment: dependencies.environment,
             },
             owner,

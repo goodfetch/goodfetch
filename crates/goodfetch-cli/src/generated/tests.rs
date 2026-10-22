@@ -114,6 +114,7 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
         [
             ("daemon.status", Offer::Command),
             ("daemon.stop", Offer::Command),
+            ("daemon.health", Offer::Command),
             ("engine.info", Offer::Command),
             ("events.subscribe", Offer::Follow),
             ("run.new_page", Offer::Command),

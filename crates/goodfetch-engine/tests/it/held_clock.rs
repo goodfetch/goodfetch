@@ -8,6 +8,10 @@ use std::future::Future;
 use std::sync::mpsc;
 
 /// Runs `future` with the paused clock held still.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "holding the paused clock still is the blocking task's whole job (TESTING.md, Time)"
+)]
 pub(crate) async fn held<F: Future>(future: F) -> F::Output {
     let (release, released) = mpsc::channel::<()>();
     // The blocking task ends once `release` drops, after `future`.

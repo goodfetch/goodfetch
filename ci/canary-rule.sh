@@ -47,8 +47,9 @@ for artifact in "$root/$artifacts"/leaked/*; do
   expect "$artifacts/leaked/$name" 1 "$(scan "$scratch/$name.d" "$scratch/$name.json")"
 done
 
-declared=$(sed -n 's/^id = "\(.*\)"$/\1/p' "$rule" | sort)
-found=$(jq -r '.[].RuleID' "$scratch/kinds.log.json" | sort -u)
+# Both in byte order, whatever the locale's collation.
+declared=$(sed -n 's/^id = "\(.*\)"$/\1/p' "$rule" | LC_ALL=C sort)
+found=$(jq -r '.[].RuleID' "$scratch/kinds.log.json" | LC_ALL=C sort -u)
 if [[ "$declared" != "$found" ]]; then
   echo "error[canary-rule] $artifacts/leaked/kinds.log: the rules found differ from the rules declared"
   diff <(echo "$declared") <(echo "$found") || true

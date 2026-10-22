@@ -44,14 +44,6 @@ describe("testEnv with a description that fails the schema", () => {
   });
 });
 
-describe("testEnv with a goodfetch-test-env that stays alive", () => {
-  test.override("testEnvProgram", fake("stays-alive"));
-
-  test.fails("fails its test at teardown", ({ testEnv }) => {
-    expect(testEnv.start_time).toBe("2026-01-05T09:00:00Z");
-  });
-});
-
 describe("startTestEnv", () => {
   test("gives two setups started at once different folders and homes", async ({
     processes,
@@ -107,6 +99,22 @@ describe("startTestEnv", () => {
 
     await expect(closed).rejects.toMatchObject({ code: "teardown_failed" });
     await processes.close();
+  });
+
+  test("leaves a goodfetch-test-env alive past the teardown deadline to the process record", async () => {
+    const processes = new ProcessRecord();
+    const started = await startTestEnv({
+      processes,
+      testName: "a teardown past its deadline",
+      toolManifest: undefined,
+      program: fake("stays-alive"),
+      teardownDeadlineMs: 100,
+    });
+    await started.close();
+
+    const closed = processes.close();
+
+    await expect(closed).rejects.toMatchObject({ code: "processes_alive" });
   });
 
   test("fails without a test tool manifest", async () => {

@@ -153,6 +153,10 @@ fn connections_to(observations: &Value, name: &str) -> Vec<Value> {
 
 /// Covers: story:4-81, row:SC-10
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the file the download wrote, outside the runtime"
+)]
 fn a_first_use_download_sends_one_plain_get_naming_nothing_about_the_install() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();

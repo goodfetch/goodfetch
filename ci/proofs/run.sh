@@ -38,21 +38,23 @@ fail() {
   failed=1
 }
 
-# Counts how many times each line appears, as "<count> <line>" lines.
-tally() { sort | uniq -c | sed -E 's/^ +//'; }
+# Counts how many times each line appears, as "<count> <line>" lines. Every
+# sort whose output is compared runs under LC_ALL=C, in byte order: a locale
+# such as glibc's en_US.UTF-8 collates without regard to case.
+tally() { LC_ALL=C sort | LC_ALL=C uniq -c | sed -E 's/^ +//'; }
 
 # Every proof must leave the fixtures as they were: no snapshot written or
 # changed. Build outputs and caches are not fixtures.
 fixtures() {
   find ci/proofs -type f -not -path '*/node_modules/*' -not -path '*/target/*' \
-    -not -path '*/__pycache__/*' -not -name Cargo.lock -exec shasum {} + | sort
+    -not -path '*/__pycache__/*' -not -name Cargo.lock -exec shasum {} + | LC_ALL=C sort
 }
 before=$(fixtures)
 unchanged() { [[ "$(fixtures)" == "$before" ]]; }
 
 # cargo-deny reads the root deny.toml (it reads deny.toml in the current folder).
 codes=$(cargo deny --manifest-path ci/proofs/cargo-deny/Cargo.toml --format json check bans 2>&1 |
-  jq -r 'select(.type == "diagnostic" and .fields.code == "banned") | .fields.message | capture("crate .(?<name>[a-z]+) =").name' | sort | tr '\n' ' ')
+  jq -r 'select(.type == "diagnostic" and .fields.code == "banned") | .fields.message | capture("crate .(?<name>[a-z]+) =").name' | LC_ALL=C sort | tr '\n' ' ')
 if [[ "$codes" == "faux mockall mockito mry wiremock " ]]; then
   pass "cargo-deny bans mockall, mockito, wiremock, faux and mry"
 else
@@ -63,7 +65,7 @@ fi
 # every license off it fails, CC BY-SA too (Filter lists only), while MPL-2.0
 # and the permissive ones pass.
 codes=$(cargo deny --manifest-path ci/proofs/licenses/Cargo.toml --format json check licenses 2>&1 |
-  jq -r 'select(.type == "diagnostic" and .fields.code == "rejected") | .fields.graphs[0].Krate.name' | sort | tr '\n' ' ')
+  jq -r 'select(.type == "diagnostic" and .fields.code == "rejected") | .fields.graphs[0].Krate.name' | LC_ALL=C sort | tr '\n' ' ')
 if [[ "$codes" == "agpl-dependency busl-dependency cc-by-sa-dependency gpl-dependency lgpl-dependency sspl-dependency " ]]; then
   pass "cargo-deny refuses the GPL family, SSPL, BUSL and CC BY-SA, and allows MPL-2.0"
 else
@@ -73,7 +75,7 @@ fi
 # ADR 0087's workspace-wide direction: no crate but Foxhound's and xtask
 # depends on a Foxhound crate, as a normal, build or dev dependency.
 codes=$(cargo deny --manifest-path ci/proofs/foxhound-direction/Cargo.toml --format json check -A unused-wrapper bans 2>&1 |
-  jq -r 'select(.type == "diagnostic" and .fields.code == "unmatched-wrapper") | .fields.message | capture("parent .(?<name>[a-z-]+) =").name' | sort | tr '\n' ' ')
+  jq -r 'select(.type == "diagnostic" and .fields.code == "unmatched-wrapper") | .fields.message | capture("parent .(?<name>[a-z-]+) =").name' | LC_ALL=C sort | tr '\n' ' ')
 if [[ "$codes" == "builds-with-it takes-it tests-with-it " ]]; then
   pass "cargo-deny refuses a Foxhound crate under any parent but Foxhound's crates and xtask"
 else

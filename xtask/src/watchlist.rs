@@ -208,11 +208,15 @@ struct Known {
 }
 
 /// The coverage file, `vendors.toml`: the vendors the rules cover
-/// (`block_detection`'s tests check their `rules` exist).
+/// (`block_detection`'s tests check their `rules` exist), and the vendors no
+/// rule covers yet that the watchlists list under several names, which
+/// each get one issue, keyed by their `name`.
 #[derive(Deserialize)]
 pub(crate) struct Coverage {
     #[serde(rename = "vendor")]
     covered: Vec<Known>,
+    #[serde(default)]
+    uncovered: Vec<Known>,
 }
 
 impl Coverage {
@@ -241,19 +245,29 @@ pub(crate) struct Missing {
 
 /// Each vendor of `listed` that `coverage` lacks, by key, its listings in
 /// `listed`'s order. A name matches a covered vendor's name or one of its
-/// `listed_as` names, compared as keys.
+/// `listed_as` names, compared as keys; an uncovered vendor's `listed_as`
+/// names fold into its own name's key.
 pub(crate) fn missing(listed: &[Listed], coverage: &Coverage) -> Vec<Missing> {
+    let names = |vendor: &'_ Known| {
+        let own = key(&vendor.name);
+        std::iter::once(&vendor.name)
+            .chain(vendor.listed_as.iter())
+            .map(move |name| (key(name), own.clone()))
+            .collect::<Vec<_>>()
+    };
     let covered: BTreeSet<String> = coverage
         .covered
         .iter()
-        .flat_map(|vendor| std::iter::once(&vendor.name).chain(&vendor.listed_as))
-        .map(|name| key(name))
+        .flat_map(names)
+        .map(|(name, _)| name)
         .collect();
+    let folded: BTreeMap<String, String> = coverage.uncovered.iter().flat_map(names).collect();
     let mut missing: BTreeMap<String, Vec<Listed>> = BTreeMap::new();
     for listing in listed {
         let key = key(&listing.name);
         if !key.is_empty() && !covered.contains(&key) {
-            missing.entry(key).or_default().push(listing.clone());
+            let vendor = folded.get(&key).cloned().unwrap_or(key);
+            missing.entry(vendor).or_default().push(listing.clone());
         }
     }
     missing

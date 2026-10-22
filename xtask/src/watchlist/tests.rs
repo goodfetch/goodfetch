@@ -119,3 +119,25 @@ fn a_technology_that_says_none_of_these_is_no_bot_protection_vendor(
 ) {
     assert!(!describes_bot_protection(name, description));
 }
+
+/// A vendor no rule covers yet that the lists spell differently is missing
+/// once, keyed by the name the coverage file folds its spellings into.
+#[test]
+fn an_uncovered_vendor_the_lists_spell_differently_is_missing_once() {
+    let coverage = Coverage::parse(
+        "vendor = []\n\n[[uncovered]]\nname = \"Akamai Bot Manager\"\nlisted_as = [\"akamai\"]\n",
+    )
+    .unwrap();
+    let listings = [
+        listed(Watchlist::WebAppAnalyzer, "Akamai Bot Manager"),
+        listed(Watchlist::AntibotDetector, "akamai"),
+    ];
+
+    assert_eq!(
+        missing(&listings, &coverage),
+        vec![Missing {
+            key: "akamaibotmanager".to_owned(),
+            listings: listings.to_vec(),
+        }]
+    );
+}

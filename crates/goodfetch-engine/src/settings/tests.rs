@@ -8,7 +8,7 @@
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::settings::{
-    Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsLayer,
+    Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsLayer, WeakenedSetting,
 };
 use proptest::prelude::*;
 use rstest::rstest;
@@ -709,11 +709,12 @@ fn a_setting_that_weakens_a_guarantee_is_marked_on_the_results() {
     ));
 
     assert_eq!(
-        effective.weakened_by(),
-        [SettingLimit {
+        effective.weakened(),
+        [WeakenedSetting {
             key: "tls.accept_invalid_certs".to_owned(),
             value: json!({ "intranet.example": null }),
             layer: SettingsLayer::Run,
+            origin: None,
         }]
     );
 }

@@ -175,10 +175,10 @@ fn a_crawl_that_shares_no_politeness_goes_beside_another_and_is_marked_in_its_re
     assert!(second.finish());
 
     assert_eq!(
-        (url(&own[0]), &report["result"]["weakened_by"]),
+        (url(&own[0]), &report["result"]["weakened"]),
         (
             "https://shop.test/2".to_owned(),
-            &json!([{ "key": "politeness.sharing", "value": "run", "layer": "run" }])
+            &json!([{ "key": "politeness.sharing", "value": "run", "layer": "run", "origin": "settings" }])
         )
     );
 }

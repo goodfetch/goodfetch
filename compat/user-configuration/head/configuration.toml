@@ -41,6 +41,7 @@ interval = 30000
 [settings.timeout]
 secret = 30000
 run = 30000
+close = 30000
 action = 30000
 navigation = 30000
 first_byte = 30000

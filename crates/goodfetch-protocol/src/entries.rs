@@ -2,7 +2,7 @@
 //! catalog, and what each Product's catalog holds, by the Product mark of
 //! where each entry is defined (ADRs 0095 and 0099).
 
-use crate::catalog::{Entries, Operation, Product, SharedType};
+use crate::catalog::{Entries, ErrorCodeDefinition, Operation, Product, SharedType};
 use crate::{
     audit, block, browser_cache, checkpoint, connection, console, daemon, dns, engine, events,
     executables, foxhound, key_value_store, log, ops, page, politeness, run, sample, secrets,
@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 30] = [
+pub const MODULES: [&Entries; 31] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &console::ENTRIES,
@@ -37,6 +37,7 @@ pub const MODULES: [&Entries; 30] = [
     &foxhound::crawl::ENTRIES,
     &foxhound::frontier::ENTRIES,
     &foxhound::outcomes::ENTRIES,
+    &foxhound::report::ENTRIES,
     &foxhound::session_pool::ENTRIES,
     &foxhound::settings::ENTRIES,
     &foxhound::block::ENTRIES,
@@ -63,6 +64,15 @@ pub fn product_of_value(shared_type: SharedType, name: &str) -> Option<Product> 
             .any(|value| value.shared_type == shared_type && value.name == name)
             .then(|| Product::of_module(entries.defined_in))
     })
+}
+
+/// The Error code named `name`, whichever module defines it; none for a
+/// code neither Product knows.
+pub fn error_code(name: &str) -> Option<&'static ErrorCodeDefinition> {
+    MODULES
+        .into_iter()
+        .flat_map(|entries| entries.error_codes)
+        .find(|code| code.name == name)
 }
 
 #[cfg(test)]
@@ -96,7 +106,9 @@ mod tests {
                 "locator.press",
                 "run.start",
                 "run.finish",
+                "run.stop",
                 "run.abort",
+                "run.usage",
                 "run.set_progress_message",
                 "run.checkpoint",
                 "run.pause",
@@ -135,7 +147,9 @@ mod tests {
                 "locator.press",
                 "run.start",
                 "run.finish",
+                "run.stop",
                 "run.abort",
+                "run.usage",
                 "run.set_progress_message",
                 "run.checkpoint",
                 "run.pause",

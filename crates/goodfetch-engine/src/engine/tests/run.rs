@@ -59,7 +59,7 @@ fn use_foxhound() -> Contribution {
                     ended_by: EndedBy::Driver,
                     initialize: None,
                     policy_version: None,
-                    weakened_by: Vec::new(),
+                    weakened: Vec::new(),
                     binding: None,
                     clean_up_digest: None,
                     checkpoint_interval: None,

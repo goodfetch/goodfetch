@@ -43,12 +43,17 @@ impl<'env> Attached<'env> {
         configure: impl FnOnce(&mut Command),
     ) -> Self {
         let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-collie"));
-        command
-            .arg("attached-engine")
-            .env("GOODFETCH_LOG", "trace")
-            .stderr(Stdio::piped());
+        command.arg("attached-engine").env("GOODFETCH_LOG", "trace");
         configure(&mut command);
-        let process = env.spawn(&mut command).unwrap();
+        Self::spawned(env, deadline, &mut command)
+    }
+
+    /// Starts `command`, which runs Collie's `attached-engine` as its last
+    /// arguments, such as inside a cgroup a service manager made, each
+    /// message awaited for up to `deadline`.
+    pub(crate) fn spawned(env: &'env TestEnv, deadline: Duration, command: &mut Command) -> Self {
+        command.stderr(Stdio::piped());
+        let process = env.spawn(command).unwrap();
         let stdin = process.child().stdin.take();
         let stdout = StrictStdout::of(&process).unwrap().within(deadline);
         Self {

@@ -17,8 +17,7 @@ use std::sync::{Arc, OnceLock};
 
 pub(crate) use exceptions::Presented;
 pub use exceptions::{
-    CertificateChanged, CertificateExceptions, ExceptionHosts, ExceptionKind, ExceptionUsed,
-    PinBook,
+    CertificateChanged, CertificateExceptions, ExceptionKind, ExceptionUsed, PinBook,
 };
 
 use goodfetch_protocol::tls::{

@@ -14,7 +14,7 @@
 //! engine's client and the Secret-provider driver read: no Session cookie
 //! and no Secret goes to it.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use goodfetch_protocol::audit::{Actor, CERTIFICATE_PINNED};
@@ -22,12 +22,12 @@ use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::tls::CertificateFailure;
 use jiff::Timestamp;
 use serde_json::{Value, json};
-use tokio::sync::Mutex;
 
 use super::{InvalidDomain, covered, domain_key};
 use crate::audit::{AuditLog, Origin};
 use crate::clock::Clock;
 use crate::known_certificates::{Found, KeyHash, KnownCertificates, Pinned};
+use crate::secrets::ExceptionHosts;
 use crate::tasks::TaskOwner;
 
 /// Where one person's pins are kept, and where a first pin is recorded.
@@ -46,28 +46,6 @@ pub struct PinBook {
     pub owner: Arc<TaskOwner>,
     /// What a first pin is dated by.
     pub clock: Clock,
-}
-
-/// The hosts one Run reached through an invalid-certificate exception,
-/// with the key each presented. Clones share it.
-#[derive(Clone, Debug, Default)]
-pub struct ExceptionHosts(Arc<Mutex<BTreeMap<String, KeyHash>>>);
-
-impl ExceptionHosts {
-    /// The key `host` presented, when the Run reached it through an
-    /// exception.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future loses only the answer.
-    pub async fn reached(&self, host: &str) -> Option<KeyHash> {
-        let host = domain_key(host)?;
-        self.0.lock().await.get(&host).copied()
-    }
-
-    async fn add(&self, host: String, key: KeyHash) {
-        self.0.lock().await.insert(host, key);
-    }
 }
 
 /// The kind of exception a host was reached through, as Provenance marks
@@ -197,7 +175,7 @@ impl CertificateExceptions {
         };
         match found {
             Found::Pinned(pinned) if pinned == key => {
-                self.reached.add(host, key).await;
+                self.reached.add(&host, key).await;
                 Ok(Some(ExceptionUsed {
                     kind: ExceptionKind::TrustOnFirstUse,
                     certificate: key,

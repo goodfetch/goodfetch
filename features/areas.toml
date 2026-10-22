@@ -448,6 +448,13 @@ number = 4
 kind = "error"
 prefix = "egress_"
 
+# Area 4's certificate verification (#625): the Error codes a certificate
+# fails with.
+[[area]]
+number = 4
+kind = "error"
+prefix = "certificate_"
+
 # Area 4's Secret references (#615): the Error codes a resolution fails
 # with.
 [[area]]

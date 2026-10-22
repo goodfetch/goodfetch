@@ -155,7 +155,16 @@ fn the_generated_namespaces_are_those_of_collies_commands() {
     assert_eq!(
         names,
         [
-            "daemon", "engine", "events", "run", "page", "locator", "sample", "config", "usage"
+            "daemon",
+            "engine",
+            "events",
+            "run",
+            "page",
+            "locator",
+            "key_value_store",
+            "sample",
+            "config",
+            "usage"
         ]
     );
     assert_eq!(

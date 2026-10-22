@@ -87,7 +87,9 @@ pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SecretKind,
     Sighting, gitleaks_rule,
 };
-pub use cli::{Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command};
+pub use cli::{
+    Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command, record_command_in,
+};
 pub use colour::{ColourError, ColourProperty};
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
 pub use crash_vfs::{
@@ -162,8 +164,8 @@ pub use special_purpose::{
 };
 pub use sql_dump::sql_dump;
 pub use ssrf::{
-    Answer, CaseLookup, CoverageGap, CoverageGaps, EgressRule, Family, LetThrough, Miss, Outcome,
-    Redirect, Refusal, Route, SsrfCase, SsrfTable, SsrfTableError, run_cases,
+    Answer, CaseDomains, CaseLookup, CoverageGap, CoverageGaps, EgressRule, Family, LetThrough,
+    Miss, Outcome, Redirect, Refusal, Route, SsrfCase, SsrfTable, SsrfTableError, run_cases,
 };
 pub use strict_stdout::{
     Line, MESSAGE_DEADLINE, STDERR_GRACE, StrictStdout, StrictStdoutError, StrictStdoutErrorKind,

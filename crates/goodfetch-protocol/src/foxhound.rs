@@ -24,7 +24,7 @@ use crate::catalog::{
     Operation, OperationClass, OperationKind, PluginKind, PluginMethod, ProtocolVersion, Reach,
     Setting, SharedType, SharedTypeValue, Stability, schema_of,
 };
-use crate::sample::SampleEchoParams;
+use crate::sample::SampleEchoed;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -32,8 +32,10 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SampleCrawlParams {
-    /// The text each page repeats, a type Collie's catalog defines.
-    pub echo: SampleEchoParams,
+    /// The text each page repeats, a type Collie's catalog defines. No
+    /// request's params type, which holds `_meta` (ADR 0132), is another
+    /// type's member.
+    pub echo: SampleEchoed,
     /// How many pages to visit.
     pub pages: u32,
 }

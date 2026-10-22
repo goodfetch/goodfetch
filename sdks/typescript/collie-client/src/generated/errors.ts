@@ -204,6 +204,15 @@ export class DaemonDrainingError extends UnavailableError {
 }
 
 /**
+ * The run's egress policy refused a request before it connected: a host the domain policy does not allow, an address that is not globally reachable, or a scheme no request may use. The details name the URL, the rule, the address when there is one and the setting that would allow it.
+ */
+export class EgressRefusedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "egress_refused", group: "refused", retryable: false });
+  }
+}
+
+/**
  * The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.
  */
 export class EngineExitedError extends UnavailableError {
@@ -585,6 +594,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   closed: ClosedError,
   console_port_in_use: ConsolePortInUseError,
   daemon_draining: DaemonDrainingError,
+  egress_refused: EgressRefusedError,
   engine_exited: EngineExitedError,
   engine_not_found: EngineNotFoundError,
   engine_output_invalid: EngineOutputInvalidError,

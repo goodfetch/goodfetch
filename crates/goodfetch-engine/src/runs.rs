@@ -110,6 +110,7 @@ use crate::run_state::{
 use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets};
 use crate::settings::{Resolved, RunSettings, Settings};
 use crate::tasks::TaskOwner;
+use crate::trace::Link;
 use crate::transition;
 
 /// A Run's state, in its folder.
@@ -624,7 +625,7 @@ impl End {
 /// start or report box it: each is sent once per Run.
 enum Command {
     Start(
-        Box<(Start, RunSecrets)>,
+        Box<(Start, RunSecrets, Link)>,
         Option<ConnectionId>,
         oneshot::Sender<Result<Started, StartError>>,
     ),
@@ -669,7 +670,7 @@ enum Command {
         oneshot::Sender<Result<watch::Receiver<Option<RunReport>>, RunError>>,
     ),
     Resume(
-        Box<Resume>,
+        Box<(Resume, Link)>,
         Option<ConnectionId>,
         oneshot::Sender<Result<Resumed, RunError>>,
     ),
@@ -1390,7 +1391,8 @@ impl Runs {
         answered.await.map_err(|_| RunError::Stopped)?
     }
 
-    /// Begins a Run, or returns the one its Run ID names.
+    /// Begins a Run, or returns the one its Run ID names. A new Run's span
+    /// is a root linked to the current span, the starting request's.
     ///
     /// # Errors
     ///
@@ -1429,7 +1431,7 @@ impl Runs {
         let (answer, answered) = oneshot::channel();
         self.commands
             .send(Command::Start(
-                Box::new((start, secrets)),
+                Box::new((start, secrets, Link::to_current())),
                 self.connection,
                 answer,
             ))
@@ -1668,7 +1670,11 @@ impl Runs {
     pub async fn resume(&self, resume: Resume) -> Result<Resumed, RunError> {
         let (answer, answered) = oneshot::channel();
         self.commands
-            .send(Command::Resume(Box::new(resume), self.connection, answer))
+            .send(Command::Resume(
+                Box::new((resume, Link::to_current())),
+                self.connection,
+                answer,
+            ))
             .await
             .map_err(|_| RunError::Stopped)?;
         answered.await.map_err(|_| RunError::Stopped)?
@@ -1935,20 +1941,21 @@ impl Registry {
         while let Some(command) = mailbox.recv().await {
             match command {
                 Command::Start(start, _, answer) if self.draining => {
-                    let (start, _) = *start;
+                    let (start, _, _) = *start;
                     let _ = answer.send(Err(StartError::Draining {
                         run_id: start.run_id,
                     }));
                 }
                 Command::Resume(resume, _, answer) if self.draining => {
+                    let (resume, _) = *resume;
                     let _ = answer.send(Err(RunError::Draining(resume.run_id)));
                 }
                 Command::Drain(answer) => {
                     let _ = answer.send(self.drain().await);
                 }
                 Command::Start(start, connection, answer) => {
-                    let (start, secrets) = *start;
-                    let started = self.start(start, secrets, connection).await;
+                    let (start, secrets, link) = *start;
+                    let started = self.start(start, secrets, connection, &link).await;
                     let _ = answer.send(started);
                 }
                 Command::Finish(run_id, letting, answer) => {
@@ -2008,7 +2015,12 @@ impl Registry {
                     let _ = answer.send(self.stop(&run_id, reason, location).await);
                 }
                 Command::Resume(resume, connection, answer) => {
-                    let _ = answer.send(self.resume(*resume, connection).await);
+                    let (resume, link) = *resume;
+                    let resumed = self.resume(resume, connection).await;
+                    if let Ok(Resumed::New { run, .. }) = &resumed {
+                        link.add_to(run.span());
+                    }
+                    let _ = answer.send(resumed);
                 }
                 Command::Machine(answer) => {
                     let _ = answer.send(self.machine().await);
@@ -2204,6 +2216,7 @@ impl Registry {
         start: Start,
         secrets: RunSecrets,
         connection: Option<ConnectionId>,
+        link: &Link,
     ) -> Result<Started, StartError> {
         let run_id = match &start.run_id {
             Some(run_id) => run_id.clone(),
@@ -2248,7 +2261,13 @@ impl Registry {
                 needs: found.needs,
             }));
         }
-        self.begin(run_id, start, inputs, secrets, connection).await
+        let started = self
+            .begin(run_id, start, inputs, secrets, connection)
+            .await?;
+        if let Started::New(run) = &started {
+            link.add_to(run.span());
+        }
+        Ok(started)
     }
 
     /// The Run of `run_id` this engine runs or ran, or whose state its

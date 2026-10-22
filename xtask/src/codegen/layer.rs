@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context as _, Result};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::jsonrpc::META;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -219,8 +220,9 @@ impl Layer {
         foxhound: &Value,
         product: Product,
     ) -> Result<Self> {
-        let collie: Projection =
+        let mut collie: Projection =
             Projection::deserialize(collie).context("reading Collie's projection")?;
+        without_meta(&mut collie.definitions);
         match product {
             Product::Collie => {
                 let mut definitions = collie.definitions;
@@ -234,6 +236,7 @@ impl Layer {
                         definitions.insert(name, schema.clone());
                     }
                 }
+                without_meta(&mut definitions);
                 definitions.sort_keys();
                 let shared_types = shared_types(&collie.shared_type_values, |_| true, |_| false);
                 Ok(Self {
@@ -254,8 +257,9 @@ impl Layer {
                 })
             }
             Product::Foxhound => {
-                let all: Projection =
+                let mut all: Projection =
                     Projection::deserialize(foxhound).context("reading Foxhound's projection")?;
+                without_meta(&mut all.definitions);
                 let own = |entry_product: Product| entry_product == Product::Foxhound;
                 let operations: Vec<Operation> = all
                     .operations
@@ -338,6 +342,20 @@ impl Layer {
             "$defs": definitions,
         });
         (input, replaced)
+    }
+}
+
+/// `definitions` without `_meta`, the Trace context the bundle adds to
+/// every request's params: an envelope field each SDK's runtime fills in,
+/// to which no generator gives a member (ADRs 0099 and 0132).
+fn without_meta(definitions: &mut Map<String, Value>) {
+    for definition in definitions.values_mut() {
+        if let Some(properties) = definition
+            .get_mut("properties")
+            .and_then(Value::as_object_mut)
+        {
+            properties.remove(META);
+        }
     }
 }
 
@@ -451,6 +469,44 @@ mod tests {
                 vec!["widget.spin".to_owned(), "widget.lend".to_owned()],
                 vec!["crawl.spin".to_owned()]
             )
+        );
+    }
+
+    /// Covers: story:3-146
+    #[test]
+    fn no_sdk_layer_gives_a_requests_trace_context_a_member() {
+        let params = json!({
+            "type": "object",
+            "properties": {
+                "size": { "type": "integer" },
+                "_meta": { "$ref": "#/$defs/TraceContext" },
+            },
+        });
+        let mut collie = projection(&[operation("widget.spin", "collie", "all_surfaces")]);
+        collie["$defs"]["Empty"] = params.clone();
+        let mut crawl = operation("crawl.spin", "foxhound", "all_surfaces");
+        crawl["params"] = json!({ "$ref": "#/$defs/CrawlSpinParams" });
+        let mut foxhound = projection(&[crawl]);
+        foxhound["$defs"]["CrawlSpinParams"] = params;
+        for projection in [&mut collie, &mut foxhound] {
+            projection["$defs"]["TraceContext"] = json!({ "type": "object" });
+        }
+        let bundle = json!({ "$defs": {} });
+
+        let members = |product, name: &str| {
+            let layer = Layer::new(&bundle, &collie, &foxhound, product).unwrap();
+            let (input, _) = layer.generator_input("Layer", |name| ("import", name.to_owned()));
+            input["$defs"][name]["properties"]
+                .as_object()
+                .map(|properties| properties.keys().cloned().collect::<Vec<_>>())
+        };
+
+        assert_eq!(
+            (
+                members(Product::Collie, "Empty"),
+                members(Product::Foxhound, "CrawlSpinParams")
+            ),
+            (Some(vec!["size".to_owned()]), Some(vec!["size".to_owned()]))
         );
     }
 }

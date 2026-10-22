@@ -46,9 +46,14 @@ pub struct SsrfCase {
     #[serde(default = "one")]
     #[schemars(range(min = 1))]
     pub fetches: u32,
-    /// The address no connection may reach, when the case has one.
+    /// The domain policy the run requests `url` under, when the case sets
+    /// one; every host is allowed otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target: Option<IpAddr>,
+    pub domains: Option<CaseDomains>,
+    /// The address no connection may reach, when the case has one: an
+    /// address, or `public` for the layer's public stand-in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<Answer>,
     /// The block of IANA's special-purpose registries the target lies in,
     /// in CIDR notation as the registry writes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -72,10 +77,37 @@ impl SsrfCase {
             })
             .collect()
     }
+
+    /// The address no connection may reach, with `public` for the layer's
+    /// public stand-in.
+    pub fn target_address(&self, public: IpAddr) -> Option<IpAddr> {
+        self.target.map(|target| match target {
+            Answer::Public => public,
+            Answer::Address(address) => address,
+        })
+    }
 }
 
 fn one() -> u32 {
     1
+}
+
+/// The domain policy a case runs under (`egress.allowed_domains` and
+/// `egress.blocked_domains`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CaseDomains {
+    /// The hosts allowed, each with its subdomains; `*` for every host,
+    /// the setting's default.
+    #[serde(default = "every_host")]
+    pub allowed: Vec<String>,
+    /// The hosts blocked, each with its subdomains.
+    #[serde(default)]
+    pub blocked: Vec<String>,
+}
+
+fn every_host() -> Vec<String> {
+    vec!["*".to_owned()]
 }
 
 /// The families of SSRF cases (ADR 0067).
@@ -105,6 +137,9 @@ pub enum Family {
     /// A Lent page's client trying a browser context with its own proxy, or
     /// an extension (ADR 0089).
     LentPageClient,
+    /// A host the run's domain policy refuses, in any spelling the URL
+    /// parser accepts: one it does not allow, one it blocks.
+    DomainPolicy,
 }
 
 /// The way a case's request leaves the run.
@@ -235,6 +270,9 @@ pub enum Refusal {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EgressRule {
+    /// A host the domain policy does not allow, or blocks, or a request it
+    /// cannot judge.
+    DomainPolicy,
     /// An address that is not globally reachable.
     PrivateAddress,
     /// A scheme other than HTTP and HTTPS.
@@ -348,7 +386,10 @@ impl SsrfTable {
                     block: block.clone(),
                 });
             } else if !Cidr::parse(block)
-                .zip(case.target)
+                .zip(case.target.and_then(|target| match target {
+                    Answer::Address(address) => Some(address),
+                    Answer::Public => None,
+                }))
                 .is_some_and(|(cidr, target)| cidr.contains(target))
             {
                 gaps.push(CoverageGap::OutsideBlock {
@@ -473,7 +514,8 @@ impl std::error::Error for LetThrough {}
 
 /// Runs each case through `layer`, a layer's thin runner, and judges it:
 /// a case passes when the layer gave its expected refusal and no connection
-/// reached its target.
+/// reached its target, a target written `public` being `public`, the
+/// layer's public stand-in.
 ///
 /// # Errors
 ///
@@ -481,6 +523,7 @@ impl std::error::Error for LetThrough {}
 /// first.
 pub fn run_cases<'case>(
     cases: impl IntoIterator<Item = &'case SsrfCase>,
+    public: IpAddr,
     mut layer: impl FnMut(&SsrfCase) -> Outcome,
 ) -> Result<(), LetThrough> {
     let misses: Vec<Miss> = cases
@@ -488,7 +531,7 @@ pub fn run_cases<'case>(
         .filter_map(|case| {
             let outcome = layer(case);
             // An IPv4-mapped target and its IPv4 address are one destination.
-            let reached_target = case.target.is_some_and(|target| {
+            let reached_target = case.target_address(public).is_some_and(|target| {
                 outcome
                     .connections
                     .iter()

@@ -31,7 +31,8 @@ use goodfetch_protocol::browser_cache::{
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::settings::{EGRESS_OFFLINE, NETWORK_RESOLVE};
+use goodfetch_protocol::egress::EGRESS_OFFLINE;
+use goodfetch_protocol::settings::NETWORK_RESOLVE;
 
 use goodfetch_cli::output;
 

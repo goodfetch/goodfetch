@@ -31,7 +31,7 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, Write as _};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
@@ -343,13 +343,24 @@ pub fn record_command(
     arguments: &[impl AsRef<str>],
     exit: Option<i32>,
 ) -> Result<(), CliError> {
+    record_command_in(env.folder(), arguments, exit)
+}
+
+/// [`record_command`] for the test whose [`TestEnv::folder`] is `folder`,
+/// for a handle that outlives no borrow of its `TestEnv`, such as a
+/// foreground Daemon a Journey's steps share.
+pub fn record_command_in(
+    folder: &Path,
+    arguments: &[impl AsRef<str>],
+    exit: Option<i32>,
+) -> Result<(), CliError> {
     let arguments: Vec<&str> = arguments.iter().map(AsRef::as_ref).collect();
     let fields = match command_path(&commands()?, &arguments) {
         Some(command) => json!({ "command": command, "exit_code": exit }),
         None => json!({ "unmatched": arguments.join(" "), "exit_code": exit }),
     };
     let line = json!({ "target": COMMAND_TARGET, "fields": fields });
-    let path = command_record(env.folder());
+    let path = command_record(folder);
     File::options()
         .create(true)
         .append(true)

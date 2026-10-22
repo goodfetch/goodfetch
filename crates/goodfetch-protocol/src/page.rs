@@ -27,7 +27,7 @@ use crate::catalog::{
     OperationClass, OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind,
     schema_of,
 };
-use crate::jsonrpc::RequestId;
+use crate::jsonrpc::{ErrorData, RequestId};
 use crate::run::RunId;
 use crate::settings::SettingLimit;
 
@@ -340,6 +340,22 @@ pub struct PageDownload {
     pub suggested_filename: String,
 }
 
+/// What `page.request_failed` reports: a request of the run that failed
+/// while no call waited for it, such as one the egress policy refused.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RequestFailed {
+    /// The request's URL, as the run gave it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// Its method, such as `GET`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub method: String,
+    /// Why it failed: the Error code a call waiting for it would have
+    /// raised, with its details, such as `egress_refused`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub failure: ErrorData,
+}
+
 /// How a browser process ended (ADR 0113).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct BrowserExit {
@@ -588,6 +604,18 @@ pub const PAGE_DOWNLOAD: Event = Event {
     description: "A navigation of the page reached a file the browser downloads instead of showing, such as a PDF: the navigation answers no response and the page keeps its document. Names the page, the file's URL and the name the browser suggests.",
     class: EventClass::Lossless,
     payload: schema_of::<PageDownload>,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A request no call waited for failed (ADRs 0081 and 0085's
+/// `requestfailed`).
+pub const PAGE_REQUEST_FAILED: Event = Event {
+    name: "page.request_failed",
+    description: "A request of the run failed while no call waited for it, such as one the egress policy refused with `egress_refused`: the Run trace records it, so a refusal is never a timeout. Names the request's URL and method, and the failure's Error code with its details.",
+    class: EventClass::Lossless,
+    payload: schema_of::<RequestFailed>,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -920,7 +948,7 @@ pub const ENTRIES: Entries = Entries {
         LOCATOR_FILL,
         LOCATOR_PRESS,
     ],
-    events: &[PAGE_DOWNLOAD],
+    events: &[PAGE_DOWNLOAD, PAGE_REQUEST_FAILED],
     handler_requests: &[],
     error_codes: &[
         BODY_NOT_FOUND,

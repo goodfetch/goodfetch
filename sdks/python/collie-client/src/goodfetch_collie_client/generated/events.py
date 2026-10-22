@@ -10,12 +10,13 @@ from typing import Final
 
 from pydantic import BaseModel
 
-from .models import DownloadProgress, PageDownload, Resync, RunAborting, RunAxes, RunCheckpointing, RunMigrating, RunProgress, RunStopping, SampleEchoed
+from .models import DownloadProgress, PageDownload, RequestFailed, Resync, RunAborting, RunAxes, RunCheckpointing, RunMigrating, RunProgress, RunStopping, SampleEchoed
 
 EVENTS: Final[Mapping[str, type[BaseModel]]] = {
     "browser_cache.download_progress": DownloadProgress,
     "events.resync": Resync,
     "page.download": PageDownload,
+    "page.request_failed": RequestFailed,
     "run.aborting": RunAborting,
     "run.axes_changed": RunAxes,
     "run.checkpointing": RunCheckpointing,
@@ -29,6 +30,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 - `browser_cache.download_progress`: A Pinned artifact the call needs is downloading into the Browser cache: the bytes received so far, out of those announced.
 - `events.resync`: The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, from which the stream continues.
 - `page.download`: A navigation of the page reached a file the browser downloads instead of showing, such as a PDF: the navigation answers no response and the page keeps its document. Names the page, the file's URL and the name the browser suggests.
+- `page.request_failed`: A request of the run failed while no call waited for it, such as one the egress policy refused with `egress_refused`: the Run trace records it, so a refusal is never a timeout. Names the request's URL and method, and the failure's Error code with its details.
 - `run.aborting`: A Run is being aborted: it stops at its next safe point. Lossless.
 - `run.axes_changed`: A Run's Lifecycle, Verdict or Completeness changed: it started running, or it ended. Lossless: while a subscriber's queue is full, the Run waits.
 - `run.checkpointing`: A Checkpoint of a Run is being written: on `run.checkpoint`, a pause, a migration, a clean stop or the periodic `checkpoint.interval`. Lossless.
@@ -41,6 +43,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 EXPERIMENTAL_EVENTS: Final[frozenset[str]] = frozenset({
     "events.resync",
     "page.download",
+    "page.request_failed",
     "run.aborting",
     "run.axes_changed",
     "run.checkpointing",

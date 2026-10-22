@@ -987,6 +987,24 @@ export interface EnqueuedBatch {
   id: number | string;
 }
 /**
+ * What a failure's `data` holds: its Error code, whether the same call may
+ * succeed when made again, and the code's own details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ErrorData".
+ */
+export interface ErrorData {
+  /**
+   * The Error code, or the name of the protocol failure.
+   */
+  code: string;
+  /**
+   * Whether the same call may succeed when made again.
+   */
+  retryable: boolean;
+  [k: string]: unknown;
+}
+/**
  * What `$/events` carries: a batch of one subscription's events, in the
  * order of their positions.
  *
@@ -2029,6 +2047,39 @@ export interface RecordingReport {
   written_by?: string | null;
 }
 /**
+ * What `page.request_failed` reports: a request of the run that failed
+ * while no call waited for it, such as one the egress policy refused.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RequestFailed".
+ */
+export interface RequestFailed {
+  failure: ErrorData1;
+  /**
+   * Its method, such as `GET`.
+   */
+  method: string;
+  /**
+   * The request's URL, as the run gave it.
+   */
+  url: string;
+}
+/**
+ * Why it failed: the Error code a call waiting for it would have
+ * raised, with its details, such as `egress_refused`.
+ */
+export interface ErrorData1 {
+  /**
+   * The Error code, or the name of the protocol failure.
+   */
+  code: string;
+  /**
+   * Whether the same call may succeed when made again.
+   */
+  retryable: boolean;
+  [k: string]: unknown;
+}
+/**
  * What `events.resync` gives: the current state, from which the stream
  * continues.
  *
@@ -2866,6 +2917,27 @@ export interface SettingsFile {
  * via the `definition` "SubscriptionEnded".
  */
 export interface SubscriptionEnded {}
+/**
+ * A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
+ * and `tracestate`, which its runtime writes and never a program, with no
+ * Baggage. The schema checks only that each is a string: a receiver drops
+ * a value it cannot use, and never fails the call for it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TraceContext".
+ */
+export interface TraceContext {
+  /**
+   * The caller's span, as W3C Trace Context's `traceparent` header
+   * holds it.
+   */
+  traceparent?: string | null;
+  /**
+   * Its vendors' values, as W3C Trace Context's `tracestate` header
+   * holds them.
+   */
+  tracestate?: string | null;
+}
 /**
  * What `usage.list` takes.
  *

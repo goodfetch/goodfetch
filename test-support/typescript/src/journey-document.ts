@@ -18,8 +18,9 @@ export type JourneyFacts = Omit<JourneyDocument, "outcome">;
 
 /**
  * The document of a variant run. It is `proved` when every step passed or is
- * `manual`, every check passed and every named task's oracle answered
- * `verified`, and `failed` otherwise; it is frozen, so its outcome stays the
+ * `manual`, every check passed, every named task's oracle answered
+ * `verified` and no error failed the test outside them, and `failed`
+ * otherwise; it is frozen, so its outcome stays the
  * derived one.
  */
 export function journeyDocument(facts: JourneyFacts): JourneyResultDocument {
@@ -37,5 +38,6 @@ function outcome(facts: JourneyFacts): JourneyOutcome {
   const steps = facts.steps.every((step) => step.outcome === "passed" || step.outcome === "manual");
   const checks = facts.checks.every((check) => check.outcome === "passed");
   const tasks = facts.tasks.every((task) => task.answer?.outcome === "verified");
-  return steps && checks && tasks ? "proved" : "failed";
+  const test = (facts.test_errors ?? []).length === 0;
+  return steps && checks && tasks && test ? "proved" : "failed";
 }

@@ -34,10 +34,11 @@ const plainTest: ReportedTest = {
   parent: { project: () => undefined },
 };
 
-/** A passing test's result carrying `facts` as the Journey helper attaches them. */
-function resultOf(facts: JourneyFacts): ReportedResult {
+/** A test's result carrying `facts` as the Journey helper attaches them; a passing one unless `failed` gives its errors. */
+function resultOf(facts: JourneyFacts, failed?: readonly string[]): ReportedResult {
   return {
-    status: "passed",
+    status: failed === undefined ? "passed" : "failed",
+    errors: (failed ?? []).map((message) => ({ message })),
     attachments: [
       {
         name: JOURNEY_FACTS,
@@ -76,10 +77,27 @@ describe("ResultDocumentReporter's journey documents", () => {
     const out = folder();
     const reporter = new ResultDocumentReporter({ out });
 
-    reporter.onTestEnd(plainTest, { status: "passed", attachments: [] });
+    reporter.onTestEnd(plainTest, { status: "passed", errors: [], attachments: [] });
     await reporter.onEnd();
 
     expect(readdirSync(out)).toEqual([]);
+  });
+
+  test("writes a variant failed when its test failed after every step and check passed", () => {
+    const out = folder();
+    const reporter = new ResultDocumentReporter({ out });
+
+    reporter.onTestEnd(
+      plainTest,
+      resultOf(vector("every-step-check-and-task-passed"), [
+        "TestSupportError: page_errors: console error: boom",
+      ]),
+    );
+
+    expect(JSON.parse(readFileSync(join(out, "J-001@console.json"), "utf8"))).toMatchObject({
+      outcome: "failed",
+      test_errors: ["TestSupportError: page_errors: console error: boom"],
+    });
   });
 
   test("keeps a variant failed when another project's run of it passes after", () => {
@@ -130,6 +148,7 @@ function caseTest(title: string): ReportedTest {
 function caseResult(status: ReportedResult["status"], seed = 1): ReportedResult {
   return {
     status,
+    errors: [],
     attachments: [
       {
         name: CONFORMANCE_FACTS,

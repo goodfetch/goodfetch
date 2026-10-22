@@ -166,6 +166,27 @@ describe("a console variant", () => {
     expect(ran.code).toBe(1);
   });
 
+  test("whose page logs a console error after every step and check passed is failed", async ({
+    processes,
+    testEnv,
+  }) => {
+    const ran = await run(
+      processes,
+      testEnv,
+      "J-961",
+      spec(
+        "J-961",
+        `${j961()}
+  await page.evaluate(() => console.error("an error once the checks passed"));`,
+      ),
+    );
+
+    expect(ran.code).toBe(1);
+    expect(ran.document.outcome).toBe("failed");
+    expect(ran.document.test_errors).toEqual([expect.stringContaining("page_errors")]);
+    expect(ran.read).toBe(0);
+  });
+
   test("whose task the oracle answers false_success is failed", async ({ processes, testEnv }) => {
     const ran = await run(processes, testEnv, "J-962", spec("J-962", j962("0.01")));
 

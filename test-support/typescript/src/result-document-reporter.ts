@@ -7,7 +7,10 @@
 //   variant in several projects (the Release suite's browsers) writes one
 //   file for it: a failed run's document is kept over a later one, so the
 //   variant is `failed` when any browser failed it, as the Journey report
-//   judges a variant.
+//   judges a variant. A test that did not pass, though its facts say every
+//   step and check did (`failOnErrors` or the accessibility audit failing
+//   it in teardown), gets its errors as the facts' `test_errors`, so its
+//   variant is `failed`.
 // - For each Console conformance target, a project whose `metadata` names
 //   it as `conformanceTarget`, it writes one `conformance` document,
 //   `<target>.json`, deriving the outcomes through `conformanceDocument`.
@@ -91,7 +94,9 @@ export type ReportedTest = Pick<TestCase, "title" | "annotations"> & {
 };
 
 /** A test's result as far as the reporter reads it. */
-export type ReportedResult = Pick<TestResult, "status" | "attachments">;
+export type ReportedResult = Pick<TestResult, "status" | "attachments"> & {
+  readonly errors: readonly Pick<TestResult["errors"][number], "message">[];
+};
 
 /** Writes the `journey` document of each Journey variant and the `conformance` document of each Console conformance target a run ran. */
 export default class ResultDocumentReporter implements Reporter {
@@ -153,7 +158,11 @@ export default class ResultDocumentReporter implements Reporter {
     if (body === undefined) {
       return;
     }
-    const facts: JourneyFacts = JSON.parse(body.toString("utf8"));
+    const attached: JourneyFacts = JSON.parse(body.toString("utf8"));
+    // The test can fail after the body recorded its facts: `failOnErrors`
+    // and the accessibility audit fail it in teardown (ADR 0068).
+    const facts: JourneyFacts =
+      result.status === "passed" ? attached : { ...attached, test_errors: testErrors(result) };
     const variant = `${facts.journey_id}@${facts.surface}`;
     if (this.#written.get(variant) === "failed") {
       return;
@@ -232,4 +241,11 @@ export default class ResultDocumentReporter implements Reporter {
       })),
     });
   }
+}
+
+/** What failed a test that did not pass, one line each; its status when Playwright gave no error. */
+function testErrors(result: ReportedResult): string[] {
+  const messages = result.errors.map(({ message }) => (message ?? "").split("\n")[0] ?? "");
+  const named = messages.filter((message) => message.length > 0);
+  return named.length > 0 ? named : [`the test ended \`${result.status}\``];
 }

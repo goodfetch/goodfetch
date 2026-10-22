@@ -296,15 +296,13 @@ fn serve_http(
     let _ = reader.get_mut().write_all(response.as_bytes());
 }
 
-/// The path of the file a fixture signed-address listener serves.
-pub(super) const SIGNED_FILE: &str = "/bodies/first/a1";
 /// The one address a fixture signed-address listener serves its file to.
 pub(super) const SIGNED_ADDRESS: &str = "/bodies/first/a1?expires=99&signature=5ac1e9";
 /// Another file it holds.
 pub(super) const OTHER_FILE: &str = "/bodies/first/b2";
 
-/// Starts a signed-address listener on loopback TCP, which serves
-/// [`SIGNED_FILE`] only to [`SIGNED_ADDRESS`] and reads no cookie.
+/// Starts a signed-address listener on loopback TCP, which serves its file
+/// only to [`SIGNED_ADDRESS`] and reads no cookie.
 pub(super) fn signed_address(behaviour: Behaviour) -> (SocketAddr, AuditLog) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();

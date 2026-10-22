@@ -12,7 +12,8 @@ children = []
 client = ["trace"]
 clock = []
 composition = ["admission", "client", "events", "log", "people", "politeness", "product", "run_state", "runs"]
-console = ["composition", "people", "rpc", "tasks", "transport"]
+console = ["body", "clock", "composition", "content_origin", "daemon", "people", "rpc", "runs", "tasks", "transport"]
+content_origin = []
 crash_report = ["clock"]
 config = ["composition", "run", "settings"]
 daemon = ["clock", "composition", "events", "home", "metrics", "ops", "people", "product", "rpc", "run_state", "runs", "tasks", "transition", "transport"]
@@ -78,6 +79,10 @@ environment = []
 controller = []
 shares = []
 system = []
+
+# Which of `console`'s own modules may import which.
+[submodules.console]
+content = []
 
 # Which of `daemon`'s own modules may import which.
 [submodules.daemon]

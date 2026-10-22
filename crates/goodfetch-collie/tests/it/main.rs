@@ -18,6 +18,7 @@ mod client_conformance;
 mod commands;
 mod config;
 mod console;
+mod content_origin;
 mod daemon;
 mod daemon_run;
 mod events;

@@ -526,10 +526,10 @@ impl Reach<'_> {
                     | Attempt::Probe(_)
                     | Attempt::SignOutWithoutCsrf
                     | Attempt::SignedOut
-                    | Attempt::SignInTooOften => {}
+                    | Attempt::SignInTooOften
+                    | Attempt::OtherFile => {}
                     Attempt::Token(token) => message = hello.message("hello", token),
                     Attempt::OtherListener(token) => message = hello.message("hello", Some(token)),
-                    Attempt::OtherFile => {}
                     Attempt::TokenInQuery => {
                         handshake.target = format!("/?access_token={}", percent_encoded(token));
                         message = hello.message("hello", None);
@@ -560,10 +560,10 @@ impl Reach<'_> {
                     | Attempt::NoOrigin
                     | Attempt::SignOutWithoutCsrf
                     | Attempt::SignedOut
-                    | Attempt::SignInTooOften => {}
+                    | Attempt::SignInTooOften
+                    | Attempt::OtherFile => {}
                     Attempt::Token(token) => request.bearer = token,
                     Attempt::OtherListener(token) => request.bearer = Some(token),
-                    Attempt::OtherFile => {}
                     Attempt::TokenInQuery => {
                         request.target =
                             format!("{protected_path}?access_token={}", percent_encoded(token));
@@ -660,7 +660,7 @@ impl SignedInReach<'_> {
         let first = |method: &str| serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": self.hello });
         let mut message = first("hello");
         match attempt {
-            Attempt::Valid | Attempt::Probe(_) => {}
+            Attempt::Valid | Attempt::Probe(_) | Attempt::OtherFile => {}
             Attempt::SignOutWithoutCsrf => return sign_ins.sign_out(token, None),
             Attempt::SignedOut => match sign_ins.signed_out(self.link_token) {
                 Some(ended) => handshake.cookie = Some(signed_in(&ended)),
@@ -671,7 +671,6 @@ impl SignedInReach<'_> {
             }
             Attempt::Token(token) => handshake.cookie = token.map(signed_in),
             Attempt::OtherListener(token) => handshake.cookie = Some(signed_in(token)),
-            Attempt::OtherFile => {}
             Attempt::TokenInQuery => {
                 handshake.target = format!("{}?access_token={}", self.path, percent_encoded(token));
                 handshake.cookie = None;

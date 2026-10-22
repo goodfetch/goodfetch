@@ -562,6 +562,7 @@ fn read_environment() -> Environment {
         github_token: std::env::var("GITHUB_TOKEN")
             .ok()
             .filter(|token| !token.is_empty()),
+        lazyfs: std::env::var_os("GOODFETCH_LAZYFS").is_some(),
     }
 }
 

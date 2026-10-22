@@ -2765,6 +2765,144 @@
       "const": "2.0",
       "description": "JSON-RPC's version, always \"2.0\"."
     },
+    "KeyValueStoreDeleted": {
+      "description": "What `key_value_store.delete` answers once the key is gone.",
+      "properties": {
+        "existed": {
+          "arrived_in": "0.1",
+          "description": "Whether the key existed.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "existed"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreKey": {
+      "additionalProperties": false,
+      "description": "What `$/key` carries: the next key of the store a call lists.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the `key_value_store.keys` call."
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "key"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreKeyParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.get` and `key_value_store.delete` take: the Run\nand the key.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        }
+      },
+      "required": [
+        "run_id",
+        "key"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreKeysEnded": {
+      "description": "What `key_value_store.keys` answers once it sent its last key.",
+      "properties": {
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many keys it sent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreKeysParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.keys` takes: the Run, and the prefix every key it\nsends starts with.",
+      "properties": {
+        "prefix": {
+          "arrived_in": "0.1",
+          "description": "The prefix of the keys it sends; every key when left out.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreSet": {
+      "description": "What `key_value_store.set` answers once the value is committed.",
+      "type": "object"
+    },
+    "KeyValueStoreSetParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.set` takes: the Run, the key and its value.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The value: any JSON but a top-level null, which `value_invalid`\nrefuses; a nested null is kept."
+        }
+      },
+      "required": [
+        "run_id",
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreValue": {
+      "description": "What `key_value_store.get` answers: the key's committed value, or null\nwhen the key is absent.",
+      "properties": {
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The value, or null for an absent key."
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "type": "object"
+    },
     "Lifecycle": {
       "description": "Where a Run is (ADR 0029).",
       "oneOf": [
@@ -5961,6 +6099,11 @@
       },
       "result": {
         "$ref": "#/$defs/HelloResult"
+      }
+    },
+    "key": {
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreKey"
       }
     }
   },

@@ -10,7 +10,8 @@
 //! fails on the second, whose first byte never came, so its
 //! domain still backs off when `run.finish` ends it; and a Run its
 //! program drives, under an Operator policy and with a setting that
-//! weakens a guarantee, which `run.abort` stops; and a Run bound to a
+//! weakens a guarantee, whose Key-value store keeps a cursor, which
+//! `run.abort` stops; and a Run bound to a
 //! Browser host and holding to a Clean-up rules digest, started through a
 //! contribution of the writer's own since no Client sets those yet, which
 //! `run.checkpoint` checkpoints and `run.pause` pauses with a Checkpoint.
@@ -84,6 +85,11 @@ fn scenario() -> Vec<Value> {
                 "tags": ["manual"],
                 "settings": { "tls": { "accept_invalid_certs": { "intranet.test": null } } },
             }),
+        ),
+        call(
+            11,
+            "key_value_store.set",
+            json!({ "run_id": "aborted", "key": "cursor", "value": { "page": 2, "seen": [1, null] } }),
         ),
         call(4, "run.abort", json!({ "run_id": "aborted" })),
         call(5, "compat.bound", json!({})),

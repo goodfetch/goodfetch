@@ -394,6 +394,14 @@ class UpgradeSourceUnsupportedError(RefusedError):
         super().__init__(message, code="upgrade_source_unsupported", group="refused", retryable=False)
 
 
+class ValueInvalidError(ProgramError):
+    """The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="value_invalid", group="program", retryable=False)
+
+
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "address_family_unavailable": AddressFamilyUnavailableError,
     "artifact_download_failed": ArtifactDownloadFailedError,
@@ -437,5 +445,6 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "setting_unknown": SettingUnknownError,
     "target_not_unique": TargetNotUniqueError,
     "upgrade_source_unsupported": UpgradeSourceUnsupportedError,
+    "value_invalid": ValueInvalidError,
 }
 """The exception class of each Error code."""

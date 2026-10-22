@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, Checkpoint, ClickParams, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, LimitUsage, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
+from .models import Acted, Checkpoint, ClickParams, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
 
 
 class AsyncCaller(Protocol):
@@ -63,6 +63,34 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return SubscriptionEnded.model_construct(**_fields(await self._caller.call("events.subscribe", params)))
+
+    async def key_value_store_delete(self, params: KeyValueStoreKeyParams) -> KeyValueStoreDeleted:
+        """Removes a key from a live Run's Key-value store and answers whether it existed.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreDeleted.model_construct(**_fields(await self._caller.call("key_value_store.delete", params)))
+
+    async def key_value_store_get(self, params: KeyValueStoreKeyParams) -> KeyValueStoreValue:
+        """Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreValue.model_construct(**_fields(await self._caller.call("key_value_store.get", params)))
+
+    async def key_value_store_keys(self, params: KeyValueStoreKeysParams) -> KeyValueStoreKeysEnded:
+        """Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreKeysEnded.model_construct(**_fields(await self._caller.call("key_value_store.keys", params)))
+
+    async def key_value_store_set(self, params: KeyValueStoreSetParams) -> KeyValueStoreSet:
+        """Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreSet.model_construct(**_fields(await self._caller.call("key_value_store.set", params)))
 
     async def locator_click(self, params: ClickParams) -> Acted:
         """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.
@@ -237,6 +265,34 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return SubscriptionEnded.model_construct(**_fields(self._caller.call("events.subscribe", params)))
+
+    def key_value_store_delete(self, params: KeyValueStoreKeyParams) -> KeyValueStoreDeleted:
+        """Removes a key from a live Run's Key-value store and answers whether it existed.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreDeleted.model_construct(**_fields(self._caller.call("key_value_store.delete", params)))
+
+    def key_value_store_get(self, params: KeyValueStoreKeyParams) -> KeyValueStoreValue:
+        """Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreValue.model_construct(**_fields(self._caller.call("key_value_store.get", params)))
+
+    def key_value_store_keys(self, params: KeyValueStoreKeysParams) -> KeyValueStoreKeysEnded:
+        """Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreKeysEnded.model_construct(**_fields(self._caller.call("key_value_store.keys", params)))
+
+    def key_value_store_set(self, params: KeyValueStoreSetParams) -> KeyValueStoreSet:
+        """Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreSet.model_construct(**_fields(self._caller.call("key_value_store.set", params)))
 
     def locator_click(self, params: ClickParams) -> Acted:
         """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.

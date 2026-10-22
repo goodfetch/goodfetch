@@ -54,7 +54,7 @@ fn record_event(event: &str) {
 }
 
 /// The line of the notification `method` with `params`.
-fn notification_line(method: &str, params: &impl serde::Serialize) -> Vec<u8> {
+pub(crate) fn notification_line(method: &str, params: &impl serde::Serialize) -> Vec<u8> {
     line(&Notification {
         jsonrpc: Version,
         method: method.to_owned(),

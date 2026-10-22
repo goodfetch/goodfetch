@@ -11,6 +11,7 @@ use schemars::{Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
+use crate::audit::AuditEntry;
 use crate::browser_cache::BrowserCacheEntry;
 use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, Setting, ValueKind, schema_of};
 use crate::entries::MODULES;
@@ -316,6 +317,20 @@ pub const POLITENESS_FILE: Format = Format {
     schema: schema_of::<PermitRow>,
 };
 
+/// The per-user Audit log in Goodfetch home (ADRs 0016 and 0098), outside
+/// the per-major folders: its append-only, hash-chained entries, and beside
+/// it the head file that names the last one. Engines of every major and of
+/// both Products append to the one chain, so it is of the Usage ledger's
+/// family; its schema is one entry's.
+pub const AUDIT_LOG: Format = Format {
+    name: "audit-log",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Sqlite,
+    rule: Rule::FrozenMajor,
+    hello_from: &[],
+    schema: schema_of::<AuditEntry>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -325,6 +340,7 @@ pub const FORMATS: &[&Format] = &[
     &INSTALLED_EXECUTABLES,
     &USAGE_LEDGER,
     &POLITENESS_FILE,
+    &AUDIT_LOG,
     &OPERATOR_POLICY,
     &USER_CONFIGURATION,
 ];

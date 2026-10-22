@@ -97,6 +97,43 @@
       ],
       "type": "object"
     },
+    "AuditVerified": {
+      "description": "What `audit.verify` answers.",
+      "properties": {
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "How many entries the log holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "first_broken": {
+          "arrived_in": "0.1",
+          "description": "The first sequence that does not verify: an entry edited, missing\nor out of its place, or, past the last entry, a tail the head file\nsays was there; none when intact.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "intact": {
+          "arrived_in": "0.1",
+          "description": "Whether every entry chains to the one before it and the head file\nagrees with the last one.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "intact",
+        "entries"
+      ],
+      "type": "object"
+    },
+    "AuditVerifyParams": {
+      "additionalProperties": false,
+      "description": "What `audit.verify` takes: nothing.",
+      "type": "object"
+    },
     "BlockCause": {
       "description": "Why a site refused a page (ADR 0035), on the wire as written.",
       "oneOf": [
@@ -4482,6 +4519,25 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
+      "description": "Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows.",
+      "events": [],
+      "kind": "query",
+      "name": "audit.verify",
+      "params": {
+        "$ref": "#/$defs/AuditVerifyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/AuditVerified"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
       "description": "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's.",
       "events": [],
       "kind": "round_trip",
@@ -6220,6 +6276,34 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A run reached a host whose domain accepts any certificate, `any` (ADR 0042).",
+      "name": "certificate_any_used",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person accepted a pinned host's changed certificate, with both hashes (ADR 0042).",
+      "name": "certificate_change_accepted",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The certificate exceptions a run used, once per run, by host and kind (ADR 0042).",
+      "name": "certificate_exceptions_used",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A host's certificate was pinned on first use under its domain's exception, with the SHA-256 of its public key (ADR 0042).",
+      "name": "certificate_pinned",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A page that checks the browser before it lets it through.",
       "name": "challenge",
       "product": "collie",
@@ -6255,6 +6339,20 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`.",
+      "name": "endpoint_authentication_failed",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "An Exposed Daemon's setup completed through its setup link (ADR 0049).",
+      "name": "exposed_daemon_set_up",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Every run of the user on the machine, whichever engine runs it.",
       "name": "install",
       "product": "collie",
@@ -6266,6 +6364,13 @@
       "name": "ip_block",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A page was lent to the program's own Playwright client (ADR 0089).",
+      "name": "lent_page_attached",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",
@@ -6304,6 +6409,20 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A run set a value that presses a site harder than its default, with the setting and its value (ADR 0086).",
+      "name": "pressing_harder_value_set",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A run allowed private addresses through `egress.private_ranges`, with the ranges it listed.",
+      "name": "private_addresses_allowed",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Bytes a run sent and received through a proxy, per proxy kind.",
       "name": "proxy_bytes",
       "product": "collie",
@@ -6315,6 +6434,13 @@
       "name": "rate_limit",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A raw CDP client attached to a Session's browser.",
+      "name": "raw_cdp_attached",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",
@@ -6336,6 +6462,41 @@
       "name": "sample_echoes",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Secret reference was resolved and used: its placeholder, its reference and the domain that received it, never its value.",
+      "name": "secret_reference_used",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A security control was switched off for a run, once per run, with its setting and the layer that set it (ADR 0016).",
+      "name": "security_switch_turned_off",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session was exported to an encrypted bundle.",
+      "name": "session_exported",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session was imported from an encrypted bundle.",
+      "name": "session_imported",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "An Exposed Daemon started with `daemon.tls.upstream`, TLS terminated in front of it (ADR 0049).",
+      "name": "tls_terminated_upstream",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

@@ -20,6 +20,7 @@ Commands:
   page             Calls the catalog's `page` operations
   locator          Calls the catalog's `locator` operations
   key-value-store  Calls the catalog's `key_value_store` operations
+  audit            Calls the catalog's `audit` operations
   sample           Calls the catalog's `sample` operations
 
 Options:
@@ -636,6 +637,28 @@ Options:
       --json             Prints what the call sends as one JSON object per line
       --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help             Print help
+
+$ goodfetch-collie audit --help
+Calls the catalog's `audit` operations
+
+Usage: goodfetch-collie audit [OPTIONS] <COMMAND>
+
+Commands:
+  verify  Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie audit verify --help
+Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows
+
+Usage: goodfetch-collie audit verify [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
 
 $ goodfetch-collie sample --help
 Calls the catalog's `sample` operations

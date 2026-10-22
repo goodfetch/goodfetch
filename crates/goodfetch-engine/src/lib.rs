@@ -11,6 +11,8 @@
 pub mod admission;
 pub mod age_notice;
 mod attached;
+pub mod audit;
+mod audit_operations;
 mod body;
 pub mod browser_cache;
 pub mod checkpoint;

@@ -221,6 +221,7 @@ fn the_registry_lists_every_format_under_its_rule() {
             ("installed-executables", Rule::FrozenMajor),
             ("usage-ledger", Rule::FrozenMajor),
             ("politeness-file", Rule::FrozenMajor),
+            ("audit-log", Rule::FrozenMajor),
             ("operator-policy", Rule::SharedStore),
             ("user-configuration", Rule::SharedStore)
         ]

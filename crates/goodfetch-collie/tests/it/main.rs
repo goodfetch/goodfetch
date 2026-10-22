@@ -8,6 +8,7 @@
 )]
 
 mod attached;
+mod audit;
 #[cfg(unix)]
 mod background_traffic;
 mod browsers;

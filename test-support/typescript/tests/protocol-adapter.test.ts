@@ -3,6 +3,7 @@
 // streams pushed events by position across a dropped Connection, and serves
 // bodies by handle. A tiny Client written here drives it through its
 // `transport` and `bodyFetcher`, until area 12's Console Client exists.
+import { readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -242,6 +243,61 @@ describe("createProtocolAdapter", () => {
     const setting = (): void => adapter.answer("sample.echo", { text: "fine" });
 
     expect(setting).not.toThrow();
+  });
+});
+
+/** The generated refusal vectors of a Client's `hello`, which the Rust engine's own test plays too. */
+const HELLO_VECTORS = join(
+  import.meta.dirname,
+  "..",
+  "..",
+  "..",
+  "crates",
+  "goodfetch-protocol",
+  "generated",
+  "refusals",
+  "protocol",
+);
+
+interface HelloVector {
+  readonly name: string;
+  readonly found: string;
+  readonly hello: {
+    readonly engine: "collie" | "foxhound";
+    readonly needs: "collie" | "foxhound";
+    readonly reply:
+      | { readonly accepted: { readonly protocol_version: string } }
+      | { readonly refused: { readonly error_code: string } };
+  };
+}
+
+const helloVectors: HelloVector[] = readdirSync(HELLO_VECTORS)
+  .filter((name) => name.startsWith("client-"))
+  .map((name) => ({ name, ...JSON.parse(readFileSync(join(HELLO_VECTORS, name), "utf8")) }));
+
+describe("ProtocolAdapter hello", () => {
+  test.for(helloVectors)("answers $name as the engine does", async ({ found, hello }) => {
+    const adapter = createProtocolAdapter({ product: hello.engine });
+    const client = new TinyClient(adapter.transport);
+
+    const reply = await client.call(0, "hello", {
+      protocol_version: found,
+      surface: "console",
+      needs: hello.needs,
+      product_version: "0.1.0",
+    });
+
+    const answered =
+      "accepted" in hello.reply
+        ? { protocol_version: hello.reply.accepted.protocol_version }
+        : { code: hello.reply.refused.error_code };
+    const result = reply["result"];
+    const error = reply["error"];
+    expect(
+      isFields(result)
+        ? { protocol_version: result["protocol_version"] }
+        : { code: isFields(error) && isFields(error["data"]) ? error["data"]["code"] : undefined },
+    ).toEqual(answered);
   });
 });
 

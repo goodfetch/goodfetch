@@ -525,6 +525,17 @@ export class ProtocolAdapter<
       if (this.#paramsInvalid("hello", this.#contract.helloParams.problems(params))) {
         return;
       }
+      const refusal = this.#helloRefusal(params);
+      if (refusal !== undefined) {
+        this.#deliver(connection, {
+          id,
+          error: this.#wireError(
+            new Failure(refusal, {}),
+            `The engine refuses this hello: ${refusal}.`,
+          ),
+        });
+        return;
+      }
       this.#deliver(connection, {
         id,
         result: {
@@ -613,6 +624,22 @@ export class ProtocolAdapter<
           }
         : { id, result: outcome },
     );
+  }
+
+  /**
+   * The Error code the engine refuses a schema-valid `hello` with, as the
+   * generated refusal vectors give it: `not_in_product` for a Product this
+   * engine does not carry, before `protocol_version_unsupported` for a
+   * protocol version other than its own.
+   */
+  #helloRefusal(params: unknown): string | undefined {
+    const fields = typeof params === "object" && params !== null ? params : {};
+    const needs = "needs" in fields ? fields.needs : undefined;
+    if (needs === "foxhound" && this.#contract.product !== "foxhound") {
+      return "not_in_product";
+    }
+    const version = "protocol_version" in fields ? fields.protocol_version : undefined;
+    return version === this.#contract.protocolVersion ? undefined : "protocol_version_unsupported";
   }
 
   /** The wire's error object of `failed`, whose code the catalog defines, told to people as `message`. */

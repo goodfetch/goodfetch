@@ -61,3 +61,6 @@ impl<S: Debug, E: Debug> InvalidTransition<S, E> {
         self
     }
 }
+
+#[cfg(test)]
+mod tests;

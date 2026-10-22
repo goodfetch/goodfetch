@@ -2,8 +2,11 @@
 //! the engine opens an outbound connection on the OS's network, which the
 //! Simulation never carries. It sends one HTTP or HTTPS request over
 //! HTTP/1.1 and streams the answer's body, the `resolve` setting applied before any
-//! lookup (ADR 0059), Mozilla's roots trusted beside the certificate
-//! authorities its caller adds. It adds no header of its own.
+//! lookup (ADR 0059), every certificate verified by [`tls`]'s per-host
+//! decision: Mozilla's roots, and the certificate authorities trusted for
+//! the host's domain (ADR 0042). A certificate that fails ends the request
+//! with `certificate_invalid` before anything is sent. It adds no header of
+//! its own.
 //!
 //! Every connection it opens races the host's addresses under RFC 8305
 //! ([`happy_eyeballs`], ADR 0118). [`connect`] is that step for the HTTP

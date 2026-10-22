@@ -79,12 +79,6 @@ impl<'env> Attached<'env> {
         self.process.child().id()
     }
 
-    /// Whether the engine writes nothing on its stdout for `quiet`; a
-    /// message written meanwhile is kept for the next read.
-    pub(crate) fn is_quiet_for(&mut self, quiet: std::time::Duration) -> bool {
-        self.stdout.is_quiet_for(quiet)
-    }
-
     /// Kills the engine (`kill -9`) and waits for it to end, as a power cut
     /// or a crash ends it.
     #[cfg_attr(
@@ -144,15 +138,24 @@ fn an_attached_engine_answers_hello_over_stdio_and_stops_at_the_end_of_its_input
         .as_object_mut()
         .unwrap()
         .remove("private_endpoint");
+    let engine_instance = reply["result"]
+        .as_object_mut()
+        .unwrap()
+        .remove("engine_instance");
 
     assert_eq!(
-        (reply, private_endpoint.is_some_and(|it| it.is_object())),
+        (
+            reply,
+            private_endpoint.is_some_and(|it| it.is_object()),
+            engine_instance.is_some_and(|it| it.is_string())
+        ),
         (
             json!({
                 "jsonrpc": "2.0",
                 "id": 0,
                 "result": { "protocol_version": "0.1", "product": "collie", "product_version": "0.0.0" },
             }),
+            true,
             true
         )
     );

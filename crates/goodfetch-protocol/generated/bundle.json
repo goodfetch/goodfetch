@@ -1748,6 +1748,11 @@
       "description": "What `engine.info` takes: nothing.",
       "type": "object"
     },
+    "EngineInstance": {
+      "description": "One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only.",
+      "minLength": 1,
+      "type": "string"
+    },
     "EnqueueDocument": {
       "additionalProperties": false,
       "description": "The document a handler read, against which its relative URLs resolve.",
@@ -2004,14 +2009,14 @@
         "after": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Position"
+              "$ref": "#/$defs/LastRead"
             },
             {
               "type": "null"
             }
           ],
           "arrived_in": "0.1",
-          "description": "The position of the last event the Client read: the subscription\nresumes after it, or starts with `events.resync` when the engine no\nlonger holds it. Absent, it starts with the next event."
+          "description": "The last event the Client read, `{engine_instance, position}`: the\nsubscription resumes after it, or starts with `events.resync` when\nthe engine no longer holds it or another engine instance gave it, as\nafter a Daemon restart. Absent, it starts with the next event."
         }
       },
       "type": "object"
@@ -2334,6 +2339,11 @@
     "HelloResult": {
       "description": "What an engine answers to a `hello` it accepts.",
       "properties": {
+        "engine_instance": {
+          "$ref": "#/$defs/EngineInstance",
+          "arrived_in": "0.1",
+          "description": "The engine process, new each time an engine starts: the positions\nof its events count within it, so a Client that meets a new one\nresyncs (ADR 0031)."
+        },
         "private_endpoint": {
           "anyOf": [
             {
@@ -2365,7 +2375,8 @@
       "required": [
         "protocol_version",
         "product",
-        "product_version"
+        "product_version",
+        "engine_instance"
       ],
       "type": "object"
     },
@@ -2918,6 +2929,27 @@
       },
       "required": [
         "value"
+      ],
+      "type": "object"
+    },
+    "LastRead": {
+      "additionalProperties": false,
+      "description": "The last event a Client read: its position, and the engine instance\nthat gave it.",
+      "properties": {
+        "engine_instance": {
+          "$ref": "#/$defs/EngineInstance",
+          "arrived_in": "0.1",
+          "description": "The engine instance, as its `hello` named it."
+        },
+        "position": {
+          "$ref": "#/$defs/Position",
+          "arrived_in": "0.1",
+          "description": "The event's position."
+        }
+      },
+      "required": [
+        "engine_instance",
+        "position"
       ],
       "type": "object"
     },

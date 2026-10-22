@@ -63,12 +63,12 @@ export type DaemonEndpoint =
       tcp: string;
     };
 /**
- * An event's position among every event of one engine, which only goes up.
+ * One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Position".
+ * via the `definition` "EngineInstance".
  */
-export type Position = number;
+export type EngineInstance = string;
 /**
  * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
  *
@@ -156,6 +156,13 @@ export type PageId = string;
  * via the `definition` "PeriodLength".
  */
 export type PeriodLength = "day" | "week" | "month";
+/**
+ * An event's position among every event of one engine, which only goes up.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Position".
+ */
+export type Position = number;
 /**
  * A Product version, `major.minor.patch` with an optional pre-release (ADR 0090).
  *
@@ -709,11 +716,29 @@ export interface EventEnvelope {
  */
 export interface EventsSubscribeParams {
   /**
-   * The position of the last event the Client read: the subscription
-   * resumes after it, or starts with `events.resync` when the engine no
-   * longer holds it. Absent, it starts with the next event.
+   * The last event the Client read, `{engine_instance, position}`: the
+   * subscription resumes after it, or starts with `events.resync` when
+   * the engine no longer holds it or another engine instance gave it, as
+   * after a Daemon restart. Absent, it starts with the next event.
    */
-  after?: Position | null;
+  after?: LastRead | null;
+}
+/**
+ * The last event a Client read: its position, and the engine instance
+ * that gave it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LastRead".
+ */
+export interface LastRead {
+  /**
+   * The engine instance, as its `hello` named it.
+   */
+  engine_instance: string;
+  /**
+   * The event's position.
+   */
+  position: number;
 }
 /**
  * One setting as `config explain` shows it.
@@ -897,6 +922,12 @@ export interface HelloParams {
  * via the `definition` "HelloResult".
  */
 export interface HelloResult {
+  /**
+   * The engine process, new each time an engine starts: the positions
+   * of its events count within it, so a Client that meets a new one
+   * resyncs (ADR 0031).
+   */
+  engine_instance: string;
   /**
    * An Attached engine's private endpoint, reported to the Client of its
    * stdio alone: where that Client's `workers=N` handler processes, and a

@@ -15,7 +15,7 @@ const ARGUMENTS: [&str; 6] = [
     "events",
     "subscribe",
     "--after",
-    "100",
+    r#"{"engine_instance":"another-engine","position":100}"#,
     "--follow",
     "--json",
 ];
@@ -32,8 +32,8 @@ fn attached() {
         .stderr(Stdio::piped());
     let process = env.spawn(&mut command).unwrap();
     let mut stdout = BufReader::new(process.child().stdout.take().unwrap());
-    // A position ahead of the engine's last starts with `events.resync`: the
-    // subscription is in flight once it is printed.
+    // A position another engine instance gave starts with `events.resync`:
+    // the subscription is in flight once it is printed.
     let mut resync = String::new();
     stdout.read_line(&mut resync).unwrap();
 

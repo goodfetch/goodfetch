@@ -26,7 +26,7 @@ use goodfetch_protocol::page::{PageResponse, WaitUntil};
 /// The error text of a navigation the browser cancelled.
 const ABORTED: &str = "net::ERR_ABORTED";
 
-/// The error text of a navigation past the browser's 20 redirects.
+/// The error text of a navigation past the browser's 19 redirects.
 const TOO_MANY_REDIRECTS: &str = "net::ERR_TOO_MANY_REDIRECTS";
 
 /// The error text of a body whose listed content coding did not decode.

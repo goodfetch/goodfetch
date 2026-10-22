@@ -2,10 +2,12 @@
 //! `events.subscribe` opens a subscription, a call that stays in flight
 //! until the Client cancels it or its Connection ends. The engine sends its
 //! events in `$/events` batches, never more than the credits the Client
-//! granted the call with `$/credit`. Every event carries a position, per
-//! engine, that only goes up; a subscription that names the position it
-//! last read resumes after it, and one the engine no longer holds starts
-//! with an `events.resync` event giving the current state.
+//! granted the call with `$/credit`. Every event carries a position that
+//! only goes up within its engine instance, which `hello` names; a
+//! subscription that names the position it last read, with its engine
+//! instance, resumes after it, and one the engine no longer holds, or
+//! another engine instance gave, starts with an `events.resync` event
+//! giving the current state.
 //!
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
@@ -18,6 +20,7 @@ use crate::catalog::{
     Entries, Event, EventClass, Operation, OperationClass, OperationKind, ProtocolVersion, Reach,
     Stability, schema_of,
 };
+use crate::connection::EngineInstance;
 use crate::jsonrpc::RequestId;
 use crate::run::{RUN_AXES_CHANGED, RunAxes};
 
@@ -51,6 +54,19 @@ impl JsonSchema for Position {
     }
 }
 
+/// The last event a Client read: its position, and the engine instance
+/// that gave it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LastRead {
+    /// The engine instance, as its `hello` named it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub engine_instance: EngineInstance,
+    /// The event's position.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub position: Position,
+}
+
 /// What `$/credit` grants: more events, or chunks, for a streaming call.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -67,12 +83,13 @@ pub struct CreditParams {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EventsSubscribeParams {
-    /// The position of the last event the Client read: the subscription
-    /// resumes after it, or starts with `events.resync` when the engine no
-    /// longer holds it. Absent, it starts with the next event.
+    /// The last event the Client read, `{engine_instance, position}`: the
+    /// subscription resumes after it, or starts with `events.resync` when
+    /// the engine no longer holds it or another engine instance gave it, as
+    /// after a Daemon restart. Absent, it starts with the next event.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub after: Option<Position>,
+    pub after: Option<LastRead>,
 }
 
 /// What `events.subscribe` answers when its subscription ends without the
@@ -145,7 +162,7 @@ pub const RESYNC: Event = Event {
 /// `events.subscribe`.
 pub const EVENTS_SUBSCRIBE: Operation = Operation {
     name: "events.subscribe",
-    description: "Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. A lossless event is never dropped: while the subscription's queue is full, its producer waits. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it.",
+    description: "Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart.",
     class: OperationClass::Read,
     kind: OperationKind::Sequence,
     reach: Reach::AllSurfaces,

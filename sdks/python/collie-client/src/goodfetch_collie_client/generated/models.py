@@ -166,6 +166,11 @@ class EngineInfoParams(BaseModel):
     )
 
 
+class EngineInstance(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+    """One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only."""
+
+
 class KeyValueStoreDeleted(BaseModel):
     """What `key_value_store.delete` answers once the key is gone."""
 
@@ -976,20 +981,6 @@ class EventEnvelope(BaseModel):
     """Its position."""
 
 
-class EventsSubscribeParams(BaseModel):
-    """What `events.subscribe` takes."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    after: Position | None = None
-    """
-    The position of the last event the Client read: the subscription
-    resumes after it, or starts with `events.resync` when the engine no
-    longer holds it. Absent, it starts with the next event.
-    """
-
-
 class ExplainedSetting(BaseModel):
     """One setting as `config explain` shows it."""
 
@@ -1073,6 +1064,12 @@ class HelloResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    engine_instance: EngineInstance
+    """
+    The engine process, new each time an engine starts: the positions
+    of its events count within it, so a Client that meets a new one
+    resyncs (ADR 0031).
+    """
     private_endpoint: PrivateEndpoint | None = None
     """
     An Attached engine's private endpoint, reported to the Client of its
@@ -1144,6 +1141,21 @@ class KeyValueStoreSetParams(BaseModel):
     The value: any JSON but a top-level null, which `value_invalid`
     refuses; a nested null is kept.
     """
+
+
+class LastRead(BaseModel):
+    """
+    The last event a Client read: its position, and the engine instance
+    that gave it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    engine_instance: EngineInstance
+    """The engine instance, as its `hello` named it."""
+    position: Position
+    """The event's position."""
 
 
 class Locator(BaseModel):
@@ -1604,6 +1616,21 @@ class EventBatch(BaseModel):
     """Its events."""
     id: RequestId
     """The id of the subscription's `events.subscribe` call."""
+
+
+class EventsSubscribeParams(BaseModel):
+    """What `events.subscribe` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: LastRead | None = None
+    """
+    The last event the Client read, `{engine_instance, position}`: the
+    subscription resumes after it, or starts with `events.resync` when
+    the engine no longer holds it or another engine instance gave it, as
+    after a Daemon restart. Absent, it starts with the next event.
+    """
 
 
 class FillParams(BaseModel):

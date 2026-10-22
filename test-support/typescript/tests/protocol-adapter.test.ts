@@ -62,6 +62,18 @@ class TinyClient {
     return this.received.find((message) => message["id"] === id && !("method" in message));
   }
 
+  /** Says `hello` as call `id`, and resolves with the engine instance its answer names. */
+  async hello(id: number): Promise<unknown> {
+    const reply = await this.call(id, "hello", {
+      protocol_version: "0.1",
+      surface: "console",
+      needs: "collie",
+      product_version: "0.1.0",
+    });
+    const result = reply["result"];
+    return isFields(result) ? result["engine_instance"] : undefined;
+  }
+
   /** Subscribes as call `id`, granting `credits` events. */
   subscribe(id: number, params: Fields, credits: number): void {
     this.send({ id, method: "events.subscribe", params });
@@ -252,6 +264,7 @@ describe("ProtocolAdapter events", () => {
   test("after drop(), a resumed subscription continues after its last position", async () => {
     const adapter = createProtocolAdapter();
     const first = new TinyClient(adapter.transport);
+    const instance = await first.hello(0);
     first.subscribe(1, {}, 10);
     adapter.push(axes("one", "running"), 1);
     adapter.push(axes("two", "running"), 2);
@@ -261,7 +274,7 @@ describe("ProtocolAdapter events", () => {
     await first.until(() => (first.closed ? true : undefined));
 
     const resumed = new TinyClient(adapter.transport);
-    resumed.subscribe(1, { after: 2 }, 10);
+    resumed.subscribe(1, { after: { engine_instance: instance, position: 2 } }, 10);
 
     expect(await resumed.eventsUntil(1, 1)).toEqual([
       { position: 3, event: "run.axes_changed", data: { run_id: "one", lifecycle: "finished" } },
@@ -271,6 +284,7 @@ describe("ProtocolAdapter events", () => {
   test("after forgetPositions(), a resumed subscription restarts from events.resync", async () => {
     const adapter = createProtocolAdapter();
     const first = new TinyClient(adapter.transport);
+    const instance = await first.hello(0);
     first.subscribe(1, {}, 1);
     adapter.push(axes("one", "running"), 1);
     adapter.push(axes("one", "finished"), 2);
@@ -279,7 +293,7 @@ describe("ProtocolAdapter events", () => {
     adapter.forgetPositions();
 
     const resumed = new TinyClient(adapter.transport);
-    resumed.subscribe(1, { after: 1 }, 10);
+    resumed.subscribe(1, { after: { engine_instance: instance, position: 1 } }, 10);
     adapter.push(axes("two", "running"), 4);
 
     expect(await resumed.eventsUntil(1, 2)).toEqual([
@@ -290,6 +304,34 @@ describe("ProtocolAdapter events", () => {
       },
       { position: 4, event: "run.axes_changed", data: { run_id: "two", lifecycle: "running" } },
     ]);
+  });
+
+  test("after restart(), a position of the previous engine instance restarts from events.resync", async () => {
+    const adapter = createProtocolAdapter();
+    const first = new TinyClient(adapter.transport);
+    const before = await first.hello(0);
+    first.subscribe(1, {}, 10);
+    adapter.push(axes("one", "running"), 1);
+    adapter.push(axes("two", "running"), 2);
+    await first.eventsUntil(1, 2);
+    adapter.restart();
+    adapter.push(axes("three", "running"), 1);
+    await first.until(() => (first.closed ? true : undefined));
+
+    const resumed = new TinyClient(adapter.transport);
+    const after = await resumed.hello(0);
+    resumed.subscribe(1, { after: { engine_instance: before, position: 1 } }, 10);
+
+    expect({ renewed: before !== after, events: await resumed.eventsUntil(1, 1) }).toEqual({
+      renewed: true,
+      events: [
+        {
+          position: 2,
+          event: "events.resync",
+          data: { runs: [{ run_id: "three", lifecycle: "running" }] },
+        },
+      ],
+    });
   });
 
   test("answers a cancelled subscription with call_cancelled", async () => {

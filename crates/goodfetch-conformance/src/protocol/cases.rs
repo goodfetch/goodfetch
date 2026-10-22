@@ -1,9 +1,10 @@
 //! The exchanges the protocol and page suites' case IDs name, each judged
 //! against what `goodfetch-protocol` says the protocol is: its JSON-RPC
 //! failures, its Error codes and its operations' types. A crawl's delivery
-//! cases are `delivery`'s.
+//! cases are `delivery`'s, and a page's formats cases `formats`'s.
 
 mod delivery;
+mod formats;
 mod navigation;
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, ProtocolVersion};
@@ -15,7 +16,7 @@ use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo};
 use goodfetch_protocol::events::EVENTS_SUBSCRIBE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{Navigated, PAGE_GOTO, PageOpened, RUN_NEW_PAGE};
-use goodfetch_protocol::result_document::CaseCheck;
+use goodfetch_protocol::result_document::{CaseCheck, OracleAnswer};
 use goodfetch_protocol::run::{RUN_FINISH, RUN_START};
 use serde_json::{Value, json};
 
@@ -48,12 +49,15 @@ pub(crate) enum Case {
     BackLoadsTheDocumentAgain,
     UnresolvedNameFailsTheNavigation,
     SupersededNavigationIsInterrupted,
+    MarkdownMatchesTheOracle,
+    FormatNotNamedIsLeftOut,
+    NoMainContentIsNone,
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
 /// each task's start URL, the `resolve` mapping of its hosts to the Proving
 /// ground's address, and the Proving ground itself, whose time step a case
-/// may set.
+/// may set and whose oracle a case may ask.
 pub(crate) struct Site {
     page_url: Option<String>,
     start_urls: BTreeMap<String, String>,
@@ -112,13 +116,16 @@ fn host_of(url: &str) -> Option<&str> {
     )
 }
 
-/// The checks a case made so far.
+/// The checks a case made so far, and the oracle's answers it was given.
 #[derive(Default)]
-pub(crate) struct Checks(pub(crate) Vec<CaseCheck>);
+pub(crate) struct Checks {
+    pub(crate) checks: Vec<CaseCheck>,
+    pub(crate) oracle_answers: Vec<OracleAnswer>,
+}
 
 impl Checks {
     fn check(&mut self, name: impl Into<String>, passed: bool) {
-        self.0.push(CaseCheck {
+        self.checks.push(CaseCheck {
             name: name.into(),
             passed,
         });
@@ -153,6 +160,11 @@ impl Case {
             }
             "a-navigation-superseded-before-it-committed-is-interrupted" => {
                 Self::SupersededNavigationIsInterrupted
+            }
+            "markdown-matches-the-oracle-on-the-markdown-pages" => Self::MarkdownMatchesTheOracle,
+            "a-format-the-request-does-not-name-is-left-out" => Self::FormatNotNamedIsLeftOut,
+            "a-page-with-no-main-content-answers-empty-markdown-and-none" => {
+                Self::NoMainContentIsNone
             }
             _ => return None,
         })
@@ -213,6 +225,13 @@ impl Case {
             Self::SupersededNavigationIsInterrupted => {
                 navigation::superseded(connection, site, checks)
             }
+            Self::MarkdownMatchesTheOracle => {
+                formats::markdown_matches_the_oracle(connection, site, checks)
+            }
+            Self::FormatNotNamedIsLeftOut => {
+                formats::a_format_not_named_is_left_out(connection, site, checks)
+            }
+            Self::NoMainContentIsNone => formats::no_main_content_is_none(connection, site, checks),
         }
     }
 }

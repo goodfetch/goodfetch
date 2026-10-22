@@ -4,8 +4,12 @@
 //! holds; pages whose class names churn from page to page; the same kind of
 //! entity under six small structure changes; a huge page generated on
 //! request, far past ADR 0062's 256 KiB; and one product's regional
-//! variants, each in its locale's language, currency and number format.
-//! Every expected Record comes from the same seed data as the pages.
+//! variants, each in its locale's language, currency and number format;
+//! and pages whose main content's Markdown the lab wrote by hand (ADR 0007),
+//! judged by their Markdown's structure. Every other expected Record comes
+//! from the same seed data as the pages.
+
+mod markdown_pages;
 
 use std::fmt::Write as _;
 
@@ -173,6 +177,7 @@ pub(crate) fn page(seed: u64, path: &str) -> Option<(&'static str, Vec<u8>)> {
         "/churn" => churn_index(seed),
         "/variants" => index("Variants", "/variants", VARIANTS),
         "/huge" => huge(seed),
+        _ if path.starts_with(markdown_pages::INDEX) => markdown_pages::page(path)?,
         _ => return routed(seed, path),
     };
     Some(html(page))
@@ -687,5 +692,22 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
                 region's locale writes it.",
             regional_records(seed),
         ),
+        Task {
+            expected: Expected {
+                markdown_site: Some(HOST),
+                ..Expected::records(markdown_pages::records())
+            },
+            ..task(
+                7,
+                Kind::Crawl,
+                markdown_pages::INDEX,
+                "Crawl every page the index links and return one Record per page with the \
+                    fields `id` (the page's path) and `markdown`, the page's main content as \
+                    Markdown: empty for a page with no main content. Markdown is judged by its \
+                    structure (headings, paragraphs, list items, table cells, code blocks and \
+                    links), whatever syntax writes it.",
+                Vec::new(),
+            )
+        },
     ]
 }

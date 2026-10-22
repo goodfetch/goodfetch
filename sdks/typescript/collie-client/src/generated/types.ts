@@ -11,6 +11,13 @@
 export type ArtifactKind =
   "browser" | "driver" | "executable_copy" | "engine_executable" | "clean_up_rules" | "mouse_movements";
 /**
+ * The format, with its default options.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Asked".
+ */
+export type Asked = true;
+/**
  * Whether a Run's results cover everything in its scope (ADRs 0005 and
  * 0029).
  *
@@ -79,6 +86,13 @@ export type SettingsLayer =
  */
 export type Product = "collie" | "foxhound";
 /**
+ * The `markdown` format of a request: `true`, or its options.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MarkdownFormat".
+ */
+export type MarkdownFormat = true | MarkdownOptions;
+/**
  * Where a Run is (ADR 0029).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -106,6 +120,20 @@ export type LimitStanding = "held" | "foxhound" | "not_understood";
  * via the `definition` "PointInTime".
  */
 export type PointInTime = string;
+/**
+ * Whether the extractor found the document's main content.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MainContent".
+ */
+export type MainContent = "found" | "none";
+/**
+ * How much of the page a Markdown format holds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MarkdownContent".
+ */
+export type MarkdownContent = "main";
 /**
  * A page of a Run, named by the engine when it opens it.
  *
@@ -692,6 +720,51 @@ export interface ExplainedSetting {
   weakens: boolean;
 }
 /**
+ * What `page.formats` takes: the page, and the formats it asks for.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FormatsParams".
+ */
+export interface FormatsParams {
+  formats: FormatsRequest;
+  /**
+   * The page.
+   */
+  page_id: string;
+}
+/**
+ * The formats.
+ */
+export interface FormatsRequest {
+  /**
+   * The page's content as Markdown, with GFM's tables.
+   */
+  markdown?: MarkdownFormat | null;
+}
+/**
+ * With these options.
+ */
+export interface MarkdownOptions {
+  /**
+   * How much of the page it holds.
+   */
+  content: "main";
+}
+/**
+ * The formats a `page.formats` call asks for, each `true` or its options:
+ * one value, which a Record can carry and a Dataset's schema can be
+ * generated from (ADR 0103). A format left out is left out of the result.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FormatsRequest".
+ */
+export interface FormatsRequest1 {
+  /**
+   * The page's content as Markdown, with GFM's tables.
+   */
+  markdown?: MarkdownFormat | null;
+}
+/**
  * What `page.goto` takes: the page, and the URL it goes to.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -949,6 +1022,18 @@ export interface Limit1 {
   usage_kind: string;
 }
 /**
+ * The options of the `markdown` format.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MarkdownOptions".
+ */
+export interface MarkdownOptions1 {
+  /**
+   * How much of the page it holds.
+   */
+  content: "main";
+}
+/**
  * What a navigation answers: the document's response, or none for a
  * navigation within the same document, to a URL no server answers, such as
  * `about:blank`, or back or forward from the last entry of the page's
@@ -1028,6 +1113,33 @@ export interface PageBodyRead {
    * The body's size in bytes.
    */
   size: number;
+}
+/**
+ * What `page.formats` answers: the formats the request asked for, and
+ * none it did not, with the document's URL, its base URL and whether it
+ * has main content. Text is as the document holds it, never repaired.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageFormats".
+ */
+export interface PageFormats {
+  /**
+   * The URL its relative URLs resolve against: its first `<base href>`,
+   * else its URL.
+   */
+  base_url: string;
+  /**
+   * Whether it has main content.
+   */
+  main_content: "found" | "none";
+  /**
+   * Its content as Markdown, when the request asked for it.
+   */
+  markdown?: string;
+  /**
+   * The document's URL, after redirects.
+   */
+  url: string;
 }
 /**
  * What `run.new_page` answers: the page, and the Session it belongs to,

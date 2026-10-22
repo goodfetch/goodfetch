@@ -1,0 +1,556 @@
+# The `extraction` family's Markdown pages (ADR 0007; spec #580, ticket
+# #783): the 30 hand-written fixtures of the lab's Markdown measurement, six
+# categories of five (headings, lists, tables, links, code, mixed), each a
+# page and the Markdown a converter must write for it, judged by structure
+# (`src/markdown.rs`); then a page with no main content, whose Markdown is
+# empty. Served at `/markdown/<path>` on `extraction.test`, and listed by
+# `/markdown`, task `extraction/7`'s start page. Append a page, never reorder
+# or remove one (ADR 0063).
+
+[[pages]]
+path = "headings/levels"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>headings: levels</title></head><body>
+<h1>Title one</h1><p>Intro.</p><h2>Second level</h2><p>Text.</p><h3>Third level</h3><h4>Fourth level</h4><h5>Fifth level</h5><h6>Sixth level</h6>
+</body></html>
+'''
+markdown = '''
+# Title one
+
+Intro.
+
+## Second level
+
+Text.
+
+### Third level
+
+#### Fourth level
+
+##### Fifth level
+
+###### Sixth level
+'''
+
+[[pages]]
+path = "headings/inline-markup"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>headings: inline-markup</title></head><body>
+<h1>Install <em>quickly</em> with <code>cargo</code></h1><p>Body.</p><h2>See the <a href="https://example.test/guide">guide</a> &amp; notes</h2><p>More.</p>
+</body></html>
+'''
+markdown = '''
+# Install *quickly* with `cargo`
+
+Body.
+
+## See the [guide](https://example.test/guide) & notes
+
+More.
+'''
+
+[[pages]]
+path = "headings/sectioned"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>headings: sectioned</title></head><body>
+<article><header><h1>Release notes</h1></header><section><h2>Fixes</h2><p>Several fixes.</p></section><section><h2>Features</h2><p>Two features.</p><section><h3>Streaming</h3><p>Now streams.</p></section></section></article>
+</body></html>
+'''
+markdown = '''
+# Release notes
+
+## Fixes
+
+Several fixes.
+
+## Features
+
+Two features.
+
+### Streaming
+
+Now streams.
+'''
+
+[[pages]]
+path = "headings/entities-unicode"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>headings: entities-unicode</title></head><body>
+<h1>Caf&eacute; &mdash; Men&uuml;</h1><p>Texte.</p><h2>&laquo;&nbsp;Prix&nbsp;&raquo; 10&nbsp;&euro;</h2><p>Fin.</p><h2>数据 提取</h2><p>内容。</p>
+</body></html>
+'''
+markdown = '''
+# Café — Menü
+
+Texte.
+
+## « Prix » 10 €
+
+Fin.
+
+## 数据 提取
+
+内容。
+'''
+
+[[pages]]
+path = "headings/with-break"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>headings: with-break</title></head><body>
+<h2>First line<br>second line</h2><p>After.</p><h3>Plain</h3><p>End.</p>
+</body></html>
+'''
+markdown = '''
+## First line second line
+
+After.
+
+### Plain
+
+End.
+'''
+
+[[pages]]
+path = "lists/unordered"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>lists: unordered</title></head><body>
+<p>Fruits:</p><ul><li>Apple</li><li>Banana</li><li>Cherry</li></ul>
+</body></html>
+'''
+markdown = '''
+Fruits:
+
+- Apple
+- Banana
+- Cherry
+'''
+
+[[pages]]
+path = "lists/ordered-start"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>lists: ordered-start</title></head><body>
+<p>Steps:</p><ol start="3"><li>Open the file</li><li>Edit the line</li><li>Save it</li></ol>
+</body></html>
+'''
+markdown = '''
+Steps:
+
+3. Open the file
+4. Edit the line
+5. Save it
+'''
+
+[[pages]]
+path = "lists/nested"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>lists: nested</title></head><body>
+<ol><li>Prepare<ul><li>Fetch sources</li><li>Check hashes<ul><li>SHA-256 only</li></ul></li></ul></li><li>Build</li></ol>
+</body></html>
+'''
+markdown = '''
+1. Prepare
+   - Fetch sources
+   - Check hashes
+     - SHA-256 only
+2. Build
+'''
+
+[[pages]]
+path = "lists/paragraph-items"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>lists: paragraph-items</title></head><body>
+<ul><li><p>First point.</p></li><li><p>Second point, longer.</p></li></ul><p>Done.</p>
+</body></html>
+'''
+markdown = '''
+- First point.
+
+- Second point, longer.
+
+Done.
+'''
+
+[[pages]]
+path = "lists/inline-markup"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>lists: inline-markup</title></head><body>
+<ul><li><strong>Bold</strong> start</li><li>Has <a href="/docs">a link</a></li><li>Has <code>code</code> inside</li></ul>
+</body></html>
+'''
+markdown = '''
+- **Bold** start
+- Has [a link](/docs)
+- Has `code` inside
+'''
+
+[[pages]]
+path = "tables/simple"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>tables: simple</title></head><body>
+<table><thead><tr><th>Name</th><th>Price</th></tr></thead><tbody><tr><td>Tea</td><td>3</td></tr><tr><td>Coffee</td><td>4</td></tr></tbody></table>
+</body></html>
+'''
+markdown = '''
+| Name | Price |
+| --- | --- |
+| Tea | 3 |
+| Coffee | 4 |
+'''
+
+[[pages]]
+path = "tables/no-thead"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>tables: no-thead</title></head><body>
+<table><tr><th>Key</th><th>Value</th></tr><tr><td>alpha</td><td>1</td></tr><tr><td>beta</td><td>2</td></tr></table>
+</body></html>
+'''
+markdown = '''
+| Key | Value |
+| --- | --- |
+| alpha | 1 |
+| beta | 2 |
+'''
+
+[[pages]]
+path = "tables/inline-and-entities"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>tables: inline-and-entities</title></head><body>
+<table><thead><tr><th>Item</th><th>Note</th></tr></thead><tbody><tr><td><strong>Fish</strong> &amp; chips</td><td>Served <em>hot</em></td></tr><tr><td>A&lt;B</td><td><code>x &gt; 1</code></td></tr></tbody></table>
+</body></html>
+'''
+markdown = '''
+| Item | Note |
+| --- | --- |
+| **Fish** & chips | Served *hot* |
+| A<B | `x > 1` |
+'''
+
+[[pages]]
+path = "tables/pipe-in-cell"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>tables: pipe-in-cell</title></head><body>
+<table><thead><tr><th>Operator</th><th>Meaning</th></tr></thead><tbody><tr><td>a | b</td><td>either</td></tr><tr><td>a &amp;&amp; b</td><td>both</td></tr></tbody></table>
+</body></html>
+'''
+markdown = '''
+| Operator | Meaning |
+| --- | --- |
+| a \| b | either |
+| a && b | both |
+'''
+
+[[pages]]
+path = "tables/with-links"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>tables: with-links</title></head><body>
+<p>Mirrors:</p><table><thead><tr><th>Region</th><th>Link</th></tr></thead><tbody><tr><td>EU</td><td><a href="https://eu.example.test/">eu mirror</a></td></tr><tr><td>US</td><td><a href="https://us.example.test/">us mirror</a></td></tr></tbody></table>
+</body></html>
+'''
+markdown = '''
+Mirrors:
+
+| Region | Link |
+| --- | --- |
+| EU | [eu mirror](https://eu.example.test/) |
+| US | [us mirror](https://us.example.test/) |
+'''
+
+[[pages]]
+path = "links/absolute-relative"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>links: absolute-relative</title></head><body>
+<p>Read the <a href="https://example.test/a">first page</a>, then <a href="/b">the second</a> and <a href="c.html">the third</a>.</p>
+</body></html>
+'''
+markdown = '''
+Read the [first page](https://example.test/a), then [the second](/b) and [the third](c.html).
+'''
+
+[[pages]]
+path = "links/query-entities"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>links: query-entities</title></head><body>
+<p>Search <a href="https://example.test/s?q=rust&amp;page=2">page two</a> or <a href="mailto:team@example.test">write to us</a>.</p>
+</body></html>
+'''
+markdown = '''
+Search [page two](https://example.test/s?q=rust&page=2) or [write to us](mailto:team@example.test).
+'''
+
+[[pages]]
+path = "links/titled-and-formatted"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>links: titled-and-formatted</title></head><body>
+<p>See <a href="https://example.test/spec" title="The spec">the <em>spec</em></a> and <a href="https://example.test/faq"><strong>FAQ</strong></a>.</p>
+</body></html>
+'''
+markdown = '''
+See [the *spec*](https://example.test/spec "The spec") and [**FAQ**](https://example.test/faq).
+'''
+
+[[pages]]
+path = "links/in-list"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>links: in-list</title></head><body>
+<ul><li><a href="https://example.test/one">One</a></li><li><a href="https://example.test/two">Two</a></li></ul>
+</body></html>
+'''
+markdown = '''
+- [One](https://example.test/one)
+- [Two](https://example.test/two)
+'''
+
+[[pages]]
+path = "links/parentheses-in-url"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>links: parentheses-in-url</title></head><body>
+<p>The <a href="https://en.example.test/wiki/Rust_(language)">Rust article</a> explains it.</p>
+</body></html>
+'''
+markdown = '''
+The [Rust article](https://en.example.test/wiki/Rust_(language)) explains it.
+'''
+
+[[pages]]
+path = "code/fenced-language"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>code: fenced-language</title></head><body>
+<p>Example:</p><pre><code class="language-rust">fn main() {
+    println!("hi");
+}</code></pre>
+</body></html>
+'''
+markdown = '''
+Example:
+
+```rust
+fn main() {
+    println!("hi");
+}
+```
+'''
+
+[[pages]]
+path = "code/pre-only"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>code: pre-only</title></head><body>
+<pre>$ cargo build --release
+   Compiling lab v0.1.0</pre><p>Done.</p>
+</body></html>
+'''
+markdown = '''
+```
+$ cargo build --release
+   Compiling lab v0.1.0
+```
+
+Done.
+'''
+
+[[pages]]
+path = "code/html-entities"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>code: html-entities</title></head><body>
+<pre><code class="language-html">&lt;div class="a"&gt;
+  &lt;p&gt;x &amp;amp; y&lt;/p&gt;
+&lt;/div&gt;</code></pre>
+</body></html>
+'''
+markdown = '''
+```html
+<div class="a">
+  <p>x &amp; y</p>
+</div>
+```
+'''
+
+[[pages]]
+path = "code/blank-lines"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>code: blank-lines</title></head><body>
+<pre><code>first()
+
+second()
+
+
+third()</code></pre>
+</body></html>
+'''
+markdown = '''
+```
+first()
+
+second()
+
+
+third()
+```
+'''
+
+[[pages]]
+path = "code/backticks-inside"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>code: backticks-inside</title></head><body>
+<p>Markdown sample:</p><pre><code>```js
+let a = 1;
+```</code></pre>
+</body></html>
+'''
+markdown = '''
+Markdown sample:
+
+````
+```js
+let a = 1;
+```
+````
+'''
+
+[[pages]]
+path = "mixed/article"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>mixed: article</title></head><body>
+<article><h1>Guide</h1><p>Short intro with a <a href="https://example.test/ref">reference</a>.</p><h2>Install</h2><ol><li>Download</li><li>Run <code>setup</code></li></ol><pre><code class="language-sh">./setup --all</code></pre><h2>Options</h2><table><thead><tr><th>Flag</th><th>Effect</th></tr></thead><tbody><tr><td>--all</td><td>everything</td></tr></tbody></table></article>
+</body></html>
+'''
+markdown = '''
+# Guide
+
+Short intro with a [reference](https://example.test/ref).
+
+## Install
+
+1. Download
+2. Run `setup`
+
+```sh
+./setup --all
+```
+
+## Options
+
+| Flag | Effect |
+| --- | --- |
+| --all | everything |
+'''
+
+[[pages]]
+path = "mixed/blockquote-list"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>mixed: blockquote-list</title></head><body>
+<blockquote><p>Remember:</p><ul><li>back up</li><li>test restores</li></ul></blockquote><p>Then go.</p>
+</body></html>
+'''
+markdown = '''
+> Remember:
+>
+> - back up
+> - test restores
+
+Then go.
+'''
+
+[[pages]]
+path = "mixed/list-with-code"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>mixed: list-with-code</title></head><body>
+<ol><li><p>Create the file:</p><pre><code>touch a.txt</code></pre></li><li><p>Check it.</p></li></ol>
+</body></html>
+'''
+markdown = '''
+1. Create the file:
+
+   ```
+   touch a.txt
+   ```
+
+2. Check it.
+'''
+
+[[pages]]
+path = "mixed/forum-post"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>mixed: forum-post</title></head><body>
+<div class="post"><h3>Re: build fails</h3><p>Try this:</p><pre><code>rm -rf target</code></pre><p>Then:</p><ul><li>rebuild</li><li>report back</li></ul></div>
+</body></html>
+'''
+markdown = '''
+### Re: build fails
+
+Try this:
+
+```
+rm -rf target
+```
+
+Then:
+
+- rebuild
+- report back
+'''
+
+[[pages]]
+path = "mixed/product"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>mixed: product</title></head><body>
+<h1>Desk Lamp</h1><p><strong>Price:</strong> 39 &euro;</p><h2>Specifications</h2><table><tbody><tr><th>Power</th><td>8 W</td></tr><tr><th>Colour</th><td>Black</td></tr></tbody></table><h2>In the box</h2><ul><li>Lamp</li><li>USB cable</li></ul>
+</body></html>
+'''
+markdown = '''
+# Desk Lamp
+
+**Price:** 39 €
+
+## Specifications
+
+| Power | 8 W |
+| --- | --- |
+| Colour | Black |
+
+## In the box
+
+- Lamp
+- USB cable
+'''
+
+[[pages]]
+path = "none/navigation-only"
+html = '''
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>none: navigation only</title></head><body>
+<header><nav><a href="/markdown">Pages</a> <a href="/products">Products</a></nav></header>
+<main></main>
+<footer><a href="/markdown/privacy">Privacy</a></footer>
+</body></html>
+'''
+markdown = ''''''

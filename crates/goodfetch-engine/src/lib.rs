@@ -20,6 +20,7 @@ pub mod clock;
 mod composition;
 mod config;
 pub mod console;
+pub mod crash_report;
 pub mod daemon;
 pub mod deadline;
 pub mod dns;

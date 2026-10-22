@@ -47,6 +47,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::Instrument as _;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::checkpoint::{
@@ -692,6 +693,9 @@ struct Shared {
     finish: watch::Sender<bool>,
     /// Its Slices of the Limits that hold it, until it ends.
     charging: tokio::sync::Mutex<Option<Charging>>,
+    /// Its `tracing` span, a root of its own (ADR 0132), which each of its
+    /// tasks runs in.
+    span: tracing::Span,
 }
 
 impl std::fmt::Debug for Run {
@@ -873,12 +877,19 @@ impl Run {
         &self.owner
     }
 
-    /// Starts `future` as one of the Run's tasks.
+    /// Starts `future` as one of the Run's tasks, in its span.
     pub fn spawn<F>(&self, future: F)
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        self.owner.spawn(future);
+        self.owner
+            .spawn(future.instrument(self.shared.span.clone()));
+    }
+
+    /// Its `tracing` span, whose field is its Run ID: the parent of what its
+    /// driver and its pages record (ADR 0132).
+    pub fn span(&self) -> &tracing::Span {
+        &self.shared.span
     }
 
     /// Ends the Run as its driver says, once: its tasks stop, and its Run
@@ -2262,6 +2273,7 @@ impl Registry {
                     epoch,
                     self.limits.placement(connection),
                 ))),
+                span: tracing::info_span!(parent: None, "run", run_id = %run_id),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),

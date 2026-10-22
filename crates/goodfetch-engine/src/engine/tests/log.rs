@@ -5,14 +5,18 @@
 //!
 //! Covers: story:3-105, operation:connection.set_log_level
 
+use std::collections::BTreeMap;
+use std::fmt;
+use std::sync::{Arc, Mutex};
+
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 use tracing_subscriber::layer::SubscriberExt as _;
 
-use super::Client;
 use super::daemon::{TOKEN, connect, daemon, hello_with, the_pick};
-use super::engine;
+use super::run::call;
+use super::{Client, attached_on, engine, hello};
 use crate::log::LogEvents;
 use crate::rpc::DISPATCH_TARGET;
 use crate::transport::InMemoryDialer;
@@ -104,6 +108,69 @@ fn two_clients_of_one_daemon_each_receive_the_log_events_at_their_own_level() {
             ],
             vec![]
         )
+    );
+}
+
+/// The spans a test's subscriber saw open: each one's name, whether it is
+/// a root, and its fields.
+#[derive(Clone, Default)]
+struct Opened(Arc<Mutex<Vec<(String, bool, BTreeMap<String, String>)>>>);
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Opened {
+    fn on_new_span(
+        &self,
+        attributes: &tracing::span::Attributes<'_>,
+        _: &tracing::span::Id,
+        _: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        #[derive(Default)]
+        struct Fields(BTreeMap<String, String>);
+        impl tracing::field::Visit for Fields {
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn fmt::Debug) {
+                self.0.insert(field.name().to_owned(), format!("{value:?}"));
+            }
+        }
+        let mut fields = Fields::default();
+        attributes.record(&mut fields);
+        self.0.lock().unwrap().push((
+            attributes.metadata().name().to_owned(),
+            attributes.is_root(),
+            fields.0,
+        ));
+    }
+}
+
+/// Covers: story:3-105
+#[test]
+fn a_run_is_a_root_span_of_its_own_whose_field_is_its_run_id() {
+    let opened = Opened::default();
+    let subscriber = tracing_subscriber::registry().with(opened.clone());
+    let env = TestEnv::new();
+
+    tracing::subscriber::with_default(subscriber, || {
+        attached_on(&engine(Product::Collie), &env, |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await;
+            call(&mut client, 1, "run.start", json!({ "run_id": "one" })).await;
+            call(&mut client, 2, "run.finish", json!({ "run_id": "one" })).await;
+        });
+    });
+
+    let runs: Vec<_> = opened
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(name, _, _)| name == "run")
+        .cloned()
+        .collect();
+    assert_eq!(
+        runs,
+        [(
+            "run".to_owned(),
+            true,
+            BTreeMap::from([("run_id".to_owned(), "one".to_owned())])
+        )]
     );
 }
 

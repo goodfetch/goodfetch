@@ -31,7 +31,9 @@ use goodfetch_engine::browser_cache::Pins;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::{BrowserExit, PageResponse, WaitUntil};
+use goodfetch_protocol::page::{
+    BrowserExit, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageResponse, WaitUntil,
+};
 use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
 
@@ -532,6 +534,18 @@ pub(crate) enum Destination<'a> {
     Back,
     /// To the next entry of the page's history.
     Forward,
+}
+
+impl Destination<'_> {
+    /// The operation that navigates there, which a page's span records.
+    pub(crate) fn operation(self) -> &'static str {
+        match self {
+            Self::Url(_) => PAGE_GOTO.name,
+            Self::Reload => PAGE_RELOAD.name,
+            Self::Back => PAGE_GO_BACK.name,
+            Self::Forward => PAGE_GO_FORWARD.name,
+        }
+    }
 }
 
 /// The command that starts a navigation.

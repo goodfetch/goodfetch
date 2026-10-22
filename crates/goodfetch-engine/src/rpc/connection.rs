@@ -68,6 +68,9 @@ const MAX_IN_FLIGHT: usize = 256;
 /// How many lines wait for the writer before their senders wait.
 const OUTGOING_LINES: usize = 64;
 
+/// What a dispatch record names a method no catalog holds.
+const UNKNOWN_METHOD: &str = "(unknown)";
+
 /// The `tracing` target of a listener's refusals of a Connection.
 pub const REFUSAL_TARGET: &str = "goodfetch::rpc::refusal";
 
@@ -406,7 +409,7 @@ impl Session<'_> {
                     ProtocolFailure::InvalidRequest,
                     "a Connection opens with `hello`",
                 );
-                record(&request.method, Some(error.code()));
+                record(self.named(&request.method), Some(error.code()));
                 self.send(failure_line(Some(request.id), &error)).await;
             }
             Message::Unreadable(error) => {
@@ -414,7 +417,7 @@ impl Session<'_> {
                 self.send(failure_line(error.id, &failure)).await;
             }
             Message::Notification(notification) => {
-                tracing::debug!(method = %notification.method, "a Connection that does not open with `hello` closes");
+                tracing::debug!("a notification before `hello` closes the Connection");
             }
             Message::Reply { id, .. } => {
                 tracing::debug!(?id, "a Connection that does not open with `hello` closes");
@@ -440,7 +443,7 @@ impl Session<'_> {
             ProtocolFailure::InvalidRequest,
             "a Connection opens with `hello` once",
         );
-        record(&request.method, Some(error.code()));
+        record(self.named(&request.method), Some(error.code()));
         if self.send(failure_line(Some(request.id), &error)).await {
             Flow::Continue
         } else {
@@ -622,7 +625,7 @@ impl Session<'_> {
         let Some(error) = refusal else {
             return Flow::Continue;
         };
-        record(&method, Some(error.code()));
+        record(self.named(&method), Some(error.code()));
         if self.send(failure_line(Some(id), &error)).await {
             Flow::Continue
         } else {
@@ -686,7 +689,7 @@ impl Session<'_> {
             return;
         }
         if notification.method != CANCEL {
-            tracing::debug!(method = %notification.method, "an unknown notification is ignored");
+            tracing::debug!("an unknown notification is ignored");
             return;
         }
         let params = notification.params.clone().unwrap_or(Value::Null);
@@ -699,7 +702,7 @@ impl Session<'_> {
                     call.token.cancel();
                 }
             }
-            Err(error) => tracing::debug!(%error, "a `$/cancel` without a call's id is ignored"),
+            Err(_) => tracing::debug!("a `$/cancel` without a call's id is ignored"),
         }
     }
 
@@ -717,7 +720,7 @@ impl Session<'_> {
                     call_credits.grant(credits);
                 }
             }
-            Err(error) => tracing::debug!(%error, "a `$/credit` that is not one is ignored"),
+            Err(_) => tracing::debug!("a `$/credit` that is not one is ignored"),
         }
     }
 
@@ -728,6 +731,17 @@ impl Session<'_> {
 }
 
 impl Session<'_> {
+    /// `method` as a record names it: a name of the catalog, `hello` or
+    /// `$/cancel`, or [`UNKNOWN_METHOD`] for any other, which a Client
+    /// wrote and no log keeps (ADR 0132's bounded values).
+    fn named<'method>(&self, method: &'method str) -> &'method str {
+        let known = method == HELLO
+            || method == CANCEL
+            || self.dispatch.handlers.contains_key(method)
+            || foxhound_names::OPERATIONS.contains(&method);
+        if known { method } else { UNKNOWN_METHOD }
+    }
+
     /// Logs the listener's refusal of the Connection, with its reason.
     fn refused(&self, reason: &'static str) {
         let listener = self.access.listener();

@@ -61,9 +61,10 @@ CREATE TABLE run (
         journal_position INTEGER NOT NULL DEFAULT 0,
         binding TEXT,
         clean_up_digest TEXT,
-        uncapped INTEGER NOT NULL DEFAULT 0
+        uncapped INTEGER NOT NULL DEFAULT 0,
+        progress_message TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('aborted','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run"}]',3,NULL,NULL,0);
+INSERT INTO "run" VALUES('aborted','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run"}]',3,NULL,NULL,0,NULL);
 CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
             answer TEXT NOT NULL

@@ -1000,7 +1000,7 @@ status = "active"
 
 [[story]]
 id = 128
-title = "As a developer, I want a keep-alive run that waits for new work until its input is closed, so that a run can serve work as it arrives (RT-12)."
+title = "As a developer, I want a keep-alive run that waits for new work until `finish()` lets it end once drained, so that a run can serve work as it arrives (RT-12)."
 milestone = "M1 Core"
 journey = true
 status = "active"
@@ -1019,7 +1019,8 @@ title = "As a developer, I want user state persisted with the run and restored o
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "ADR 0103 declines `useState`: a program's state lives in the Key-value store (area 6), staged with the attempt."
 
 [[story]]
 id = 131

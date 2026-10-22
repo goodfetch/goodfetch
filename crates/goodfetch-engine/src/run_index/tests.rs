@@ -63,6 +63,7 @@ fn row(run_id: &str) -> RunIndexRow {
         ended_at: None,
         owner: None,
         presence: Presence::Present,
+        progress_message: None,
     }
 }
 

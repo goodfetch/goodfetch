@@ -25,7 +25,9 @@
 //! failing with `blocked` for a `rate_limit` (a 429) halves its concurrency,
 //! for every sharing run (ADR 0053). A domain the Politeness holds for want
 //! of room waits for the wake of a Permit given back. Once every work item
-//! is done, it finishes the Run. When the Run is asked to stop at its next safe point,
+//! is done, it finishes the Run; with `crawl.keep_alive` (RT-12) it waits
+//! for new work instead until `run.finish` lets the Run finish, so its idle
+//! time counts toward its `timeout.run`. When the Run is asked to stop at its next safe point,
 //! such as once its `timeout.run` passed, it admits nothing new, lets each
 //! attempt in flight commit or be abandoned under its lease, and then stops
 //! the Run. When the Run stops at once, by an abort, the attempts in flight
@@ -40,12 +42,12 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
-use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::foxhound::crawl::{
-    CLIENT_GONE, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
-    HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
+    CLIENT_GONE, CRAWL_KEEP_ALIVE, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams,
+    CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
 };
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::run::StopReason;
@@ -199,29 +201,23 @@ async fn deliver(
                 return;
             }
             if !servers.iter_mut().any(Serving::serves) {
-                tokio::select! {
-                    biased;
-                    () = run.cancellation().cancelled() => {
-                        admission.close().await;
-                        release(run).await;
-                        return;
-                    }
-                    reason = run.stopping() => {
-                        stop = Some(reason);
-                        continue;
-                    }
-                    Some(server) = joined.recv() => {
-                        servers.push(Serving::joined(server));
-                        continue;
-                    }
+                match waited(run, &mut admission, servers, joined, false).await {
+                    Waited::Ended => return,
+                    Waited::Stop(reason) => stop = Some(reason),
+                    Waited::Again => {}
                 }
+                continue;
             }
             match when_idle(run, &mut admission).await {
                 Ok(Idle::Admit) => continue,
                 Ok(Idle::Wait) => {}
                 Ok(Idle::Done) => {
-                    end(run, &mut admission, Ending::Finished).await;
-                    return;
+                    match drained(run, &resolved, &mut admission, servers, joined).await {
+                        Waited::Ended => return,
+                        Waited::Stop(reason) => stop = Some(reason),
+                        Waited::Again => {}
+                    }
+                    continue;
                 }
                 Err(error) => {
                     tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
@@ -388,6 +384,64 @@ fn domain_ending(answer: &Answer) -> Ended {
         Ended::BackOff
     } else {
         Ended::Done
+    }
+}
+
+/// What a crawl with nothing to deliver now does next.
+enum Waited {
+    /// It ended the Run, or the Run stopped at once.
+    Ended,
+    /// The Run is asked to stop at its next safe point.
+    Stop(StopReason),
+    /// `run.finish` let it finish, or a Connection joined to serve it:
+    /// look for work once more.
+    Again,
+}
+
+/// Finishes a crawl with no work item left, unless `crawl.keep_alive`,
+/// read at each admission point as its policy is, holds it until
+/// `run.finish` lets it finish: until then it waits for new work, as the
+/// Run's own timeout and a stop still end it (RT-12).
+async fn drained(
+    run: &Run,
+    resolved: &Resolved,
+    admission: &mut Admission,
+    servers: &mut Vec<Serving>,
+    joined: &mut mpsc::UnboundedReceiver<Server>,
+) -> Waited {
+    let keeps_alive = resolved
+        .boolean(CRAWL_KEEP_ALIVE.name)
+        .expect("invariant: `crawl.keep_alive` resolves to a boolean");
+    if !keeps_alive || run.is_let_finish() {
+        end(run, admission, Ending::Finished).await;
+        return Waited::Ended;
+    }
+    waited(run, admission, servers, joined, true).await
+}
+
+/// Waits, with nothing to deliver now, until the Run stops at once, is
+/// asked to stop at its next safe point, a Connection joins to serve it
+/// or, `until_finish`, `run.finish` lets it finish.
+async fn waited(
+    run: &Run,
+    admission: &mut Admission,
+    servers: &mut Vec<Serving>,
+    joined: &mut mpsc::UnboundedReceiver<Server>,
+    until_finish: bool,
+) -> Waited {
+    tokio::select! {
+        biased;
+        () = run.cancellation().cancelled() => {
+            admission.close().await;
+            release(run).await;
+            Waited::Ended
+        }
+        reason = run.stopping() => Waited::Stop(reason),
+        () = run.let_finish(), if until_finish => Waited::Again,
+        Some(server) = joined.recv() => {
+            servers.push(Serving::joined(server));
+            Waited::Again
+        }
     }
 }
 

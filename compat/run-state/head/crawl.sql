@@ -79,9 +79,10 @@ CREATE TABLE run (
         journal_position INTEGER NOT NULL DEFAULT 0,
         binding TEXT,
         clean_up_digest TEXT,
-        uncapped INTEGER NOT NULL DEFAULT 0
+        uncapped INTEGER NOT NULL DEFAULT 0,
+        progress_message TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"},{"label":"guarded","url":"https://guarded.test/"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',41,NULL,NULL,0);
+INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"},{"label":"guarded","url":"https://guarded.test/"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',41,NULL,NULL,0,NULL);
 CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
             answer TEXT NOT NULL

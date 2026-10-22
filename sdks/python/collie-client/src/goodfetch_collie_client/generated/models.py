@@ -422,6 +422,11 @@ class ProductVersion(RootModel[str]):
     """A Product version, `major.minor.patch` with an optional pre-release (ADR 0090)."""
 
 
+class ProgressMessage(RootModel[str]):
+    root: Annotated[str, Field(max_length=512)]
+    """A program's own status line about its Run (RT-15)."""
+
+
 class ProjectSettings(BaseModel):
     """
     A project configuration's values, which a Client reads where it runs and
@@ -485,6 +490,20 @@ class RunParams(BaseModel):
     """The Run's ID."""
 
 
+class RunProgress(BaseModel):
+    """A Run's progress as it is now (ADR 0102): what `run.progress` reports."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    lifecycle: Lifecycle
+    """Where it is."""
+    message: ProgressMessage | None = None
+    """The program's own status line, once it set one."""
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RunResumeParams(BaseModel):
     """What `run.resume` takes."""
 
@@ -506,6 +525,18 @@ class RunResumeParams(BaseModel):
     The Run's settings from the resume on, nested by key: the run layer
     (ADRs 0083 and 0102).
     """
+
+
+class RunSetProgressMessageParams(BaseModel):
+    """What `run.set_progress_message` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    message: ProgressMessage
+    """The program's status line, which replaces the one before."""
+    run_id: RunId
+    """The Run's ID."""
 
 
 class SampleEchoParams(BaseModel):

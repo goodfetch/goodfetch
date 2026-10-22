@@ -42,11 +42,12 @@ const SCHEMA: &[&str] = &[
         started_at TEXT NOT NULL,
         ended_at TEXT,
         owner TEXT,
-        presence TEXT NOT NULL
+        presence TEXT NOT NULL,
+        progress_message TEXT
     ) STRICT",
 ];
 
-const COLUMNS: &str = "run_id, location, kind, needs, tags, lifecycle, verdict, completeness, started_at, ended_at, owner, presence";
+const COLUMNS: &str = "run_id, location, kind, needs, tags, lifecycle, verdict, completeness, started_at, ended_at, owner, presence, progress_message";
 
 fn failed(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
     RunStateError::Sqlite {
@@ -154,12 +155,13 @@ fn insert(connection: &Connection, row: &RunIndexRow) -> rusqlite::Result<()> {
     connection.execute(
         &format!(
             "INSERT INTO runs ({COLUMNS})
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT (run_id) DO UPDATE SET
                 location = excluded.location, kind = excluded.kind, needs = excluded.needs,
                 tags = excluded.tags, lifecycle = excluded.lifecycle, verdict = excluded.verdict,
                 completeness = excluded.completeness, started_at = excluded.started_at,
-                ended_at = excluded.ended_at, owner = excluded.owner, presence = excluded.presence"
+                ended_at = excluded.ended_at, owner = excluded.owner, presence = excluded.presence,
+                progress_message = excluded.progress_message"
         ),
         (
             row.run_id.as_str(),
@@ -176,6 +178,7 @@ fn insert(connection: &Connection, row: &RunIndexRow) -> rusqlite::Result<()> {
                 .as_ref()
                 .map(|owner| serde_json::to_string(owner).expect("invariant: an endpoint encodes")),
             row.presence.as_str(),
+            row.progress_message.as_deref(),
         ),
     )?;
     Ok(())
@@ -212,6 +215,7 @@ fn row_of(row: &Row<'_>) -> rusqlite::Result<RunIndexRow> {
             })
             .transpose()?,
         presence: parsed(&row.get::<_, String>(11)?)?,
+        progress_message: row.get(12)?,
     })
 }
 

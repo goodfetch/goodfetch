@@ -16,6 +16,7 @@
 )]
 
 mod admission;
+mod keep_alive;
 mod limits;
 mod model;
 mod resume;

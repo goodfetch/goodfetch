@@ -1,12 +1,12 @@
 #:schema ./journey.schema.json
 id = "J-021"
-title = "Feed a keep-alive run new work until its input closes"
+title = "Feed a keep-alive run new work until it is let finish"
 goal = """
 A person starts a keep-alive Crawl with nothing to do, then feeds it work as \
-it arrives and closes its input. The run MUST stay running while it waits \
-for work, MUST take each new piece of work as it arrives, and MUST end only \
-once its input is closed and every piece of work is done, so that a run can \
-serve work as it arrives."""
+it arrives and lets it finish. The run MUST stay running while it waits for \
+work, MUST take each new piece of work as it arrives, and MUST end only once \
+`finish()` let it finish and every piece of work is done, so that a run can \
+serve work as it arrives (ADR 0102)."""
 area = 3
 product = "foxhound"
 status = "active"
@@ -33,13 +33,13 @@ text = "Wait while the Crawl has nothing to do"
 text = "Add the catalog's first listing page to the Crawl as new work"
 
 [[steps]]
-text = "Close the Crawl's input once its work is added, and wait for it to end"
+text = "Let the Crawl finish once its work is added, and wait for it to end"
 
 [[expect]]
 text = "While it had nothing to do, the Crawl stayed `running` and did not end"
 
 [[expect]]
-text = "The Crawl took the added work as it arrived, and ended only after its input was closed and its work was done"
+text = "The Crawl took the added work as it arrived, and ended only after it was let finish and its work was done"
 
 [[expect]]
 text = "The oracle verifies the Crawl's Records"

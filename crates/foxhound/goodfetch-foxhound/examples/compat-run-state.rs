@@ -15,8 +15,9 @@
 //! weakens a guarantee, whose Key-value store keeps a cursor, which
 //! `run.abort` stops; and a Run bound to a
 //! Browser host and holding to a Clean-up rules digest, started through a
-//! contribution of the writer's own since no Client sets those yet, which
-//! `run.checkpoint` checkpoints and `run.pause` pauses with a Checkpoint.
+//! contribution of the writer's own since no Client sets those yet, whose
+//! program sets a progress message, which `run.checkpoint` checkpoints and
+//! `run.pause` pauses with a Checkpoint.
 //! It writes each Run's file, as SQL text, into the folder given as the
 //! only argument: `crawl.sql`, `aborted.sql` and `paused.sql`; and the
 //! pause's real Checkpoint file, `checkpoint.sqlite`, with the Checkpoint
@@ -96,8 +97,13 @@ fn scenario() -> Vec<Value> {
         ),
         call(4, "run.abort", json!({ "run_id": "aborted" })),
         call(5, "compat.bound", json!({})),
-        call(6, "run.checkpoint", json!({ "run_id": "paused" })),
-        call(7, "run.pause", json!({ "run_id": "paused" })),
+        call(
+            6,
+            "run.set_progress_message",
+            json!({ "run_id": "paused", "message": "Waiting for the next page" }),
+        ),
+        call(7, "run.checkpoint", json!({ "run_id": "paused" })),
+        call(8, "run.pause", json!({ "run_id": "paused" })),
     ]
 }
 

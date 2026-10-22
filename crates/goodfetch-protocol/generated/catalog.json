@@ -630,6 +630,18 @@
     },
     {
       "arrived_in": "0.1",
+      "class": "telemetry",
+      "deprecated": null,
+      "description": "A Run's progress changed, such as the program's own status line. Telemetry: a newer value of the same Run replaces an unsent one.",
+      "name": "run.progress",
+      "payload": {
+        "$ref": "#/$defs/RunProgress"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
       "description": "A Run is stopping at its next safe point, with its cause: an abort, a pause or a migration. Lossless.",
@@ -759,7 +771,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done. A Run ID works as `run.start`'s.",
+      "description": "Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done, or, with `crawl.keep_alive`, once `run.finish` lets it and every work item is done. A Run ID works as `run.start`'s.",
       "events": [],
       "kind": "opener",
       "name": "crawl.start",
@@ -1182,7 +1194,7 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.",
+      "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.",
       "events": [],
       "kind": "round_trip",
       "name": "run.finish",
@@ -1314,6 +1326,27 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunSeeds"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Sets the program's own status line about a live Run, at most 512 characters, which replaces the one before: kept in the Run's state, so a resume keeps it, shown in its Run index row and carried on its progress, `run.progress`. Answers the Run's progress. A Run this engine does not run fails with `run_not_found`.",
+      "events": [
+        "run.progress"
+      ],
+      "kind": "round_trip",
+      "name": "run.set_progress_message",
+      "params": {
+        "$ref": "#/$defs/RunSetProgressMessageParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/RunProgress"
       },
       "stability": "experimental"
     },
@@ -1624,6 +1657,22 @@
       "value": {
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
+      "name": "crawl.keep_alive",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
       },
       "weakens": false
     },

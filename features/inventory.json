@@ -1160,6 +1160,17 @@
       ]
     },
     {
+      "id": "event:run.progress",
+      "kind": "event",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "event:run.stopping",
       "kind": "event",
       "area": 3,
@@ -1622,6 +1633,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.set_progress_message",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -3638,6 +3660,16 @@
     },
     {
       "id": "setting:crawl.handler.concurrency",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.keep_alive",
       "kind": "setting",
       "area": 3,
       "milestone": null,
@@ -10180,7 +10212,7 @@
       "kind": "story",
       "area": 3,
       "milestone": "M1 Core",
-      "status": "active",
+      "status": "retired",
       "products": [
         "collie",
         "foxhound"

@@ -260,6 +260,19 @@ impl TestEnv {
 
     /// Starts a command with its standard input and output piped and records
     /// its process, which must have exited when the test's teardown runs.
+    /// Starts `command` with the standard streams it sets, and records it,
+    /// for a process whose output goes to a file, such as LazyFS's.
+    pub(crate) fn spawn_with_streams(
+        &self,
+        command: &mut std::process::Command,
+    ) -> io::Result<Process> {
+        let program = Path::new(command.get_program())
+            .file_name()
+            .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        let child = command.spawn()?;
+        Ok(self.processes.record(program, child))
+    }
+
     pub fn spawn(&self, command: &mut std::process::Command) -> io::Result<Process> {
         let program = Path::new(command.get_program())
             .file_name()
@@ -269,6 +282,22 @@ impl TestEnv {
             .stdout(Stdio::piped())
             .spawn()?;
         Ok(self.processes.record(program, child))
+    }
+}
+
+impl TestEnv {
+    /// Keeps the test's folder after the value drops, as a failed test's
+    /// is, and lists it in the test's output: `goodfetch-test-env` does so
+    /// when the TypeScript or Python test it serves failed.
+    pub fn keep(&mut self) {
+        self.folder.disable_cleanup(true);
+        #[expect(
+            clippy::print_stderr,
+            reason = "a failed test lists its kept folder in its output (ADR 0062)"
+        )]
+        {
+            eprintln!("goodfetch-test-folder-kept={}", self.folder().display());
+        }
     }
 }
 

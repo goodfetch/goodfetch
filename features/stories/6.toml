@@ -540,6 +540,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 202
@@ -548,6 +549,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 208
@@ -556,6 +558,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 209
@@ -564,6 +567,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 210
@@ -571,6 +575,7 @@ title = "As a crawl developer, I want a keep-alive crawl (`crawl.keep_alive`) to
 milestone = "M1 Core"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 211
@@ -579,6 +584,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 212
@@ -587,6 +593,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 213
@@ -595,6 +602,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 214
@@ -603,6 +611,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 215
@@ -611,6 +620,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 220
@@ -619,6 +629,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 224
@@ -627,6 +638,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 225
@@ -635,6 +647,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 226
@@ -643,6 +656,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 227
@@ -651,6 +665,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 228
@@ -659,6 +674,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 231
@@ -667,6 +683,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 250
@@ -675,6 +692,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 251
@@ -683,6 +701,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 255
@@ -691,3 +710,4 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"

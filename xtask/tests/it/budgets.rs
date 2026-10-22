@@ -19,19 +19,9 @@ const MILESTONES: &str = "/repos/goodfetch/goodfetch/milestones?state=open&per_p
 const PULL_REQUEST: &str = ".github/workflows/pull-request.yml";
 const RELEASE_SUITE: &str = ".github/workflows/release-suite.yml";
 
-/// TESTING.md's table of time budgets, as ADR 0061 sets it.
-const TABLE: &str = r#"# Testing
-
-### Time budgets
-
-| Suite | Where | Budget | Hard cap |
-|---|---|---|---|
-| Quick | Locally, one crate changed, incremental build | ≤ 60 s (guidance) | none |
-| Quick | CI, whole workspace | tests ≤ 2 min, job ≤ 10 min | 20 min |
-| Pre-merge | Pull request | "all green" ≤ 20 min, each job ≤ 15 min | 30 min per job |
-| Release | Merge queue | ≤ 60 min per group, each job ≤ 45 min | 90 min per job, 120 min for the queue |
-| Release | Nightly and release pipelines | each job ≤ 3 h | 5 h per job |
-"#;
+/// The repository's own TESTING.md, so a reworded table of time budgets
+/// fails these tests rather than leaving the check with nothing to compare.
+const TABLE: &str = include_str!("../../../TESTING.md");
 
 const HOSTED: &[&str] = &["ubuntu-24.04"];
 const OWNER_MACHINE: &[&str] = &["self-hosted", "owner-machine"];
@@ -330,8 +320,70 @@ fn tier_without_a_budget_row_is_reported_and_fails_nothing() {
 
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     assert_eq!(
-        outcome.findings(),
+        outcome.notes(),
         vec![finding("missing-budget", "Release, Merge queue")]
     );
+    assert_eq!(outcome.findings(), vec![]);
     assert_eq!(github.writes(), vec![]);
+}
+
+/// The repository's table names every budget the tiers need, so the check
+/// reports none missing.
+#[test]
+fn the_table_in_testing_md_has_every_budget_the_tiers_need() {
+    let workspace = workspace_with(&[]);
+    let github = github("[]");
+
+    let outcome = budgets(&workspace, &github);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(outcome.notes(), vec![], "{}", outcome.stdout);
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
+}
+
+/// A run whose last job ends before its first starts has no group time: it
+/// is left out with a note, never counted as 0 s, which would pull the
+/// median under its budget.
+#[test]
+fn run_ending_before_it_starts_is_left_out_of_the_group_median() {
+    let attempts: Vec<Attempt> = (1..=20)
+        .map(|run| {
+            let start = started_at(run);
+            let jobs = if run <= 10 {
+                vec![
+                    named_job("plan", HOSTED, 1, start),
+                    named_job("linux-x64-gnu", HOSTED, 40, &later(start, 1)),
+                    named_job("windows-x64", HOSTED, 40, &later(start, 30)),
+                ]
+            } else {
+                vec![with(
+                    named_job("linux-x64-gnu", HOSTED, 40, start),
+                    "completed_at",
+                    json!(later(start, -5)),
+                )]
+            };
+            run_of(RELEASE_SUITE, "workflow_dispatch", run, jobs)
+        })
+        .collect();
+    let workspace = workspace_with(&attempts);
+    let github = github("[]");
+
+    let outcome = budgets(&workspace, &github);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.notes(),
+        (11..=20)
+            .map(|run| finding("negative-span", &format!("Release, run {run}")))
+            .collect::<Vec<_>>()
+    );
+    let writes = github.writes();
+    assert_eq!(
+        markers(&writes),
+        vec!["<!-- goodfetch-results: needs-triage time-budget suite Release -->"]
+    );
+    assert_eq!(
+        listed_runs(json_body(&writes[0])["body"].as_str().unwrap()),
+        (1..=10).rev().collect::<Vec<u64>>()
+    );
 }

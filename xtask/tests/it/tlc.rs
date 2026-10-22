@@ -276,3 +276,27 @@ fn change_reaching_no_model_selects_none() {
         (r#"["pre-merge","sinks","perf"]"#.to_owned(), String::new())
     );
 }
+
+/// A model tracing a module that no longer exists, as after a rename, would
+/// silently stop being selected: reading the models fails instead.
+#[test]
+fn a_model_tracing_a_path_that_does_not_exist_fails_the_selection() {
+    let workspace = repository();
+    workspace.git(&[
+        "mv",
+        "crates/goodfetch-engine/src/lease.rs",
+        "crates/goodfetch-engine/src/leases.rs",
+    ]);
+    commit_all(&workspace, "Rename a traced module");
+
+    let outcome = workspace.xtask(&["affected", "--base", "main", "--head", "change"]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stdout);
+    assert!(
+        outcome
+            .stderr
+            .contains("crates/goodfetch-engine/src/lease.rs"),
+        "{}",
+        outcome.stderr
+    );
+}

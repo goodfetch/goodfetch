@@ -11,12 +11,16 @@
 //   `not_reached` (`manual` for a manual one), so a run that skips a step
 //   gives a document every reader refuses; a step or check still running is
 //   recorded `failed`;
+// - a check the file scopes to other variants' surfaces is not the
+//   variant's: it is neither run nor written;
 // - checks and tasks are written in the file's order, a check never called
-//   `not_reached` and a task never judged with no answer.
+//   `not_reached` and a task never judged with no answer;
+// - each check naming a task is judged on its own submission, so a task two
+//   checks name is written once per check, with that check's answer.
 // It records facts only: the document's outcome is derived from them by
 // `journeyDocument`.
 import type { JourneyFacts } from "./journey-document.ts";
-import { namedTasks, type JourneyFile } from "./journey-file.ts";
+import { belongsTo, namedTasks, type JourneyFile } from "./journey-file.ts";
 import type { CheckOutcome, OracleAnswer, StepOutcome } from "./generated/result-document.ts";
 
 /** A step's or check's body: it fails when it throws or rejects. */
@@ -70,18 +74,19 @@ export class JourneyRun {
   readonly #checks: (RecordedCheck | undefined)[];
   /** Checks recorded that the file does not hold. */
   readonly #extraChecks: RecordedCheck[] = [];
-  /** The oracle's answer for each named task judged. */
-  readonly #answers = new Map<string, OracleAnswer>();
-  /** Tasks judged that the file does not name. */
-  readonly #extraTasks: string[] = [];
+  /** The oracle's answer to each check judged, by the check's place in the file. */
+  readonly #answers = new Map<number, OracleAnswer>();
   readonly #failures: string[] = [];
   #running: Running | undefined;
   #facts: JourneyFacts | undefined;
 
   constructor(start: JourneyRunStart) {
-    this.#start = start;
+    // The variant's own checks: those scoped to other variants' surfaces
+    // are neither run nor recorded.
+    const expect = (start.journey.expect ?? []).filter((check) => belongsTo(check, start.surface));
+    this.#start = { ...start, journey: { ...start.journey, expect } };
     this.#taken = start.journey.steps.map(() => false);
-    this.#checks = (start.journey.expect ?? []).map(() => undefined);
+    this.#checks = expect.map(() => undefined);
   }
 
   /** Each failure the run recorded: a failed step or check, an answer that is not `verified`, or a step, check or task the Journey does not hold in that place. */
@@ -177,23 +182,29 @@ export class JourneyRun {
   }
 
   /**
-   * Submits the tool's result for a task the Journey names to its Proving
-   * ground's oracle, when nothing failed before, and records the answer as
-   * the task's, and each check naming the task as `passed` when the answer
-   * is `verified` and `failed` otherwise. Returns the answer.
+   * Submits the tool's result for the check the file words `wording`, one
+   * that names a task, to its Proving ground's oracle for that task, when
+   * nothing failed before, and records the check as `passed` when the answer
+   * is `verified` and `failed` otherwise. Each check naming a task is judged
+   * on its own submission, so two checks naming one task take two answers.
+   * Returns the answer.
    */
-  async expectTask(task: string, submission: TaskSubmission): Promise<OracleAnswer | undefined> {
+  async expectTask(wording: string, submission: TaskSubmission): Promise<OracleAnswer | undefined> {
     if (this.#facts !== undefined) {
       return undefined;
     }
     const journey = this.#start.journey;
-    if (!namedTasks(journey).includes(task)) {
-      this.#failures.push(`task \`${task}\` is not one ${journey.id} names`);
-      this.#extraTasks.push(task);
-      return undefined;
-    }
-    if (this.#answers.has(task)) {
-      this.#failures.push(`task \`${task}\` is judged a second time`);
+    const index = (journey.expect ?? []).findIndex(
+      (check) => check.text === wording && !isUnset(check.task),
+    );
+    const task = journey.expect?.[index]?.task;
+    if (index === -1 || isUnset(task) || this.#checks[index] !== undefined) {
+      const misuse =
+        index === -1
+          ? `is not a check of ${journey.id} that names a task`
+          : "is judged a second time";
+      this.#failures.push(`check \`${wording}\` ${misuse}`);
+      this.#extraChecks.push({ text: wording, outcome: "failed" });
       return undefined;
     }
     if (this.#failures.length > 0) {
@@ -203,19 +214,17 @@ export class JourneyRun {
     try {
       answer = await this.#judge(task, submission);
     } catch (error) {
-      this.#failures.push(`task \`${task}\`: ${message(error)}`);
+      this.#failures.push(`check \`${wording}\`, task \`${task}\`: ${message(error)}`);
       return undefined;
     }
     const verified = answer.outcome === "verified";
     if (!verified) {
-      this.#failures.push(`the oracle answers \`${answer.outcome}\` for task \`${task}\``);
+      this.#failures.push(
+        `the oracle answers \`${answer.outcome}\` for task \`${task}\` of check \`${wording}\``,
+      );
     }
-    (journey.expect ?? []).forEach((check, index) => {
-      if (check.task === task) {
-        this.#checks[index] = { text: check.text, task, outcome: verified ? "passed" : "failed" };
-      }
-    });
-    this.#answers.set(task, answer);
+    this.#checks[index] = { text: wording, task, outcome: verified ? "passed" : "failed" };
+    this.#answers.set(index, answer);
     return answer;
   }
 
@@ -256,9 +265,17 @@ export class JourneyRun {
           outcome: "not_reached",
         },
     );
-    const tasks = [...namedTasks(journey), ...this.#extraTasks].map((id) => {
-      const answer = this.#answers.get(id);
-      return answer === undefined ? { id } : { id, answer };
+    // Each named task, once per check naming it with that check's answer in
+    // the checks' order, or once when no check names it.
+    const tasks = namedTasks(journey).flatMap((id) => {
+      const judged = (journey.expect ?? []).flatMap((check, index) => {
+        if (check.task !== id) {
+          return [];
+        }
+        const answer = this.#answers.get(index);
+        return [answer === undefined ? { id } : { id, answer }];
+      });
+      return judged.length === 0 ? [{ id }] : judged;
     });
     return {
       journey_id: journey.id,

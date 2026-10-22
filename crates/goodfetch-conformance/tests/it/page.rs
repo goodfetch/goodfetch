@@ -35,6 +35,7 @@ fn the_page_suite_is_proved_against_collies_attached_engine() {
     };
 
     let document = run_protocol_suite(&ProtocolSuite::page(), &target, &proving_ground).unwrap();
+    crate::keep(&document, "page-collie-attached");
 
     let cases: Vec<(&str, CaseOutcome)> = document
         .capabilities()

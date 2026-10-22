@@ -2,11 +2,11 @@
 // uses it, against the real `goodfetch-test-env` the tool manifest names;
 // and `startTestEnv`, on which it is built, against a stand-in that
 // misbehaves (`fixtures/fake-test-env.mjs`).
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect } from "vitest";
-import { ProcessRecord, startTestEnv, test, type Program } from "@goodfetch/test-support";
+import { ProcessRecord, redact, startTestEnv, test, type Program } from "@goodfetch/test-support";
 
 const FAKE_TEST_ENV = fileURLToPath(new URL("fixtures/fake-test-env.mjs", import.meta.url));
 
@@ -24,6 +24,28 @@ describe("testEnv", () => {
     expect(testEnv.start_time).toBe("2026-01-05T09:00:00Z");
   });
 
+  test("its folder redacts in a snapshot as written, canonical and in JSON", ({ testEnv }) => {
+    const output = [
+      `${testEnv.folder}/a`,
+      `${realpathSync(testEnv.folder)}/b`,
+      JSON.stringify({ path: join(testEnv.folder, "c") }),
+    ].join(" ");
+
+    expect(redact(output, { folder: testEnv.folder })).toBe(
+      `[FOLDER]/a [FOLDER]/b ${JSON.stringify({ path: join("[FOLDER]", "c") })}`,
+    );
+  });
+
+  test("teardown of a failed test keeps its folder", async ({ processes, toolManifest }) => {
+    const started = await startTestEnv({ processes, testName: "a failed test", toolManifest });
+    const { folder } = started.description;
+
+    await started.close({ failed: true });
+
+    expect(existsSync(folder)).toBe(true);
+    rmSync(folder, { recursive: true, force: true });
+  });
+
   test("teardown removes the folder once goodfetch-test-env has ended", ({
     testEnv,
     onTestFinished,
@@ -36,12 +58,25 @@ describe("testEnv", () => {
   });
 });
 
-describe("testEnv with a description that fails the schema", () => {
-  test.override("testEnvProgram", fake("bad-description"));
+// Two tests running at once each get a folder and home of their own: each
+// waits until both have their setup, so a run that does not hold both at
+// once times out rather than pass.
+describe.concurrent("testEnv of two tests running at once", () => {
+  const folders: string[] = [];
+  const homes: string[] = [];
+  const { promise: both, resolve: release } = Promise.withResolvers<void>();
 
-  test.fails("fails the fixture", ({ testEnv }) => {
-    expect(testEnv).toBeDefined();
-  });
+  for (const name of ["first", "second"]) {
+    test(`gives the ${name} test a folder and home of its own`, async ({ testEnv }) => {
+      folders.push(testEnv.folder);
+      homes.push(testEnv.home);
+      if (folders.length === 2) release();
+      await both;
+
+      expect(new Set(folders).size).toBe(2);
+      expect(new Set(homes).size).toBe(2);
+    });
+  }
 });
 
 describe("startTestEnv", () => {
@@ -83,6 +118,23 @@ describe("startTestEnv", () => {
     });
 
     await expect(started).rejects.toMatchObject({ code: "start_failed" });
+    await processes.close();
+  });
+
+  test("fails a start whose program cannot run, with the spawn's error as its cause", async () => {
+    const processes = new ProcessRecord();
+
+    const started = startTestEnv({
+      processes,
+      testName: "a missing program",
+      toolManifest: undefined,
+      program: { command: "/nonexistent/goodfetch-test-env", args: [] },
+    });
+
+    await expect(started).rejects.toMatchObject({
+      code: "start_failed",
+      cause: expect.objectContaining({ code: "ENOENT" }),
+    });
     await processes.close();
   });
 

@@ -8,6 +8,8 @@ import { JourneyRun } from "./journey-run.ts";
 
 /** J-961: a Collie Journey with a `cli` step, a manual step and a console step, and one check. */
 const J961 = join(import.meta.dirname, "..", "tests", "fixtures", "journeys", "J-961.toml");
+/** J-963: a Foxhound Journey whose two checks name `catalog/2`. */
+const J963 = join(import.meta.dirname, "..", "tests", "fixtures", "journeys", "J-963.toml");
 
 const VERSION = "Ask the executable for its version";
 const MANUAL = "See the system browser open the local Console";
@@ -111,6 +113,28 @@ describe("JourneyRun", () => {
     expect(outcomes(facts.checks)).toEqual([`not_reached ${NAMES}`]);
   });
 
+  test("leaves out a check its Journey scopes to other variants' surfaces", async () => {
+    const journey = readJourneyFile(J961);
+    const run = new JourneyRun({
+      journey: {
+        ...journey,
+        expect: [
+          ...(journey.expect ?? []),
+          { text: "The SDK reports it", surfaces: ["sdk-typescript"] },
+        ],
+      },
+      surface: "console",
+      executable: { product: "collie", version: "0.0.0" },
+      platform: { os: "linux", arch: "x86_64" },
+      runtime: "chromium-141",
+      provingGround: undefined,
+    });
+
+    const facts = run.facts();
+
+    expect(outcomes(facts.checks)).toEqual([`not_reached ${NAMES}`]);
+  });
+
   test("records a step still running when the run ends as failed", async () => {
     const run = start();
 
@@ -120,15 +144,43 @@ describe("JourneyRun", () => {
     expect(outcomes(facts.steps)[0]).toBe(`failed ${VERSION}`);
   });
 
-  test("fails a task its Journey does not name, and records it with no answer", async () => {
+  test("fails a submission for a check that names no task, and records that check failed", async () => {
     const run = start();
 
-    const answer = await run.expectTask("catalog/1", { status: "success", records: [] });
+    const answer = await run.expectTask(NAMES, { status: "success", records: [] });
     const facts = run.facts();
 
     expect(answer).toBeUndefined();
-    expect(facts.tasks).toEqual([{ id: "catalog/1" }]);
-    expect(run.failures).toEqual(["task `catalog/1` is not one J-961 names"]);
+    expect(outcomes(facts.checks)).toEqual([`not_reached ${NAMES}`, `failed ${NAMES}`]);
+    expect(facts.tasks).toEqual([]);
+    expect(run.failures).toHaveLength(1);
+  });
+
+  test("writes a task once per check naming it, each check awaiting its own submission", async () => {
+    const run = new JourneyRun({
+      journey: readJourneyFile(J963),
+      surface: "console",
+      executable: { product: "foxhound", version: "0.0.0" },
+      platform: { os: "linux", arch: "x86_64" },
+      runtime: "chromium-141",
+      provingGround: { address: "127.0.0.1:9", version: "0.0.0", seed: 963 },
+    });
+
+    await run.step("Read the product page of the task twice", () => {
+      throw new Error("the page did not load");
+    });
+    const answer = await run.expectTask("The oracle verifies the first read's Record", {
+      status: "success",
+      records: [],
+    });
+    const facts = run.facts();
+
+    expect(answer).toBeUndefined();
+    expect(outcomes(facts.checks)).toEqual([
+      "not_reached The oracle verifies the first read's Record",
+      "not_reached The oracle verifies the second read's Record",
+    ]);
+    expect(facts.tasks).toEqual([{ id: "catalog/2" }, { id: "catalog/2" }]);
   });
 });
 

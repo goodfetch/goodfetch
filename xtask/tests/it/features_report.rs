@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
 
-use crate::store::{Attempt, STORE, test_run, with, write_store};
+use crate::store::{Attempt, STORE, in_every_release_cell, test_run, with, write_store};
 use crate::workspace::{Outcome, Workspace};
 
 /// Where the fixture's runner listings sit, as `xtask journeys listings`
@@ -34,9 +34,37 @@ fn release_attempt(run: u64, started_at: &'static str, commit: &'static str) -> 
     }
 }
 
+/// The Linux artifact of a Release run's cell.
+const LINUX: &str = "junit-release-dispatch-linux-x64-gnu-1";
+
+/// J-001@cli's result document, proved, as its Release cell keeps it.
+fn j001_cli_kept() -> (String, Vec<u8>) {
+    let document = json!({
+        "kind": "journey",
+        "journey_id": "J-001",
+        "surface": "cli",
+        "executable": { "product": "foxhound", "version": "0.1.0" },
+        "platform": { "os": "linux", "arch": "x86_64" },
+        "runtime": "rust",
+        "steps": [{ "text": "Reach the goal", "outcome": "passed" }],
+        "checks": [{ "text": "The goal is reached", "outcome": "passed" }],
+        "tasks": [],
+        "outcome": "proved",
+    });
+    (
+        format!("{LINUX}/result-documents/J-001@cli.json"),
+        serde_json::to_vec(&document).unwrap(),
+    )
+}
+
 /// The fixture's store: an older Release run, a newer test-health run, and
 /// `main`'s latest Release run, which the report reads.
 fn fixture_store(workspace: &Workspace) {
+    fixture_store_keeping(workspace, vec![j001_cli_kept()]);
+}
+
+/// The fixture's store, `main`'s latest Release run keeping `kept`.
+fn fixture_store_keeping(workspace: &Workspace, kept: Vec<(String, Vec<u8>)>) {
     let older = Attempt {
         test_runs: vec![
             release_run("sample tests::fails", "passed", "0"),
@@ -44,14 +72,22 @@ fn fixture_store(workspace: &Workspace) {
         ],
         ..release_attempt(9, "2026-10-17T03:00:00Z", "c0")
     };
+    // Every cell of the latest commit ran (ADR 0108's whole-cell rule).
+    let mut runs = in_every_release_cell(&release_run("sample tests::passes", "passed", "1"));
+    runs.extend([
+        release_run("sample tests::fails", "failed", "1"),
+        release_run("sample tests::crawls", "passed", "1"),
+        release_run("sample::it reaches_the_goal", "passed", "1"),
+        in_every_release_cell(&release_run(
+            "sample::it journeys::j001::cli",
+            "passed",
+            "1",
+        ))
+        .swap_remove(0),
+    ]);
     let latest = Attempt {
-        test_runs: vec![
-            release_run("sample tests::passes", "passed", "1"),
-            release_run("sample tests::fails", "failed", "1"),
-            release_run("sample tests::crawls", "passed", "1"),
-            release_run("sample::it reaches_the_goal", "passed", "1"),
-            release_run("sample::it journeys::j001::cli", "passed", "1"),
-        ],
+        test_runs: runs,
+        kept,
         ..release_attempt(10, "2026-10-18T03:00:00Z", "c1")
     };
     let health = Attempt {
@@ -349,4 +385,99 @@ fn an_unknown_milestone_is_refused() {
     let outcome = workspace.xtask(&["features", "report", "--milestone", "M5", "--out", OUT]);
 
     assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+}
+
+/// A variant counts as the Journey report judges it, from the result
+/// documents its cells kept: one whose test passed in a cell that kept no
+/// document of it is failed, never proved (ADR 0072's rules 3 and 4; #349).
+#[test]
+fn a_variant_whose_test_passed_without_keeping_a_document_is_failed() {
+    let workspace = Workspace::from_fixture("features-report");
+    fixture_store_keeping(&workspace, Vec::new());
+
+    let (_, report) = report(&workspace, "M1");
+
+    let story = feature(&report, "story:1-1");
+    assert_eq!(
+        story["tests"][1],
+        json!({ "test": "J-001@cli", "source": "journey", "level": "journey", "outcome": "failed" })
+    );
+    assert_eq!(story["status"], "untested");
+}
+
+/// A conformance case's declaration counts as the conformance document its
+/// Release cell kept gives it.
+#[test]
+fn a_conformance_case_counts_as_its_kept_document_gives_it() {
+    let workspace = Workspace::from_fixture("features-report");
+    workspace.write(
+        "conformance/sample/cases.toml",
+        b"product = \"foxhound\"\n\n[suite]\nname = \"sample\"\nversion = \"1\"\n\n[[capability]]\nname = \"echo\"\n\n[[capability.case]]\nid = \"echo-repeats\"\ncovers = [\"operation:sample.untested\"]\n",
+    );
+    let document = json!({
+        "kind": "conformance",
+        "suite": { "name": "sample", "version": "1" },
+        "target": { "name": "goodfetch-foxhound", "version": "0.1.0" },
+        "platform": { "os": "linux", "arch": "x86_64" },
+        "runtime": "rust",
+        "proving_ground": { "version": "0.1.0", "seed": 7 },
+        "online": false,
+        "capabilities": [{
+            "name": "echo",
+            "outcome": "proved",
+            "cases": [{
+                "id": "echo-repeats",
+                "covers": ["operation:sample.untested"],
+                "outcome": "passed",
+                "entries": [{ "checks": [{ "name": "the echo repeats", "passed": true }], "evidence": {} }],
+            }],
+        }],
+    });
+    fixture_store_keeping(
+        &workspace,
+        vec![
+            j001_cli_kept(),
+            (
+                format!("{LINUX}/result-documents/conformance-sample.json"),
+                serde_json::to_vec(&document).unwrap(),
+            ),
+        ],
+    );
+
+    let (_, report) = report(&workspace, "M1");
+
+    let entry = feature(&report, "operation:sample.untested");
+    assert_eq!(
+        entry["tests"],
+        json!([{ "test": "sample echo-repeats", "source": "conformance", "level": "conformance", "outcome": "passed" }])
+    );
+    assert_eq!(entry["status"], "tested");
+}
+
+/// ADR 0108's whole-cell rule: a commit some of whose Release cells have not
+/// run is not read, so a newer commit with one cell run leaves the report on
+/// the last commit every cell ran.
+#[test]
+fn a_commit_some_of_whose_cells_have_not_run_is_not_read() {
+    let workspace = Workspace::from_fixture("features-report");
+    let complete = Attempt {
+        test_runs: in_every_release_cell(&release_run("sample tests::passes", "passed", "1")),
+        ..release_attempt(10, "2026-10-18T03:00:00Z", "c1")
+    };
+    let partial = Attempt {
+        test_runs: in_every_release_cell(&release_run("sample tests::passes", "failed", "2"))
+            .into_iter()
+            .take(1)
+            .collect(),
+        ..release_attempt(11, "2026-10-19T03:00:00Z", "c2")
+    };
+    write_store(&workspace, &[complete, partial]);
+
+    let (_, report) = report(&workspace, "M1");
+
+    assert_eq!(report["release_commit"], "c1");
+    assert_eq!(
+        feature(&report, "operation:sample.tested")["tests"][0]["outcome"],
+        "passed"
+    );
 }

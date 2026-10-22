@@ -756,3 +756,41 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: cargo run --quiet --locked -p xtask -- evict-caches --repository "$GITHUB_REPOSITORY"
+
+  # The budget check (ADR 0061; TESTING.md, Time budgets) at the end of every
+  # manual-dispatch Release run, where spec #325 places it: each job's median
+  # of its last 20 runs in its own tier, from the results store, against
+  # TESTING.md's table, opening or updating one needs-triage issue per
+  # breached suite or job. It never fails a run, so its step is no test step.
+  # While ADR 0135 keeps the ingest off, the store holds only the runs
+  # ingested before.
+  budgets:
+    name: budgets
+    needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, caches]
+    if: "!cancelled()"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # The breach issues.
+      issues: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out the results store
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/test-results
+          token: ${{ secrets.TEST_RESULTS_TOKEN }}
+          path: test-results
+          persist-credentials: false
+      - name: Build xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Check the time budgets
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          cargo run --quiet --locked -p xtask -- budgets --store test-results
+          --repository "$GITHUB_REPOSITORY"

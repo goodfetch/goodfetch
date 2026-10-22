@@ -127,7 +127,7 @@ const PYTEST_SDK: &str = "pytest sdks/python/foxhound/tests/journeys/test_j003.p
     CONSOLE
 )]
 #[case::pytest(PYTEST, "\"id\": \"J-003\"", "\"id\": \"J-009\"", PYTEST_SDK)]
-fn test_naming_an_unknown_journey_fails(
+fn a_test_naming_an_unknown_journey_fails(
     #[case] listing: &str,
     #[case] from: &str,
     #[case] to: &str,
@@ -155,7 +155,7 @@ fn test_naming_an_unknown_journey_fails(
     "nextest goodfetch-foxhound::it journeys::j002::cli"
 )]
 #[case::pytest(PYTEST, "\"id\": \"J-003\"", "\"id\": \"J-002\"", PYTEST_SDK)]
-fn test_naming_a_retired_journey_fails(
+fn a_test_naming_a_retired_journey_fails(
     #[case] listing: &str,
     #[case] from: &str,
     #[case] to: &str,
@@ -253,7 +253,7 @@ fn foxhound_cli_test_of_a_collie_journey_without_cli_fails() {
 }
 
 #[test]
-fn test_of_a_surface_its_journey_does_not_list_fails() {
+fn a_test_of_a_surface_its_journey_does_not_list_fails() {
     let workspace = catalog();
     workspace.edit(
         PLAYWRIGHT,

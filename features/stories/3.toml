@@ -317,6 +317,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 41
@@ -325,6 +326,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 42

@@ -21,7 +21,7 @@ use crate::run::call;
 #[test]
 fn a_run_acknowledged_before_a_power_cut_is_intact_and_taken_back_after_it() {
     let env = TestEnv::new();
-    let home = LazyFs::mount(env.home()).unwrap();
+    let home = LazyFs::mount(&env, env.home()).unwrap();
     let mut engine = Attached::start(&env);
     engine.send(&hello("collie", "0.1"));
     let _ = engine.next();
@@ -31,7 +31,7 @@ fn a_run_acknowledged_before_a_power_cut_is_intact_and_taken_back_after_it() {
     engine.kill();
     home.clear_cache().unwrap();
     drop(home);
-    let _home = LazyFs::mount(env.home()).unwrap();
+    let _home = LazyFs::mount(&env, env.home()).unwrap();
 
     let file = env
         .home()
@@ -92,7 +92,7 @@ fn a_run_acknowledged_before_a_power_cut_is_intact_and_taken_back_after_it() {
 fn a_power_cut_in_fast_durability_leaves_a_run_file_that_passes_its_integrity_check() {
     let env = TestEnv::new();
     env.user_configuration("run_state.durability = \"fast\"\n");
-    let home = LazyFs::mount(env.home()).unwrap();
+    let home = LazyFs::mount(&env, env.home()).unwrap();
     let mut engine = Attached::start(&env);
     engine.send(&hello("collie", "0.1"));
     let _ = engine.next();
@@ -106,7 +106,7 @@ fn a_power_cut_in_fast_durability_leaves_a_run_file_that_passes_its_integrity_ch
     engine.kill();
     home.clear_cache().unwrap();
     drop(home);
-    let _home = LazyFs::mount(env.home()).unwrap();
+    let _home = LazyFs::mount(&env, env.home()).unwrap();
 
     let file = env
         .home()

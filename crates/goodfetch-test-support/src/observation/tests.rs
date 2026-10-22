@@ -80,3 +80,25 @@ fn a_value_digest_is_its_sha256() {
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     );
 }
+
+/// A crash and a power cut are faults a test records, as a kill is.
+#[test]
+fn a_crash_and_a_power_cut_are_recorded_as_faults() {
+    let records = [
+        Record::<()>::new("engine", Operation::Fault(Fault::Crash)),
+        Record::<()>::new("engine", Operation::Fault(Fault::PowerCut)),
+    ];
+
+    let lines: Vec<serde_json::Value> = records
+        .iter()
+        .map(|record| serde_json::to_value(record).unwrap()["operation"].clone())
+        .collect();
+
+    assert_eq!(
+        lines,
+        [
+            serde_json::json!({ "fault": "crash" }),
+            serde_json::json!({ "fault": "power_cut" }),
+        ]
+    );
+}

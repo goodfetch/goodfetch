@@ -49,6 +49,44 @@ fn sends_protocol_events_then_hangs() {
     std::thread::sleep(Duration::from_secs(600));
 }
 
+/// The probe's record of each event it sent, before it sent it, in the
+/// folder its parent gives it as its temporary folder.
+pub(crate) const SENT: &str = "sent.log";
+
+#[test]
+#[ignore = "run as a child by seeded_kill::no_event_after_the_moment_is_sent"]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the probe paces its events and records them, as a slow engine would"
+)]
+fn sends_protocol_events_slowly_then_hangs() {
+    let sent = std::env::temp_dir().join(SENT);
+    for n in 1..=3 {
+        for method in ["delivery.begin", "delivery.commit"] {
+            let mut log = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&sent)
+                .unwrap();
+            writeln!(log, "{method} {n}").unwrap();
+            let message =
+                serde_json::json!({ "jsonrpc": "2.0", "method": method, "params": { "n": n } });
+            #[expect(
+                clippy::print_stdout,
+                reason = "the probe speaks newline-delimited JSON-RPC on its stdout, as an engine does"
+            )]
+            {
+                println!("{message}");
+            }
+            // Time for a kill at this event to land before the next.
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+
+    // The parent kills it long before this ends.
+    std::thread::sleep(Duration::from_secs(600));
+}
+
 #[test]
 #[ignore = "run as a child by exercise_record::the_test_subscriber_writes_the_dispatch_and_outcome_records_into_the_exercise_record"]
 fn dispatches_under_the_test_subscriber() {
@@ -146,6 +184,21 @@ fn records_a_command_then_drops_its_test_env() {
     let env = TestEnv::new();
 
     goodfetch_test_support::record_command(&env, &["browsers", "install"], Some(0)).unwrap();
+}
+
+#[test]
+#[ignore = "run as a child by journey_run::a_skew_run_drives_the_engine_variable_in_place_of_the_executable_passed"]
+fn finishes_journey_901_on_collie() {
+    let journey =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/fixtures/journey-run/J-901.toml");
+    let collie = tools().unwrap().path(Tool::Collie).unwrap().to_owned();
+    let run = JourneyRun::start_file(&journey, "cli", &collie, |mut facts: serde_json::Value| {
+        facts["outcome"] = serde_json::json!("failed");
+        facts
+    })
+    .unwrap();
+
+    let _finished = run.finish().unwrap();
 }
 
 #[test]

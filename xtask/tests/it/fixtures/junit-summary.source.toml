@@ -1,0 +1,19 @@
+# The junit-summary fixture's JUnit files (TESTING.md, Fixtures and data
+# files) are recordings of each runner's own JUnit reporter, run on a
+# throwaway sample project of one failing and one passing test (pytest's adds
+# a test that errors in its fixture), with each runner's reporter set as the
+# repository sets it: nextest's `ci` profile, Vitest's `junit` reporter,
+# Playwright's `junit` reporter and pytest's `--junitxml`. The `passing/`
+# files are the same recordings with the failing test removed. Host names
+# are replaced by `runner`; nothing else is edited, and they hold no secret.
+# Re-record them after a runner's JUnit output changes shape, with the
+# commands below in each sample project, then copy the written file here.
+recording = "nextest, Vitest, Playwright and pytest JUnit reporters"
+versions = ["cargo-nextest 0.9.131", "vitest 5.0.5", "@playwright/test 1.64.1", "pytest 9.1.1"]
+date = "2026-10-19"
+command = """
+cargo nextest run --profile ci            # target/nextest/ci/junit.xml -> nextest/nextest-ci.xml
+pnpm exec vitest run --reporter=junit --outputFile=vitest.xml
+PLAYWRIGHT_JUNIT_OUTPUT_NAME=playwright.xml pnpm exec playwright test --reporter=junit
+uv run pytest --junitxml=pytest.xml
+"""

@@ -10,6 +10,8 @@ mod plan;
 mod time;
 mod verdict;
 
+pub(crate) use cells::Cell;
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 

@@ -74,7 +74,7 @@ function j962(price?: string): string {
   await check("The Console names the Daemon's Product", () =>
     expect(page.getByRole("heading", { level: 1 })).toHaveText("Foxhound's Daemon"),
   );
-  await expectTask("catalog/2", {
+  await expectTask("The oracle verifies the product's Record", {
     status: "success",
     records: [${price === undefined ? "record" : `{ ...record, price: ${JSON.stringify(price)} }`}],
   });`;

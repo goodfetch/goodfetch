@@ -692,6 +692,10 @@ _Avoid_: browser roll, Chromium bump (for the pull request)
 The Goodfetch Chromium's source tree at the same revision, built with the same arguments but without Goodfetch's patches, against which the Chromium build gate tells a patch's failure from an upstream one.
 _Avoid_: baseline build, vanilla build, reference build
 
+**Time budget**:
+The longest median (p50) duration a suite, a CI job or a whole "all green" run may take over its last 20 runs in its tier, as `TESTING.md`'s table gives them; a breach opens an issue (`xtask budgets`), and nothing fails.
+_Avoid_: budget (alone), timeout (a job's hard stop)
+
 **Size budget**:
 The largest size each released file of a Product may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check

@@ -14,6 +14,7 @@
 mod case_log;
 mod journey_document;
 mod journey_run;
+mod keep;
 mod page;
 mod protocol;
 mod proving_ground;
@@ -22,10 +23,34 @@ mod refusals;
 mod self_test;
 mod write_command;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use goodfetch_protocol::result_document::{Platform, ResultDocument};
+use goodfetch_protocol::result_document::{ConformanceDocument, Platform, ResultDocument};
+use goodfetch_test_support::{RESULT_DOCUMENTS_VARIABLE, Variables};
 use serde_json::{Value, json};
+
+/// Keeps a suite's document where `just test` gathers the result documents
+/// (`GOODFETCH_TEST_RESULT_DOCUMENTS`), as `conformance-<name>.json`, so a
+/// Release cell keeps it and the Feature report reads its cases (ADR 0072).
+/// Returns the file written; none outside `just test`.
+fn keep(document: &ConformanceDocument, name: &str) -> Option<PathBuf> {
+    let folder = Variables::from_process()
+        .get(RESULT_DOCUMENTS_VARIABLE)
+        .map(PathBuf::from);
+    keep_in(folder.as_deref(), document, name)
+}
+
+/// [`keep`] into `folder`, when there is one.
+fn keep_in(folder: Option<&Path>, document: &ConformanceDocument, name: &str) -> Option<PathBuf> {
+    let folder = folder?;
+    std::fs::create_dir_all(folder).unwrap();
+    let path = folder.join(format!("conformance-{name}.json"));
+    let mut bytes =
+        serde_json::to_vec_pretty(&ResultDocument::Conformance(document.clone())).unwrap();
+    bytes.push(b'\n');
+    std::fs::write(&path, bytes).unwrap();
+    Some(path)
+}
 
 /// The committed JSON Schema bundle, which `xtask codegen` writes.
 const BUNDLE: &str = concat!(

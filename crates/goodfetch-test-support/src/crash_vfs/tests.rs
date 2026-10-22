@@ -2,7 +2,8 @@ use rstest::rstest;
 use rusqlite::{Connection, ErrorCode, OpenFlags};
 
 use super::{
-    AfterCrashError, Crash, CrashKind, CrashVfs, CrashVfsError, IoFault, Landed, after_crash,
+    AfterCrashError, Change, Crash, CrashKind, CrashVfs, CrashVfsError, File, IoFault, Landed,
+    after_crash,
 };
 use crate::env::TestEnv;
 
@@ -101,7 +102,7 @@ fn wal_database(vfs: &CrashVfs) -> Connection {
 
 /// A seed whose power cut, after [`wal_database`] and four commits, tears
 /// one of the WAL's unsynced writes (found by trying seeds).
-const TORN_WAL_SEED: u64 = 3;
+const TORN_WAL_SEED: u64 = 0;
 
 #[test]
 fn a_torn_write_leaves_a_wal_database_passing_its_integrity_check() {
@@ -112,9 +113,14 @@ fn a_torn_write_leaves_a_wal_database_passing_its_integrity_check() {
 
     let crash = vfs.crash(CrashKind::PowerCut);
 
+    // Torn mid-write: some but not all of one write's bytes landed, which
+    // a VFS that only drops whole writes never gives.
     assert!(
-        matches!(landed(&crash, "run.sqlite-wal"), Some(Landed::Torn { .. })),
-        "the seed tears the WAL: {crash:?}"
+        matches!(
+            landed(&crash, "run.sqlite-wal"),
+            Some(Landed::Torn { bytes, .. }) if *bytes > 0
+        ),
+        "the seed tears a WAL write mid-way: {crash:?}"
     );
     after_crash(&vfs, DATABASE).unwrap();
 }
@@ -264,4 +270,56 @@ fn an_unsynced_write_is_gone_after_a_power_cut() {
 
     let reopened = after_crash(&vfs, DATABASE).unwrap();
     assert_eq!(values(&reopened), ["synced"]);
+}
+
+/// `Debug` names the VFS and reads nothing behind it: neither the disk's
+/// bytes nor the shared memory SQLite may be writing through its address.
+#[test]
+fn a_vfs_debugs_as_its_name_alone() {
+    let env = TestEnv::new();
+    let name = env.unique_name("crash-vfs");
+    let vfs = CrashVfs::register(&name, 1).unwrap();
+    let connection = wal_database(&vfs);
+    insert(&connection, &["one"]);
+
+    let shown = format!("{vfs:?}");
+
+    assert_eq!(shown, format!("CrashVfs {{ name: {name:?}, .. }}"));
+}
+
+/// A file whose durable bytes are `abc` and whose unsynced changes are
+/// a write of `XY` at 1, a truncation to 2 bytes and a write of `Z` at 3.
+fn file_with_three_changes() -> File {
+    File {
+        durable: b"abc".to_vec(),
+        current: b"aXY Z".to_vec(),
+        unsynced: vec![
+            Change::Write {
+                offset: 1,
+                data: b"XY".to_vec(),
+            },
+            Change::Truncate { size: 2 },
+            Change::Write {
+                offset: 3,
+                data: b"Z".to_vec(),
+            },
+        ],
+    }
+}
+
+#[rstest]
+#[case::none(Landed::None, b"abc".as_slice())]
+#[case::reordered(Landed::Reordered { changes: vec![2, 0] }, b"aXYZ".as_slice())]
+#[case::torn_at_a_truncation(Landed::Torn { whole: 1, bytes: 0 }, b"aXY".as_slice())]
+#[case::torn_mid_write(Landed::Torn { whole: 0, bytes: 1 }, b"aXc".as_slice())]
+fn a_power_cut_lands_on_the_durable_bytes_what_it_drew(
+    #[case] landed: Landed,
+    #[case] expected: &[u8],
+) {
+    let mut file = file_with_three_changes();
+
+    file.land(&landed);
+
+    assert_eq!(file.durable, expected);
+    assert_eq!(file.current, expected);
 }

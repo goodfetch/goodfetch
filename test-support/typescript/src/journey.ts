@@ -45,9 +45,9 @@ export interface JourneyContext {
   readonly step: (wording: string, body: JourneyBody) => Promise<void>;
   /** Runs the check the Journey words `wording`, one that names no task, and records its outcome. */
   readonly check: (wording: string, body: JourneyBody) => Promise<void>;
-  /** Submits the tool's result for a task the Journey names to the oracle, and records its answer and the checks naming it. */
+  /** Submits the tool's result for the check the Journey words `wording`, one that names a task, to the oracle, and records that check from its answer. */
   readonly expectTask: (
-    task: string,
+    wording: string,
     submission: TaskSubmission,
   ) => Promise<OracleAnswer | undefined>;
   /** Runs the variant's executable with `args`, in its home and cleared environment, as a step pinned `on = "cli"` does. */
@@ -154,7 +154,7 @@ export function journey(
         await body({
           step: (wording, stepBody) => run.step(wording, () => served.step(wording, stepBody)),
           check: (wording, checkBody) => run.check(wording, () => served.step(wording, checkBody)),
-          expectTask: (task, submission) => run.expectTask(task, submission),
+          expectTask: (wording, submission) => run.expectTask(wording, submission),
           cli,
           daemon,
           provingGround: daemon.provingGround,

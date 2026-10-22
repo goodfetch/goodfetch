@@ -13,7 +13,7 @@
 
 use std::fs;
 
-use goodfetch_test_support::{TestEnv, command};
+use goodfetch_test_support::{TestEnv, command, journey_engine};
 use serde_json::{Value, json};
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
@@ -38,7 +38,7 @@ fn foxhound_cli() {
     .unwrap();
 
     // Ask where each effective value comes from.
-    let output = command(&env, FOXHOUND)
+    let output = command(&env, journey_engine(FOXHOUND))
         .args(["config", "explain", "timeout", "--json"])
         .output()
         .unwrap();

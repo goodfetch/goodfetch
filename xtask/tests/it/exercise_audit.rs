@@ -244,6 +244,27 @@ fn audit_over_the_tests_that_ran_leaves_out_a_test_that_did_not_run() {
     assert_eq!(outcome.findings(), vec![]);
 }
 
+/// A declaring test whose name nextest never ran, while nextest ran tests
+/// below it (an rstest form named apart from the scanner), is reported
+/// rather than left out as a test that did not run.
+#[test]
+fn audit_over_the_tests_that_ran_reports_a_declaring_test_nextest_ran_under_other_names() {
+    let workspace = Workspace::from_fixture("exercise-audit");
+    workspace.edit(
+        "junit/nextest.xml",
+        r#"<testcase name="gets_the_refusal" "#,
+        r#"<testcase name="gets_the_refusal::case_1" "#,
+    );
+
+    let outcome = audit(&workspace, &["--junit", "junit/nextest.xml"]);
+
+    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("name-unmatched", "sample::it gets_the_refusal")]
+    );
+}
+
 #[test]
 fn audit_over_the_tests_that_ran_still_reports_one_that_ran_without_a_record() {
     let workspace = Workspace::from_fixture("exercise-audit");

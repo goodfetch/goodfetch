@@ -1,12 +1,16 @@
 // A Client's `hello` to a Daemon `goodfetch-test-env --daemon` started, as
 // the tests of test support's `daemon` fixtures send it (ADR 0024): one
 // JSON-RPC line on the described socket, carrying the described token.
+import { readFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import type { DaemonDescription, Product } from "@goodfetch/test-support";
 
-/** The Protocol version and Product version of this commit's executables. */
+/** The Protocol version of this commit's executables. */
 const PROTOCOL_VERSION = "0.1";
-const PRODUCT_VERSION = "0.0.0";
+/** Their Product version: the workspace's, which every executable reports. */
+const PRODUCT_VERSION = /\[workspace\.package\]\nversion = "([^"]+)"/.exec(
+  readFileSync(new URL("../../../Cargo.toml", import.meta.url), "utf8"),
+)?.[1];
 
 /** Opens the described socket: a Unix socket's path, or loopback TCP's `host:port` on Windows (ADR 0024). */
 function open(socket: string): Socket {

@@ -25,3 +25,7 @@ text = "Ask the executable for its version once more"
 
 [[expect]]
 text = "The version names the Product"
+
+[[expect]]
+text = "The Rust crate reports the executable's version"
+surfaces = ["sdk-rust"]

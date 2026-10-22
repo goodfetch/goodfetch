@@ -216,6 +216,12 @@ pub enum Fault {
         /// Which occurrence, from 1.
         occurrence: u32,
     },
+    /// A process crash: unsynced writes kept, as the crash VFS's
+    /// `CrashKind::Process` gives.
+    Crash,
+    /// A power cut: unsynced writes dropped, torn or reordered, as the crash
+    /// VFS's `CrashKind::PowerCut` and LazyFS's `clear_cache` give.
+    PowerCut,
 }
 
 /// The SHA-256 digest of a value, in lowercase hexadecimal, so a record

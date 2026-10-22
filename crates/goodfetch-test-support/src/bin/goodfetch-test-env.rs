@@ -1,6 +1,8 @@
 //! `goodfetch-test-env` (ADR 0062): a test's setup for TypeScript and
 //! Python. It builds a `TestEnv`, prints its description as one JSON line on
-//! stdout, and tears it down when its stdin closes. It exits non-zero, with a
+//! stdout, and tears it down when its stdin closes, keeping the test's folder
+//! when a line `failed` came first, as the packages write for a failed test.
+//! It exits non-zero, with a
 //! message on stderr, when a start fails. `--proving-ground <seed>` also
 //! starts the commit's Proving ground on that seed, which the description
 //! names and which stops before the folder is removed. `--daemon` also
@@ -200,11 +202,21 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
         None => None,
     };
     write_line(&serde_json::to_string(&description)?)?;
+    let mut input = Vec::new();
     #[expect(
         clippy::disallowed_methods,
         reason = "goodfetch-test-env tears down when its stdin closes (ADR 0062)"
     )]
-    io::stdin().read_to_end(&mut Vec::new())?;
+    io::stdin().read_to_end(&mut input)?;
+    // A package whose test failed writes `failed` before it closes stdin:
+    // the folder stays for the failure's evidence, as a failed Rust test's.
+    let mut env = env;
+    if input
+        .split(|byte| *byte == b'\n')
+        .any(|line| line == b"failed")
+    {
+        env.keep();
+    }
     if let Some(daemon) = daemon {
         daemon.stop(&env)?;
     }

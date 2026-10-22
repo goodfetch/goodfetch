@@ -1,6 +1,6 @@
 //! What every command reads from its process, which `main` alone gathers
-//! (ADR 0059): the workspace's folder, the Cargo that runs `xtask` and
-//! GitHub's token.
+//! (ADR 0059): the workspace's folder, the Cargo that runs `xtask`,
+//! GitHub's token and whether the host has a LazyFS build.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -12,6 +12,9 @@ pub(crate) struct Environment {
     pub(crate) cargo: OsString,
     /// `GITHUB_TOKEN`, for GitHub's API; never taken on the command line.
     pub(crate) github_token: Option<String>,
+    /// Whether `GOODFETCH_LAZYFS` names a LazyFS build, as `just
+    /// lazyfs-test` sets it on Linux.
+    pub(crate) lazyfs: bool,
 }
 
 impl Environment {

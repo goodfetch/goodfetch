@@ -4910,6 +4910,7 @@ dependencies = [
  "brotli",
  "clap",
  "flate2",
+ "glob",
  "goodfetch-cli",
  "goodfetch-collie",
  "goodfetch-protocol",
@@ -4921,6 +4922,7 @@ dependencies = [
  "proc-macro2",
  "quick-xml",
  "quote",
+ "regex",
  "rstest",
  "schemars",
  "serde",
@@ -4931,6 +4933,7 @@ dependencies = [
  "tar",
  "tempfile",
  "toml",
+ "unicode-ident",
  "ureq",
  "windows-sys 0.61.2",
 ]

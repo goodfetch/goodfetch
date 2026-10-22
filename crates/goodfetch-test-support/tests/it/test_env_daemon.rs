@@ -18,30 +18,10 @@ use goodfetch_test_support::{
 };
 use serde_json::{Value, json};
 
-use crate::TEST_ENV;
-
-/// The committed schema of the description, which `xtask codegen` writes.
-const SCHEMA: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../test-support/fixtures/schemas/test-env-description.schema.json"
-);
+use crate::{TEST_ENV, make_executable, manifest_with, schema_errors};
 
 /// How long the tiny Client waits for each message.
 const DEADLINE: Duration = Duration::from_secs(10);
-
-/// Writes a test tool manifest listing `goodfetch-test-env` and `entries`
-/// into the test's folder, and returns its path.
-fn manifest_with(env: &TestEnv, entries: &[(&str, &Path)]) -> PathBuf {
-    let mut manifest = json!({ "test_env": TEST_ENV });
-    for (name, path) in entries {
-        manifest[*name] = json!(path);
-    }
-    let path = env
-        .folder()
-        .join(format!("tools-{}.json", env.unique_name("manifest")));
-    std::fs::write(&path, manifest.to_string()).unwrap();
-    path
-}
 
 /// The commit's executable of `tool`, from the manifest `just test` writes.
 fn commit_tool(tool: Tool) -> PathBuf {
@@ -86,7 +66,7 @@ fn hello(socket: &str, token: &str, product: &str) -> Option<Value> {
             "surface": "sdk_typescript",
             "token": token,
             "needs": product,
-            "product_version": "0.0.0",
+            "product_version": env!("CARGO_PKG_VERSION"),
         },
     });
     writeln!(writer, "{request}").unwrap();
@@ -117,16 +97,6 @@ fn connect(socket: &str) -> std::io::Result<Halves> {
         stream.set_read_timeout(Some(DEADLINE))?;
         Ok((Box::new(stream.try_clone()?), Box::new(stream)))
     }
-}
-
-/// The description's errors against the committed schema.
-fn schema_errors(description: &Value) -> Vec<String> {
-    let schema: Value = serde_json::from_str(&std::fs::read_to_string(SCHEMA).unwrap()).unwrap();
-    jsonschema::validator_for(&schema)
-        .unwrap()
-        .iter_errors(description)
-        .map(|error| error.to_string())
-        .collect()
 }
 
 #[test]
@@ -299,7 +269,8 @@ fn a_daemon_that_leaves_its_runtime_file_fails_the_teardown() {
 fn a_stopped_daemon_leaves_no_runtime_file_in_the_home() {
     let env = TestEnv::new();
     let daemon = Daemon::start(&env, Product::Collie).unwrap();
-    let runtime_file = RuntimeFile::path(env.home(), "0.0.0");
+    // The workspace's version, which every executable of the commit reports.
+    let runtime_file = RuntimeFile::path(env.home(), env!("CARGO_PKG_VERSION"));
     let published = runtime_file.is_file();
 
     daemon.stop(&env).unwrap();
@@ -338,12 +309,3 @@ pub(crate) fn stand_in(env: &TestEnv, name: &str, unix: &str, windows: &str) -> 
         path
     }
 }
-
-#[cfg(unix)]
-fn make_executable(path: &Path) {
-    use std::os::unix::fs::PermissionsExt as _;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
-}
-
-#[cfg(not(unix))]
-fn make_executable(_path: &Path) {}

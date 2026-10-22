@@ -263,6 +263,10 @@ fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
 
     let document =
         run_protocol_suite(&ProtocolSuite::embedded(), &target, &proving_ground).unwrap();
+    crate::keep(
+        &document,
+        &format!("protocol-collie-{mode:?}").to_lowercase(),
+    );
 
     assert_eq!(
         (
@@ -292,6 +296,10 @@ fn the_delivery_suite_is_proved_against_foxhounds_attached_engine_and_daemon(
 
     let document =
         run_protocol_suite(&ProtocolSuite::delivery(), &target, &proving_ground).unwrap();
+    crate::keep(
+        &document,
+        &format!("delivery-foxhound-{mode:?}").to_lowercase(),
+    );
 
     assert_eq!(
         (outcomes(&document), case_outcomes(&document)),

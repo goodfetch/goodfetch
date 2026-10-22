@@ -31,10 +31,11 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use chacha20::ChaCha20Rng;
-use chacha20::rand_core::{Rng as _, SeedableRng as _};
+use chacha20::rand_core::Rng as _;
 use serde::{Deserialize, Serialize};
 
 use crate::proving_ground::ProvingGround;
+use crate::seeded;
 
 /// Every value's mark, which the `gitleaks` rule's keyword is.
 const MARK: &str = "gfcanary";
@@ -420,11 +421,8 @@ impl Canaries {
     /// An empty set whose values are drawn from `seed`, the test's own
     /// (`TestEnv::seed`), so a seed always plants the same values.
     pub fn new(seed: u64) -> Self {
-        let mut key = [0_u8; 32];
-        key[..8].copy_from_slice(&seed.to_le_bytes());
-        key[8..16].copy_from_slice(b"canaries");
         Self {
-            stream: ChaCha20Rng::from_seed(key),
+            stream: seeded::stream(seed, b"canaries"),
             planted: Vec::new(),
         }
     }

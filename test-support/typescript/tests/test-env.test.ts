@@ -2,7 +2,7 @@
 // uses it, against the real `goodfetch-test-env` the tool manifest names;
 // and `startTestEnv`, on which it is built, against a stand-in that
 // misbehaves (`fixtures/fake-test-env.mjs`).
-import { existsSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect } from "vitest";
@@ -34,6 +34,16 @@ describe("testEnv", () => {
     expect(redact(output, { folder: testEnv.folder })).toBe(
       `[FOLDER]/a [FOLDER]/b ${JSON.stringify({ path: join("[FOLDER]", "c") })}`,
     );
+  });
+
+  test("teardown of a failed test keeps its folder", async ({ processes, toolManifest }) => {
+    const started = await startTestEnv({ processes, testName: "a failed test", toolManifest });
+    const { folder } = started.description;
+
+    await started.close({ failed: true });
+
+    expect(existsSync(folder)).toBe(true);
+    rmSync(folder, { recursive: true, force: true });
   });
 
   test("teardown removes the folder once goodfetch-test-env has ended", ({

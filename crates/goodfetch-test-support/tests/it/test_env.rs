@@ -63,6 +63,28 @@ fn closing_stdin_removes_the_folder_and_leaves_no_process() {
     assert!(!Path::new(&folder).exists(), "{folder}");
 }
 
+/// A package whose test failed writes `failed` before it closes stdin: the
+/// folder is kept for the failure's evidence, as a Rust test's is, and its
+/// path is printed.
+#[test]
+fn a_failed_tests_folder_is_kept() {
+    let env = TestEnv::new();
+    let process = start(&env, &[]);
+    let description: Value = serde_json::from_str(&first_line(&process)).unwrap();
+    let folder = description["folder"].as_str().unwrap().to_owned();
+
+    {
+        use std::io::Write as _;
+        let mut stdin = process.child().stdin.take().unwrap();
+        stdin.write_all(b"failed\n").unwrap();
+    }
+    let status = process.close_stdin_and_wait().unwrap();
+
+    assert!(status.success());
+    assert!(Path::new(&folder).is_dir(), "{folder}");
+    std::fs::remove_dir_all(&folder).unwrap();
+}
+
 #[test]
 fn a_dump_in_the_crash_dump_folder_fails_the_teardown_closing_stdin_runs() {
     let env = TestEnv::new();

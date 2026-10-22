@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 from datetime import UTC, datetime
 
 from goodfetch_test_support import TestEnv, redact
@@ -45,3 +46,16 @@ def test_test_env_folder_redacts_as_written_canonical_and_in_json(
         redact(output, folder=test_env.folder)
         == f"[FOLDER]/a [FOLDER]/b {expected_path}"
     )
+
+
+def test_teardown_of_a_failed_test_keeps_its_folder() -> None:
+    """A failed test's folder stays for its evidence, as a Rust test's does."""
+    setup = TestEnv.open(
+        "a failed test", {"GOODFETCH_TEST_TOOLS": os.environ["GOODFETCH_TEST_TOOLS"]}
+    )
+    folder = setup.folder
+
+    setup.close(failed=True)
+
+    assert folder.is_dir()
+    shutil.rmtree(folder)

@@ -262,6 +262,22 @@ impl TestEnv {
     }
 }
 
+impl TestEnv {
+    /// Keeps the test's folder after the value drops, as a failed test's
+    /// is, and lists it in the test's output: `goodfetch-test-env` does so
+    /// when the TypeScript or Python test it serves failed.
+    pub fn keep(&mut self) {
+        self.folder.disable_cleanup(true);
+        #[expect(
+            clippy::print_stderr,
+            reason = "a failed test lists its kept folder in its output (ADR 0062)"
+        )]
+        {
+            eprintln!("goodfetch-test-folder-kept={}", self.folder().display());
+        }
+    }
+}
+
 impl Default for TestEnv {
     fn default() -> Self {
         Self::new()

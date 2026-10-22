@@ -172,8 +172,12 @@ class TestEnv:
         self._started.append((command, process))
         return process
 
-    def close(self) -> None:
+    def close(self, *, failed: bool = False) -> None:
         """Tears the setup down, failing if a process the test started is alive.
+
+        Args:
+            failed: Whether the test failed, whose folder then stays for its
+                evidence, as a Rust test's does.
 
         Raises:
             ProcessesAlive: A recorded process or `goodfetch-test-env` was alive.
@@ -185,6 +189,8 @@ class TestEnv:
         for _, process in self._started:
             _stop(process)
         if self._process.stdin is not None:
+            if failed:
+                self._process.stdin.write(b"failed\n")
             self._process.stdin.close()
         try:
             status = self._process.wait(self._teardown_deadline)

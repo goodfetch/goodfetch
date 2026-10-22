@@ -1,6 +1,7 @@
 """No process outlives its test (ADR 0069)."""
 
 import json
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -107,3 +108,29 @@ def test_teardown_fails_when_goodfetch_test_env_stays_alive(test_env: TestEnv) -
         setup.close()
 
     assert time.monotonic() - began < 5
+
+
+FAILING_FOLDER_TEST = """
+from pathlib import Path
+
+from goodfetch_test_support import TestEnv
+
+
+def test_folder(test_env: TestEnv) -> None:
+    Path({record!r}).write_text(str(test_env.folder), "utf-8")
+    raise AssertionError("the sample test fails on purpose")
+"""
+
+
+def test_teardown_keeps_a_failed_tests_folder(
+    sample_run: "SampleRun", test_env: TestEnv
+) -> None:
+    """A failed test's folder stays for its evidence, as a Rust test's does."""
+    record = test_env.folder / "folder.txt"
+
+    outcome = sample_run.run(FAILING_FOLDER_TEST.format(record=str(record)))
+
+    assert outcome.results == {"test_folder": "failure"}, outcome.output
+    folder = Path(record.read_text("utf-8"))
+    assert folder.is_dir()
+    shutil.rmtree(folder)

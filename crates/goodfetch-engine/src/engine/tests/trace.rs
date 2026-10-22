@@ -333,6 +333,8 @@ fn a_failed_requests_span_holds_its_error_code_and_json_rpc_code() {
 #[case::baggage(json!({ "traceparent": TRACEPARENT, "baggage": "user=a" }))]
 #[case::a_number(json!({ "traceparent": 1 }))]
 #[case::no_object(json!("00-0af7"))]
+#[case::an_array(json!([]))]
+#[case::null(json!(null))]
 fn a_meta_with_an_unknown_key_or_a_value_that_is_no_string_is_refused(#[case] meta: Value) {
     let replies = replies(vec![traced(1, "engine.info", json!({}), meta)]);
 

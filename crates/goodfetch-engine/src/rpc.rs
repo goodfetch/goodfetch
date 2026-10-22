@@ -154,11 +154,19 @@ fn trace_context(
     let Some(meta) = members.remove(META) else {
         return Ok((Some(Value::Object(members)), None));
     };
-    let meta = serde_json::from_value::<TraceContext>(meta).map_err(|error| {
+    let refused = |error: String| {
         CallError::protocol(
             ProtocolFailure::InvalidParams,
-            format!("`{META}` holds only `traceparent` and `tracestate`, each a string: {error}"),
+            format!(
+                "`{META}` is an object of `traceparent` and `tracestate`, each a string: {error}"
+            ),
         )
-    })?;
+    };
+    // serde would read a struct from an array too, which the schema refuses.
+    if !meta.is_object() {
+        return Err(refused("it is no object".to_owned()));
+    }
+    let meta =
+        serde_json::from_value::<TraceContext>(meta).map_err(|error| refused(error.to_string()))?;
     Ok((Some(Value::Object(members)), Some(meta)))
 }

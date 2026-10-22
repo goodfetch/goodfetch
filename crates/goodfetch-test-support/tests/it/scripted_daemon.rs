@@ -418,11 +418,12 @@ fn a_daemon_started_after_a_dead_one_replaces_its_files() {
 #[test]
 fn the_dropped_connection_script_closes_mid_call_after_its_expect() {
     let env = TestEnv::new();
+    let record = env.folder().join("record.jsonl");
     let (process, _) = start(
         &env,
         "socket",
         "daemon/connection-dropped-mid-call.json",
-        &[],
+        &["--record", record.to_str().unwrap()],
     );
     let found = RuntimeFile::read(&runtime_file(env.home())).unwrap();
     let mut client = TinyClient::found_through(&found);
@@ -434,6 +435,18 @@ fn the_dropped_connection_script_closes_mid_call_after_its_expect() {
     assert_eq!(client.next(), None);
     let (status, stderr) = finish(&process);
     assert!(status.success(), "{stderr}");
+    // The engine read the call before it closed, and answered nothing after.
+    let seen: Vec<Value> = std::fs::read_to_string(&record)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let last = seen.last().unwrap();
+    assert_eq!(
+        (&last["from"], &last["message"]["method"]),
+        (&json!("client"), &json!("engine.info")),
+        "{seen:?}"
+    );
 }
 
 #[cfg(unix)]

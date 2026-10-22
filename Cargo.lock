@@ -1416,6 +1416,7 @@ version = "0.0.0"
 dependencies = [
  "data-encoding",
  "goodfetch-engine",
+ "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-test-support",
  "gungraun",

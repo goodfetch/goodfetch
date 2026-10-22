@@ -15,6 +15,8 @@ use rusqlite::{Connection, OptionalExtension as _};
 use sha2::{Digest as _, Sha256};
 use url::{Position, Url};
 
+use crate::scope::{Narrowing, Scope};
+
 /// The Frontier's visited set: each identity admitted, with the ID of the
 /// crawl request it was admitted for, or that reached it by a redirect.
 pub const TABLES: RunStateTables = RunStateTables {
@@ -41,6 +43,9 @@ pub struct Declared<'a> {
 /// Where a redirect hop leads a crawl request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hop {
+    /// It leaves the crawl's scope: the request ends `skipped` with
+    /// `out_of_scope`, and its handler does not run.
+    OutOfScope,
     /// It is followed: its key is the request's own, or no other request's.
     Follow,
     /// Its key was admitted for another request: the request ends
@@ -93,20 +98,25 @@ pub(crate) fn visit(
 }
 
 /// Where a redirect hop of the crawl request `crawl_request` to `url`,
-/// sent with `method` and `body`, leads it (ADR 0120): `Duplicate` when
-/// that identity was admitted for another request, else `Follow`, a hop
-/// back to the request's own identity included.
+/// sent with `method` and `body`, leads it within `scope` (ADRs 0093 and
+/// 0120): `OutOfScope` when it leaves the scope, `Duplicate` when that
+/// identity was admitted for another request, else `Follow`, a hop back to
+/// the request's own identity included.
 ///
 /// # Errors
 ///
 /// When the run file cannot be read.
 pub fn redirect_hop(
     connection: &Connection,
+    scope: &Scope,
     crawl_request: &str,
     url: &Url,
     method: &HttpMethod,
     body: Option<&[u8]>,
 ) -> rusqlite::Result<Hop> {
+    if !scope.admits(connection, url, Narrowing::none())? {
+        return Ok(Hop::OutOfScope);
+    }
     let hop = identity(
         url,
         Declared {

@@ -656,6 +656,12 @@ number = 6
 kind = "error"
 prefix = "attempt_ended"
 
+# Area 6, Collection, Foxhound: the crawl's scope (#840).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.scope."
+
 # Area 6, Collection (spec #580, Collie's part): a Run's Key-value store
 # (#791).
 [[area]]

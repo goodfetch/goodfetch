@@ -1,5 +1,12 @@
 {
   "$defs": {
+    "OnlyProduct": {
+      "description": "The one Product that carries a story or a matrix row: only Foxhound can\nbe, since Foxhound contains Collie (ADR 0084).",
+      "enum": [
+        "foxhound"
+      ],
+      "type": "string"
+    },
     "Row": {
       "additionalProperties": false,
       "description": "One matrix row's milestone.",
@@ -11,6 +18,17 @@
         "milestone": {
           "description": "The GitHub milestone of the ticket that finishes it.",
           "type": "string"
+        },
+        "product": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OnlyProduct"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The one Product that carries it, for a row of Foxhound's alone; both\nProducts when absent (ADR 0094)."
         }
       },
       "required": [

@@ -8,6 +8,8 @@
 )]
 
 mod attached;
+#[cfg(unix)]
+mod background_traffic;
 mod browsers;
 #[cfg(target_os = "macos")]
 mod checkpoint;

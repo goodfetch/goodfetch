@@ -39,7 +39,7 @@ pub(crate) const BROWSER_DEADLINE: std::time::Duration = std::time::Duration::fr
 
 /// Starts an Attached engine whose Browser cache is `cache`, and a Run whose
 /// `network.resolve` maps the Proving ground's hosts to its address.
-fn started<'env>(
+pub(crate) fn started<'env>(
     env: &'env TestEnv,
     cache: &Path,
     proving_ground: &ProvingGround,

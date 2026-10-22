@@ -742,6 +742,24 @@
   "metrics": [
     {
       "arrived_in": "0.1",
+      "description": "The browsers the Daemon's Runs launched that run now, by kind: the pinned Chrome for Testing, or the distribution's Chromium where no build is made.",
+      "instrument": "up_down_counter",
+      "labels": [
+        {
+          "name": "browser",
+          "values": [
+            "chrome_for_testing",
+            "chromium"
+          ]
+        }
+      ],
+      "name": "goodfetch.browser.running",
+      "product": "collie",
+      "stability": "stable",
+      "unit": "{browser}"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Clients connected to the Daemon, by the surface each named in its `hello`, Console tabs included.",
       "instrument": "up_down_counter",
       "labels": [
@@ -864,6 +882,26 @@
       "product": "collie",
       "stability": "stable",
       "unit": "{echo}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawls' work items leased to a handler whose attempt has not ended.",
+      "instrument": "up_down_counter",
+      "labels": [],
+      "name": "goodfetch.work_item.leased",
+      "product": "foxhound",
+      "stability": "stable",
+      "unit": "{work_item}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawls' work items whose attempt ended and that wait to be tried again.",
+      "instrument": "counter",
+      "labels": [],
+      "name": "goodfetch.work_item.retried",
+      "product": "foxhound",
+      "stability": "stable",
+      "unit": "{work_item}"
     }
   ],
   "operations": [

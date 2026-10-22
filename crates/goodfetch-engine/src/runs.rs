@@ -708,6 +708,8 @@ struct Shared {
     finish: watch::Sender<bool>,
     /// Its Slices of the Limits that hold it, until it ends.
     charging: tokio::sync::Mutex<Option<Charging>>,
+    /// The runtime's metrics.
+    metrics: Metrics,
 }
 
 impl std::fmt::Debug for Run {
@@ -728,6 +730,12 @@ impl Run {
     /// Its run state's writer.
     pub fn state(&self) -> &RunState {
         &self.state
+    }
+
+    /// The runtime's metrics, which what the Run runs records in (ADR
+    /// 0050).
+    pub fn metrics(&self) -> &Metrics {
+        &self.shared.metrics
     }
 
     /// Its folder, which holds its state and its Run trace.
@@ -2322,6 +2330,7 @@ impl Registry {
                     epoch,
                     self.limits.placement(connection),
                 ))),
+                metrics: self.setup.metrics.clone(),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),

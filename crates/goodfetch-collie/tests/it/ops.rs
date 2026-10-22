@@ -215,8 +215,9 @@ fn series(text: &str) -> Vec<Series> {
 }
 
 /// `/metrics` answers the ops token with Prometheus' text of the runtime's
-/// metrics: each series a metric the protocol declares, each label one of
-/// its declared values.
+/// metrics: a Run that finished, a Run still live with its page's browser
+/// running, and the Client that started them; each series a metric the
+/// protocol declares, each label one of its declared values.
 ///
 /// Covers: story:3-101, story:3-103
 #[test]
@@ -225,8 +226,11 @@ fn metrics_answer_the_ops_token_with_the_runtimes_metrics_under_bounded_labels()
     let (mut daemon, address) = with_ops(&env, Browsers::Installed);
     let endpoint = daemon.serving();
     let mut client = opened(&env, &endpoint);
-    client.call(1, "run.start", &json!({ "run_id": "measured" }));
-    client.call(2, "run.finish", &json!({ "run_id": "measured" }));
+    client.call(1, "run.start", &json!({ "run_id": "finished" }));
+    client.call(2, "run.finish", &json!({ "run_id": "finished" }));
+    client.call(3, "run.start", &json!({ "run_id": "browsing" }));
+    let page = client.call(4, "run.new_page", &json!({ "run_id": "browsing" }));
+    assert!(page.get("result").is_some(), "{page}");
 
     let (status, text) = get(address, "/metrics", Some(&ops_token(&env)));
 
@@ -252,14 +256,15 @@ fn metrics_answer_the_ops_token_with_the_runtimes_metrics_under_bounded_labels()
             status,
             undeclared,
             [
+                r#"goodfetch_browser_running{browser="chrome_for_testing"} 1"#,
                 r#"goodfetch_client_connected{surface="sdk_typescript"} 1"#,
                 "goodfetch_daemon_draining 0",
-                r#"goodfetch_run_active{run_kind="collie"} 0"#,
+                r#"goodfetch_run_active{run_kind="collie"} 1"#,
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#,
             ]
             .map(|line| lines.contains(line)),
         ),
-        (200, Vec::<String>::new(), [true; 4])
+        (200, Vec::<String>::new(), [true; 5])
     );
 }
 

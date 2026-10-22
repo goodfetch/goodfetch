@@ -84,6 +84,20 @@ pub const RUN_ENDED: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
+/// `goodfetch.browser.running`: the browsers the Runs launched.
+pub const BROWSER_RUNNING: Metric = Metric {
+    name: "goodfetch.browser.running",
+    description: "The browsers the Daemon's Runs launched that run now, by kind: the pinned Chrome for Testing, or the distribution's Chromium where no build is made.",
+    instrument: Instrument::UpDownCounter,
+    unit: "{browser}",
+    labels: &[MetricLabel {
+        name: "browser",
+        values: &["chrome_for_testing", "chromium"],
+    }],
+    stability: Stability::Stable,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `goodfetch.client.connected`: the connected Clients.
 pub const CLIENT_CONNECTED: Metric = Metric {
     name: "goodfetch.client.connected",
@@ -142,6 +156,7 @@ pub const ENTRIES: Entries = Entries {
     metrics: &[
         RUN_ACTIVE,
         RUN_ENDED,
+        BROWSER_RUNNING,
         CLIENT_CONNECTED,
         DAEMON_DRAINING,
         GOVERNOR_SATURATION,

@@ -34,12 +34,15 @@
 //! are abandoned and their work items return to pending without counting;
 //! when
 //! no Connection serves the crawl any more, the driver delivers nothing
-//! more and waits for the Run to stop or a Connection to join.
+//! more and waits for the Run to stop or a Connection to join. Each attempt
+//! counts in `goodfetch.work_item.leased` until it ends, and each retry in
+//! `goodfetch.work_item.retried`, on the meter the Run hands out (ADR 0050).
 
 use goodfetch_engine::admission::{Admission, Ended, Waiting, Wakes};
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::ledger::Refusal;
+use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
@@ -47,7 +50,8 @@ use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams,
-    CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
+    CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST, WORK_ITEM_LEASED,
+    WORK_ITEM_RETRIED,
 };
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::run::StopReason;
@@ -94,6 +98,8 @@ struct Attempt {
     /// The server, by its place in the delivery's list, its request went to.
     server: usize,
     leased: Leased,
+    /// Its count in `goodfetch.work_item.leased`, until it drops.
+    _counted: Counted,
     /// The Session of the crawl's Session pool that served it.
     session: ServingSession,
     lease: WorkItemLease,
@@ -352,7 +358,7 @@ async fn lease_to_servers(
                 run.clone(),
                 place,
                 server.client.clone(),
-                (leased, session),
+                (leased, session, leased_count(run)),
                 lease,
             ));
         }
@@ -512,6 +518,7 @@ async fn settled(
         .ended(&waiting.id, &waiting.key, run.clock().now(), domain)
         .await;
     if retried {
+        count_retry(run);
         admission.enqueue(waiting);
     }
     if let Err(error) = key_new(run, admission).await {
@@ -671,7 +678,7 @@ async fn attempt(
     run: Run,
     server: usize,
     client: Client,
-    (leased, session): (Leased, ServingSession),
+    (leased, session, counted): (Leased, ServingSession, Counted),
     lease: WorkItemLease,
 ) -> Attempt {
     let params = CrawlRequestHandleParams {
@@ -711,10 +718,35 @@ async fn attempt(
     Attempt {
         server,
         leased,
+        _counted: counted,
         session,
         lease,
         answer,
     }
+}
+
+/// One more attempt in `goodfetch.work_item.leased`, until the answer
+/// drops.
+fn leased_count(run: &Run) -> Counted {
+    let counter = run
+        .metrics()
+        .meter()
+        .i64_up_down_counter(WORK_ITEM_LEASED.name)
+        .with_description(WORK_ITEM_LEASED.description)
+        .with_unit(WORK_ITEM_LEASED.unit)
+        .build();
+    Counted::new(counter, Vec::new())
+}
+
+/// One more retry in `goodfetch.work_item.retried`.
+fn count_retry(run: &Run) {
+    run.metrics()
+        .meter()
+        .u64_counter(WORK_ITEM_RETRIED.name)
+        .with_description(WORK_ITEM_RETRIED.description)
+        .with_unit(WORK_ITEM_RETRIED.unit)
+        .build()
+        .add(1, &[]);
 }
 
 /// The answer of an attempt whose lease ended first: a result is a late

@@ -185,6 +185,25 @@ describe("a Collie Connection", () => {
   );
 
   test(
+    "fails a call in flight when it closes, as cancelled by its Client",
+    { tags: ["story:11-2", "error:call_cancelled"] },
+    async () => {
+      const { collie, played } = await collieOn("connect/closed-during-a-call.json");
+      const started = failure(collie.start());
+
+      await collie.close();
+      const error = await started;
+
+      expect(error).toMatchObject({
+        code: "call_cancelled",
+        group: "unavailable",
+        details: { by: "client" },
+      });
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
     "runs beside another Connection in the same process",
     { tags: ["client_case/two-connections-at-once", "attached"] },
     async ({ clientCase }) => {

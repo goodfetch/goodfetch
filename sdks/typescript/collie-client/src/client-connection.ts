@@ -332,7 +332,7 @@ async function within<T>(promise: Promise<T>, timeout: number): Promise<T | "lat
 /** The error a call in flight fails with when its Connection closes: cancelled by its Client. */
 function cancelledByClose(): CallCancelledError {
   return new CallCancelledError("the call's Connection was closed", {
-    details: { closed: "connection" },
+    details: { by: "client" },
   });
 }
 

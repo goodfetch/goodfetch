@@ -455,6 +455,27 @@ pub const ENGINE_NOT_FOUND: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// What `engine_not_found` details: where the SDK looked.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum EngineNotFoundDetails {
+    /// The Product's engine-path variable named a path that is no
+    /// executable file.
+    Path {
+        /// The path the variable named.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        path: String,
+    },
+    /// No engine-path variable was set, and the Product's platform package
+    /// is not installed.
+    Package {
+        /// The platform package's name, such as
+        /// `@goodfetch/collie-linux-x64`.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        package: String,
+    },
+}
+
 /// An Attached engine that ended before its Connection was closed (ADRs
 /// 0078 and 0079), raised by the SDK runtime.
 pub const ENGINE_EXITED: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -491,6 +512,14 @@ pub const ENGINE_OUTPUT_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// What `engine_output_invalid` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct EngineOutputInvalidDetails {
+    /// The line the engine wrote, without its line end.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub line: String,
+}
 
 /// The refusal of an answer only a person gives (ADRs 0011 and 0041): an
 /// operation the catalog marks [`Reach::PersonOnly`](crate::catalog::Reach)

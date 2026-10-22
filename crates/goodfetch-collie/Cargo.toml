@@ -69,6 +69,8 @@ toml.workspace = true
 ureq.workspace = true
 # The corpus writer's in-memory Client (examples/compat-protocol.rs).
 tokio = { workspace = true, features = ["io-util", "macros"] }
+# A WebSocket Client of `daemon run` (tests/it/websocket.rs).
+tungstenite.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }
 
 [package.metadata.cargo-shear]

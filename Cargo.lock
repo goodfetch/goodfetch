@@ -1325,6 +1325,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "tungstenite",
  "ureq",
  "zip",
 ]

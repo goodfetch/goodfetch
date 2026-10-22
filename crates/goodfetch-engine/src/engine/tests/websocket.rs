@@ -319,3 +319,38 @@ fn a_handshake_that_names_the_daemon_as_localhost_is_accepted() {
 
     assert!(opened);
 }
+
+/// Covers: story:3-13
+#[test]
+fn a_message_longer_than_the_limit_is_answered_message_too_large_and_the_websocket_closes() {
+    let (_, (answer, after)) = served(
+        &engine(Product::Collie),
+        &TestEnv::new(),
+        exposed(),
+        |dialer| async move {
+            let mut websocket = same_origin(&dialer).await;
+            websocket.send(&[token_hello()]).await;
+            let _ = websocket.next().await;
+            let (mut sink, mut stream) = websocket.0.split();
+            let oversized = "x".repeat(crate::rpc::framing::MAX_MESSAGE_BYTES + 1);
+            let read = async {
+                let mut messages = Vec::new();
+                while let Some(Ok(message)) = stream.next().await {
+                    if let Message::Text(text) = message {
+                        messages.push(serde_json::from_str::<Value>(&text).unwrap());
+                    }
+                }
+                messages
+            };
+            let (_, mut messages) = tokio::join!(sink.send(Message::text(oversized)), read);
+            let answer = messages.remove(0);
+            (answer, messages)
+        },
+    );
+
+    assert_eq!(
+        (answer["error"]["data"]["code"].clone(), after),
+        (json!("message_too_large"), Vec::<Value>::new()),
+        "{answer}"
+    );
+}

@@ -16,7 +16,7 @@ use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::run::{RunKind, RunOwner};
 
 use crate::admission::Gates;
-use crate::attached::{ParentWatch, PrivateFiles};
+use crate::attached::{ParentWatch, PrivateFiles, relay};
 use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError};
 use crate::console::{self, ConsoleBuild};
@@ -25,8 +25,10 @@ use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
 use crate::home::{Home, RunStateLocation};
+use crate::politeness::{PolitenessOptions, PolitenessTables};
 use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
+use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::runs::{Driver, Runs, RunsSetup};
 use crate::settings::{Settings, SettingsFiles};
@@ -42,6 +44,7 @@ use crate::transport::{Connection, DaemonListener, Network, TransportError};
 pub struct Engine {
     dispatch: Arc<Dispatch>,
     tables: Vec<RunStateTables>,
+    politeness_tables: Vec<PolitenessTables>,
     drivers: BTreeMap<RunKind, Driver>,
     gates: Option<Arc<dyn Gates>>,
     events: EventsOptions,
@@ -63,6 +66,8 @@ pub struct Dependencies {
     pub run_state_location: RunStateLocation,
     /// How run files open.
     pub run_state: RunStateOptions,
+    /// How the per-user Politeness file opens.
+    pub politeness: PolitenessOptions,
 }
 
 impl Engine {
@@ -74,6 +79,7 @@ impl Engine {
                 handlers: composition.handlers()?,
             }),
             tables: composition.run_state_tables(),
+            politeness_tables: composition.politeness_tables(),
             drivers: composition.drivers(),
             gates: composition.admission_gates()?,
             events: EventsOptions::default(),
@@ -143,6 +149,7 @@ impl Engine {
             dependencies,
             &owner,
             Some(RunOwner::Daemon(options.endpoint.clone())),
+            options.install.take(),
         );
         let console = match (
             self.console,
@@ -170,19 +177,29 @@ impl Engine {
             &owner,
         )
         .await;
-        runs.stop_all().await;
-        drop(runs);
-        owner.stop().await;
+        if matches!(ended, DaemonEnd::Drained) {
+            // Its process exits now, within its drain grace: a Run whose
+            // tasks did not stop in time stays as it is, resumable from its
+            // run file, and nothing waits for them.
+            drop(runs);
+            owner.cancel();
+        } else {
+            runs.stop_all().await;
+            drop(runs);
+            owner.stop().await;
+        }
         ended
     }
 
     /// The engine's event stream and Runs registry, tasks of `owner`; the
-    /// Run index names `reached_at` as the owner of its live Runs.
+    /// Run index names `reached_at` as the owner of its live Runs, whose
+    /// run state is in `install` in the per-install layout.
     fn start_runs(
         &self,
         dependencies: Dependencies,
         owner: &TaskOwner,
         reached_at: Option<RunOwner>,
+        install: Option<InstallDatabase>,
     ) -> (Runs, Events) {
         let events = Events::start(self.events, owner);
         let settings = Settings::new(
@@ -204,10 +221,20 @@ impl Engine {
                 home: dependencies.home,
                 version: self.identity().product_version.clone(),
                 location: dependencies.run_state_location,
-                run_state: dependencies.run_state,
+                ledger_vfs: dependencies.run_state.vfs.clone(),
+                run_state: match &install {
+                    Some(install) => RunStateOptions {
+                        vfs: Some(install.vfs().to_owned()),
+                        ..dependencies.run_state
+                    },
+                    None => dependencies.run_state,
+                },
+                install: install.map(Arc::new),
                 tables: self.tables.clone(),
                 drivers: self.drivers.clone(),
                 gates: self.gates.clone(),
+                politeness: dependencies.politeness,
+                politeness_tables: self.politeness_tables.clone(),
                 clock: dependencies.clock,
                 entropy: dependencies.entropy,
                 events: events.clone(),
@@ -215,6 +242,39 @@ impl Engine {
             owner,
         );
         (runs, events)
+    }
+
+    /// Runs as an Attached engine in the per-install layout, which hands
+    /// its Runs to the Daemon (`run_state.layout`, ADR 0002): relays the
+    /// one Connection `network` gives it to `daemon`, the Daemon of its
+    /// major reached with `token`, which it adds to the Client's `hello`,
+    /// until either ends or, on the OS, its parent is gone.
+    ///
+    /// # Errors
+    ///
+    /// When `network` gives no Connection.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes both Connections.
+    pub async fn relay_attached(
+        mut network: Network,
+        daemon: Connection,
+        token: String,
+    ) -> Result<(), TransportError> {
+        let parent = matches!(network, Network::Os).then(ParentWatch::start);
+        let client = network.attached_connection().await?;
+        let gone = async {
+            match parent {
+                Some(parent) => parent.gone().await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            () = relay(client, daemon, &token) => {}
+            () = gone => tracing::warn!("the Attached engine's parent is gone: its Runs on the Daemon stop"),
+        }
+        Ok(())
     }
 
     /// Runs as an Attached engine on `dependencies`: serves the one
@@ -247,6 +307,7 @@ impl Engine {
             private
                 .as_ref()
                 .map(|(_, endpoint, _)| RunOwner::Attached(endpoint.clone())),
+            None,
         );
         let connection_owner = owner.child();
         let reported = private.as_ref().map(|(_, endpoint, _)| endpoint.clone());

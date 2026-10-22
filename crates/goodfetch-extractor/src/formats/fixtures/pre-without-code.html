@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Notes from the workshop</title></head>
+<body>
+<nav><a href="/">Notes</a> <a href="/archive">Archive</a></nav>
+<article>
+<h2>Building the lab</h2>
+<p>The lab builds with Cargo in release mode, which takes a few minutes on a laptop the first time and a few seconds after that, since only the crates that changed are compiled again.</p>
+<pre>$ cargo build --release
+   Compiling lab v0.1.0</pre>
+<p>When the build is done, the executable sits in the target folder, and every later command in these notes runs it from there without installing anything.</p>
+</article>
+</body>
+</html>

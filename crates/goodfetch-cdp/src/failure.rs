@@ -38,6 +38,9 @@ pub enum Refusal {
     TargetGone,
     /// The URL is not one the browser can navigate to.
     InvalidUrl,
+    /// The execution context the command named is gone with its document,
+    /// such as after a navigation: a world made in it must be made again.
+    ContextGone,
     /// A message this table does not know yet: logged at `warn`, and the
     /// call that met it raises its own generic code (ADR 0127).
     Unrecognized,
@@ -81,12 +84,18 @@ pub enum Failure {
 
 /// The messages the browser refuses with, each with its meaning. Chromium's
 /// texts, as its protocol handlers word them.
-const REFUSALS: [(&str, Refusal); 5] = [
+const REFUSALS: [(&str, Refusal); 8] = [
     ("Target closed", Refusal::TargetGone),
     ("Session with given id not found", Refusal::TargetGone),
     ("No target with given id found", Refusal::TargetGone),
     ("Not attached to an active page", Refusal::TargetGone),
     ("Cannot navigate to invalid URL", Refusal::InvalidUrl),
+    (
+        "Cannot find context with specified id",
+        Refusal::ContextGone,
+    ),
+    ("Execution context was destroyed", Refusal::ContextGone),
+    ("Inspected target navigated or closed", Refusal::ContextGone),
 ];
 
 impl Failure {

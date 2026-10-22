@@ -1,10 +1,13 @@
 version = "0.1"
+lowest_minor = 0
 
 [settings.console]
 address = "example"
 
 [settings.daemon]
 idle_timeout = 30000
+address = "example"
+drain_grace = 30000
 
 [settings.browser_cache]
 max_unused_age = 30000
@@ -13,8 +16,13 @@ max_unused_age = 30000
 resolution_delay = 30000
 attempt_delay = 30000
 
+[settings.browser]
+headless = true
+
 [settings.run_state]
 location = "example"
+durability = "full"
+layout = "per_run"
 
 [settings.checkpoint]
 interval = 30000
@@ -54,12 +62,23 @@ signing = true
 
 [settings.timeout]
 run = 30000
+action = 30000
 navigation = 30000
 first_byte = 30000
 handler = 30000
 
 [settings.admission]
 max_requests_per_minute = 4
+
+[settings.version]
+age_notice = true
+
+[settings.politeness]
+sharing = "shared"
+
+[settings.politeness.domain]
+concurrency = 4
+delay = 30000
 
 [settings.crawl]
 sample_pages = 4

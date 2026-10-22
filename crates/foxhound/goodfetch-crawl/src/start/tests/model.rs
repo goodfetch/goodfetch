@@ -283,6 +283,7 @@ impl Subject {
     fn restart(&mut self) {
         let options = RunStateOptions {
             vfs: Some(self.vfs.name().to_owned()),
+            ..RunStateOptions::default()
         };
         self.owner = TaskOwner::root(BlockingPolicy::Inline);
         let (env, owner) = (&self.env, &self.owner);
@@ -375,6 +376,7 @@ impl StateMachineTest for Subject {
                 &env,
                 RunStateOptions {
                     vfs: Some(vfs.name().to_owned()),
+                    ..RunStateOptions::default()
                 },
             );
             configure(&env, ONE_AT_A_TIME);

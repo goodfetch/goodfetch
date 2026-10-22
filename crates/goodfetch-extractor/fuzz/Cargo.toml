@@ -1,0 +1,26 @@
+# goodfetch-extractor's cargo-fuzz target (ADR 0067; TESTING.md, Fuzzing),
+# outside the workspace: its body is `goodfetch_extractor::fuzz_formats`,
+# whose seeds and past crashers `fuzz_replay!` replays from `fuzz/formats/`
+# on every OS. A page's HTML is input from a site. Build and run with the
+# pinned nightly: `cargo fuzz run formats fuzz/formats/seeds`.
+[package]
+name = "goodfetch-extractor-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+goodfetch-extractor = { path = ".." }
+libfuzzer-sys = "0.4.10"
+
+[[bin]]
+name = "formats"
+path = "fuzz_targets/formats.rs"
+test = false
+doc = false
+bench = false

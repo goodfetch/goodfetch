@@ -45,7 +45,10 @@ fn summary(case: &Value) -> String {
         text(&case["found"])
     )];
     if let Some(lowest_minor) = case.get("lowest_minor") {
-        parts.push(format!("marked {lowest_minor}"));
+        parts.push(format!(
+            "marked {lowest_minor} for an engine at {}",
+            text(&case["engine"])
+        ));
     }
     parts.push(format!("= {}", text(&case["compatibility"])));
     let mut line = parts.join(" ");
@@ -100,8 +103,9 @@ fn a_sample_registry_gives_each_formats_cases_under_its_rule() {
             "sample-file/newer-major.json: default 1.4 reads 2.0 = newer_major",
             "sample-ledger/newer-minor.json: frozen_major 0.2 reads 0.3 = compatible",
             "sample-ledger/newer-major.json: frozen_major 0.2 reads 1.0 = newer_major",
-            "sample-store/newer-minor-lowest-minor-met.json: shared_store 1.2 reads 1.3 marked 2 = compatible",
-            "sample-store/newer-minor-lowest-minor-newer.json: shared_store 1.2 reads 1.3 marked 3 = newer_minor",
+            "sample-store/newer-minor.json: shared_store 1.2 reads 1.3 = compatible",
+            "sample-store/lowest-minor-met.json: shared_store 1.2 reads 1.2 marked 1 for an engine at 1.1 = compatible",
+            "sample-store/lowest-minor-newer.json: shared_store 1.2 reads 1.2 marked 2 for an engine at 1.1 = newer_minor",
             "sample-store/older-major.json: shared_store 1.2 reads 0.0 = older_major",
             "sample-store/newer-major.json: shared_store 1.2 reads 2.0 = newer_major",
             "sample-protocol/client-newer-minor.json: default 2.3 reads 2.4 = newer_minor; client to collie needing collie -> refused with protocol_version_unsupported",
@@ -188,7 +192,8 @@ fn registering_a_format_adds_its_cases() {
         added,
         [
             "sample-plan/newer-major.json: default 0.1 reads 1.0 = newer_major",
-            "sample-plan/newer-minor.json: default 0.1 reads 0.2 = newer_minor",
+            "sample-plan/newer-preview.json: default 0.1 reads 0.2 = newer_major",
+            "sample-plan/older-preview.json: default 0.1 reads 0.0 = older_major",
         ]
     );
 }
@@ -238,8 +243,8 @@ fn a_format_under_a_rule_without_a_refusal_table_fails() {
 fn check_fails_after_a_hand_edit_of_a_refusal_case() {
     let workspace = Workspace::from_fixture("codegen");
     workspace.edit(
-        "crates/goodfetch-protocol/generated/refusals/sample-store/newer-minor.json",
-        "newer_minor",
+        "crates/goodfetch-protocol/generated/refusals/sample-store/newer-preview.json",
+        "newer_major",
         "compatible",
     );
 
@@ -249,7 +254,7 @@ fn check_fails_after_a_hand_edit_of_a_refusal_case() {
         outcome.findings(),
         vec![finding(
             "drift",
-            "crates/goodfetch-protocol/generated/refusals/sample-store/newer-minor.json"
+            "crates/goodfetch-protocol/generated/refusals/sample-store/newer-preview.json"
         )],
         "{}",
         outcome.stderr

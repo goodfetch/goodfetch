@@ -21,6 +21,8 @@
 
 mod files;
 mod parent;
+mod relay;
 
 pub(crate) use files::{PrivateFiles, read_token};
 pub(crate) use parent::ParentWatch;
+pub(crate) use relay::relay;

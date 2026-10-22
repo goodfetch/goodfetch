@@ -1,7 +1,8 @@
 //! `xtask codegen` (ADRs 0038, 0087, 0094 and 0095): builds `goodfetch-protocol`'s
 //! `emit` example, which writes the JSON Schema bundle and catalog file
 //! through schemars, and writes from them every generated file: each
-//! Product's projection, the names only Foxhound carries, the cargo-deny
+//! Product's projection, the names only Foxhound carries, the namespaces of
+//! the commands `goodfetch-cli` generates, the cargo-deny
 //! `wrappers` list of Foxhound's crates and Collie's ban of them, cargo-deny's
 //! copy of the license allowlist, each SDK package's `generated/` layer, and
 //! each registered format's refusal cases (ADR 0066), the Journey files'
@@ -28,6 +29,7 @@
 )]
 
 mod cdp;
+mod cli;
 mod deny;
 mod digest;
 mod emitter;
@@ -264,6 +266,7 @@ impl Plan {
     fn owned_folders() -> impl Iterator<Item = &'static str> {
         [
             PROTOCOL_GENERATED,
+            cli::FOLDER,
             cdp::FOLDER,
             test_support::FOLDER,
             helpers::TYPESCRIPT_FOLDER,
@@ -318,6 +321,7 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         format!("{PROTOCOL_GENERATED}/foxhound_names.rs"),
         names::render(&foxhound_names).into_bytes(),
     );
+    files.extend(cli::namespaces(root)?);
     let sources = features::Sources {
         root,
         catalog: &catalog,
@@ -623,6 +627,10 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
         json2ts: arguments.json2ts,
         datamodel_codegen: arguments.datamodel_codegen,
     };
+    let namespaces = cli::written(root);
     write(cargo, &generators, root)?;
+    if cli::written(root) != namespaces {
+        cli::rerun(cargo, root, &generators)?;
+    }
     Ok(ExitCode::SUCCESS)
 }

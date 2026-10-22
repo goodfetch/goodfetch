@@ -54,6 +54,7 @@ use crate::releases::ReleasesFile;
 use crate::result_document::ResultDocument;
 use crate::run::RunsReindexOutput;
 use crate::settings::SettingsExplanation;
+use crate::versions::UpgradeFilesOutput;
 
 /// The bundle's `files` key of every Journey file, `journeys/J-NNN.toml`.
 pub const JOURNEY_FILES: &str = "journeys/J-*.toml";
@@ -111,6 +112,7 @@ pub fn emit() -> Emitted {
         "daemon.stop": generator.subschema_for::<DaemonStopOutput>(),
         "daemon.uninstall": generator.subschema_for::<DaemonUninstallOutput>(),
         "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
+        "upgrade-files": generator.subschema_for::<UpgradeFilesOutput>(),
     });
     let command_failed = generator.subschema_for::<CommandFailed>();
     let shared_types = json!({ "block_cause": generator.subschema_for::<BlockCause>() });

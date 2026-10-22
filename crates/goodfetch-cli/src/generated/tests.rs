@@ -14,7 +14,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::{Call, Offer, PRODUCT, command, duration, member, members_of, offer};
+use super::{
+    Call, NAMESPACES, Namespace, Offer, PRODUCT, command, duration, member, members_of, offer,
+};
 
 /// What the made-up operations take.
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -119,7 +121,11 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("page.reload", Offer::Command),
             ("page.go_back", Offer::Command),
             ("page.go_forward", Offer::Command),
+            ("page.formats", Offer::Command),
             ("page.body", Offer::Follow),
+            ("locator.click", Offer::Command),
+            ("locator.fill", Offer::Command),
+            ("locator.press", Offer::Command),
             ("run.start", Offer::Command),
             ("run.finish", Offer::Command),
             ("run.abort", Offer::Command),
@@ -129,7 +135,32 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("run.resume", Offer::Command),
             ("sample.echo", Offer::Command),
             ("config.explain", Offer::Command),
+            ("usage.list", Offer::Command),
+            ("usage.set", Offer::Command),
         ]
+    );
+}
+
+/// The namespaces `xtask codegen` writes for a start to read, so that it
+/// walks no catalog: each namespace of those commands once, in the
+/// catalog's order, with its spelling and its group's help.
+#[test]
+fn the_generated_namespaces_are_those_of_collies_commands() {
+    let names: Vec<&str> = NAMESPACES.iter().map(|namespace| namespace.name).collect();
+
+    assert_eq!(
+        names,
+        [
+            "daemon", "engine", "events", "run", "page", "locator", "sample", "config", "usage"
+        ]
+    );
+    assert_eq!(
+        NAMESPACES[3],
+        Namespace {
+            name: "run",
+            spelled: "run",
+            about: "Calls the catalog's `run` operations",
+        }
     );
 }
 

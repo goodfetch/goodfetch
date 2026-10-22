@@ -16,6 +16,9 @@ fn main() -> ExitCode {
     start(&Start {
         product: Product::Collie,
         version: env!("CARGO_PKG_VERSION"),
+        // A release build records its release date; any other build has
+        // none, and never prints the age notice (ADR 0030).
+        release_date: option_env!("GOODFETCH_RELEASE_DATE"),
         composition: console_build::composition,
         arguments: std::env::args_os().collect(),
         environment: std::env::vars_os().collect(),

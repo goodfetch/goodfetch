@@ -16,13 +16,14 @@ use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, HandlerRequest, Operation, OperationClass,
     OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
+use crate::foxhound::frontier::{HttpBody, HttpMethod};
 use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunReport, RunStarted, Tags};
 use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// One request a crawl starts from (ADR 0093): a URL, the Label that picks
-/// its handler and its Payload.
+/// its handler and its Payload, and how it is sent and identified.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Seed {
@@ -42,6 +43,20 @@ pub struct Seed {
     #[serde(default, skip_serializing_if = "is_zero")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub priority: i64,
+    /// The method it is sent with: `GET` by default.
+    #[serde(default, skip_serializing_if = "HttpMethod::is_get")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub method: HttpMethod,
+    /// The body it is sent with, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub body: Option<HttpBody>,
+    /// Its identity in the Frontier, declared by the program in place of
+    /// its method, its URL's key and its body's hash: a canonicalization
+    /// of the program's own, which always wins (ADR 0005).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key: Option<String>,
 }
 
 #[expect(
@@ -133,6 +148,13 @@ pub struct CrawlRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub payload: Option<Value>,
+    /// The method it is sent with.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub method: HttpMethod,
+    /// The body it is sent with, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub body: Option<HttpBody>,
 }
 
 /// What `crawl_request.handle` gives the handler: one attempt of one work

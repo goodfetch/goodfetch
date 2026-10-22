@@ -1,5 +1,9 @@
 {
   "$defs": {
+    "Acted": {
+      "description": "What a locator action answers once its input landed on its target:\nnothing, since no operation returns a handle on an element (ADR 0085).",
+      "type": "object"
+    },
     "ArtifactId": {
       "description": "Which Pinned artifact: its kind, its name and its build.",
       "properties": {
@@ -60,6 +64,10 @@
           "type": "string"
         }
       ]
+    },
+    "Asked": {
+      "const": true,
+      "description": "The format, with its default options."
     },
     "AttemptError": {
       "description": "The error an attempt failed with.",
@@ -182,6 +190,21 @@
         "run_epoch",
         "journal_position",
         "time"
+      ],
+      "type": "object"
+    },
+    "ClickParams": {
+      "additionalProperties": false,
+      "description": "What `locator.click` takes: the locator whose element it clicks.",
+      "properties": {
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        }
+      },
+      "required": [
+        "locator"
       ],
       "type": "object"
     },
@@ -317,6 +340,18 @@
     "CrawlRequest": {
       "description": "One work item of a crawl as its handler receives it (ADR 0093).",
       "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpBody"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The body it is sent with, if any."
+        },
         "id": {
           "arrived_in": "0.1",
           "description": "Its ID within the Run.",
@@ -326,6 +361,11 @@
           "arrived_in": "0.1",
           "description": "Its Label.",
           "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/HttpMethod",
+          "arrived_in": "0.1",
+          "description": "The method it is sent with."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -340,7 +380,8 @@
       "required": [
         "id",
         "url",
-        "label"
+        "label",
+        "method"
       ],
       "type": "object"
     },
@@ -348,6 +389,18 @@
       "additionalProperties": false,
       "description": "What `crawl_request.enqueue` takes: one request to add, from one attempt\nof a crawl request.",
       "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpBody"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The body it is sent with, if any."
+        },
         "crawl_request_id": {
           "arrived_in": "0.1",
           "description": "The ID of the crawl request whose attempt enqueues.",
@@ -365,6 +418,14 @@
           "arrived_in": "0.1",
           "description": "The document the handler read, whose base URL a relative `url`\nresolves against; absent, the crawl request's own URL is the base."
         },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "label": {
           "arrived_in": "0.1",
           "description": "Its Label.",
@@ -376,6 +437,11 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "method": {
+          "$ref": "#/$defs/HttpMethod",
+          "arrived_in": "0.1",
+          "description": "The method it is sent with: `GET` by default."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -1121,6 +1187,67 @@
       ],
       "type": "object"
     },
+    "FillParams": {
+      "additionalProperties": false,
+      "description": "What `locator.fill` takes: the locator whose field it fills, and the\ntext.",
+      "properties": {
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The text the field holds afterwards; an empty text clears it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "locator",
+        "value"
+      ],
+      "type": "object"
+    },
+    "FormatsParams": {
+      "additionalProperties": false,
+      "description": "What `page.formats` takes: the page, and the formats it asks for.",
+      "properties": {
+        "formats": {
+          "$ref": "#/$defs/FormatsRequest",
+          "arrived_in": "0.1",
+          "description": "The formats."
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id",
+        "formats"
+      ],
+      "type": "object"
+    },
+    "FormatsRequest": {
+      "additionalProperties": false,
+      "description": "The formats a `page.formats` call asks for, each `true` or its options:\none value, which a Record can carry and a Dataset's schema can be\ngenerated from (ADR 0103). A format left out is left out of the result.",
+      "properties": {
+        "markdown": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MarkdownFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page's content as Markdown, with GFM's tables."
+        }
+      },
+      "type": "object"
+    },
     "GotoParams": {
       "additionalProperties": false,
       "description": "What `page.goto` takes: the page, and the URL it goes to.",
@@ -1156,6 +1283,16 @@
         "message"
       ],
       "type": "object"
+    },
+    "HttpBody": {
+      "contentEncoding": "base64",
+      "description": "The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).",
+      "type": "string"
+    },
+    "HttpMethod": {
+      "description": "The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.",
+      "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$",
+      "type": "string"
     },
     "Lifecycle": {
       "description": "Where a Run is (ADR 0029).",
@@ -1370,6 +1507,80 @@
       ],
       "type": "object"
     },
+    "Locator": {
+      "additionalProperties": false,
+      "description": "A locator (ADR 0085): what an action looks for on a page, resolved\nagain at each use, never a handle on an element. This tracer's locators\nare CSS selectors.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page it looks on."
+        },
+        "selector": {
+          "arrived_in": "0.1",
+          "description": "A CSS selector, which also matches inside open shadow roots.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "selector"
+      ],
+      "type": "object"
+    },
+    "MainContent": {
+      "description": "Whether the extractor found the document's main content.",
+      "oneOf": [
+        {
+          "const": "found",
+          "description": "It found it.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "The document has none: the formats read from it are empty, a value\nand never the whole page in its place.",
+          "type": "string"
+        }
+      ]
+    },
+    "MarkdownContent": {
+      "description": "How much of the page a Markdown format holds.",
+      "oneOf": [
+        {
+          "const": "main",
+          "description": "The main content the extractor finds, the default.",
+          "type": "string"
+        }
+      ]
+    },
+    "MarkdownFormat": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Asked",
+          "description": "With its default options."
+        },
+        {
+          "$ref": "#/$defs/MarkdownOptions",
+          "description": "With these options."
+        }
+      ],
+      "description": "The `markdown` format of a request: `true`, or its options."
+    },
+    "MarkdownOptions": {
+      "additionalProperties": false,
+      "description": "The options of the `markdown` format.",
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/MarkdownContent",
+          "arrived_in": "0.1",
+          "description": "How much of the page it holds."
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
+    },
     "Navigated": {
       "description": "What a navigation answers: the document's response, or none for a\nnavigation within the same document, to a URL no server answers, such as\n`about:blank`, or back or forward from the last entry of the page's\nhistory. A 404 or a 500 is a response, a value.",
       "properties": {
@@ -1408,7 +1619,7 @@
       "oneOf": [
         {
           "const": "duplicate",
-          "description": "The Frontier already admitted a request of the same identity.",
+          "description": "The Frontier already admitted a request of the same identity: its\nmethod, its URL's key and its body's hash, or its declared `key`.",
           "type": "string"
         },
         {
@@ -1595,6 +1806,37 @@
       ],
       "type": "object"
     },
+    "PageFormats": {
+      "description": "What `page.formats` answers: the formats the request asked for, and\nnone it did not, with the document's URL, its base URL and whether it\nhas main content. Text is as the document holds it, never repaired.",
+      "properties": {
+        "base_url": {
+          "arrived_in": "0.1",
+          "description": "The URL its relative URLs resolve against: its first `<base href>`,\nelse its URL.",
+          "type": "string"
+        },
+        "main_content": {
+          "$ref": "#/$defs/MainContent",
+          "arrived_in": "0.1",
+          "description": "Whether it has main content."
+        },
+        "markdown": {
+          "arrived_in": "0.1",
+          "description": "Its content as Markdown, when the request asked for it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The document's URL, after redirects.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "base_url",
+        "main_content"
+      ],
+      "type": "object"
+    },
     "PageId": {
       "description": "A page of a Run, named by the engine when it opens it.",
       "type": "string"
@@ -1721,6 +1963,27 @@
       "description": "An event's position among every event of one engine, which only goes up.",
       "minimum": 0,
       "type": "integer"
+    },
+    "PressParams": {
+      "additionalProperties": false,
+      "description": "What `locator.press` takes: the locator whose element gets the key, and\nthe key.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by\nPlaywright's key names.",
+          "type": "string"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        }
+      },
+      "required": [
+        "locator",
+        "key"
+      ],
+      "type": "object"
     },
     "Product": {
       "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
@@ -2516,12 +2779,37 @@
     },
     "Seed": {
       "additionalProperties": false,
-      "description": "One request a crawl starts from (ADR 0093): a URL, the Label that picks\nits handler and its Payload.",
+      "description": "One request a crawl starts from (ADR 0093): a URL, the Label that picks\nits handler and its Payload, and how it is sent and identified.",
       "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpBody"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The body it is sent with, if any."
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "label": {
           "arrived_in": "0.1",
           "description": "Its Label.",
           "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/HttpMethod",
+          "arrived_in": "0.1",
+          "description": "The method it is sent with: `GET` by default."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -2814,6 +3102,19 @@
           "type": "object"
         },
         {
+          "description": "Its foreground Daemon drained on `SIGTERM`: checkpointed and\nstopped, to be resumed by its Run ID on the Daemon's next start\n(ADR 0049).",
+          "properties": {
+            "kind": {
+              "const": "drain",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
           "$ref": "#/$defs/ReachedLimit",
           "description": "It could not take another Slice of a Limit, and stopped at its next\nsafe point, resumable once the period starts again or a person\nraises the Limit (ADR 0041).",
           "properties": {
@@ -3066,6 +3367,16 @@
       "name": "console_port_in_use",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "daemon_draining",
+      "product": "collie",
+      "retryable": true
     },
     {
       "arrived_in": "0.1",
@@ -3416,6 +3727,26 @@
       "name": "setting_unknown",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "target_not_unique",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "upgrade_source_unsupported",
+      "product": "collie",
+      "retryable": false
     }
   ],
   "error_groups": [
@@ -3685,7 +4016,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
+      "description": "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
       "events": [],
       "kind": "round_trip",
       "name": "crawl_request.enqueue",
@@ -3781,6 +4112,63 @@
     {
       "arrived_in": "0.1",
       "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.click",
+      "params": {
+        "$ref": "#/$defs/ClickParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.fill",
+      "params": {
+        "$ref": "#/$defs/FillParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.press",
+      "params": {
+        "$ref": "#/$defs/PressParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
       "class": "read",
       "deprecated": null,
       "description": "Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.",
@@ -3794,6 +4182,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageBodyRead"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: \"none\"`, a value. It needs neither layout nor pixels, so every tier serves it.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.formats",
+      "params": {
+        "$ref": "#/$defs/FormatsParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageFormats"
       },
       "stability": "experimental"
     },
@@ -4237,6 +4644,23 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+      "name": "browser.headless",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "machine",
       "clearable": true,
       "default": 2592000000,
@@ -4391,6 +4815,42 @@
         "foxhound"
       ],
       "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": "127.0.0.1:7600",
+      "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+      "name": "daemon.address",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 110000,
+      "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+      "name": "daemon.drain_grace",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
         "minimum": 0,
         "type": "integer"
       },
@@ -4585,6 +5045,62 @@
     {
       "arrived_in": "0.1",
       "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1.",
+      "name": "politeness.domain.concurrency",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s.",
+      "name": "politeness.domain.delay",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "shared",
+      "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+      "name": "politeness.sharing",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "shared",
+          "per_daemon",
+          "run"
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
       "clearable": false,
       "default": 250,
       "description": "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
@@ -4617,6 +5133,46 @@
         "description": "A duration in milliseconds.",
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "full",
+      "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+      "name": "run_state.durability",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "full",
+          "fast"
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": "per_run",
+      "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+      "name": "run_state.layout",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "per_run",
+          "per_install"
+        ]
       },
       "weakens": false
     },
@@ -4686,6 +5242,25 @@
       ],
       "value": {
         "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+      "name": "timeout.action",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
       },
       "weakens": false
     },
@@ -4811,6 +5386,23 @@
           "type": "array"
         },
         "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": true,
+      "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+      "name": "version.age_notice",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
       },
       "weakens": false
     },

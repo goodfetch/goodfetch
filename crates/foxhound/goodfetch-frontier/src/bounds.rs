@@ -246,7 +246,7 @@ pub(crate) fn count_refused(
     connection: &Connection,
     reason: NotAddedReason,
 ) -> rusqlite::Result<()> {
-    let Some((setting, _)) = cut_by(reason) else {
+    let Some(setting) = cut_by(reason) else {
         return Ok(());
     };
     connection.execute(
@@ -319,13 +319,12 @@ const REFUSALS: [(NotAddedReason, Setting, Completeness); 5] = [
     ),
 ];
 
-/// The setting behind `reason` and the Completeness it gives, when a bound
-/// or a cap gave it.
-fn cut_by(reason: NotAddedReason) -> Option<(&'static Setting, Completeness)> {
+/// The setting behind `reason`, when a bound or a cap gave it.
+fn cut_by(reason: NotAddedReason) -> Option<&'static Setting> {
     REFUSALS
         .iter()
         .find(|(refused, _, _)| *refused == reason)
-        .map(|(_, setting, completeness)| (setting, *completeness))
+        .map(|(_, setting, _)| setting)
 }
 
 /// The count of requests the run file `connection` holds as admitted.

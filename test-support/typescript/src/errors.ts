@@ -85,6 +85,14 @@ export type TestSupportErrorCode =
   | "covers_unknown"
   /** axe found a violation of WCAG 2.2 AA or a best practice on a served test's page (ADR 0073). */
   | "axe_violations"
+  /** A screen's keyboard walk reaches no stop (ADR 0073). */
+  | "keyboard_walk_empty"
+  /** A screen's keyboard walk is not the one `console/screens.toml` records for it (ADR 0073). */
+  | "keyboard_walk_changed"
+  /** `console/screens.toml` sets up a screen the Feature inventory does not list (ADR 0073). */
+  | "screen_setup_orphaned"
+  /** The Console has routes, and the Feature inventory names no `screen:` Feature (ADR 0073). */
+  | "screens_missing"
   /** An entry of the axe exception file excepts no violation on a page it names where its rule ran: its selector matches nothing there, or none of its elements violates the rule any more (ADR 0073). */
   | "axe_exception_unmatched"
   /** An entry of the axe exception file names a selector that takes in the whole page (`html`, `body` or every element in it), which would turn its rule off (ADR 0073). */

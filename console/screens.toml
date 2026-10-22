@@ -7,6 +7,8 @@
 #   feature = "screen:/runs/$run"   # the screen's Feature
 #   route = "/runs/r-1"             # where it opens, every parameter filled
 #   sign_in = "signed-in"           # or "signed-out"
+#   walk = ["link Runs", "button Start a run"]  # each stop's role and name, in Tab order
 #
-# A screen with no route or no sign-in state here fails its case with
-# `screen_setup_missing`, naming it; it is never skipped.
+# A screen with no route, sign-in state or walk here fails its case with
+# `screen_setup_missing`, naming it; it is never skipped. A walk that moves
+# fails with `keyboard_walk_changed`: fix the screen, or record the new one.

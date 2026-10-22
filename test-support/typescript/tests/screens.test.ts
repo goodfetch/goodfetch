@@ -42,6 +42,8 @@ interface Case {
 async function runScreens(
   processes: TestSupportFixtures["processes"],
   screens: readonly FixtureScreen[],
+  orphans: readonly string[] = [],
+  consoleFiles: Readonly<Record<string, string>> = {},
 ): Promise<Case[]> {
   // Inside the repository, so the copied configuration finds `@playwright/test`.
   mkdirSync(join(ROOT, "target"), { recursive: true });
@@ -59,9 +61,14 @@ async function runScreens(
   }));
   writeFileSync(join(project, "features", "inventory.json"), JSON.stringify({ features }));
   mkdirSync(join(project, "console"));
+  for (const [name, text] of Object.entries(consoleFiles)) {
+    mkdirSync(join(project, "console", name, ".."), { recursive: true });
+    writeFileSync(join(project, "console", name), text);
+  }
   const setups = screens
     .filter((screen) => screen.setup !== undefined)
-    .map(({ feature, setup }) => `[[screen]]\nfeature = ${JSON.stringify(feature)}\n${setup}\n`);
+    .map(({ feature, setup }) => `[[screen]]\nfeature = ${JSON.stringify(feature)}\n${setup}\n`)
+    .concat(orphans.map((feature) => `[[screen]]\nfeature = ${JSON.stringify(feature)}\n`));
   writeFileSync(join(project, "console", "screens.toml"), setups.join("\n"));
   const served = Object.fromEntries(
     screens.flatMap(({ served: one }) => (one === undefined ? [] : [[one.route, one.screen]])),
@@ -124,6 +131,10 @@ function arrayOf(value: unknown, key: string): unknown[] {
   return Array.isArray(found) ? found : [];
 }
 
+/** The walk of the `keyboard-clean` fixture page, as `console/screens.toml` records it. */
+const CLEAN_WALK =
+  'walk = ["link Docs", "button Actions", "button Settings", "textbox Email", "button Save"]';
+
 describe("testEachScreen", () => {
   test("gives two screens two named cases, each on its Product's executable in its sign-in state", async ({
     processes,
@@ -132,7 +143,7 @@ describe("testEachScreen", () => {
       {
         feature: "screen:/runs",
         products: ["collie", "foxhound"],
-        setup: 'route = "/runs"\nsign_in = "signed-in"',
+        setup: `route = "/runs"\nsign_in = "signed-in"\n${CLEAN_WALK}`,
         served: {
           route: "/runs",
           screen: { page: "keyboard-clean", product: "collie", signedIn: true },
@@ -141,7 +152,7 @@ describe("testEachScreen", () => {
       {
         feature: "screen:/crawls/$crawl",
         products: ["foxhound"],
-        setup: 'route = "/crawls/c-1"\nsign_in = "signed-out"',
+        setup: `route = "/crawls/c-1"\nsign_in = "signed-out"\n${CLEAN_WALK}`,
         served: {
           route: "/crawls/c-1",
           screen: { page: "keyboard-clean", product: "foxhound", signedIn: false },
@@ -162,7 +173,7 @@ describe("testEachScreen", () => {
       {
         feature: "screen:/trap",
         products: ["collie", "foxhound"],
-        setup: 'route = "/trap"\nsign_in = "signed-out"',
+        setup: `route = "/trap"\nsign_in = "signed-out"\n${CLEAN_WALK}`,
         served: {
           route: "/trap",
           screen: { page: "keyboard-trap", product: "collie", signedIn: false },
@@ -171,7 +182,7 @@ describe("testEachScreen", () => {
       {
         feature: "screen:/inaccessible",
         products: ["collie", "foxhound"],
-        setup: 'route = "/inaccessible"\nsign_in = "signed-out"',
+        setup: 'route = "/inaccessible"\nsign_in = "signed-out"\nwalk = ["link Top"]',
         served: {
           route: "/inaccessible",
           screen: { page: "inaccessible", product: "collie", signedIn: false },
@@ -180,13 +191,13 @@ describe("testEachScreen", () => {
       {
         feature: "screen:/no-route",
         products: ["collie", "foxhound"],
-        setup: 'sign_in = "signed-in"',
+        setup: `sign_in = "signed-in"\n${CLEAN_WALK}`,
         served: undefined,
       },
       {
         feature: "screen:/no-sign-in",
         products: ["collie", "foxhound"],
-        setup: 'route = "/no-sign-in"',
+        setup: `route = "/no-sign-in"\n${CLEAN_WALK}`,
         served: undefined,
       },
       {
@@ -211,10 +222,66 @@ describe("testEachScreen", () => {
     for (const [screen, missing] of [
       ["screen:/no-route", "no route"],
       ["screen:/no-sign-in", "no sign-in state"],
-      ["screen:/no-entry", "no route and no sign-in state"],
+      ["screen:/no-entry", "no route, no sign-in state and no keyboard walk"],
     ] as const) {
       expect(errors[screen]).toContain("(screen_setup_missing)");
       expect(errors[screen]).toContain(`${screen} has ${missing}`);
     }
+  });
+
+  test("fails the case of a screen whose walk is not the one recorded, or has no stop", async ({
+    processes,
+  }) => {
+    const cases = await runScreens(processes, [
+      {
+        feature: "screen:/moved",
+        products: ["collie", "foxhound"],
+        setup:
+          'route = "/moved"\nsign_in = "signed-out"\nwalk = ["button Actions", "link Docs", "button Settings", "textbox Email", "button Save"]',
+        served: {
+          route: "/moved",
+          screen: { page: "keyboard-clean", product: "collie", signedIn: false },
+        },
+      },
+      {
+        feature: "screen:/empty",
+        products: ["collie", "foxhound"],
+        setup: 'route = "/empty"\nsign_in = "signed-out"\nwalk = []',
+        served: {
+          route: "/empty",
+          screen: { page: "accessible", product: "collie", signedIn: false },
+        },
+      },
+    ]);
+
+    const errors = Object.fromEntries(cases.map(({ title, error }) => [title, error]));
+    expect(cases.map(({ title, status }) => ({ title, status }))).toEqual([
+      { title: "screen:/empty", status: "failed" },
+      { title: "screen:/moved", status: "failed" },
+    ]);
+    expect(errors["screen:/moved"]).toContain("(keyboard_walk_changed)");
+    expect(errors["screen:/empty"]).toContain("(keyboard_walk_empty)");
+  });
+
+  test("fails by name a setup whose screen the inventory does not list", async ({ processes }) => {
+    const cases = await runScreens(processes, [], ["screen:/gone"]);
+
+    expect(cases.map(({ title, status }) => ({ title, status }))).toEqual([
+      { title: "screen:/gone", status: "failed" },
+    ]);
+    expect(cases[0]?.error).toContain("(screen_setup_orphaned)");
+  });
+
+  test("fails when the Console has routes and the inventory names no screen", async ({
+    processes,
+  }) => {
+    const cases = await runScreens(processes, [], [], {
+      "collie/routes.json": JSON.stringify({ routes: ["/runs"] }),
+    });
+
+    expect(cases.map(({ title, status }) => ({ title, status }))).toEqual([
+      { title: "every screen", status: "failed" },
+    ]);
+    expect(cases[0]?.error).toContain("(screens_missing)");
   });
 });

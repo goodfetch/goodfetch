@@ -5,6 +5,7 @@ const ENTRY = `[[screen]]
 feature = "screen:/runs/$run"
 route = "/runs/r-1"
 sign_in = "signed-in"
+walk = ["link Runs", "button Start a run"]
 `;
 
 describe("parseScreenSetups", () => {
@@ -12,7 +13,12 @@ describe("parseScreenSetups", () => {
     const setups = parseScreenSetups(ENTRY);
 
     expect([...setups.values()]).toEqual([
-      { feature: "screen:/runs/$run", route: "/runs/r-1", signIn: "signed-in" },
+      {
+        feature: "screen:/runs/$run",
+        route: "/runs/r-1",
+        signIn: "signed-in",
+        walk: ["link Runs", "button Start a run"],
+      },
     ]);
   });
 
@@ -22,13 +28,14 @@ describe("parseScreenSetups", () => {
     expect(setups.size).toBe(0);
   });
 
-  test("reads an entry without its route or sign-in state, for its case to fail by name", () => {
+  test("reads an entry without its route, sign-in state or walk, for its case to fail by name", () => {
     const setups = parseScreenSetups('[[screen]]\nfeature = "screen:/runs"\n');
 
     expect(setups.get("screen:/runs")).toEqual({
       feature: "screen:/runs",
       route: undefined,
       signIn: undefined,
+      walk: undefined,
     });
   });
 
@@ -43,6 +50,11 @@ describe("parseScreenSetups", () => {
     ["an entry with a field it does not define", `${ENTRY}skip = true\n`],
     ["a route that is no path", ENTRY.replace('"/runs/r-1"', '"runs/r-1"')],
     ["an unknown sign-in state", ENTRY.replace('"signed-in"', '"guest"')],
+    [
+      "a walk that is no list of stops",
+      ENTRY.replace('["link Runs", "button Start a run"]', '"link Runs"'),
+    ],
+    ["a walk with an empty stop", ENTRY.replace('"button Start a run"', '""')],
     ["two entries of one Feature", `${ENTRY}\n${ENTRY}`],
   ])("refuses %s with screen_setups_invalid", ([, text]) => {
     const parsing = () => parseScreenSetups(text);

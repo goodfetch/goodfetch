@@ -7,7 +7,7 @@
 //! with the hidden `daemon launched` a start or the installed service
 //! runs, `runs reindex` and `upgrade-files`, beside the commands `goodfetch-cli` generates
 //! from the catalog for every other namespace, such as `run start` and
-//! `engine info`, and the global `--color auto|always|never`; the CLI's
+//! `engine info`, and `--color auto|always|never` on every command; the CLI's
 //! other commands join with area 11. Every
 //! command but `daemon launched` first records the executable in the list
 //! of installed executables (ADR 0098).
@@ -44,7 +44,7 @@ use std::sync::Arc;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use goodfetch_cli::generated::{Call, Generated};
-use goodfetch_cli::output::{self, ColourChoice, Human};
+use goodfetch_cli::output::{self, ColourChoice, ColourFlag, Human};
 use goodfetch_cli::settings_flags::SettingsFlags;
 use goodfetch_engine::age_notice::AgeNotice;
 use goodfetch_engine::browser_cache::BROWSERS_PATH_VARIABLE;
@@ -88,14 +88,14 @@ pub const HOME_VARIABLE: &str = "GOODFETCH_HOME";
 struct CommandLine {
     #[command(subcommand)]
     command: Command,
-    /// When to colour human output; `auto` colours on a terminal unless
-    /// `NO_COLOR` is set and not empty.
-    #[arg(long, global = true, value_enum, default_value_t, value_name = "WHEN")]
-    color: ColourChoice,
+    // Read from the parse by its id, so that a generated command's colour
+    // reads the same way; each command group takes it too (`ColourFlag`).
+    #[command(flatten)]
+    _colour: ColourFlag,
 }
 
 /// The id of the `--color` flag in a parse.
-const COLOR: &str = "color";
+const COLOR: &str = ColourFlag::ID;
 
 // Each command's own flags and subcommands are built only when it is the
 // one parsed or its help is shown, so `--version` and every other command
@@ -106,27 +106,38 @@ enum Command {
     /// Runs as an Attached engine over stdio, which stops at the end of its
     /// input: what an SDK starts.
     #[command(hide = true)]
-    AttachedEngine,
+    AttachedEngine {
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
     /// Manages the browser builds this version pins in the Browser cache.
     Browsers {
         #[command(subcommand)]
         command: BrowsersCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
     },
     /// Shows the settings and where each value comes from.
     Config {
         #[command(subcommand)]
         command: ConfigCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
     },
     /// Starts, stops and shows the Daemon of this executable's major, which
     /// both Products share.
     Daemon {
         #[command(subcommand)]
         command: DaemonCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
     },
     /// Works on the runs of this executable's major, of both Products.
     Runs {
         #[command(subcommand)]
         command: RunsCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
     },
     /// Gives this executable's major its own copy of an older major's
     /// settings, Operator policy, Run index and runs in Goodfetch home,
@@ -139,6 +150,8 @@ enum Command {
         /// Prints the result as JSON.
         #[arg(long)]
         json: bool,
+        #[command(flatten)]
+        _colour: ColourFlag,
     },
 }
 
@@ -447,6 +460,7 @@ fn with_passed_variables(
             environment: passed,
             ..
         },
+        ..
     }) = parsed
     {
         for pair in passed {
@@ -480,7 +494,8 @@ fn run(
     if !matches!(
         parsed,
         Parsed::HandWritten(Command::Daemon {
-            command: DaemonCommand::Launched { .. }
+            command: DaemonCommand::Launched { .. },
+            ..
         })
     ) {
         machine.record();
@@ -490,12 +505,14 @@ fn run(
         Parsed::HandWritten(command) => command,
     };
     match command {
-        Command::AttachedEngine => run_attached(engine, dependencies, &machine),
+        Command::AttachedEngine { .. } => run_attached(engine, dependencies, &machine),
         Command::Browsers {
             command: BrowsersCommand::Install { json },
+            ..
         } => browsers::install(pinned_by, environment, json),
         Command::Browsers {
             command: BrowsersCommand::Clean { dry_run, json },
+            ..
         } => browsers::clean(pinned_by, environment, dry_run, json),
         Command::Config {
             command:
@@ -506,6 +523,7 @@ fn run(
                     json,
                     daemon,
                 },
+            ..
         } => config_explain(
             engine,
             &machine,
@@ -515,7 +533,7 @@ fn run(
             project,
             json,
         ),
-        Command::Daemon { command } => match command {
+        Command::Daemon { command, .. } => match command {
             DaemonCommand::Start { keep_alive, json } => daemon::start(&machine, keep_alive, json),
             DaemonCommand::Stop { json } => daemon::stop(&machine, json),
             DaemonCommand::Restart { keep_alive, json } => {
@@ -542,6 +560,7 @@ fn run(
         },
         Command::Runs {
             command: RunsCommand::Reindex { paths, json },
+            ..
         } => {
             let Ok(folder) = std::env::current_dir() else {
                 tracing::error!("the working folder cannot be read");
@@ -549,7 +568,7 @@ fn run(
             };
             runs::reindex(engine.identity(), &home, &folder, paths, json)
         }
-        Command::UpgradeFiles { from, json } => {
+        Command::UpgradeFiles { from, json, .. } => {
             upgrade::upgrade(engine.identity(), &home, from.as_deref(), json)
         }
     }
@@ -649,7 +668,10 @@ fn command_line(product: Product) -> (clap::Command, Generated) {
             "Foxhound, Goodfetch's Product for crawling, which contains Collie.",
         ),
     };
+    // `--color` stays the root's own: global at the root, clap would copy it
+    // into every command group on each parse (see `ColourFlag`).
     let hand_written = CommandLine::command()
+        .mut_arg(COLOR, |colour| colour.global(false))
         .name(binary)
         .bin_name(binary)
         .about(about);
@@ -754,9 +776,11 @@ fn logs_of(parsed: &Parsed) -> (bool, LogsTo) {
     match parsed {
         Parsed::HandWritten(Command::Daemon {
             command: DaemonCommand::Launched { .. },
+            ..
         }) => (true, LogsTo::Stderr),
         Parsed::HandWritten(Command::Daemon {
             command: DaemonCommand::Run { .. },
+            ..
         }) => (false, LogsTo::StdoutAsJson),
         _ => (false, LogsTo::Stderr),
     }

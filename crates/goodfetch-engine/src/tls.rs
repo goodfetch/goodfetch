@@ -15,7 +15,8 @@ use goodfetch_protocol::tls::{
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::client::{WebPkiServerVerifier, verify_server_cert_signed_by_trust_anchor};
 use rustls::crypto::CryptoProvider;
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::pki_types::pem::{self, PemObject as _};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::server::ParsedCertificate;
 use rustls::{CertificateError, DigitallySignedStruct, OtherError, RootCertStore, SignatureScheme};
 use url::Host;
@@ -391,5 +392,125 @@ impl ServerCertVerifier for Verifier {
     }
 }
 
+/// Why a certificate file reads as no certificate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum CertificateFileError {
+    /// It holds no certificate, in PEM or DER.
+    #[error("the file holds no certificate, in PEM or DER")]
+    NoCertificate,
+    /// A certificate it holds does not parse.
+    #[error("a certificate in the file does not parse")]
+    Malformed,
+}
+
+/// Why a key file reads as no private key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum KeyFileError {
+    /// It holds no private key, in PEM or DER.
+    #[error("the file holds no private key, in PEM or DER")]
+    NoKey,
+    /// The key it holds does not parse.
+    #[error("the private key in the file does not parse")]
+    Malformed,
+}
+
+/// The certificates of a certificate file a person named, such as an
+/// authority of `tls.trusted_cas`: every `CERTIFICATE` block of a PEM
+/// file in order, or the one certificate of a DER file.
+///
+/// # Errors
+///
+/// [`CertificateFileError`] when it holds no certificate, or one that does
+/// not parse.
+pub fn read_certificates(
+    file: &[u8],
+) -> Result<Vec<CertificateDer<'static>>, CertificateFileError> {
+    let certificates = if is_pem(file) {
+        CertificateDer::pem_slice_iter(file)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CertificateFileError::Malformed)?
+    } else if file.is_empty() {
+        Vec::new()
+    } else {
+        let certificate = CertificateDer::from(file.to_vec());
+        if ParsedCertificate::try_from(&certificate).is_err() {
+            return Err(CertificateFileError::NoCertificate);
+        }
+        vec![certificate]
+    };
+    if certificates.is_empty() {
+        return Err(CertificateFileError::NoCertificate);
+    }
+    if certificates
+        .iter()
+        .any(|certificate| ParsedCertificate::try_from(certificate).is_err())
+    {
+        return Err(CertificateFileError::Malformed);
+    }
+    Ok(certificates)
+}
+
+/// The private key of a key file a person named, such as a client
+/// certificate's: the first private key of a PEM file (PKCS #8, PKCS #1 or
+/// SEC 1), or a DER file's.
+///
+/// # Errors
+///
+/// [`KeyFileError`] when it holds no private key, or one that does not
+/// parse.
+pub fn read_private_key(file: &[u8]) -> Result<PrivateKeyDer<'static>, KeyFileError> {
+    let key = if is_pem(file) {
+        PrivateKeyDer::from_pem_slice(file).map_err(|error| match error {
+            pem::Error::NoItemsFound => KeyFileError::NoKey,
+            _ => KeyFileError::Malformed,
+        })?
+    } else {
+        PrivateKeyDer::try_from(file.to_vec()).map_err(|_| KeyFileError::NoKey)?
+    };
+    rustls::crypto::ring::default_provider()
+        .key_provider
+        .load_private_key(key.clone_key())
+        .map_err(|_| KeyFileError::Malformed)?;
+    Ok(key)
+}
+
+/// Whether `file` holds a PEM block.
+fn is_pem(file: &[u8]) -> bool {
+    file.windows(PEM_BEGIN.len())
+        .any(|window| window == PEM_BEGIN)
+}
+
+const PEM_BEGIN: &[u8] = b"-----BEGIN ";
+
+/// The fuzz target `certificate_file`'s body (ADR 0067): any bytes read as
+/// a certificate file and as a key file, which a person named in a setting.
+/// Each certificate read reads back from its own bytes as itself; it
+/// panics only on a bug.
+pub fn fuzz_certificate_file(data: &[u8]) {
+    if let Ok(certificates) = read_certificates(data) {
+        for certificate in &certificates {
+            assert_eq!(
+                read_certificates(certificate).as_deref(),
+                Ok(std::slice::from_ref(certificate)),
+                "a certificate read reads back as another"
+            );
+        }
+    }
+    if let Ok(key) = read_private_key(data) {
+        assert!(
+            read_private_key(key.secret_der()).is_ok(),
+            "a key read does not read back from its own bytes"
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod certificate_file {
+    goodfetch_test_support::fuzz_replay!(
+        crate::tls::fuzz_certificate_file,
+        "fuzz/certificate_file"
+    );
+}

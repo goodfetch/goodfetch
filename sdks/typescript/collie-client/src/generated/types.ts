@@ -1608,6 +1608,42 @@ export interface UsageListResult {
   limits: LimitUsage[];
 }
 /**
+ * What `usage.raise` takes: a Limit a person sets, which replaces every
+ * Limit of its scope, Usage kind, currency and period that is not a
+ * managed Operator policy's, keeping the Usage counted against them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UsageRaiseParams".
+ */
+export interface UsageRaiseParams {
+  /**
+   * How much it allows per period from now on: a count of the Usage
+   * kind, or millionths of the currency.
+   */
+  amount: number;
+  /**
+   * The currency it caps the price in, an ISO 4217 code.
+   */
+  currency?: string | null;
+  /**
+   * The period it counts over; none for a Limit that never starts again.
+   */
+  period?: Period | null;
+  /**
+   * The scope's kind.
+   */
+  scope: string;
+  /**
+   * Which one of its kind; the person's own when absent (their Client
+   * connection, their person, the engine's Daemon, the install).
+   */
+  scope_id?: string | null;
+  /**
+   * The Usage kind it caps.
+   */
+  usage_kind: string;
+}
+/**
  * What `usage.set` takes: a Limit of the caller's own, which holds beside
  * the others, so the tightest one holds.
  *

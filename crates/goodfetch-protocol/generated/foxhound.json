@@ -2902,6 +2902,63 @@
       ],
       "type": "object"
     },
+    "UsageRaiseParams": {
+      "additionalProperties": false,
+      "description": "What `usage.raise` takes: a Limit a person sets, which replaces every\nLimit of its scope, Usage kind, currency and period that is not a\nmanaged Operator policy's, keeping the Usage counted against them.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period from now on: a count of the Usage\nkind, or millionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the price in, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again."
+        },
+        "scope": {
+          "arrived_in": "0.1",
+          "description": "The scope's kind.",
+          "type": "string"
+        },
+        "scope_id": {
+          "arrived_in": "0.1",
+          "description": "Which one of its kind; the person's own when absent (their Client\nconnection, their person, the engine's Daemon, the install).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind",
+        "amount"
+      ],
+      "type": "object"
+    },
     "UsageSetParams": {
       "additionalProperties": false,
       "description": "What `usage.set` takes: a Limit of the caller's own, which holds beside\nthe others, so the tightest one holds.",
@@ -3288,6 +3345,16 @@
       "group": "program",
       "json_rpc_class": -32001,
       "name": "pattern_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "person_required",
       "product": "collie",
       "retryable": false
     },
@@ -4186,6 +4253,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/UsageListResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Sets a Limit to a person's amount, in place of every Limit of its scope, Usage kind, currency and period but a managed Operator policy's, keeping the Usage counted. A person's answer: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "usage.raise",
+      "params": {
+        "$ref": "#/$defs/UsageRaiseParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/LimitUsage"
       },
       "stability": "experimental"
     },

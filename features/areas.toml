@@ -297,6 +297,13 @@ number = 3
 kind = "format"
 prefix = "usage-ledger"
 
+# Area 3's person-only marker (#232): the refusal of a person's answer
+# asked by any surface but the Console and the CLI's interactive prompt.
+[[area]]
+number = 3
+kind = "error"
+prefix = "person_required"
+
 # Area 3's settings (#225): `config.explain`, the refusals of a setting, the
 # Operator policy's and user configuration's formats, and the keys the
 # runtime itself waits on or resolves (ADR 0059).

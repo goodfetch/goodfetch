@@ -23,10 +23,10 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{Product, Reach};
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams,
-    PrivateEndpoint, StoppedBy,
+    PERSON_REQUIRED, PrivateEndpoint, StoppedBy, Surface,
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
@@ -142,6 +142,7 @@ pub(crate) async fn serve(
         in_flight: BTreeMap::new(),
         behind_gateway: false,
         opened: false,
+        surface: None,
         connection,
         requests,
         pending: BTreeMap::new(),
@@ -191,6 +192,8 @@ struct Session<'owner> {
     in_flight: BTreeMap<RequestId, InFlight>,
     behind_gateway: bool,
     opened: bool,
+    /// The surface the Connection's `hello` named.
+    surface: Option<Surface>,
     connection: Arc<ConnectionContext>,
     requests: mpsc::Receiver<Outgoing>,
     pending: BTreeMap<RequestId, Pending>,
@@ -401,6 +404,7 @@ impl Session<'_> {
             Ok((mut accepted, surface)) => {
                 record(HELLO, None);
                 self.opened = true;
+                self.surface = Some(surface);
                 self.opened_client = daemon.map(|daemon| daemon.opened(surface));
                 self.behind_gateway = accepted.behind_gateway;
                 if let Access::Attached(private_endpoint) = &self.access {
@@ -445,9 +449,15 @@ impl Session<'_> {
                 format!("a call with the id {id:?} is already in flight"),
             ))
         } else if let Some(handler) = self.dispatch.handlers.get(method.as_str()) {
-            let handler = handler.clone();
-            self.call(id, &handler, params);
-            return Flow::Continue;
+            if handler.operation().reach == Reach::PersonOnly
+                && !matches!(self.surface, Some(Surface::Cli | Surface::Console))
+            {
+                Some(person_required(&method))
+            } else {
+                let handler = handler.clone();
+                self.call(id, &handler, params);
+                return Flow::Continue;
+            }
         } else if !self.dispatch.identity.product.contains(Product::Foxhound)
             && foxhound_names::OPERATIONS.contains(&method.as_str())
         {
@@ -591,4 +601,16 @@ fn same_token(given: &str, expected: &str) -> bool {
                 difference | (left ^ right)
             })
             == 0
+}
+
+/// `person_required`: `method` is a person's answer, which only the Console
+/// and the CLI's interactive prompt ask for (ADRs 0011 and 0041).
+fn person_required(method: &str) -> CallError {
+    CallError::new(
+        &PERSON_REQUIRED,
+        format!(
+            "`{method}` is a person's answer: give it in the Console, or in the CLI's interactive prompt"
+        ),
+        &serde_json::Map::new(),
+    )
 }

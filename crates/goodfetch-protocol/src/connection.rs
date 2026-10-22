@@ -445,6 +445,18 @@ pub const ENGINE_OUTPUT_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// The refusal of an answer only a person gives (ADRs 0011 and 0041): an
+/// operation the catalog marks [`Reach::PersonOnly`](crate::catalog::Reach)
+/// asked by anything but the Console or an interactive CLI prompt.
+pub const PERSON_REQUIRED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "person_required",
+    description: "Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -460,6 +472,7 @@ pub const ENTRIES: Entries = Entries {
         ENGINE_NOT_FOUND,
         ENGINE_EXITED,
         ENGINE_OUTPUT_INVALID,
+        PERSON_REQUIRED,
     ],
     plugin_kinds: &[],
     metrics: &[],

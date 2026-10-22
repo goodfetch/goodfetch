@@ -312,6 +312,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "person_required",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.",
       "exit_code": 11,
       "group": "unavailable",
@@ -1205,6 +1215,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/UsageListResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Sets a Limit to a person's amount, in place of every Limit of its scope, Usage kind, currency and period but a managed Operator policy's, keeping the Usage counted. A person's answer: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "usage.raise",
+      "params": {
+        "$ref": "#/$defs/UsageRaiseParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/LimitUsage"
       },
       "stability": "experimental"
     },

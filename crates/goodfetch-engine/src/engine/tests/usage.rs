@@ -172,14 +172,26 @@ fn install_month() -> Value {
 /// Runs a Collie engine with `test.charge` in `env` while the Client makes
 /// `calls`, after its `hello`, and answers each reply.
 fn replies(env: &TestEnv, product: Product, calls: &[(&str, Value)]) -> Vec<Value> {
+    replies_from(env, product, "sdk_typescript", calls)
+}
+
+/// As [`replies`], from a Client whose `hello` names `surface`.
+fn replies_from(
+    env: &TestEnv,
+    product: Product,
+    surface: &str,
+    calls: &[(&str, Value)],
+) -> Vec<Value> {
     let engine = engine_with(product, Some(charging()));
     let calls: Vec<(String, Value)> = calls
         .iter()
         .map(|(method, params)| ((*method).to_owned(), params.clone()))
         .collect();
     let needs = product.as_str();
+    let mut opening = hello(needs, "0.1");
+    opening["params"]["surface"] = json!(surface);
     attached_on(&engine, env, |mut client: Client| async move {
-        client.send(&[hello(needs, "0.1")]).await;
+        client.send(&[opening]).await;
         client.next().await;
         let mut replies = Vec::new();
         for (id, (method, params)) in (1..).zip(calls) {
@@ -544,4 +556,113 @@ fn a_live_run_meeting_a_limit_it_cannot_evaluate_stops_at_its_next_safe_point() 
             }),
         )
     );
+}
+
+/// Covers: story:3-75, operation:usage.raise, error:person_required
+#[rstest]
+#[case::from_an_sdk("sdk_typescript")]
+#[case::from_an_agent("mcp")]
+fn raising_a_limit_is_refused_to_any_surface_but_a_persons(#[case] surface: &str) {
+    let env = TestEnv::new();
+
+    let replies = replies_from(
+        &env,
+        Product::Collie,
+        surface,
+        &[
+            ("usage.set", monthly_install_limit(5)),
+            ("usage.raise", monthly_install_limit(10)),
+            ("usage.list", json!({})),
+        ],
+    );
+
+    assert_eq!(
+        (
+            &replies[1]["error"]["data"]["code"],
+            &replies[2]["result"]["limits"][0]["limit"]["amount"],
+        ),
+        (&json!("person_required"), &json!(5))
+    );
+}
+
+/// Covers: story:3-75, operation:usage.raise
+#[test]
+fn a_person_raises_a_limit_in_place_keeping_the_usage_counted_against_it() {
+    let env = TestEnv::new();
+
+    let replies = replies_from(
+        &env,
+        Product::Collie,
+        "cli",
+        &[
+            ("usage.set", monthly_install_limit(2)),
+            ("test.charge", json!({ "run_id": "first", "amount": 2 })),
+            ("run.finish", json!({ "run_id": "first" })),
+            ("usage.raise", monthly_install_limit(10)),
+            ("usage.list", json!({})),
+        ],
+    );
+
+    let limits = &replies[4]["result"]["limits"];
+    assert_eq!(
+        (
+            limits.as_array().map(Vec::len),
+            &limits[0]["limit"]["amount"],
+            &limits[0]["limit"]["set_by"],
+            &limits[0]["charged"],
+        ),
+        (Some(1), &json!(10), &json!("person"), &json!(2))
+    );
+}
+
+/// Covers: story:3-75
+#[test]
+fn a_client_lowering_a_persons_limit_adds_its_own_row_and_the_persons_stays() {
+    let env = TestEnv::new();
+
+    let replies = replies_from(
+        &env,
+        Product::Collie,
+        "cli",
+        &[
+            ("usage.raise", monthly_install_limit(10)),
+            ("usage.set", monthly_install_limit(4)),
+            ("usage.list", json!({})),
+        ],
+    );
+
+    let limits = replies[2]["result"]["limits"].as_array().unwrap();
+    let rows: Vec<(&Value, &Value)> = limits
+        .iter()
+        .map(|usage| (&usage["limit"]["set_by"], &usage["limit"]["amount"]))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (&json!("person"), &json!(10)),
+            (&json!("client"), &json!(4))
+        ]
+    );
+}
+
+/// Covers: story:3-75, operation:usage.set
+#[test]
+fn a_client_sets_limits_only_on_its_own_work() {
+    let env = TestEnv::new();
+
+    let replies = replies(
+        &env,
+        Product::Collie,
+        &[(
+            "usage.set",
+            json!({
+                "scope": "connection",
+                "scope_id": "another-clients-connection",
+                "usage_kind": "requests",
+                "amount": 1,
+            }),
+        )],
+    );
+
+    assert_eq!(replies[0]["error"]["code"], json!(-32602));
 }

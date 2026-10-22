@@ -258,6 +258,14 @@ class PatternUnsupportedError(ProgramError):
         super().__init__(message, code="pattern_unsupported", group="program", retryable=False)
 
 
+class PersonRequiredError(RefusedError):
+    """Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="person_required", group="refused", retryable=False)
+
+
 class ProtocolVersionUnsupportedError(UnavailableError):
     """The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side."""
 
@@ -404,6 +412,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "not_in_product": NotInProductError,
     "page_crashed": PageCrashedError,
     "pattern_unsupported": PatternUnsupportedError,
+    "person_required": PersonRequiredError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "run_busy": RunBusyError,
     "run_conflict": RunConflictError,

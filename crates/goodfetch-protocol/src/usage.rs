@@ -6,7 +6,9 @@
 //! `limit_not_understood`; and the Usage kinds and Limit scopes Collie adds
 //! to the types both Products share. Foxhound adds its own, such as
 //! `paid_fetch`, in its `foxhound` module (ADRs 0087 and 0088). Raising a
-//! Limit is a person's answer, which arrives with its own operation.
+//! Limit, `usage.raise`, is a person's answer: the catalog marks it
+//! [`Reach::PersonOnly`], so it is offered only in the Console and the
+//! interactive CLI prompt, and refused elsewhere with `person_required`.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -185,6 +187,37 @@ pub struct UsageSetParams {
     pub amount: u64,
 }
 
+/// What `usage.raise` takes: a Limit a person sets, which replaces every
+/// Limit of its scope, Usage kind, currency and period that is not a
+/// managed Operator policy's, keeping the Usage counted against them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UsageRaiseParams {
+    /// The scope's kind.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub scope: String,
+    /// Which one of its kind; the person's own when absent (their Client
+    /// connection, their person, the engine's Daemon, the install).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub scope_id: Option<String>,
+    /// The Usage kind it caps.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub usage_kind: String,
+    /// The currency it caps the price in, an ISO 4217 code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub currency: Option<String>,
+    /// The period it counts over; none for a Limit that never starts again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub period: Option<Period>,
+    /// How much it allows per period from now on: a count of the Usage
+    /// kind, or millionths of the currency.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub amount: u64,
+}
+
 /// What `limit_not_understood` details: the Limit this engine cannot
 /// evaluate.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -226,6 +259,22 @@ pub const USAGE_SET: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// `usage.raise`.
+pub const USAGE_RAISE: Operation = Operation {
+    name: "usage.raise",
+    description: "Sets a Limit to a person's amount, in place of every Limit of its scope, Usage kind, currency and period but a managed Operator policy's, keeping the Usage counted. A person's answer: offered only in the Console and the interactive CLI prompt.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::PersonOnly,
+    params: schema_of::<UsageRaiseParams>,
+    result: schema_of::<LimitUsage>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `limit_reached`.
 pub const LIMIT_REACHED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "limit_reached",
@@ -249,7 +298,7 @@ pub const LIMIT_NOT_UNDERSTOOD: ErrorCodeDefinition = ErrorCodeDefinition {
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[USAGE_LIST, USAGE_SET],
+    operations: &[USAGE_LIST, USAGE_SET, USAGE_RAISE],
     events: &[],
     handler_requests: &[],
     error_codes: &[LIMIT_REACHED, LIMIT_NOT_UNDERSTOOD],

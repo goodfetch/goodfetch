@@ -1176,6 +1176,36 @@ class StopReason5(BaseModel):
     kind: Literal["limit"]
 
 
+class UsageRaiseParams(BaseModel):
+    """
+    What `usage.raise` takes: a Limit a person sets, which replaces every
+    Limit of its scope, Usage kind, currency and period that is not a
+    managed Operator policy's, keeping the Usage counted against them.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    amount: Annotated[int, Field(ge=0)]
+    """
+    How much it allows per period from now on: a count of the Usage
+    kind, or millionths of the currency.
+    """
+    currency: str | None = None
+    """The currency it caps the price in, an ISO 4217 code."""
+    period: Period | None = None
+    """The period it counts over; none for a Limit that never starts again."""
+    scope: str
+    """The scope's kind."""
+    scope_id: str | None = None
+    """
+    Which one of its kind; the person's own when absent (their Client
+    connection, their person, the engine's Daemon, the install).
+    """
+    usage_kind: str
+    """The Usage kind it caps."""
+
+
 class UsageSetParams(BaseModel):
     """
     What `usage.set` takes: a Limit of the caller's own, which holds beside

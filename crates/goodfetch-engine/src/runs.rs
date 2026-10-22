@@ -896,7 +896,7 @@ impl Runs {
             ledger: Ledger::at(setup.home.usage_ledger(), setup.ledger_vfs.clone()),
             clock: setup.clock,
             product: setup.product,
-            instance: format!("{:016x}", setup.entropy.next_u64()),
+            instance: setup.events.instance().as_str().to_owned(),
             daemon: matches!(setup.reached_at, Some(RunOwner::Daemon(_)))
                 .then(|| major_name(&setup.version)),
         };

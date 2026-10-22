@@ -99,7 +99,7 @@ export interface ProtocolAdapterOptions {
 /** The operation table of a Product: each operation's params and result. */
 export type OperationTable<Operations> = { readonly [Name in keyof Operations]: OperationTypes };
 
-/** The event the adapter sends itself, when a subscription resumes after a position it no longer holds. */
+/** The event the adapter sends itself, when a subscription resumes after a position it no longer holds or another engine instance gave. */
 const RESYNC = "events.resync";
 
 /** An event a test pushes: any of its Product's but `events.resync`, with its payload. */
@@ -132,6 +132,23 @@ interface OpenConnection {
   readonly listener: ConnectionListener;
   readonly subscriptions: Map<RequestId, Subscription>;
   open: boolean;
+}
+
+/** The `n`th engine instance the adapter stands for, as `hello` names it. */
+function engineInstance(n: number): string {
+  return n.toString(16).padStart(16, "0");
+}
+
+/** The engine instance and position of a subscription's `after`, if it names them. */
+function lastRead(after: unknown): { engineInstance: string; position: number } | undefined {
+  return typeof after === "object" &&
+    after !== null &&
+    "engine_instance" in after &&
+    typeof after.engine_instance === "string" &&
+    "position" in after &&
+    typeof after.position === "number"
+    ? { engineInstance: after.engine_instance, position: after.position }
+    : undefined;
 }
 
 /** The Run ID of a `run.axes_changed` payload. */
@@ -172,6 +189,8 @@ export class ProtocolAdapter<
   #floor = 0;
   /** Each Run's axes as `run.axes_changed` last reported them, which a resync gives. */
   readonly #runs = new Map<string, unknown>();
+  /** How many engine instances the adapter has stood for: `restart()` starts another. */
+  #instances = 1;
 
   constructor(options: ProtocolAdapterOptions) {
     this.#contract = productContract(options.product ?? "collie");
@@ -244,6 +263,22 @@ export class ProtocolAdapter<
     for (const connection of this.#connections) {
       this.#close(connection);
     }
+  }
+
+  /**
+   * Stands for a new engine instance, as a restarted Daemon: closes every
+   * open Connection, names a new engine instance in `hello` and forgets
+   * every position and Run pushed, so positions count from 1 again and a
+   * subscription that resumes after one of the previous instance starts
+   * with `events.resync`, then the stream.
+   */
+  restart(): void {
+    this.drop();
+    this.#instances += 1;
+    this.#retained = [];
+    this.#last = 0;
+    this.#floor = 0;
+    this.#runs.clear();
   }
 
   /**
@@ -425,12 +460,18 @@ export class ProtocolAdapter<
     );
   }
 
-  /** Starts subscription `id`, resuming after `after` when it is a position. */
+  /** Starts subscription `id`, resuming after `after` when it names a position of this engine instance. */
   #subscribe(connection: OpenConnection, id: RequestId, after: unknown): void {
     const queue: EventEnvelope[] = [];
-    if (typeof after === "number") {
-      if (after >= this.#floor && after <= this.#last) {
-        queue.push(...this.#retained.filter((envelope) => envelope.position > after));
+    const read = lastRead(after);
+    if (read !== undefined) {
+      const { position } = read;
+      if (
+        read.engineInstance === engineInstance(this.#instances) &&
+        position >= this.#floor &&
+        position <= this.#last
+      ) {
+        queue.push(...this.#retained.filter((envelope) => envelope.position > position));
       } else {
         this.#last += 1;
         queue.push({
@@ -469,6 +510,7 @@ export class ProtocolAdapter<
           protocol_version: this.#contract.protocolVersion,
           product: this.#contract.product,
           product_version: PRODUCT_VERSION,
+          engine_instance: engineInstance(this.#instances),
         },
       });
       return;

@@ -11,6 +11,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use goodfetch_protocol::connection::EngineInstance;
 use goodfetch_protocol::connection::PrivateEndpoint;
 use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::run::{RunKind, RunOwner};
@@ -192,12 +193,13 @@ impl Engine {
     /// run state is in `install` in the per-install layout.
     fn start_runs(
         &self,
-        dependencies: Dependencies,
+        mut dependencies: Dependencies,
         owner: &TaskOwner,
         reached_at: Option<RunOwner>,
         install: Option<InstallDatabase>,
     ) -> (Runs, Events) {
-        let events = Events::start(self.events, owner);
+        let instance = EngineInstance::new(format!("{:016x}", dependencies.entropy.next_u64()));
+        let events = Events::start(self.events, instance, owner);
         let settings = Settings::new(
             SettingsFiles::of(&dependencies.home, &self.identity().product_version),
             self.identity().product,

@@ -144,15 +144,24 @@ fn an_attached_engine_answers_hello_over_stdio_and_stops_at_the_end_of_its_input
         .as_object_mut()
         .unwrap()
         .remove("private_endpoint");
+    let engine_instance = reply["result"]
+        .as_object_mut()
+        .unwrap()
+        .remove("engine_instance");
 
     assert_eq!(
-        (reply, private_endpoint.is_some_and(|it| it.is_object())),
+        (
+            reply,
+            private_endpoint.is_some_and(|it| it.is_object()),
+            engine_instance.is_some_and(|it| it.is_string())
+        ),
         (
             json!({
                 "jsonrpc": "2.0",
                 "id": 0,
                 "result": { "protocol_version": "0.1", "product": "collie", "product_version": "0.0.0" },
             }),
+            true,
             true
         )
     );

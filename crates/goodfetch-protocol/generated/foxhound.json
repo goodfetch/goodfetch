@@ -999,6 +999,11 @@
       "description": "What `engine.info` takes: nothing.",
       "type": "object"
     },
+    "EngineInstance": {
+      "description": "One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only.",
+      "minLength": 1,
+      "type": "string"
+    },
     "EnqueueDocument": {
       "additionalProperties": false,
       "description": "The document a handler read, against which its relative URLs resolve.",
@@ -1084,14 +1089,14 @@
         "after": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Position"
+              "$ref": "#/$defs/LastRead"
             },
             {
               "type": "null"
             }
           ],
           "arrived_in": "0.1",
-          "description": "The position of the last event the Client read: the subscription\nresumes after it, or starts with `events.resync` when the engine no\nlonger holds it. Absent, it starts with the next event."
+          "description": "The last event the Client read, `{engine_instance, position}`: the\nsubscription resumes after it, or starts with `events.resync` when\nthe engine no longer holds it or another engine instance gave it, as\nafter a Daemon restart. Absent, it starts with the next event."
         }
       },
       "type": "object"
@@ -1293,6 +1298,27 @@
       "description": "The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.",
       "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$",
       "type": "string"
+    },
+    "LastRead": {
+      "additionalProperties": false,
+      "description": "The last event a Client read: its position, and the engine instance\nthat gave it.",
+      "properties": {
+        "engine_instance": {
+          "$ref": "#/$defs/EngineInstance",
+          "arrived_in": "0.1",
+          "description": "The engine instance, as its `hello` named it."
+        },
+        "position": {
+          "$ref": "#/$defs/Position",
+          "arrived_in": "0.1",
+          "description": "The event's position."
+        }
+      },
+      "required": [
+        "engine_instance",
+        "position"
+      ],
+      "type": "object"
     },
     "Lifecycle": {
       "description": "Where a Run is (ADR 0029).",
@@ -4092,7 +4118,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it.",
+      "description": "Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart.",
       "events": [
         "events.resync",
         "run.axes_changed"

@@ -17,9 +17,10 @@ use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use super::{Client, attached_on, engine_with, hello};
+use super::{Client, attached_on, attached_with, dependencies, engine_with, hello};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
-use crate::engine::Engine;
+use crate::engine::{Dependencies, Engine};
+use crate::entropy::Entropy;
 use crate::events::EventsOptions;
 use crate::runs::{EndedBy, Start, Started};
 
@@ -137,12 +138,18 @@ fn cancel(id: i64) -> Value {
 }
 
 /// Opens the Connection: `hello`, then `events.subscribe` as call `id`
-/// with `params`.
-async fn open(client: &mut Client, id: i64, params: Value) {
+/// with `params`; answers the engine instance the `hello` named.
+async fn open(client: &mut Client, id: i64, params: Value) -> Value {
     client.send(&[hello("collie", "0.1")]).await;
     let opened = client.next().await.unwrap();
     assert!(opened.get("result").is_some(), "{opened}");
     client.send(&[call(id, "events.subscribe", params)]).await;
+    opened["result"]["engine_instance"].clone()
+}
+
+/// What `events.subscribe` resumes after: `position` of `engine_instance`.
+fn after(engine_instance: &Value, position: u64) -> Value {
+    json!({ "after": { "engine_instance": engine_instance, "position": position } })
 }
 
 /// The events of a `$/events` batch of the call `id`, if `message` is one.
@@ -319,9 +326,9 @@ fn telemetry_never_waits_and_coalesces_per_scope_counting_what_it_dropped() {
 }
 
 /// Starts each Run of `run_ids` on a subscription `id` granted ample
-/// credits, and answers the events it read.
-async fn start_runs(client: &mut Client, id: i64, run_ids: &[&str]) -> Vec<Value> {
-    open(client, id, json!({})).await;
+/// credits, and answers the engine instance and the events it read.
+async fn start_runs(client: &mut Client, id: i64, run_ids: &[&str]) -> (Value, Vec<Value>) {
+    let instance = open(client, id, json!({})).await;
     client.send(&[credit(id, 100)]).await;
     for (index, run_id) in run_ids.iter().enumerate() {
         client
@@ -333,7 +340,7 @@ async fn start_runs(client: &mut Client, id: i64, run_ids: &[&str]) -> Vec<Value
             .await;
     }
     let (events, _) = read_events(client, id, run_ids.len()).await;
-    events
+    (instance, events)
 }
 
 /// Covers: story:3-9
@@ -343,12 +350,12 @@ fn a_subscription_resumes_after_the_position_its_client_last_read() {
     let engine = engine(options(64, 3));
 
     let (first, resumed) = attached_on(&engine, &env, |mut client| async move {
-        let first = start_runs(&mut client, 1, &["one", "two", "three"]).await;
+        let (instance, first) = start_runs(&mut client, 1, &["one", "two", "three"]).await;
         client.send(&[cancel(1)]).await;
-        let after = first[0]["position"].clone();
+        let position = first[0]["position"].as_u64().unwrap();
         client
             .send(&[
-                call(2, "events.subscribe", json!({ "after": after })),
+                call(2, "events.subscribe", after(&instance, position)),
                 credit(2, 100),
             ])
             .await;
@@ -370,13 +377,13 @@ fn a_position_the_engine_no_longer_holds_starts_with_a_resync_then_the_stream() 
     let engine = engine(options(64, 1));
 
     let (first, gone, future) = attached_on(&engine, &env, |mut client| async move {
-        let first = start_runs(&mut client, 1, &["one", "two"]).await;
+        let (instance, first) = start_runs(&mut client, 1, &["one", "two"]).await;
         let last = first[1]["position"].as_u64().unwrap();
         client
             .send(&[
-                call(2, "events.subscribe", json!({ "after": 0 })),
+                call(2, "events.subscribe", after(&instance, 0)),
                 credit(2, 100),
-                call(3, "events.subscribe", json!({ "after": last + 100 })),
+                call(3, "events.subscribe", after(&instance, last + 100)),
                 credit(3, 100),
             ])
             .await;
@@ -430,6 +437,7 @@ fn after_a_restart_a_position_the_previous_engine_instance_gave_starts_with_a_re
 
     let (before, first) = attached_on(&engine, &env, read);
     // The same home and engine, in a new process: a Daemon restarted.
+    let last_read = after(&before, first[0]["position"].as_u64().unwrap());
     let (restarted, resumed) = attached_with(
         &engine,
         || Dependencies {
@@ -437,13 +445,9 @@ fn after_a_restart_a_position_the_previous_engine_instance_gave_starts_with_a_re
             ..dependencies(&env)
         },
         |mut client| async move {
-            let (restarted, _) = start_runs(&mut client, 1, &["one", "two"]).await;
-            let position = first[0]["position"].as_u64().unwrap();
+            let (restarted, _) = start_runs(&mut client, 1, &["three", "four"]).await;
             client
-                .send(&[
-                    call(2, "events.subscribe", after(&before, position)),
-                    credit(2, 100),
-                ])
+                .send(&[call(2, "events.subscribe", last_read), credit(2, 100)])
                 .await;
             let (resumed, _) = read_events(&mut client, 2, 1).await;
             (restarted, resumed)
@@ -462,60 +466,8 @@ fn after_a_restart_a_position_the_previous_engine_instance_gave_starts_with_a_re
             false,
             json!("events.resync"),
             json!([
-                { "run_id": "one", "lifecycle": "running" },
-                { "run_id": "two", "lifecycle": "running" },
-            ]),
-        ),
-        "{resumed:#?}"
-    );
-}
-
-/// Covers: story:3-9, event:events.resync
-#[test]
-fn after_a_restart_a_position_the_previous_engine_instance_gave_starts_with_a_resync() {
-    let env = TestEnv::new();
-    let engine = engine(options(64, 64));
-    let read = |client: Client| async move {
-        let mut client = client;
-        start_runs(&mut client, 1, &["one", "two"]).await
-    };
-
-    let (before, first) = attached_on(&engine, &env, read);
-    // The same home and engine, in a new process: a Daemon restarted.
-    let (restarted, resumed) = attached_with(
-        &engine,
-        || Dependencies {
-            entropy: Entropy::seeded(env.seed().wrapping_add(1)),
-            ..dependencies(&env)
-        },
-        |mut client| async move {
-            let (restarted, _) = start_runs(&mut client, 1, &["one", "two"]).await;
-            let position = first[0]["position"].as_u64().unwrap();
-            client
-                .send(&[
-                    call(2, "events.subscribe", after(&before, position)),
-                    credit(2, 100),
-                ])
-                .await;
-            let (resumed, _) = read_events(&mut client, 2, 1).await;
-            (restarted, resumed)
-        },
-    );
-
-    assert_eq!(
-        (
-            before.is_string(),
-            before == restarted,
-            field(&resumed, 0, "/event"),
-            field(&resumed, 0, "/data/runs"),
-        ),
-        (
-            true,
-            false,
-            json!("events.resync"),
-            json!([
-                { "run_id": "one", "lifecycle": "running" },
-                { "run_id": "two", "lifecycle": "running" },
+                { "run_id": "four", "lifecycle": "running" },
+                { "run_id": "three", "lifecycle": "running" },
             ]),
         ),
         "{resumed:#?}"
@@ -654,7 +606,7 @@ fn dispatch_records_each_event_it_sends_with_its_name() {
 
     let records = super::dispatch_records(|| {
         attached_on(&engine, &env, |mut client| async move {
-            start_runs(&mut client, 1, &["recorded"]).await
+            start_runs(&mut client, 1, &["recorded"]).await.1
         })
     });
 

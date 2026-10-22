@@ -28,6 +28,10 @@ _Avoid_: lockstep version, release train
 The runtime inside each Product that executes every run, whichever surface starts it; Foxhound's engine includes Collie's.
 _Avoid_: framework, core, backend
 
+**Engine instance**:
+One process of an engine, named anew each time it starts and given in its `hello`: the positions of its events count within it, so a Client that meets a new one, as after a Daemon restart, resumes from an `events.resync`.
+_Avoid_: engine ID, boot ID, session (a Session is a browsing identity)
+
 **Goodfetch Cloud**:
 The hosted service that runs the engine for customers on Goodfetch's infrastructure.
 _Avoid_: platform, Goodfetch (for the hosted service)
@@ -193,7 +197,7 @@ The moment a Run asked to stop can stop without losing or repeating work: it adm
 _Avoid_: checkpoint (for the moment), graceful stop, barrier
 
 **Subscription**:
-One Client's stream of an engine's events, each at a position that only goes up, sent no faster than the credits the Client grants; one whose queue of lossless events is full falls behind to an `events.resync` of the current state, so no producer and no other Subscription waits for it, and a telemetry event replaces the unsent one of its kind, counting it as dropped.
+One Client's stream of an engine's events, each at a position that only goes up within its Engine instance, sent no faster than the credits the Client grants; one whose queue of lossless events is full falls behind to an `events.resync` of the current state, so no producer and no other Subscription waits for it, and a telemetry event replaces the unsent one of its kind, counting it as dropped.
 _Avoid_: listener (for the engine's side), feed, channel
 
 **Body handle**:

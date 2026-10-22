@@ -1,6 +1,6 @@
 //! The engine's event stream (ADRs 0024, 0031 and 0081): one actor, a task
 //! of the engine's owner, that gives every event the next position of the
-//! engine, keeps the last lossless ones, and holds each subscription's
+//! engine instance, keeps the last lossless ones, and holds each subscription's
 //! queue, from which the subscription takes as many events as its Client's
 //! credits allow.
 //!
@@ -13,8 +13,8 @@
 //! (progress, logs) replaces the unsent one of the same kind and scope in
 //! each queue, which the one sent counts as `dropped`. A subscription that
 //! names the position its Client last read resumes after it from the kept
-//! events, and one the engine no longer holds starts behind, with
-//! `events.resync`.
+//! events, and one the engine no longer holds, or another engine instance
+//! gave, as before a Daemon restart, starts behind, with `events.resync`.
 //!
 //! Also the credits a Client grants a streaming call, which the protocol
 //! server adds and the call takes.
@@ -23,7 +23,8 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use goodfetch_protocol::catalog::{Event, EventClass};
-use goodfetch_protocol::events::{EventEnvelope, Position, RESYNC, Resync};
+use goodfetch_protocol::connection::EngineInstance;
+use goodfetch_protocol::events::{EventEnvelope, LastRead, Position, RESYNC, Resync};
 use goodfetch_protocol::run::{RUN_AXES_CHANGED, RunAxes, RunId};
 use serde::Serialize;
 use serde_json::Value;
@@ -63,6 +64,7 @@ impl Default for EventsOptions {
 #[derive(Clone, Debug)]
 pub struct Events {
     commands: mpsc::Sender<Command>,
+    instance: EngineInstance,
 }
 
 /// One subscription to the stream, as the call that reads it holds it;
@@ -81,7 +83,7 @@ pub(crate) struct Credits(Arc<Semaphore>);
 enum Command {
     Publish(Publish),
     Subscribe {
-        after: Option<Position>,
+        after: Option<LastRead>,
         alive: oneshot::Receiver<()>,
         answer: oneshot::Sender<u64>,
     },
@@ -102,11 +104,17 @@ struct Publish {
 }
 
 impl Events {
-    /// Starts the stream's actor as a task of `owner`.
-    pub(crate) fn start(options: EventsOptions, owner: &TaskOwner) -> Self {
+    /// Starts the stream's actor as a task of `owner`, its positions those
+    /// of `instance`.
+    pub(crate) fn start(
+        options: EventsOptions,
+        instance: EngineInstance,
+        owner: &TaskOwner,
+    ) -> Self {
         let (commands, mailbox) = mpsc::channel(COMMANDS);
         let stream = Stream {
             options,
+            instance: instance.clone(),
             last: 0,
             floor: 0,
             retained: VecDeque::new(),
@@ -121,7 +129,12 @@ impl Events {
                 () = token.cancelled() => {}
             }
         });
-        Self { commands }
+        Self { commands, instance }
+    }
+
+    /// The engine instance whose positions it gives.
+    pub(crate) fn instance(&self) -> &EngineInstance {
+        &self.instance
     }
 
     /// Publishes `event`, with `data` as its payload; `scope` (such as a
@@ -179,7 +192,7 @@ impl Events {
     ///
     /// Dropping the future after it was sent opens a subscription the
     /// stream ends at its next event.
-    pub(crate) async fn subscribe(&self, after: Option<Position>) -> Option<Subscription> {
+    pub(crate) async fn subscribe(&self, after: Option<LastRead>) -> Option<Subscription> {
         let (alive, watched) = oneshot::channel();
         let (answer, answered) = oneshot::channel();
         self.commands
@@ -329,6 +342,8 @@ impl Queue {
 /// The actor's state.
 struct Stream {
     options: EventsOptions,
+    /// The engine instance whose positions it gives.
+    instance: EngineInstance,
     /// The last position given.
     last: u64,
     /// The last position no longer kept: a subscription may resume after
@@ -437,7 +452,7 @@ impl Stream {
         let _ = accepted.send(());
     }
 
-    fn subscribe(&mut self, after: Option<Position>, alive: oneshot::Receiver<()>) -> u64 {
+    fn subscribe(&mut self, after: Option<LastRead>, alive: oneshot::Receiver<()>) -> u64 {
         let id = self.next_subscription;
         self.next_subscription += 1;
         let mut queue = Queue {
@@ -449,7 +464,10 @@ impl Stream {
         };
         match after {
             None => {}
-            Some(Position(after)) if (self.floor..=self.last).contains(&after) => {
+            Some(LastRead {
+                engine_instance,
+                position: Position(after),
+            }) if engine_instance == self.instance && (self.floor..=self.last).contains(&after) => {
                 queue.lossless.extend(
                     self.retained
                         .iter()

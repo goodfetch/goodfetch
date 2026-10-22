@@ -381,8 +381,12 @@ impl Session<'_> {
             }
         }
         let answered = match hello {
-            Ok(hello) => handshake::answer(&self.dispatch.identity, &hello)
-                .map(|accepted| (accepted, hello.surface)),
+            Ok(hello) => handshake::answer(
+                &self.dispatch.identity,
+                self.connection.events.instance(),
+                &hello,
+            )
+            .map(|accepted| (accepted, hello.surface)),
             Err(error) => Err(handshake::Refused::Invalid(CallError::protocol(
                 ProtocolFailure::InvalidParams,
                 error.to_string(),

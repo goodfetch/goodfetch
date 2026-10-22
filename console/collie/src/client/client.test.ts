@@ -227,38 +227,42 @@ describe("the Console's Client", () => {
     client.close();
   });
 
-  test("after a drop it fails the call in flight and sends nothing again but its subscription", async () => {
-    const adapter = createProtocolAdapter();
-    const { promise: calledOnce, resolve: asked } = Promise.withResolvers<void>();
-    adapter.answer("sample.echo", () => {
-      asked();
-      return new Promise<never>(() => {});
-    });
-    const { client } = clientOf(adapter);
-    const subscription = client.subscribe("events");
-    await reaches(client, "connected");
-    adapter.push(axes("first", "running"), 1);
-    await take(subscription, 1);
-    const inFlight = client.call("sample.echo", { text: "woof" });
-    await calledOnce;
-    const sentBefore = adapter.requests.length;
+  test(
+    "after a drop it fails the call in flight and sends nothing again but its subscription",
+    { tags: ["error:connection_lost"] },
+    async () => {
+      const adapter = createProtocolAdapter();
+      const { promise: calledOnce, resolve: asked } = Promise.withResolvers<void>();
+      adapter.answer("sample.echo", () => {
+        asked();
+        return new Promise<never>(() => {});
+      });
+      const { client } = clientOf(adapter);
+      const subscription = client.subscribe("events");
+      await reaches(client, "connected");
+      adapter.push(axes("first", "running"), 1);
+      await take(subscription, 1);
+      const inFlight = client.call("sample.echo", { text: "woof" });
+      await calledOnce;
+      const sentBefore = adapter.requests.length;
 
-    adapter.drop();
-    await expect(inFlight).rejects.toBeInstanceOf(ConnectionLostError);
-    await reaches(client, "connected");
-    adapter.push(axes("first", "finished"), 2);
-    const [resumed] = await take(subscription, 1);
+      adapter.drop();
+      await expect(inFlight).rejects.toBeInstanceOf(ConnectionLostError);
+      await reaches(client, "connected");
+      adapter.push(axes("first", "finished"), 2);
+      const [resumed] = await take(subscription, 1);
 
-    const sentAfter = adapter.requests.slice(sentBefore);
-    const methods = sentAfter.map((request) => request.method);
-    expect(methods.filter((method) => method !== "$/credit")).toEqual([
-      "hello",
-      "events.subscribe",
-    ]);
-    expect(sentAfter.find((request) => request.method === "events.subscribe")?.params).toEqual({
-      after: { engine_instance: FIRST_INSTANCE, position: 1 },
-    });
-    expect(resumed).toMatchObject({ kind: "event", position: 2 });
-    client.close();
-  });
+      const sentAfter = adapter.requests.slice(sentBefore);
+      const methods = sentAfter.map((request) => request.method);
+      expect(methods.filter((method) => method !== "$/credit")).toEqual([
+        "hello",
+        "events.subscribe",
+      ]);
+      expect(sentAfter.find((request) => request.method === "events.subscribe")?.params).toEqual({
+        after: { engine_instance: FIRST_INSTANCE, position: 1 },
+      });
+      expect(resumed).toMatchObject({ kind: "event", position: 2 });
+      client.close();
+    },
+  );
 });

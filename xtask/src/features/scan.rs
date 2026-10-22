@@ -384,7 +384,6 @@ impl Target<'_> {
         if !is_test(attributes) {
             return Ok(());
         }
-        let within = inherited.within(attributes);
         let mut name = module.names.to_vec();
         name.push(function.sig.ident.to_string());
         let base = name.join("::");
@@ -395,19 +394,31 @@ impl Target<'_> {
                 module.path.display()
             )
         })?;
-        let names: Vec<String> = if cases.is_empty() {
-            vec![base]
+        // A `Covers:` line rstest gives one case declares for that case only.
+        let shared: Vec<String> = inherited
+            .features
+            .iter()
+            .cloned()
+            .chain(covers(cases.shared))
+            .collect();
+        let gates = inherited.within(attributes).gates;
+        let named: Vec<(String, Vec<String>)> = if cases.suffixes.is_empty() {
+            vec![(base, Vec::new())]
         } else {
-            cases.iter().map(|case| format!("{base}::{case}")).collect()
+            cases
+                .suffixes
+                .into_iter()
+                .map(|case| (format!("{base}::{}", case.name), covers(case.own)))
+                .collect()
         };
         let path = relative(self.root, module.path);
-        tests.extend(names.into_iter().map(|name| Test {
+        tests.extend(named.into_iter().map(|(name, own)| Test {
             binary: self.binary.to_owned(),
             name,
             package: self.package.to_owned(),
             path: path.clone(),
-            features: within.features.clone(),
-            gates: within.gates.clone(),
+            features: shared.iter().cloned().chain(own).collect(),
+            gates: gates.clone(),
         }));
         Ok(())
     }
@@ -491,9 +502,9 @@ fn gates(attributes: &[syn::Attribute]) -> Vec<String> {
 }
 
 /// The Feature IDs of the `Covers:` lines among doc attributes.
-fn covers(attributes: &[syn::Attribute]) -> Vec<String> {
+fn covers<'a>(attributes: impl IntoIterator<Item = &'a syn::Attribute>) -> Vec<String> {
     attributes
-        .iter()
+        .into_iter()
         .filter(|attribute| attribute.path().is_ident("doc"))
         .filter_map(|attribute| match &attribute.meta {
             syn::Meta::NameValue(syn::MetaNameValue {

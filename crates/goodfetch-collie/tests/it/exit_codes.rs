@@ -70,19 +70,33 @@ fn daemon_failing_with(env: &TestEnv, class: i64, code: &str) -> Process {
 ///
 /// Covers: story:11-205, command:config.explain
 #[rstest]
+/// Covers: exit:internal
 #[case::internal(-32603, "internal_error", 1)]
+/// Covers: exit:program
 #[case::program(-32001, "run_not_found", 3)]
+/// Covers: exit:refused
 #[case::refused(-32002, "person_required", 4)]
+/// Covers: exit:page
 #[case::page(-32003, "navigation_failed", 5)]
+/// Covers: exit:model
 #[case::model(-32004, "model_answer_unusable", 6)]
+/// Covers: exit:deadline_exceeded
 #[case::deadline_exceeded(-32005, "deadline_exceeded", 7)]
+/// Covers: exit:unavailable
 #[case::unavailable(-32006, "run_state_unavailable", 8)]
+/// Covers: exit:not_in_product
 #[case::not_in_product(-32006, "not_in_product", 10)]
+/// Covers: exit:protocol_version_unsupported
 #[case::protocol_version_unsupported(-32006, "protocol_version_unsupported", 11)]
+/// Covers: exit:browser_host_outdated
 #[case::browser_host_outdated(-32006, "browser_host_outdated", 12)]
+/// Covers: exit:path_not_writable
 #[case::path_not_writable(-32001, "path_not_writable", 13)]
+/// Covers: exit:file_write_failed
 #[case::file_write_failed(-32006, "file_write_failed", 14)]
+/// Covers: exit:resources_exhausted
 #[case::resources_exhausted(-32006, "resources_exhausted", 15)]
+/// Covers: exit:limit_reached
 #[case::limit_reached(-32002, "limit_reached", 16)]
 fn a_failed_call_exits_with_its_codes_row_else_its_groups(
     #[case] class: i64,

@@ -577,3 +577,13 @@ fn a_package_the_console_needs_only_for_its_tests_does_not_reach_the_embedder() 
         "{selection}"
     );
 }
+
+/// The members that own a visual test, which the visual job runs (the
+/// incremental gate's re-review, N4).
+#[test]
+fn the_members_that_own_a_visual_test_are_known() {
+    let members = super::WorkspaceMembers::from_workspace(fixture());
+
+    assert!(members.owns_a_visual_test("console"));
+    assert!(!members.owns_a_visual_test("test-support/typescript"));
+}

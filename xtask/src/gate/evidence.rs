@@ -26,23 +26,62 @@ use anyhow::{Context as _, Result, bail};
 
 use super::plan::{UNOWNED, short};
 use crate::affected::{self, Kind, RepoPath, WorkspaceMembers};
+use crate::metadata;
 use crate::quarantine::Runner;
 use crate::quarantine::listing::{self, Listed, Location};
 
 /// What each crate's last build read, by crate, as repository paths.
 pub(crate) struct RustInputs {
     by_crate: BTreeMap<String, BTreeSet<String>>,
+    /// Each crate's targets that a test build compiles (its library, its
+    /// executables and its `tests/` targets), by their dep-info name.
+    test_targets: BTreeMap<String, BTreeSet<String>>,
+    /// Each crate's targets that have dep-info.
+    seen: BTreeMap<String, BTreeSet<String>>,
     /// Where the dep-info was read, for the log.
     target: PathBuf,
 }
 
+/// The target kinds a crate's test build compiles.
+const TESTED_KINDS: [&str; 7] = [
+    "lib",
+    "rlib",
+    "dylib",
+    "cdylib",
+    "proc-macro",
+    "bin",
+    "test",
+];
+
 /// Reads the dep-info and build-script outputs of every profile's build
-/// under `target`.
+/// under `target`, and the test targets `cargo metadata` lists.
 pub(crate) fn rust_inputs(
     root: &Path,
+    cargo: &OsStr,
     target: &Path,
     members: &WorkspaceMembers,
 ) -> Result<RustInputs> {
+    let test_targets: BTreeMap<String, BTreeSet<String>> = metadata::packages(cargo, root)?
+        .into_iter()
+        .map(|package| {
+            let names = package
+                .targets
+                .iter()
+                // A target that needs a feature builds only with it, so
+                // its absence shows nothing.
+                .filter(|target| {
+                    target.required_features.is_empty()
+                        && target
+                            .kind
+                            .iter()
+                            .any(|kind| TESTED_KINDS.contains(&kind.as_str()))
+                })
+                .map(|target| target.name.replace('-', "_"))
+                .collect();
+            (package.name, names)
+        })
+        .collect();
+    let mut seen: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let root =
         std::fs::canonicalize(root).with_context(|| format!("resolving {}", root.display()))?;
     let crates: BTreeSet<String> = members
@@ -69,6 +108,11 @@ pub(crate) fn rust_inputs(
                 .filter(|path| Path::new(path).extension() == Some(OsStr::new("rs")))
                 .find_map(|path| members.owner(path).filter(|owner| crates.contains(owner)));
             if let Some(owner) = owner {
+                let stem = file.file_stem().and_then(OsStr::to_str).unwrap_or_default();
+                let name = stem.rsplit_once('-').map_or(stem, |(name, _hash)| name);
+                seen.entry(owner.clone())
+                    .or_default()
+                    .insert(name.to_owned());
                 by_crate.entry(owner).or_default().extend(paths);
             }
         }
@@ -100,6 +144,8 @@ pub(crate) fn rust_inputs(
     }
     Ok(RustInputs {
         by_crate,
+        test_targets,
+        seen,
         target: target.to_path_buf(),
     })
 }
@@ -125,7 +171,22 @@ impl RustInputs {
                     );
                 }
                 Some(inputs) => {
-                    if let Some(path) = inputs.iter().find(|input| changed.contains(*input)) {
+                    let seen = self.seen.get(&krate);
+                    let missing = self.test_targets.get(&krate).and_then(|targets| {
+                        targets
+                            .iter()
+                            .find(|target| seen.is_none_or(|seen| !seen.contains(*target)))
+                    });
+                    if let Some(missing) = missing {
+                        reached.insert(
+                            krate,
+                            format!(
+                                "no dep-info of its test target `{missing}` under {}, so nothing shows what it read",
+                                self.target.display()
+                            ),
+                        );
+                    } else if let Some(path) = inputs.iter().find(|input| changed.contains(*input))
+                    {
                         reached.insert(krate, format!("its build read {path}"));
                     }
                 }

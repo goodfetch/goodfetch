@@ -1231,9 +1231,12 @@ _gate-plan:
     set -euo pipefail
     mkdir -p target/gate-runs
     echo '{}' >target/gate-runs/listing-tools.json
+    # The variables that change what the steps run or how join the host
+    # fingerprint, so a result counts only for a run in the same environment.
+    variables=$(env | grep -E '^(CI|GOODFETCH_[A-Z0-9_]+|NEXTEST_[A-Z0-9_]+|CARGO_[A-Z0-9_]+|RUST[A-Z0-9_]*|UV_[A-Z0-9_]+|NODE_[A-Z0-9_]+)=' | LC_ALL=C sort || true)
     GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/gate-runs/listing-tools.json" \
       cargo run --quiet -p xtask -- gate plan --records target/gate-runs --now "$(date +%s)" \
-      ${GOODFETCH_GATE_FULL:+--full}
+      --environment "$variables" ${GOODFETCH_GATE_FULL:+--full}
 
 # Records a gate step's result (`pass` or `fail`) for the head the plan was
 # made for, which must still be checked out on a clean tree (ADR 0135).

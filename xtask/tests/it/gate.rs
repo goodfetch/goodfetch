@@ -27,6 +27,11 @@ struct Plan {
 /// Plans with the records in `records` and the dep-info in the `target`
 /// folder beside them.
 fn plan(workspace: &Workspace, records: &Path) -> Plan {
+    plan_in(workspace, records, "CI=")
+}
+
+/// Plans as [`plan`] does, in the run's environment `environment`.
+fn plan_in(workspace: &Workspace, records: &Path, environment: &str) -> Plan {
     let target = target(records);
     let outcome = workspace.xtask(&[
         "gate",
@@ -37,6 +42,8 @@ fn plan(workspace: &Workspace, records: &Path) -> Plan {
         NOW,
         "--target-dir",
         &target.to_string_lossy(),
+        "--environment",
+        environment,
     ]);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     parse(&outcome)
@@ -382,4 +389,42 @@ fn a_result_for_another_head_or_a_changed_tree_is_refused() {
         let recorded = std::fs::read_to_string(records.join(format!("{head}.tsv"))).unwrap();
         assert!(!recorded.contains("\nperf\t"), "{recorded}");
     }
+}
+
+/// A run whose environment differs (another test profile, selection or
+/// engine) reuses nothing (the re-review's N1).
+#[test]
+fn a_run_in_another_environment_reuses_nothing() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    first_run(&workspace, &records);
+
+    let second = plan_in(&workspace, &records, "CI=1");
+
+    assert!(
+        second.steps.values().all(|(action, _)| action == "run"),
+        "{:?}",
+        second.steps
+    );
+}
+
+/// A crate is judged by the dep-info of each of its test targets: one with
+/// none reruns, though another target's dep-info exists (the re-review's N3).
+#[test]
+fn a_crate_with_a_test_target_whose_dep_info_is_missing_reruns() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    workspace.write("crates/goodfetch-engine/tests/it.rs", b"//! Its tests.\n");
+    commit_all(&workspace, "Add the engine's integration tests");
+    first_run(&workspace, &records);
+    workspace.write("docs/index.md", b"# Changed\n");
+    commit_all(&workspace, "Change the docs");
+
+    let second = plan(&workspace, &records);
+
+    let rerun = members(&second, "pre-merge");
+    assert!(rerun.contains("goodfetch-engine"), "{rerun:?}");
+    assert!(
+        second.why["pre-merge"].contains("no dep-info of its test target `it`"),
+        "{}",
+        second.why["pre-merge"]
+    );
 }

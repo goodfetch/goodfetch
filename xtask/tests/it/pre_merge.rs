@@ -519,3 +519,26 @@ fn a_gate_run_while_another_holds_the_records_fails_before_any_step() {
         run.calls
     );
 }
+
+/// A gate run that narrows what runs or swaps the executables under test
+/// fails before any step, so it records nothing a normal run would reuse
+/// (the re-review's N1).
+#[rstest]
+#[case::selection("GOODFETCH_TEST_SELECTION")]
+#[case::engine("GOODFETCH_TEST_ENGINE")]
+#[case::order_seed("GOODFETCH_ORDER_SEED")]
+fn a_whole_workspace_gate_run_that_narrows_what_runs_is_refused(#[case] variable: &str) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+
+    let run = pre_merge_with_env(&workspace, &stand_in, &["all"], &[(variable, "set")]);
+
+    assert_eq!(run.code, Some(2), "{}", run.stderr);
+    assert!(run.stderr.contains(variable), "{}", run.stderr);
+    assert!(
+        run.calls.iter().all(|call| call == "_skips-report") && run.gate.is_empty(),
+        "{:?} {:?}",
+        run.calls,
+        run.gate
+    );
+}

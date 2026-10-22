@@ -220,6 +220,13 @@ fn a_change_reaching_a_crate_reruns_the_crate_builds() {
 #[case::uv_lockfile("uv.lock")]
 #[case::toolchain("rust-toolchain.toml")]
 #[case::xtask("xtask/src/stress.rs")]
+// What tests read at run time across members, which no evidence shows
+// (ADR 0135, N2): the Proving ground's data, shared fixtures, browser pins.
+#[case::proving_ground_pages("proving-ground/pages/login.html")]
+#[case::proving_ground_fixtures("proving-ground/fixtures/feed.xml")]
+#[case::shared_fixtures("test-support/fixtures/page.html")]
+#[case::chromium_pins("chromium/README.md")]
+#[case::browser_pins("crates/goodfetch-collie/src/pins.json")]
 fn a_change_to_a_gate_input_reruns_every_step_in_full(#[case] path: &str) {
     let paths = [RepoPath::new("docs/a.md"), RepoPath::new(path)];
     let touched = Touched {

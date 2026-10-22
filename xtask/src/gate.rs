@@ -33,7 +33,7 @@ use std::process::{Command as Process, ExitCode};
 use anyhow::{Context as _, Result, bail};
 use sha2::{Digest as _, Sha256};
 
-use crate::affected::{self, Range, RepoPath, WorkspaceMembers};
+use crate::affected::{self, Job, Range, RepoPath, WorkspaceMembers};
 use crate::environment::Environment;
 use crate::{metadata, output};
 use evidence::RustInputs;
@@ -77,6 +77,12 @@ pub(crate) enum Command {
         /// read; Cargo's own by default.
         #[arg(long)]
         target_dir: Option<std::path::PathBuf>,
+        /// The variables of the run's environment that change what runs or
+        /// how (`CI`, `GOODFETCH_*`, `NEXTEST_*`, `CARGO_*`…), as
+        /// `NAME=value` lines: part of the host fingerprint, so a result
+        /// counts only for a run in the same environment.
+        #[arg(long, default_value = "")]
+        environment: String,
     },
     /// Appends a step's result to the record of the run on HEAD, for the
     /// units the plan ran; nothing without a plan for HEAD.
@@ -107,6 +113,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             assume_green,
             now,
             target_dir,
+            environment: variables,
         } => {
             let records = environment.path(&records);
             let target = match target_dir {
@@ -122,6 +129,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     assume_green,
                     now,
                     target,
+                    variables,
                 },
             )?;
         }
@@ -156,6 +164,7 @@ struct Options {
     assume_green: Option<String>,
     now: u64,
     target: std::path::PathBuf,
+    variables: String,
 }
 
 fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Result<()> {
@@ -176,7 +185,7 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
         return Ok(());
     }
     let base = commit(root, &git(root, &["merge-base", BASE_BRANCH, "HEAD"])?)?;
-    let host = host_fingerprint(root, &environment.cargo);
+    let host = host_fingerprint(root, &environment.cargo, &options.variables);
     let members_read = WorkspaceMembers::read(&environment.cargo, root)?;
     let unowned = evidence::unowned_tests(root, &members_read)?;
     let mut members: BTreeSet<String> = members_read.all().map(|(name, _)| name).collect();
@@ -337,7 +346,12 @@ impl Reader<'_> {
         }
         let mut found = BTreeMap::new();
         if rust.is_none() {
-            *rust = Some(evidence::rust_inputs(self.root, self.target, self.members)?);
+            *rust = Some(evidence::rust_inputs(
+                self.root,
+                self.cargo,
+                self.target,
+                self.members,
+            )?);
         }
         if let Some(rust) = rust {
             let changed: BTreeSet<String> =
@@ -358,7 +372,13 @@ impl Reader<'_> {
                 .filter_map(|member| self.members.folder(member))
                 .map(|folder| RepoPath::new(format!("{folder}/.evidence"))),
         );
-        for (member, why) in evidence::listed_since(self.root, self.cargo, origin, self.members) {
+        let listed = evidence::listed_since(self.root, self.cargo, origin, self.members);
+        // A listed member's visual tests run in the visual job alone, which
+        // the host's listings do not cover.
+        let visual = listed
+            .keys()
+            .any(|member| self.members.owns_a_visual_test(member));
+        for (member, why) in listed {
             found.entry(member).or_insert(why);
         }
         let selected = selection.members();
@@ -368,6 +388,9 @@ impl Reader<'_> {
             .map(|(member, why)| (member.clone(), why.clone()))
             .collect();
         let mut touched = Touched::new(&paths, &self.members.select(&widened));
+        if visual {
+            touched.jobs.insert(Job::Visual);
+        }
         touched.evidence = found;
         Ok((touched, missed))
     }
@@ -375,9 +398,9 @@ impl Reader<'_> {
 
 /// The fingerprint of this host and the tools the gate's steps run: the
 /// kernel, the system's packages, the runtimes, the test runners, the
-/// container engines and the toolchain. A command that is missing counts as
-/// such.
-fn host_fingerprint(root: &Path, cargo: &OsStr) -> String {
+/// container engines and the toolchain, and the run's environment
+/// `variables`. A command that is missing counts as such.
+fn host_fingerprint(root: &Path, cargo: &OsStr, variables: &str) -> String {
     const PROBES: [&[&str]; 11] = [
         &["uname", "-srvm"],
         &["dpkg-query", "-W", "-f=${Package}=${Version}\n"],
@@ -405,6 +428,7 @@ fn host_fingerprint(root: &Path, cargo: &OsStr) -> String {
         probe(Process::new(program).args(rest));
     }
     probe(Process::new(cargo).args(["nextest", "--version"]));
+    digest.update(variables.as_bytes());
     format!("{:x}", digest.finalize())
 }
 

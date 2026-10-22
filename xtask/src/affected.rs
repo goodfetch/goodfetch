@@ -90,9 +90,19 @@ pub(crate) struct WorkspaceMembers {
 
 impl WorkspaceMembers {
     pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Self> {
-        Ok(Self {
-            workspace: workspace::read(cargo, root)?,
-        })
+        Ok(Self::from_workspace(workspace::read(cargo, root)?))
+    }
+
+    pub(crate) fn from_workspace(workspace: Workspace) -> Self {
+        Self { workspace }
+    }
+
+    /// Whether `member` owns a visual test, which the visual job runs.
+    pub(crate) fn owns_a_visual_test(&self, member: &str) -> bool {
+        self.workspace
+            .visual_tests
+            .iter()
+            .any(|test| self.owner(test.as_str()).as_deref() == Some(member))
     }
 
     /// Every member's name and kind.

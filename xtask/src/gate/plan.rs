@@ -142,8 +142,10 @@ impl Step {
 /// The paths whose change reruns every step in full: the gate's own
 /// commands and scripts, the tools' versions and settings, the lockfiles
 /// and the build profiles. `xtask` is among them, since it runs most steps
-/// and makes this very choice.
-const GATE_INPUTS: [&str; 13] = [
+/// and makes this very choice. So are the files tests of several members
+/// read at run time, which no evidence shows (ADR 0135): the Proving
+/// ground's pages and fixtures, the shared fixtures and the browser pins.
+const GATE_INPUTS: [&str; 18] = [
     "justfile",
     "ci",
     ".config",
@@ -157,6 +159,11 @@ const GATE_INPUTS: [&str; 13] = [
     "uv.lock",
     "pyproject.toml",
     "xtask",
+    "proving-ground/pages",
+    "proving-ground/fixtures",
+    "test-support/fixtures",
+    "chromium",
+    "crates/goodfetch-collie/src/pins.json",
 ];
 
 /// The first changed path that is one of the gate's inputs.

@@ -70,7 +70,6 @@ export class Collie implements Connection {
         engine,
         needs: "collie",
         errorClasses: collieErrorClasses,
-        logger: options.logger,
       }),
     );
   }

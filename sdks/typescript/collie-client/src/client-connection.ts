@@ -25,7 +25,6 @@ import {
   type RunStartParams,
 } from "./generated/index.ts";
 import type { JsonValue } from "./key-value-store.ts";
-import type { Logger } from "./logger.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
 import { Channel, type Transport, type TransportEnd } from "./rpc.ts";
@@ -68,8 +67,6 @@ export interface ClientConnectionOptions {
   readonly needs: Product;
   /** The error class of each code the Client's Product knows. */
   readonly errorClasses: ErrorClasses;
-  /** The host's logger. */
-  readonly logger?: Logger | undefined;
 }
 
 /** The common Connection under each Product's Connection type. */

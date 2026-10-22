@@ -66,6 +66,7 @@ fn package(ecosystem: Ecosystem, name: &str, folder: &str, dependencies: &[&str]
         name: name.to_owned(),
         folder: RepoPath::new(folder),
         dependencies: names(dependencies),
+        runtime_dependencies: names(dependencies),
         runs: BTreeSet::new(),
         loaded_by_every_run: false,
     }
@@ -548,5 +549,31 @@ fn a_console_change_reaches_the_crate_that_embeds_its_build_and_what_runs_it() {
     assert_eq!(
         value(&selection, "vitest-packages"),
         "console test-support/typescript"
+    );
+}
+
+/// What the Console's tests alone use, here test support, is no part of
+/// its build, so it does not reach the crate that embeds the build.
+#[test]
+fn a_package_the_console_needs_only_for_its_tests_does_not_reach_the_embedder() {
+    let mut workspace = fixture();
+    workspace.embedded = vec![Embedded {
+        package: RepoPath::new("console"),
+        krate: "goodfetch-collie".to_owned(),
+    }];
+    for package in &mut workspace.packages {
+        if package.folder.as_str() == "console" {
+            package.runtime_dependencies.clear();
+        }
+    }
+
+    let selection = select(
+        &workspace,
+        &[RepoPath::new("test-support/typescript/src/screenshot.ts")],
+    );
+
+    assert!(
+        !value(&selection, "crates").contains("goodfetch-collie"),
+        "{selection}"
     );
 }

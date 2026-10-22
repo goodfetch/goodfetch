@@ -80,8 +80,13 @@ pub(crate) struct Package {
     pub(crate) ecosystem: Ecosystem,
     pub(crate) name: String,
     pub(crate) folder: RepoPath,
-    /// The members of its own workspace it depends on.
+    /// The members of its own workspace it depends on, or its files
+    /// import.
     pub(crate) dependencies: BTreeSet<String>,
+    /// The members its build and its code at run time depend on, not its
+    /// tests alone: a pnpm package's `dependencies`, a uv project's
+    /// `dependencies`.
+    pub(crate) runtime_dependencies: BTreeSet<String>,
     /// The crates whose executables its tests run through the test tool
     /// manifest, from `goodfetch.runs` in `package.json` or
     /// `[tool.goodfetch] runs` in `pyproject.toml`: a change to one reaches
@@ -339,6 +344,12 @@ fn typescript_packages(root: &Path) -> Result<Vec<Package>> {
         .map(|((folder, manifest), imported)| Package {
             ecosystem: Ecosystem::TypeScript,
             loaded_by_every_run: loaded.contains(&manifest.name),
+            runtime_dependencies: manifest
+                .dependencies
+                .keys()
+                .filter(|name| names.contains(*name))
+                .cloned()
+                .collect(),
             dependencies: [
                 &manifest.dependencies,
                 &manifest.dev_dependencies,
@@ -449,12 +460,13 @@ fn python_packages(root: &Path) -> Result<Vec<Package>> {
             )
             .collect();
         let plugin = project.entry_points.contains_key("pytest11");
+        let runtime: Vec<String> = project.dependencies.clone();
         members.push((
             relative(root, &folder)?,
             python_name(&project.name),
             requirements,
             runs,
-            plugin,
+            (plugin, runtime),
         ));
     }
     let names: BTreeSet<String> = members
@@ -462,7 +474,7 @@ fn python_packages(root: &Path) -> Result<Vec<Package>> {
         .map(|(_, name, _, _, _)| name.clone())
         .collect();
     let mut packages = Vec::new();
-    for (folder, name, requirements, runs, plugin) in members {
+    for (folder, name, requirements, runs, (plugin, runtime)) in members {
         let mut imported = imports::of_folder(&root.join(folder.as_str()), &["py"], |text| {
             imports::python(text, &names)
         })?;
@@ -474,6 +486,11 @@ fn python_packages(root: &Path) -> Result<Vec<Package>> {
                 .map(|requirement| python_name(requirement))
                 .filter(|dependency| names.contains(dependency))
                 .chain(imported)
+                .collect(),
+            runtime_dependencies: runtime
+                .iter()
+                .map(|requirement| python_name(requirement))
+                .filter(|dependency| names.contains(dependency))
                 .collect(),
             name,
             folder,

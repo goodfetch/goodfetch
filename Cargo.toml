@@ -36,6 +36,9 @@ assert_cmd = { version = "2.2.2", default-features = false }
 # `xtask console build` compresses each file of a Console build, which the
 # executables embed and serve as they are (ADR 0057).
 brotli = { version = "9.0.0", default-features = false, features = ["std"] }
+# The build scripts of goodfetch-test-support and goodfetch-engine generate
+# SQLite's VFS bindings, loading libclang at run time where the OS keeps it.
+bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
 # A test's own seeded draws, such as a kill's moment (TESTING.md, Randomness:
 # chacha20, portable across versions).
 chacha20 = { version = "0.10.2", default-features = false, features = ["rng"] }

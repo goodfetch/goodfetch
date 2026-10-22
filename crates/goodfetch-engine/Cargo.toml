@@ -84,7 +84,7 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Securit
 # build script, so that script loads libclang where the OS keeps it, as
 # goodfetch-test-support's does.
 [build-dependencies]
-bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
+bindgen.workspace = true
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true

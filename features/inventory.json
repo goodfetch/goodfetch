@@ -517,6 +517,17 @@
       ]
     },
     {
+      "id": "command:usage.raise",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:usage.set",
       "kind": "command",
       "area": 3,
@@ -867,6 +878,17 @@
       "id": "error:pattern_unsupported",
       "kind": "error",
       "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:person_required",
+      "kind": "error",
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1637,6 +1659,17 @@
     },
     {
       "id": "operation:usage.list",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:usage.raise",
       "kind": "operation",
       "area": 3,
       "milestone": null,

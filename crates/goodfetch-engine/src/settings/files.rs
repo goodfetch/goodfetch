@@ -320,14 +320,31 @@ pub fn operator_policy(
         layer,
         text,
         &OPERATOR_POLICY,
-        &["settings", "lock", "cap"],
+        &["settings", "lock", "cap", "managed"],
         Some(version),
     )?;
+    let marked_managed = text
+        .parse::<DocumentMut>()
+        .is_ok_and(|document| document.contains_key("managed"));
+    let managed = if marked_managed {
+        Some(
+            serde_json::from_value(Value::Object(tables[3].clone())).map_err(|error| {
+                invalid_file(
+                    OPERATOR_POLICY.name.to_owned(),
+                    layer,
+                    format!("`managed` does not read: {error}"),
+                )
+            })?,
+        )
+    } else {
+        None
+    };
     let policy = Policy {
         settings: Values::read(layer, &tables[0], engine)?,
         lock: Values::read(layer, &tables[1], engine)?,
         cap: Values::read(layer, &tables[2], engine)?,
         version: Some(policy_version(text)),
+        managed,
     };
     policy.check_caps()?;
     Ok(policy)

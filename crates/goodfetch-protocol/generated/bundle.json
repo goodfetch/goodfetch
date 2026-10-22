@@ -3077,6 +3077,14 @@
           "arrived_in": "0.1",
           "description": "The Limit."
         },
+        "managed_major": {
+          "arrived_in": "0.1",
+          "description": "The major of the managed Operator policy whose row it is; none for\na row no managed policy wrote.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "period_started_at": {
           "anyOf": [
             {
@@ -3151,6 +3159,64 @@
           "type": "string"
         }
       ]
+    },
+    "Managed": {
+      "additionalProperties": false,
+      "description": "What an Operator policy's `[managed]` table holds, which marks the\npolicy *managed*: deployed by MDM or Ansible, read-only in the Console\n(ADR 0031).",
+      "properties": {
+        "install_limits": {
+          "arrived_in": "0.1",
+          "description": "The install Limits it names (ADR 0041).",
+          "items": {
+            "$ref": "#/$defs/ManagedLimit"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ManagedLimit": {
+      "additionalProperties": false,
+      "description": "An install Limit a managed Operator policy names (ADRs 0031 and 0041):\neach engine of the policy's major writes it to the Usage ledger when it\nstarts, as a row of its own keyed by that major and set by\n[`LimitSetter::ManagedPolicy`], which only the policy and\n`upgrade-files` change.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period: a count of the Usage kind, or\nmillionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the price in, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "usage_kind",
+        "amount"
+      ],
+      "type": "object"
     },
     "MarkdownContent": {
       "description": "How much of the page a Markdown format holds.",
@@ -3333,6 +3399,46 @@
           "type": "string"
         }
       ]
+    },
+    "NotUnderstoodLimit": {
+      "description": "A Limit flagged *must understand* that a Run's engine cannot evaluate,\nas the Run stopped for it names it (ADR 0041): its scope, Usage kind,\ncurrency and period as the ledger holds them.",
+      "properties": {
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps a price in, for a price Limit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its period; none for a Limit that never starts again."
+        },
+        "scope": {
+          "$ref": "#/$defs/LimitScope",
+          "arrived_in": "0.1",
+          "description": "The Limit's scope."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind"
+      ],
+      "type": "object"
     },
     "NothingCommitted": {
       "description": "Why a succeeded request committed no Record (ADR 0103).",
@@ -4717,6 +4823,11 @@
           "arrived_in": "0.1",
           "description": "Why it stopped, when it did."
         },
+        "uncapped": {
+          "arrived_in": "0.1",
+          "description": "Whether it spent, or reserved, money in a currency no Limit holding\nit caps (ADR 0041): *uncapped*.",
+          "type": "boolean"
+        },
         "verdict": {
           "$ref": "#/$defs/Verdict",
           "arrived_in": "0.1",
@@ -5682,6 +5793,20 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "$ref": "#/$defs/NotUnderstoodLimit",
+          "description": "A Limit flagged *must understand* that its engine cannot evaluate\ncame to cover it when it charged, and it stopped at its next safe\npoint, resumable by an engine that can (ADR 0041): the stop of the\nError code `limit_not_understood`.",
+          "properties": {
+            "kind": {
+              "const": "limit_not_understood",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -5987,6 +6112,63 @@
       },
       "required": [
         "limits"
+      ],
+      "type": "object"
+    },
+    "UsageRaiseParams": {
+      "additionalProperties": false,
+      "description": "What `usage.raise` takes: a Limit a person sets, which replaces every\nLimit of its scope, Usage kind, currency and period that is not a\nmanaged Operator policy's, keeping the Usage counted against them.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period from now on: a count of the Usage\nkind, or millionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the price in, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again."
+        },
+        "scope": {
+          "arrived_in": "0.1",
+          "description": "The scope's kind.",
+          "type": "string"
+        },
+        "scope_id": {
+          "arrived_in": "0.1",
+          "description": "Which one of its kind; the person's own when absent (their Client\nconnection, their person, the engine's Daemon, the install).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind",
+        "amount"
       ],
       "type": "object"
     },
@@ -6929,6 +7111,15 @@
             "maximum": 65535,
             "minimum": 0,
             "type": "integer"
+          },
+          "managed": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/Managed"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "Marks the policy managed, deployed by MDM or Ansible (ADR 0031), with the install Limits each engine of its major writes to the Usage ledger when it starts (ADR 0041)."
           },
           "settings": {
             "additionalProperties": false,

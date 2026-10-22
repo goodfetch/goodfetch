@@ -101,7 +101,8 @@ mod tests {
                 "sample.echo",
                 "config.explain",
                 "usage.list",
-                "usage.set"
+                "usage.set",
+                "usage.raise"
             ]
         );
         assert_eq!(
@@ -136,6 +137,7 @@ mod tests {
                 "config.explain",
                 "usage.list",
                 "usage.set",
+                "usage.raise",
                 "sample.crawl",
                 "crawl.start",
                 "crawl.serve",

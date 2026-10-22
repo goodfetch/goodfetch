@@ -36,6 +36,7 @@ fn policy(settings: Value, lock: Value, cap: Value) -> Policy {
         lock: values(SettingsLayer::OperatorPolicy, lock),
         cap: values(SettingsLayer::OperatorPolicy, cap),
         version: Some("sha256:0123456789abcdef".to_owned()),
+        managed: None,
     }
 }
 
@@ -906,6 +907,46 @@ fn an_operator_policy_version_is_its_digest() {
     let read = operator_policy("version = \"0.1\"\n", Product::Collie, &engine()).unwrap();
 
     assert_eq!(read.version.as_deref(), Some("sha256:0227dc879fda140d"));
+}
+
+/// Covers: story:3-77
+#[rstest]
+#[case::unmanaged("version = \"0.1\"\n", None)]
+#[case::managed(
+    "version = \"0.1\"\n\n[managed]\ninstall_limits = [{ usage_kind = \"paid_solves\", currency = \"USD\", period = { every = \"month\", time_zone = \"Europe/Paris\" }, amount = 20000000 }]\n",
+    Some(json!({ "install_limits": [{
+        "usage_kind": "paid_solves",
+        "currency": "USD",
+        "period": { "every": "month", "time_zone": "Europe/Paris" },
+        "amount": 20_000_000,
+    }] })),
+)]
+#[case::managed_with_no_limit("version = \"0.1\"\n\n[managed]\n", Some(json!({})))]
+fn a_managed_operator_policy_names_its_install_limits(
+    #[case] text: &str,
+    #[case] managed: Option<Value>,
+) {
+    let read = operator_policy(text, Product::Collie, &engine()).unwrap();
+
+    assert_eq!(
+        read.managed
+            .map(|managed| serde_json::to_value(managed).unwrap()),
+        managed
+    );
+}
+
+#[test]
+fn a_managed_limit_that_does_not_read_is_refused() {
+    let refused = operator_policy(
+        "version = \"0.1\"\n\n[managed]\ninstall_limits = [{ usage_kind = \"requests\" }]\n",
+        Product::Collie,
+        &engine(),
+    );
+
+    assert_eq!(
+        refused.map(drop).map_err(|error| error.code()),
+        Err("setting_invalid")
+    );
 }
 
 /// Covers: story:3-142

@@ -32,6 +32,9 @@ pub struct Policy {
     pub cap: Values,
     /// Its version, which the run report names.
     pub version: Option<String>,
+    /// Its `[managed]` table, which marks it managed and names the install
+    /// Limits each engine of its major writes to the Usage ledger.
+    pub managed: Option<goodfetch_protocol::usage::Managed>,
 }
 
 impl Policy {

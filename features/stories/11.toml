@@ -689,7 +689,7 @@ status = "active"
 
 [[story]]
 id = 87
-title = "As a developer, I want `page.request` to go through the page's Session (`maxRedirects` up to 20, a larger value `setting_invalid`, `too_many_redirects` past the count), so that API calls share the page's cookies and proxy (ADRs 0085, 0118)."
+title = "As a developer, I want `page.request` to go through the page's Session (`maxRedirects` up to 19, a larger value `setting_invalid`, `too_many_redirects` past the count), so that API calls share the page's cookies and proxy (ADRs 0085, 0118)."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"

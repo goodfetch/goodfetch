@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::TestEnv;
@@ -111,10 +111,12 @@ fn two_clients_of_one_daemon_each_receive_the_log_events_at_their_own_level() {
     );
 }
 
-/// The spans a test's subscriber saw open: each one's name, whether it is
-/// a root, and its fields.
-#[derive(Clone, Default)]
-struct Opened(Arc<Mutex<Vec<(String, bool, BTreeMap<String, String>)>>>);
+/// A span a test's subscriber saw open: its name, whether it is a root,
+/// and its fields.
+type Span = (String, bool, BTreeMap<String, String>);
+
+/// Sends each span the subscriber sees open.
+struct Opened(mpsc::Sender<Span>);
 
 impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Opened {
     fn on_new_span(
@@ -132,7 +134,7 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Opened {
         }
         let mut fields = Fields::default();
         attributes.record(&mut fields);
-        self.0.lock().unwrap().push((
+        let _ = self.0.send((
             attributes.metadata().name().to_owned(),
             attributes.is_root(),
             fields.0,
@@ -143,8 +145,8 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Opened {
 /// Covers: story:3-105
 #[test]
 fn a_run_is_a_root_span_of_its_own_whose_field_is_its_run_id() {
-    let opened = Opened::default();
-    let subscriber = tracing_subscriber::registry().with(opened.clone());
+    let (opened, spans) = mpsc::channel();
+    let subscriber = tracing_subscriber::registry().with(Opened(opened));
     let env = TestEnv::new();
 
     tracing::subscriber::with_default(subscriber, || {
@@ -156,13 +158,9 @@ fn a_run_is_a_root_span_of_its_own_whose_field_is_its_run_id() {
         });
     });
 
-    let runs: Vec<_> = opened
-        .0
-        .lock()
-        .unwrap()
-        .iter()
+    let runs: Vec<Span> = spans
+        .try_iter()
         .filter(|(name, _, _)| name == "run")
-        .cloned()
         .collect();
     assert_eq!(
         runs,

@@ -208,6 +208,39 @@ pub struct HelloParams {
     pub log_level: Option<LogLevel>,
 }
 
+/// One engine process, new each time an engine starts (ADR 0031): the
+/// positions of its events count within it, so a position another engine
+/// instance gave means nothing to it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct EngineInstance(String);
+
+impl EngineInstance {
+    /// The engine instance `text` names.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+
+    /// Its text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl JsonSchema for EngineInstance {
+    fn schema_name() -> Cow<'static, str> {
+        "EngineInstance".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "string",
+            "minLength": 1,
+            "description": "One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only.",
+        })
+    }
+}
+
 /// What an engine answers to a `hello` it accepts.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct HelloResult {
@@ -220,6 +253,11 @@ pub struct HelloResult {
     /// The engine's Product version.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub product_version: ProductVersion,
+    /// The engine process, new each time an engine starts: the positions
+    /// of its events count within it, so a Client that meets a new one
+    /// resyncs (ADR 0031).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub engine_instance: EngineInstance,
     /// An Attached engine's private endpoint, reported to the Client of its
     /// stdio alone: where that Client's `workers=N` handler processes, and a
     /// Daemon forwarding a live action, connect (ADRs 0024 and 0031).

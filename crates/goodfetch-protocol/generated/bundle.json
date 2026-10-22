@@ -4,6 +4,81 @@
       "description": "What a locator action answers once its input landed on its target:\nnothing, since no operation returns a handle on an element (ADR 0085).",
       "type": "object"
     },
+    "Actor": {
+      "description": "Who an entry's event was done by.",
+      "oneOf": [
+        {
+          "description": "A person, by the name their account or OS user goes by.",
+          "properties": {
+            "kind": {
+              "const": "person",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "Their name.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A named token (area 12), by its name.",
+          "properties": {
+            "kind": {
+              "const": "named_token",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "Its name.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A Client, by the surface its `hello` named.",
+          "properties": {
+            "kind": {
+              "const": "client_surface",
+              "type": "string"
+            },
+            "surface": {
+              "$ref": "#/$defs/Surface",
+              "arrived_in": "0.1",
+              "description": "Its surface."
+            }
+          },
+          "required": [
+            "kind",
+            "surface"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The engine itself.",
+          "properties": {
+            "kind": {
+              "const": "engine",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Artifact": {
       "additionalProperties": false,
       "description": "A published file or package.",
@@ -143,6 +218,106 @@
         "url",
         "sha256"
       ],
+      "type": "object"
+    },
+    "AuditEntry": {
+      "description": "One entry of the Audit log, as its hash covers it.",
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Actor",
+          "arrived_in": "0.1",
+          "description": "Who did what it records."
+        },
+        "details": {
+          "arrived_in": "0.1",
+          "description": "What its kind records, such as a Secret reference and the domain it\nwas sent to, never a secret's value."
+        },
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "Its kind, a value of the shared type `audit_kind`.",
+          "type": "string"
+        },
+        "layer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsLayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The settings layer its event came from, such as an Operator policy\nthat switched a control off; none where no layer applies."
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run it happened in; none outside a Run."
+        },
+        "sequence": {
+          "arrived_in": "0.1",
+          "description": "Its place in the chain, from 1.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "time": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it was recorded."
+        }
+      },
+      "required": [
+        "sequence",
+        "time",
+        "kind",
+        "actor",
+        "details"
+      ],
+      "type": "object"
+    },
+    "AuditVerified": {
+      "description": "What `audit.verify` answers.",
+      "properties": {
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "How many entries the log holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "first_broken": {
+          "arrived_in": "0.1",
+          "description": "The first sequence that does not verify: an entry edited, missing\nor out of its place, or, past the last entry, a tail the head file\nsays was there; none when intact.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "intact": {
+          "arrived_in": "0.1",
+          "description": "Whether every entry chains to the one before it and the head file\nagrees with the last one.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "intact",
+        "entries"
+      ],
+      "type": "object"
+    },
+    "AuditVerifyParams": {
+      "additionalProperties": false,
+      "description": "What `audit.verify` takes: nothing.",
       "type": "object"
     },
     "BlockCause": {
@@ -1748,6 +1923,11 @@
       "description": "What `engine.info` takes: nothing.",
       "type": "object"
     },
+    "EngineInstance": {
+      "description": "One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only.",
+      "minLength": 1,
+      "type": "string"
+    },
     "EnqueueDocument": {
       "additionalProperties": false,
       "description": "The document a handler read, against which its relative URLs resolve.",
@@ -2004,14 +2184,14 @@
         "after": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Position"
+              "$ref": "#/$defs/LastRead"
             },
             {
               "type": "null"
             }
           ],
           "arrived_in": "0.1",
-          "description": "The position of the last event the Client read: the subscription\nresumes after it, or starts with `events.resync` when the engine no\nlonger holds it. Absent, it starts with the next event."
+          "description": "The last event the Client read, `{engine_instance, position}`: the\nsubscription resumes after it, or starts with `events.resync` when\nthe engine no longer holds it or another engine instance gave it, as\nafter a Daemon restart. Absent, it starts with the next event."
         }
       },
       "type": "object"
@@ -2346,6 +2526,11 @@
     "HelloResult": {
       "description": "What an engine answers to a `hello` it accepts.",
       "properties": {
+        "engine_instance": {
+          "$ref": "#/$defs/EngineInstance",
+          "arrived_in": "0.1",
+          "description": "The engine process, new each time an engine starts: the positions\nof its events count within it, so a Client that meets a new one\nresyncs (ADR 0031)."
+        },
         "private_endpoint": {
           "anyOf": [
             {
@@ -2377,7 +2562,8 @@
       "required": [
         "protocol_version",
         "product",
-        "product_version"
+        "product_version",
+        "engine_instance"
       ],
       "type": "object"
     },
@@ -2930,6 +3116,27 @@
       },
       "required": [
         "value"
+      ],
+      "type": "object"
+    },
+    "LastRead": {
+      "additionalProperties": false,
+      "description": "The last event a Client read: its position, and the engine instance\nthat gave it.",
+      "properties": {
+        "engine_instance": {
+          "$ref": "#/$defs/EngineInstance",
+          "arrived_in": "0.1",
+          "description": "The engine instance, as its `hello` named it."
+        },
+        "position": {
+          "$ref": "#/$defs/Position",
+          "arrived_in": "0.1",
+          "description": "The event's position."
+        }
+      },
+      "required": [
+        "engine_instance",
+        "position"
       ],
       "type": "object"
     },
@@ -6690,6 +6897,16 @@
       "rule": "frozen_major",
       "schema": {
         "$ref": "#/$defs/PermitRow"
+      },
+      "storage": "sqlite",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "audit-log",
+      "rule": "frozen_major",
+      "schema": {
+        "$ref": "#/$defs/AuditEntry"
       },
       "storage": "sqlite",
       "version": "0.1"

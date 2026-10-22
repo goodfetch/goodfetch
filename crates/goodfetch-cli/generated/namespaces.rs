@@ -37,6 +37,11 @@
         about: "Calls the catalog's `key_value_store` operations",
     },
     Namespace {
+        name: "audit",
+        spelled: "audit",
+        about: "Calls the catalog's `audit` operations",
+    },
+    Namespace {
         name: "sample",
         spelled: "sample",
         about: "Calls the catalog's `sample` operations",

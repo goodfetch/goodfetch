@@ -1,6 +1,6 @@
 # Every fetch tier follows redirects as the browser does, fails a cut body, and resends only what a site never processed
 
-A crawl request reaches its handler only as a whole document, after the same redirects on every fetch tier. A fetch follows at most 20 redirects, as the browser does, a refresh stub's target counting as one of them. A body that broke off fails its attempt. A request the site never processed is sent again once, at no cost to the request's retries or the site's Politeness. A site's `Retry-After` is never cut short, and the backoff is spread with jitter. Before this, ADR 0020 said only that "the engine sets decompression, redirects and timeouts itself", and ADR 0037's SA-24 read that as decided. No hop limit, loop outcome or method rule was stated, and nothing said what a truncated body, a dropped connection or a `Retry-After` of hours does.
+A crawl request reaches its handler only as a whole document, after the same redirects on every fetch tier. A fetch follows at most 19 redirects (20 requests), as the browser does, a refresh stub's target counting as one of them. A body that broke off fails its attempt. A request the site never processed is sent again once, at no cost to the request's retries or the site's Politeness. A site's `Retry-After` is never cut short, and the backoff is spread with jitter. Before this, ADR 0020 said only that "the engine sets decompression, redirects and timeouts itself", and ADR 0037's SA-24 read that as decided. No hop limit, loop outcome or method rule was stated, and nothing said what a truncated body, a dropped connection or a `Retry-After` of hours does.
 
 **What this answers.** Rows U12, U13, H02, H05, H07, H15 and H24 of the [pitfall catalog](https://github.com/goodfetch/goodfetch/blob/prototype/sdk-api/sdk-api-sketch/pitfalls.md): redirect chains and loops, refresh stubs on the HTTP tiers, stale DNS answers and a broken IPv6 path, HTTP/2 GOAWAY and stale keep-alive connections, a `Retry-After` of hours, backoff without jitter, and truncated bodies stored as pages. The evidence is items 1.17, 1.18, 2.2, 2.3, 2.6 to 2.10, 2.12, 2.17 and 2.25 of the [common pitfalls research](https://github.com/goodfetch/goodfetch/blob/research/common-pitfalls/rnd/research/2026-10-16-common-pitfalls.md).
 
@@ -10,7 +10,7 @@ A crawl request reaches its handler only as a whole document, after the same red
   - Its step 12 turns a 301 or 302 POST, and a 303 with any method but GET or HEAD, into a GET with no body and no request-body headers.
   - Its step 13 removes `Authorization` "the moment another origin is seen".
   - Its step 6 fails a `Location` whose scheme is not HTTP(S).
-  - Chromium has `kMaxRedirects = 20` ([url_request.h](https://raw.githubusercontent.com/chromium/chromium/main/net/url_request/url_request.h)) and returns `ERR_TOO_MANY_REDIRECTS` past it ([url_request_job.cc](https://raw.githubusercontent.com/chromium/chromium/main/net/url_request/url_request_job.cc)).
+  - Chromium has `kMaxRedirects = 20` ([url_request.h](https://raw.githubusercontent.com/chromium/chromium/main/net/url_request/url_request.h)) and returns `ERR_TOO_MANY_REDIRECTS` past it ([url_request_job.cc](https://raw.githubusercontent.com/chromium/chromium/main/net/url_request/url_request_job.cc)). A navigation of the pinned Chrome for Testing 156 counts its first request in those 20 and follows 19 redirects (#699, the note under "On a Collie page").
   - Playwright's [`maxRedirects`](https://playwright.dev/docs/api/class-apirequestcontext#api-request-context-fetch-option-max-redirects) defaults to 20, and 0 does not follow.
   - Scrapy's `REDIRECT_MAX_TIMES` is 20, and a status in `handle_httpstatus_list` reaches the spider instead of being followed ([downloader middleware](https://docs.scrapy.org/en/latest/topics/downloader-middleware.html)).
   - Googlebot follows 10, and Nutch follows none inline (research 1.17).
@@ -47,8 +47,8 @@ Decided in [Redirect limits, truncated bodies and transport failures on the fetc
 - **What is followed.** One of Fetch's redirect statuses (301, 302, 303, 307, 308) with a `Location` that parses to an HTTP(S) URL. It is followed on every tier, so a handler gets the same document whatever its tier, and a sample comparison sees the same chain, as ADR 0093's one handler for every tier needs and as the browser does (S3).
   - **Any other 3xx fails at once with `response_not_ok`**, like a 4xx (ADR 0093). That covers a status Fetch does not follow (300, 305, 306, or a 304 that the Response cache did not ask for), a redirect with no `Location`, and one whose `Location` does not parse or names another scheme.
   - **A redirect status listed in `crawl.handle_statuses` is not followed.** The handler gets the 3xx as its response, as Scrapy's `handle_httpstatus_list` does. That is the one way not to follow a redirect (S2).
-- **At most `fetch.redirect.max` redirects,** 20 by default, the number of Fetch, Chromium, Scrapy and Playwright's `maxRedirects`.
-  - It is set down to a Label, and takes 1 to 20. Any other value is refused with `setting_invalid` when its scope opens (G3), since the browser cannot follow more than 20 and not following is said through `crawl.handle_statuses`.
+- **At most `fetch.redirect.max` redirects,** 19 by default, as many as the pinned browser follows in a navigation: 20 requests, its first included (owner, 2026-10-22). Fetch, Scrapy and Playwright's `maxRedirects` follow 20, one more than the browser tier can.
+  - It is set down to a Label, and takes 1 to 19. Any other value is refused with `setting_invalid` when its scope opens (G3), since the browser cannot follow more than 19 and not following is said through `crawl.handle_statuses`.
   - Past it, the attempt fails with `too_many_redirects`, a `PageError` that is not retryable, since a loop answers the same way again (G5). The request then ends `failed` with it.
   - No cycle is detected before the count. A site that sets a cookie at A and redirects through B back to A, which then answers 200, visits a URL twice by design, and the count is how Fetch and Chromium intervene in a loop.
 - **Method, body and headers follow Fetch,** so every tier sends what the browser sends:
@@ -60,14 +60,14 @@ Decided in [Redirect limits, truncated bodies and transport failures on the fetc
     > Amended by [ADR 0120](0120-the-frontier-parses-urls-as-browsers-do-fixes-only-safe-rules-learns-the-rest-on-evidence-and-caps-a-urls-shape.md): the identity's URL is its key, made by ADR 0120's rules. A hop that reaches a URL whose key the Frontier already admitted for another request ends the request `skipped` with `duplicate`, and its handler does not run. A hop back to the request's own key, or to a URL earlier in its own chain, is followed and counted as above.
 - **Each hop goes through the navigation gate** (ADR 0087), on every tier:
   - the crawl's scope (`out_of_scope`), the domain policy (`domain_policy`) and robots.txt (`robots_txt`), as ADR 0093 already checks every redirect;
-  - the hop's domain's limits and delay. Each hop takes its own permit, and the previous hop's 3xx releases its own. A loop therefore costs a site at most `fetch.redirect.max` requests at the domain's pace, never a burst (G5).
+  - the hop's domain's limits and delay. Each hop takes its own permit, and the previous hop's 3xx releases its own. A loop therefore costs a site at most `fetch.redirect.max` + 1 requests, 20 by default, at the domain's pace, never a burst (G5).
   - A permit's wait counts against no timeout (ADR 0093).
 - **A `Retry-After` on a redirect** delays its next hop by at least that long (RFC 9110 §10.2.3), bounded like any other `Retry-After` (below).
 - **The record.** `ctx.response` is the final document's response, with the redirect chain ADR 0093 gives it, a refresh hop marked as one. The Run trace records each hop and its wait.
 - **On a Collie page.**
-  - A navigation past the browser's 20 raises `too_many_redirects`, where Chromium reports `ERR_TOO_MANY_REDIRECTS`. Any other network error still raises `navigation_failed` (ADR 0085).
+  - A navigation past the browser's 19 redirects raises `too_many_redirects`, where Chromium reports `ERR_TOO_MANY_REDIRECTS`. Any other network error still raises `navigation_failed` (ADR 0085).
     > Note (#699, accepted by the owner on 2026-10-22: every fetch tier follows at most 19 redirects (20 requests), as the browser does): the pinned Chromium (Chrome for Testing 156) follows 19 redirects in a navigation, not 20: the Proving ground saw 20 requests of the `redirects` family's chain of 20, `/hops/20` to `/hops/1`, and none to `/hops/0`, and a chain of 19 loads. Its count of 20 holds the chain's first request. A Collie navigation reports the browser's count, 20, and the 19 hops it followed.
-  - `page.request` keeps Playwright's `maxRedirects` option, 20 by default; `0` returns the 3xx. Past the count it raises `too_many_redirects`. A value above 20 is refused with `setting_invalid`, since the browser-fetch tier that sends it on a Session with a browser cannot go past 20, and every tier keeps that count (ADR 0083 makes a call's argument a run-layer value).
+  - `page.request` keeps Playwright's `maxRedirects` option, 19 by default where Playwright's is 20; `0` returns the 3xx. Past the count it raises `too_many_redirects`. A value above 19 is refused with `setting_invalid`, since the browser-fetch tier that sends it on a Session with a browser cannot go past 19, and every tier keeps that count (ADR 0083 makes a call's argument a run-layer value).
   - A Collie navigation ignores a `Retry-After` on a 3xx, as browsers do: it is the program's own navigation, outside Politeness (ADR 0086).
 
 ### Refresh stubs and script redirects
@@ -154,7 +154,7 @@ An answer whose every address fails to connect is dropped before its TTL ends, s
 
 | Key | Built-in | Scope |
 |---|---|---|
-| `fetch.redirect.max` | 20, from 1 to 20 | a crawl, down to a Label |
+| `fetch.redirect.max` | 19, from 1 to 19 | a crawl, down to a Label |
 | `fetch.refresh.max_delay` | 100 s; `null` for any | a crawl, down to a Label |
 | `politeness.retry_after.max` | 15 minutes | a crawl, on a connection or a Run |
 
@@ -170,7 +170,7 @@ Their classes are `TooManyRedirectsError` and `ResponseTruncatedError` under ADR
 ## Considered Options
 
 - **10 redirects, as Googlebot:** rejected. A document tier would fail where the browser goes on, and a Label's tier choice would change on a chain of eleven (ADR 0093).
-- **A limit above 20:** rejected. The browser stops at 20, so the tiers would disagree.
+- **A limit above 19, such as the 20 of Fetch, Scrapy and Playwright:** rejected. The pinned browser stops at 19 redirects in a navigation, so a chain of 20 would load on a document tier and fail on the browser tier.
 - **Detecting a cycle by a repeated URL:** rejected. It breaks a site that sets a cookie and redirects back to the URL it started from, and Fetch, Chromium and Scrapy all rely on the count.
 - **`fetch.redirect.max: 0` to stop following:** rejected by S2. `crawl.handle_statuses` already hands a status to the handler, as Scrapy's `handle_httpstatus_list` does, and two settings for one choice could disagree.
 - **`too_many_redirects` retryable, or `navigation_failed` for it:** rejected. A loop answers the same way next time, and each retry costs a site 20 more requests (G5).
@@ -200,7 +200,7 @@ Their classes are `TooManyRedirectsError` and `ResponseTruncatedError` under ADR
 - **Amends ADR 0086.** `politeness.retry_after.max` joins its Settings table, and is not a value that presses harder. An HTTP/2 `ENHANCE_YOUR_CALM` backs off like a 503. Each redirect hop, a browser-tier fetch's included, is a request start under the domain's limits and delay. Notes sit under "A browser-tier fetch counts as one request", "A failing site slows the crawl" and its Settings table.
 - **Amends ADR 0087.** The navigation gate's permit is held per hop: each redirect or refresh hop takes its own, and the 3xx or refresh stub that ends a hop releases its permit, so only the last hop's permit lasts until the response arrives, or the load event on a browser-tier page. The load of an admitted crawl request takes no permit for its first hop, which admission gave, and one for each hop after it. A note sits under its navigation gate.
 - **Amends ADR 0093.** Which responses reach a handler gains the 3xx rules, `too_many_redirects`, `response_truncated` and `navigation_failed` for transport failures. `fetch.redirect.max` and `fetch.refresh.max_delay` join its settings, and `response_unavailable` covers a request a long `Retry-After` held. Notes sit under its responses list, its settings and its Error codes.
-- **Amends ADR 0085.** A navigation past the browser's 20 redirects raises `too_many_redirects`, a cut main document or body `response_truncated`, and `page.request`'s `maxRedirects` stops at 20. `body()`, `text()` and `json()`, which never failed on a kept body, raise `response_truncated` for a cut one. Notes sit under its Bodies bullet, its Navigation section and its Error codes table.
+- **Amends ADR 0085.** A navigation past the browser's 19 redirects raises `too_many_redirects`, a cut main document or body `response_truncated`, and `page.request`'s `maxRedirects` stops at 19. `body()`, `text()` and `json()`, which never failed on a kept body, raise `response_truncated` for a cut one. Notes sit under its Bodies bullet, its Navigation section and its Error codes table.
 - **Adds to ADRs 0046 and 0105.** The Response cache never stores a cut response, and a Response recording keeps one with `WARC-Truncated: disconnect`, replayed as `response_truncated`. Notes sit under ADR 0046's list of what is never stored and ADR 0105's recording.
 - **Adds to ADR 0092.** The details of `blocked` also carry `retryAfter`, the time a `rate_limit`'s `Retry-After` asks for, read in either form. A note sits under its Block cause bullet.
 - **Adds to ADR 0102.** The wait reason `backoff` also covers a `Retry-After`'s wait, its setting `politeness.retry_after.max` when the site's time is the longer. A note sits under `CrawlRunProgress`.

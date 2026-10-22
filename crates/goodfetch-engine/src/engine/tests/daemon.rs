@@ -188,13 +188,18 @@ fn a_daemon_answers_a_hello_that_carries_its_token() {
             client.next().await
         },
     );
+    let mut answer = answer.unwrap();
+    let named = super::takes_engine_instance(&mut answer);
 
     assert_eq!(
-        answer,
-        Some(json!({
-            "jsonrpc": "2.0", "id": 0,
-            "result": { "protocol_version": "0.1", "product": "collie", "product_version": "1.4.0" },
-        }))
+        (answer, named),
+        (
+            json!({
+                "jsonrpc": "2.0", "id": 0,
+                "result": { "protocol_version": "0.1", "product": "collie", "product_version": "1.4.0" },
+            }),
+            true
+        )
     );
 }
 

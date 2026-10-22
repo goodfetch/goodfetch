@@ -1331,24 +1331,24 @@
       "start_url": "http://16.redirects.test/to_own_loopback"
     },
     {
-      "description": "Extract the page the start URL leads to as one Record with `id` and `word`, through a chain of 20 redirects, as many as a fetch follows (ADR 0118).",
-      "digest": "2c5134b983460ecb82d46e67361f5558a3f5725fbc7bb19b0abf34a13bdc3bf1",
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`, through a chain of 19 redirects, as many as a fetch follows (ADR 0118).",
+      "digest": "209a282436f086b2de42db8df7487eeb37b681018163105f02171c011fac3e3b",
       "family": "redirects",
       "id": "redirects/17",
       "kind": "extract",
-      "start_url": "http://17.redirects.test/hops/20"
+      "start_url": "http://17.redirects.test/hops/19"
     },
     {
-      "description": "Extract the page the start URL leads to as one Record with `id` and `word`, through a chain of 21 redirects, one more than a fetch follows: a correct tool refuses it with `too_many_redirects` (ADR 0118).",
-      "digest": "ecfb592fa5fd67ca3aec89431e49a3734cea21f334c231d185f044e91bd7d841",
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`, through a chain of 20 redirects, one more than a fetch follows: a correct tool refuses it with `too_many_redirects` (ADR 0118).",
+      "digest": "adf880e482d7a397e717f49995b0d21ecd49ee4e78e1d05b5e9c807a9a56f8e0",
       "family": "redirects",
       "id": "redirects/18",
       "kind": "extract",
-      "start_url": "http://18.redirects.test/hops/21"
+      "start_url": "http://18.redirects.test/hops/20"
     },
     {
-      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects in a loop of two pages: a correct tool refuses it with `too_many_redirects` after 20 redirects (ADR 0118).",
-      "digest": "436b6bc9f1089501e0f9796334bc2bd46ba8f067d583f5d59a91deeaf364d0f2",
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects in a loop of two pages: a correct tool refuses it with `too_many_redirects` at its 20th request, after 19 redirects (ADR 0118).",
+      "digest": "f8ec8a4e7e4ce0f4520c502f7468393fe6391aedeac7ff686b4ca8f0fde9e7cc",
       "family": "redirects",
       "id": "redirects/19",
       "kind": "extract",

@@ -245,22 +245,42 @@ fn exchange(engine: &Engine, messages: &[Value]) -> Vec<Value> {
     })
 }
 
+/// Takes the engine instance out of an accepted `hello`'s `reply`,
+/// answering whether it names one: 16 lowercase hex digits, new in each
+/// engine process.
+fn takes_engine_instance(reply: &mut Value) -> bool {
+    reply["result"]
+        .as_object_mut()
+        .and_then(|result| result.remove("engine_instance"))
+        .and_then(|instance| instance.as_str().map(str::to_owned))
+        .is_some_and(|instance| {
+            instance.len() == 16
+                && instance
+                    .bytes()
+                    .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        })
+}
+
 fn pretty(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap()
 }
 
 /// Covers: story:3-3
 #[test]
-fn an_accepted_hello_answers_the_engines_product_and_versions() {
-    let received = exchange(&engine(Product::Collie), &[hello("collie", "0.1")]);
+fn an_accepted_hello_answers_the_engines_product_and_versions_and_instance() {
+    let mut received = exchange(&engine(Product::Collie), &[hello("collie", "0.1")]);
+    let named = takes_engine_instance(&mut received[0]);
 
     assert_eq!(
-        received,
-        [json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "result": { "protocol_version": "0.1", "product": "collie", "product_version": "1.4.0" },
-        })]
+        (received, named),
+        (
+            vec![json!({
+                "jsonrpc": "2.0",
+                "id": 0,
+                "result": { "protocol_version": "0.1", "product": "collie", "product_version": "1.4.0" },
+            })],
+            true
+        )
     );
 }
 

@@ -418,6 +418,23 @@ number = 4
 kind = "setting"
 prefix = "secrets."
 
+# Area 4's Audit log (#612): `audit.verify`, Collie's `audit verify` and the
+# log's format.
+[[area]]
+number = 4
+kind = "operation"
+prefix = "audit."
+
+[[area]]
+number = 4
+kind = "command"
+prefix = "audit."
+
+[[area]]
+number = 4
+kind = "format"
+prefix = "audit-log"
+
 [[area]]
 number = 5
 kind = "setting"

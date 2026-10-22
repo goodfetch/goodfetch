@@ -137,6 +137,7 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("key_value_store.set", Offer::Command),
             ("key_value_store.delete", Offer::Command),
             ("key_value_store.keys", Offer::Follow),
+            ("audit.verify", Offer::Command),
             ("sample.echo", Offer::Command),
             ("config.explain", Offer::Command),
             ("usage.list", Offer::Command),
@@ -162,6 +163,7 @@ fn the_generated_namespaces_are_those_of_collies_commands() {
             "page",
             "locator",
             "key_value_store",
+            "audit",
             "sample",
             "config",
             "usage"

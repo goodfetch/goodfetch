@@ -77,7 +77,7 @@ impl<'a> Crawler<'a> {
             follow_hidden: false,
             key: fixed_rules,
             closes: Vec::new(),
-            max_redirects: 20,
+            max_redirects: 19,
             honour_retry_after: true,
             limit: 2_000,
             base: Base::Document,

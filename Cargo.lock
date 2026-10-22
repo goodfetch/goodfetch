@@ -1378,6 +1378,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "serde_json_canonicalizer",
  "sha2",
  "sqlite-plugin",
  "syn 3.0.9",

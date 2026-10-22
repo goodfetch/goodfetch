@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, Checkpoint, ClickParams, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
+from .models import Acted, AuditVerified, AuditVerifyParams, Checkpoint, ClickParams, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
 
 
 class AsyncCaller(Protocol):
@@ -41,6 +41,13 @@ class AsyncCollieOperations:
         """Takes the runtime that sends each call."""
         self._caller = caller
 
+    async def audit_verify(self, params: AuditVerifyParams) -> AuditVerified:
+        """Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return AuditVerified.model_construct(**_fields(await self._caller.call("audit.verify", params)))
+
     async def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
         """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's."""
         return SettingsExplanation.model_construct(**_fields(await self._caller.call("config.explain", params)))
@@ -65,7 +72,7 @@ class AsyncCollieOperations:
         return EngineInfo.model_construct(**_fields(await self._caller.call("engine.info", params)))
 
     async def events_subscribe(self, params: EventsSubscribeParams) -> SubscriptionEnded:
-        """Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. A lossless event is never dropped: while the subscription's queue is full, its producer waits. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it.
+        """Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -257,6 +264,13 @@ class CollieOperations:
         """Takes the runtime that sends each call."""
         self._caller = caller
 
+    def audit_verify(self, params: AuditVerifyParams) -> AuditVerified:
+        """Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return AuditVerified.model_construct(**_fields(self._caller.call("audit.verify", params)))
+
     def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
         """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's."""
         return SettingsExplanation.model_construct(**_fields(self._caller.call("config.explain", params)))
@@ -281,7 +295,7 @@ class CollieOperations:
         return EngineInfo.model_construct(**_fields(self._caller.call("engine.info", params)))
 
     def events_subscribe(self, params: EventsSubscribeParams) -> SubscriptionEnded:
-        """Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. A lossless event is never dropped: while the subscription's queue is full, its producer waits. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, it resumes after that position, or starts with `events.resync` when the engine no longer holds it.
+        """Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """

@@ -18,12 +18,83 @@ fn the_bundle_holds_the_schema_of_the_releases_file() {
     );
 }
 
+/// The formats of the registry that are no settings file, as the bundle
+/// writes them.
+fn file_formats() -> serde_json::Value {
+    json!([
+        {
+            "name": "protocol",
+            "version": "0.1",
+            "storage": "transcript",
+            "rule": "default",
+            "hello_from": ["client", "browser_host"],
+            "schema": { "$ref": "#/$defs/Message" },
+        },
+        {
+            "name": "browser-cache",
+            "version": "0.1",
+            "storage": "json",
+            "rule": "default",
+            "hello_from": [],
+            "schema": { "$ref": "#/$defs/BrowserCacheEntry" },
+        },
+        {
+            "name": "run-index",
+            "version": "0.1",
+            "storage": "sqlite",
+            "rule": "shared_store",
+            "hello_from": [],
+            "schema": { "$ref": "#/$defs/RunIndexRow" },
+        },
+        {
+            "name": "run-state",
+            "version": "0.1",
+            "storage": "sqlite",
+            "rule": "default",
+            "hello_from": [],
+            "schema": { "$ref": "#/$defs/RunStateRow" },
+        },
+        {
+            "name": "installed-executables",
+            "version": "0.1",
+            "storage": "json",
+            "rule": "frozen_major",
+            "hello_from": [],
+            "schema": { "$ref": "#/$defs/InstalledExecutables" },
+        },
+        {
+            "name": "usage-ledger",
+            "version": "0.1",
+            "storage": "sqlite",
+            "rule": "frozen_major",
+            "hello_from": [],
+            "schema": { "$ref": "#/$defs/Limit" },
+        },
+        {
+            "name": "politeness-file",
+            "version": "0.1",
+            "storage": "sqlite",
+            "rule": "frozen_major",
+            "hello_from": [],
+            "schema": { "$ref": "#/$defs/PermitRow" },
+        },
+        {
+            "name": "audit-log",
+            "version": "0.1",
+            "storage": "sqlite",
+            "rule": "frozen_major",
+            "hello_from": [],
+            "schema": { "$ref": "#/$defs/AuditEntry" },
+        },
+    ])
+}
+
 #[test]
 fn the_bundle_registers_each_format_with_its_rule_and_schema() {
     let emitted = emit();
     let mut formats = emitted.bundle["formats"].as_array().unwrap().clone();
     let settings_files: Vec<serde_json::Value> = formats
-        .drain(7..)
+        .drain(8..)
         .map(|format| {
             json!({
                 "name": format["name"],
@@ -57,67 +128,7 @@ fn the_bundle_registers_each_format_with_its_rule_and_schema() {
             }),
         ]
     );
-    assert_eq!(
-        serde_json::Value::Array(formats),
-        json!([
-            {
-                "name": "protocol",
-                "version": "0.1",
-                "storage": "transcript",
-                "rule": "default",
-                "hello_from": ["client", "browser_host"],
-                "schema": { "$ref": "#/$defs/Message" },
-            },
-            {
-                "name": "browser-cache",
-                "version": "0.1",
-                "storage": "json",
-                "rule": "default",
-                "hello_from": [],
-                "schema": { "$ref": "#/$defs/BrowserCacheEntry" },
-            },
-            {
-                "name": "run-index",
-                "version": "0.1",
-                "storage": "sqlite",
-                "rule": "shared_store",
-                "hello_from": [],
-                "schema": { "$ref": "#/$defs/RunIndexRow" },
-            },
-            {
-                "name": "run-state",
-                "version": "0.1",
-                "storage": "sqlite",
-                "rule": "default",
-                "hello_from": [],
-                "schema": { "$ref": "#/$defs/RunStateRow" },
-            },
-            {
-                "name": "installed-executables",
-                "version": "0.1",
-                "storage": "json",
-                "rule": "frozen_major",
-                "hello_from": [],
-                "schema": { "$ref": "#/$defs/InstalledExecutables" },
-            },
-            {
-                "name": "usage-ledger",
-                "version": "0.1",
-                "storage": "sqlite",
-                "rule": "frozen_major",
-                "hello_from": [],
-                "schema": { "$ref": "#/$defs/Limit" },
-            },
-            {
-                "name": "politeness-file",
-                "version": "0.1",
-                "storage": "sqlite",
-                "rule": "frozen_major",
-                "hello_from": [],
-                "schema": { "$ref": "#/$defs/PermitRow" },
-            },
-        ])
-    );
+    assert_eq!(serde_json::Value::Array(formats), file_formats());
 }
 
 #[test]

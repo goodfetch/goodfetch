@@ -86,6 +86,7 @@ pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
 use crate::admission::{Admission, Gates};
+use crate::audit::AuditLog;
 use crate::body;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
 use crate::client::Client;
@@ -128,8 +129,9 @@ pub(crate) struct RunsSetup {
     pub(crate) location: RunStateLocation,
     /// How run files open.
     pub(crate) run_state: RunStateOptions,
-    /// The VFS the Usage ledger opens through: the run state's own, never
-    /// the install database's, which serves only the run folders.
+    /// The VFS the Usage ledger and the Audit log open through: the run
+    /// state's own, never the install database's, which serves only the run
+    /// folders.
     pub(crate) ledger_vfs: Option<String>,
     /// The install database `run_state`'s VFS serves the run files from,
     /// in the per-install layout, kept open while the registry lives.
@@ -658,6 +660,7 @@ pub struct Runs {
     settings: Settings,
     connection: Option<ConnectionId>,
     limits: Arc<Limits>,
+    audit: Arc<AuditLog>,
     drivers: Arc<BTreeMap<RunKind, Driver>>,
 }
 
@@ -1122,7 +1125,7 @@ impl Runs {
             ledger: Ledger::at(setup.home.usage_ledger(), setup.ledger_vfs.clone()),
             clock: setup.clock,
             product: setup.product,
-            instance: format!("{:016x}", setup.entropy.next_u64()),
+            instance: setup.events.instance().as_str().to_owned(),
             daemon: matches!(setup.reached_at, Some(RunOwner::Daemon(_)))
                 .then(|| major_name(&setup.version)),
         };
@@ -1131,6 +1134,7 @@ impl Runs {
             settings: setup.settings.clone(),
             connection: None,
             limits: Arc::new(limits),
+            audit: Arc::new(AuditLog::of(&setup.home, setup.ledger_vfs.clone())),
             drivers: Arc::new(setup.drivers.clone()),
         };
         let politeness = SharedPoliteness {
@@ -1155,6 +1159,7 @@ impl Runs {
             ended: BTreeMap::new(),
             runs: runs.downgrade(),
             limits: Arc::clone(&runs.limits),
+            audit: Arc::clone(&runs.audit),
             drivers: Arc::clone(&runs.drivers),
             machine: None,
             draining: false,
@@ -1176,6 +1181,12 @@ impl Runs {
     /// the scopes they stand in.
     pub(crate) fn limits(&self) -> &Limits {
         &self.limits
+    }
+
+    /// The user's Audit log, to which this engine's Runs record their
+    /// security events.
+    pub(crate) fn audit(&self) -> &AuditLog {
+        &self.audit
     }
 
     /// The Daemon's Connection these Runs belong to; none on an Attached
@@ -1636,6 +1647,7 @@ struct Registry {
     runs: mpsc::WeakSender<Command>,
     /// What its Runs charge against.
     limits: Arc<Limits>,
+    audit: Arc<AuditLog>,
     drivers: Arc<BTreeMap<RunKind, Driver>>,
     /// The machine's identity, once read.
     machine: Option<String>,
@@ -2291,6 +2303,7 @@ impl Registry {
             settings: self.setup.settings.clone(),
             connection,
             limits: Arc::clone(&self.limits),
+            audit: Arc::clone(&self.audit),
             drivers: Arc::clone(&self.drivers),
         }
     }

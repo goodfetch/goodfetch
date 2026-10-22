@@ -16,7 +16,10 @@ use goodfetch_engine::http_client::{FetchError, PageTraffic, Resolve, Waiter};
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::egress::{EgressRefusedDetails, EgressRule};
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{
+    Answer, CaseDomains, Family, Outcome, ProvingGround, Refusal, SsrfCase, SsrfTable, TestEnv,
+    run_cases,
+};
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::pem::PemObject as _;
 use serde_json::{Value, json};
@@ -208,4 +211,112 @@ fn a_refused_request_no_call_waits_on_is_a_request_failed_event_in_the_run_trace
         target_connections(&proving_ground.observations().unwrap()),
         0
     );
+}
+
+/// `url` with `port` written after its host, keeping the host's spelling,
+/// so each case reaches the watched target, which serves any path.
+fn at_port(url: &str, port: u16) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_owned();
+    };
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    format!("{scheme}://{}:{port}{}", &rest[..end], &rest[end..])
+}
+
+/// The table's form of the rule a refusal names.
+fn table_rule(rule: EgressRule) -> goodfetch_test_support::EgressRule {
+    match rule {
+        EgressRule::DomainPolicy => goodfetch_test_support::EgressRule::DomainPolicy,
+        EgressRule::PrivateAddress => goodfetch_test_support::EgressRule::PrivateAddress,
+        EgressRule::Scheme => goodfetch_test_support::EgressRule::Scheme,
+    }
+}
+
+/// The SSRF case table's thin runner on the engine's HTTP client: each case
+/// fetched under its domain policy, its names at the Proving ground's
+/// watched target, the connection record the oracle.
+fn run_case(proving_ground: &ProvingGround, case: &SsrfCase) -> Outcome {
+    let target: SocketAddr = proving_ground
+        .description()
+        .fixtures
+        .target
+        .parse()
+        .unwrap();
+    let domains = case.domains.clone().unwrap_or(CaseDomains {
+        allowed: vec!["*".to_owned()],
+        blocked: Vec::new(),
+    });
+    let resolve = case.lookups.iter().fold(Resolve::new(), |resolve, lookup| {
+        let addresses = lookup
+            .answers
+            .iter()
+            .map(|answer| match answer {
+                Answer::Public => target.ip(),
+                Answer::Address(address) => *address,
+            })
+            .collect();
+        resolve.with(lookup.name.clone(), addresses)
+    });
+    let traffic = PageTraffic {
+        egress: Policy::new(&domains.allowed, &domains.blocked).unwrap(),
+        resolve,
+        trusted_certificates: Vec::new(),
+        clock: Clock::system(),
+        delays: Delays::BUILT_IN,
+    };
+    let before = target_connections(&proving_ground.observations().unwrap());
+    let fetched = goodfetch_test_support::runtime()
+        .block_on(traffic.get(&at_port(&case.url, target.port()), Waiter::Call));
+    let after = target_connections(&proving_ground.observations().unwrap());
+    Outcome {
+        refusal: match fetched {
+            Err(FetchError::Refused(refused)) => Some(Refusal::EgressRefused {
+                rule: table_rule(refused.rule),
+            }),
+            _ => None,
+        },
+        connections: vec![target.ip(); after - before],
+    }
+}
+
+/// Covers: story:4-2
+#[test]
+fn every_domain_policy_case_of_the_ssrf_table_is_refused_before_any_connection() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let table = SsrfTable::committed().unwrap();
+    let target: SocketAddr = proving_ground
+        .description()
+        .fixtures
+        .target
+        .parse()
+        .unwrap();
+    // The positive control: a case's URL under a policy that allows it
+    // reaches the target, and the record shows that connection.
+    let control = SsrfTable::parse(
+        r#"
+        [[cases]]
+        name = "allowed"
+        family = "domain_policy"
+        url = "http://elsewhere.test/offsite"
+        domains = { allowed = ["elsewhere.test"] }
+        lookups = [{ name = "elsewhere.test", answers = ["public"] }]
+        target = "public"
+        refusal = { code = "egress_refused", rule = "domain_policy" }
+        "#,
+    )
+    .unwrap();
+
+    let controlled = run_cases(&control.cases, target.ip(), |case| {
+        run_case(&proving_ground, case)
+    });
+    let result = run_cases(table.cases_of(Family::DomainPolicy), target.ip(), |case| {
+        run_case(&proving_ground, case)
+    });
+
+    assert_eq!(
+        controlled.map_err(|let_through| let_through.misses[0].reached_target),
+        Err(true)
+    );
+    assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
 }

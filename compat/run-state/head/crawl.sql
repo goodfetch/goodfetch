@@ -75,14 +75,16 @@ CREATE TABLE run (
         started_at TEXT NOT NULL,
         ended_at TEXT,
         policy_version TEXT,
-        weakened_by TEXT NOT NULL DEFAULT '[]',
+        weakened TEXT NOT NULL DEFAULT '[]',
         journal_position INTEGER NOT NULL DEFAULT 0,
         binding TEXT,
         clean_up_digest TEXT,
         uncapped INTEGER NOT NULL DEFAULT 0,
-        progress_message TEXT
+        progress_message TEXT,
+        nothing_done TEXT,
+        report TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"},{"label":"guarded","url":"https://guarded.test/"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',41,NULL,NULL,0,NULL);
+INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"},{"label":"guarded","url":"https://guarded.test/"}]}','finished',NULL,'verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',41,NULL,NULL,0,NULL,NULL,'{"run_id":"crawl","lifecycle":"finished","verdict":"verified","completeness":"complete","started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":0,"requests":5,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":995,"set_by":"client"}]},"policy_version":"sha256:0227dc879fda140d","records":[{"committed":3,"dataset":"links","dropped":0,"rejected":0},{"committed":3,"dataset":"pages","dropped":0,"rejected":0}],"requests":{"blocked":1,"by_block_cause":[{"count":1,"name":"ip_block"}],"by_error_code":[{"count":1,"name":"deadline_exceeded"}],"failed":1,"pending":0,"skipped":0,"succeeded":3}}');
 CREATE TABLE scope (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             strategy TEXT NOT NULL,
@@ -118,6 +120,13 @@ CREATE TABLE usage (
         PRIMARY KEY (slice_id, epoch)
     ) STRICT;
 INSERT INTO "usage" VALUES(1,1,5);
+CREATE TABLE usage_totals (
+        usage_kind TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        PRIMARY KEY (usage_kind, currency)
+    ) STRICT;
+INSERT INTO "usage_totals" VALUES('requests','',5);
 CREATE TABLE visited (
             identity TEXT NOT NULL PRIMARY KEY,
             crawl_request TEXT NOT NULL
@@ -127,6 +136,13 @@ INSERT INTO "visited" VALUES('GET https://outlet.test/sale','5');
 INSERT INTO "visited" VALUES('GET https://shop.test/','1');
 INSERT INTO "visited" VALUES('GET https://shop.test/broken','2');
 INSERT INTO "visited" VALUES('key:search-1','3');
+CREATE TABLE warnings (
+        position INTEGER NOT NULL PRIMARY KEY,
+        code TEXT NOT NULL,
+        message TEXT NOT NULL,
+        sessions TEXT NOT NULL,
+        folder TEXT
+    ) STRICT;
 CREATE TABLE work_items (
             id TEXT NOT NULL PRIMARY KEY,
             position INTEGER NOT NULL UNIQUE,

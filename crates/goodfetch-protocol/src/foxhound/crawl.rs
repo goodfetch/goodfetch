@@ -18,8 +18,9 @@ use crate::catalog::{
     ValueKind, schema_of,
 };
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
+use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
-use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunReport, RunStarted, Tags};
+use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunStarted, Tags};
 use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -255,7 +256,7 @@ pub const CRAWL_SERVE: Operation = Operation {
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
     params: schema_of::<RunParams>,
-    result: schema_of::<RunReport>,
+    result: schema_of::<CrawlRunReport>,
     events: &[],
     cancellable: true,
     stability: Stability::Experimental,

@@ -162,6 +162,12 @@ fn run_finish_reads_the_report_of_the_run_the_attached_engine_stopped() {
     ----- stdout -----
     {
       "completeness": "incomplete",
+      "completeness_reasons": [
+        {
+          "code": "stopped",
+          "message": "It stopped early: aborted by its Client."
+        }
+      ],
       "ended_at": "[INSTANT]",
       "lifecycle": "stopped",
       "run_id": "first",
@@ -169,6 +175,15 @@ fn run_finish_reads_the_report_of_the_run_the_attached_engine_stopped() {
       "stop_reason": {
         "by": "client",
         "kind": "abort"
+      },
+      "usage": {
+        "browser_time": 0,
+        "model": {
+          "calls": 0,
+          "tokens": 0
+        },
+        "proxy_bytes": 0,
+        "requests": 0
       },
       "verdict": "verified"
     }
@@ -193,11 +208,13 @@ fn run_abort_prints_the_report_of_an_ended_run_one_field_per_line() {
     exit: 20
     ----- stdout -----
     completeness: incomplete
+    completeness_reasons: [{"code":"stopped","message":"It stopped early: aborted by its Client."}]
     ended_at: [INSTANT]
     lifecycle: stopped
     run_id: first
     started_at: [INSTANT]
     stop_reason: {"by":"client","kind":"abort"}
+    usage: {"browser_time":0,"model":{"calls":0,"tokens":0},"proxy_bytes":0,"requests":0}
     verdict: verified
     ----- stderr -----
     [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="hello"

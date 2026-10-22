@@ -107,6 +107,26 @@ pub struct SettingLimit {
     pub layer: SettingsLayer,
 }
 
+/// A setting that weakened a safeguard for a Run (ADR 0028): its key, its
+/// value, the layer that set it and, for the run layer, where the value came
+/// from.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WeakenedSetting {
+    /// The setting's key.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key: String,
+    /// Its value.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub value: Value,
+    /// The layer that set it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub layer: SettingsLayer,
+    /// For the run layer, where the value came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub origin: Option<RunOrigin>,
+}
+
 /// An unknown key, or an unknown `GOODFETCH_` variable (ADR 0083).
 pub const SETTING_UNKNOWN: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "setting_unknown",
@@ -633,6 +653,18 @@ pub const TIMEOUT_RUN: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `timeout.close` (ADRs 0080 and 0083).
+pub const TIMEOUT_CLOSE: Setting = Setting {
+    name: "timeout.close",
+    description: "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `timeout.action` (ADRs 0019, 0080 and 0083), the guard's window.
 pub const TIMEOUT_ACTION: Setting = Setting {
     name: "timeout.action",
@@ -709,6 +741,7 @@ pub const ENTRIES: Entries = Entries {
         SECRETS_BY_REFERENCE,
         WEBHOOK_SIGNING,
         TIMEOUT_RUN,
+        TIMEOUT_CLOSE,
         TIMEOUT_ACTION,
         TIMEOUT_NAVIGATION,
         TIMEOUT_FIRST_BYTE,

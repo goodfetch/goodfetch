@@ -28,6 +28,10 @@ use url::{Host, Url};
 use crate::composition::CallError;
 use crate::settings::Resolved;
 
+mod address;
+
+pub use address::{AddressClass, classify, classify_socket};
+
 #[cfg(test)]
 mod tests;
 

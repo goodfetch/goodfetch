@@ -342,7 +342,7 @@ pub const LIMIT_REACHED: ErrorCodeDefinition = ErrorCodeDefinition {
     description: "A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.",
     group: ErrorGroup::Refused,
     retryable: false,
-    exit_code: None,
+    exit_code: Some(16),
     arrived_in: ARRIVED_IN,
 };
 

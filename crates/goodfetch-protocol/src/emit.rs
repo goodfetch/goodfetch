@@ -12,7 +12,9 @@
 //! document and the case log's entry (ADRs 0063 and 0069). What later
 //! decisions put in the bundle
 //! joins here once its types exist, through the same `xtask codegen`: the
-//! exit-code table (ADR 0069) and the Feature inventory schemas (ADR 0072).
+//! Feature inventory schemas (ADR 0072). The catalog's `exit_codes` is ADR
+//! 0069's exit-code table by exit code, each row `{name, product, code,
+//! description}`, whose names are the `exit:` Features.
 //! The bundle's `outputs` maps each hand-written command's path, such as
 //! `daemon.start`, to the type of its `--json` output (ADR 0069); a command
 //! generated from an operation prints the operation's `result`, and every
@@ -39,7 +41,7 @@ use crate::catalog::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HandlerRequest, HookStage,
     Metric, Operation, PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
 };
-use crate::cli::CommandFailed;
+use crate::cli::{CommandFailed, ExitCodeRow, exit_code_table};
 use crate::connection::{CancelParams, HelloParams, HelloResult};
 use crate::daemon::{
     DaemonInstallOutput, DaemonRotateTokenOutput, DaemonStartOutput, DaemonStatusOutput,
@@ -228,6 +230,7 @@ impl Sections {
             "handler_requests": sorted(self.handler_requests),
             "error_groups": ErrorGroup::ALL.iter().map(|group| error_group_entry(*group)).collect::<Vec<_>>(),
             "error_codes": sorted(self.error_codes),
+            "exit_codes": exit_code_table().iter().map(exit_code_entry).collect::<Vec<_>>(),
             "plugin_kinds": sorted(self.plugin_kinds),
             "metrics": sorted(self.metrics),
             "settings": sorted(self.settings),
@@ -321,6 +324,17 @@ fn error_code_entry(product: Product, code: &ErrorCodeDefinition) -> Value {
         "retryable": code.retryable,
         "exit_code": code.exit_code,
         "arrived_in": code.arrived_in.to_string(),
+    })
+}
+
+/// A row of ADR 0069's exit-code table, which both Products' executables
+/// share (ADR 0090).
+fn exit_code_entry(row: &ExitCodeRow) -> Value {
+    json!({
+        "name": row.name,
+        "product": Product::Collie.as_str(),
+        "code": row.code,
+        "description": row.description,
     })
 }
 

@@ -21,6 +21,7 @@ mod console;
 mod daemon;
 mod daemon_run;
 mod events;
+mod exit_codes;
 mod help;
 mod human_output;
 mod invalid_calls;

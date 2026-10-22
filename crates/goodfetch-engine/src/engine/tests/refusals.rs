@@ -43,16 +43,21 @@ fn each_fabricated_hello_gets_its_generated_reply(
     let case: RefusalCase = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     let hello = case.hello.clone().unwrap();
 
-    let received = exchange(
+    let mut received = exchange(
         &engine(hello.engine),
         &[fabricated(&case, &hello), request(1, "engine.info")],
     );
 
     match hello.reply {
         Reply::Accepted { protocol_version } => assert_eq!(
-            (received.len(), &received[0]["result"]),
+            (
+                received.len(),
+                super::takes_engine_instance(&mut received[0]),
+                &received[0]["result"]
+            ),
             (
                 2,
+                true,
                 &json!({
                     "protocol_version": protocol_version,
                     "product": hello.engine,

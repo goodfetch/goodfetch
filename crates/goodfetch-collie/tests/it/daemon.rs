@@ -607,9 +607,20 @@ fn a_connection_dropped_mid_command_fails_the_command() {
 const CLIENT_TRANSCRIPT: &str = include_str!("../../../../compat/protocol/head/client.jsonl");
 const ENGINE_TRANSCRIPT: &str = include_str!("../../../../compat/protocol/head/engine.jsonl");
 
+/// Takes out each reply's engine instance, new in each engine process so
+/// never the one recorded, answering whether each it took is a string.
+fn without_engine_instances(messages: &mut [Value]) -> Vec<bool> {
+    messages
+        .iter_mut()
+        .filter_map(|message| message["result"].as_object_mut()?.remove("engine_instance"))
+        .map(|instance| instance.is_string())
+        .collect()
+}
+
 /// A Client's transcript of the protocol's `head/` set, its `hello` given
 /// the Daemon's token, replays against the current Daemon, each response
-/// the one recorded (ADR 0066).
+/// the one recorded but for the engine instance its `hello` names
+/// (ADR 0066).
 ///
 /// Covers: format:protocol, story:3-4
 #[test]
@@ -640,5 +651,7 @@ fn the_protocols_client_transcript_replays_against_the_daemon() {
     let mut expected = expected;
     expected.sort_by_key(by_id);
     received.sort_by_key(by_id);
-    assert_eq!(received, expected);
+    let named = without_engine_instances(&mut received);
+    let recorded = without_engine_instances(&mut expected);
+    assert_eq!((received, named), (expected, recorded));
 }

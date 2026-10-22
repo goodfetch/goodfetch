@@ -255,6 +255,7 @@ impl Subject {
         let path = self.path.clone().into();
         let options = RunStateOptions {
             vfs: Some(self.vfs.name().to_owned()),
+            ..RunStateOptions::default()
         };
         let state = self.runtime.block_on(RunState::open(
             path,

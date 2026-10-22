@@ -1,11 +1,16 @@
 //! The exchanges the protocol and page suites' case IDs name, each judged
 //! against what `goodfetch-protocol` says the protocol is: its JSON-RPC
 //! failures, its Error codes and its operations' types. A crawl's delivery
-//! cases are `delivery`'s.
+//! cases are `delivery`'s, and a page's formats cases `formats`'s.
 
 mod delivery;
 mod fetch_edge;
+mod formats;
+mod guard;
+mod launch;
 mod navigation;
+
+use std::collections::BTreeMap;
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, ProtocolVersion};
 use goodfetch_protocol::connection::{
@@ -16,12 +21,11 @@ use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo};
 use goodfetch_protocol::events::EVENTS_SUBSCRIBE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{Navigated, PAGE_GOTO, PageOpened, RUN_NEW_PAGE};
-use goodfetch_protocol::result_document::CaseCheck;
+use goodfetch_protocol::result_document::{CaseCheck, OracleAnswer};
 use goodfetch_protocol::run::{RUN_FINISH, RUN_START};
 use serde_json::{Value, json};
 
-use std::collections::BTreeMap;
-
+use self::guard::Step;
 use super::connection::{Connection, Gone};
 use super::target::{DEADLINE, EngineTarget, START_DEADLINE};
 use crate::proving_ground::{ProvingGround, TaskList};
@@ -49,21 +53,32 @@ pub(crate) enum Case {
     BackLoadsTheDocumentAgain,
     UnresolvedNameFailsTheNavigation,
     SupersededNavigationIsInterrupted,
-    RedirectLoopIsTooManyRedirects,
-    RetryAfterOnARedirectIsNotWaited,
-    CutDocumentsAreTruncated,
-    ContentCodingsDecodeAsChrome,
-    FileNavigationIsADownload,
-    ResponsesNameTheirDecodedEncoding,
+    /// A fetch edge or response decoding case, Collie's lines.
+    FetchEdge(fetch_edge::Case),
+    MarkdownMatchesTheOracle,
+    FormatNotNamedIsLeftOut,
+    NoMainContentIsNone,
+    HeadlessIdentity,
+    BackgroundTimer,
+    ClickWaitsOutACover,
+    TransientDuplicateIsWaitedOut,
+    LocatorSurvivesARerender,
+    TypedTextReachesAControlledField,
+    KeyReachesAField,
+    StillAmbiguous,
+    NeverActionable,
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
-/// each task's start URL, the `resolve` mapping of its hosts to the Proving
-/// ground's address, and the Proving ground itself, whose time step a case
-/// may set.
+/// each task's start URL, the origin of its access family, the port it
+/// serves on, the `resolve` mapping of its hosts to its address, and the
+/// Proving ground itself, whose time step a case may set, whose oracle a
+/// case may ask and whose own observations a case may read.
 pub(crate) struct Site {
     page_url: Option<String>,
     start_urls: BTreeMap<String, String>,
+    access_origin: Option<String>,
+    port: String,
     resolve: Value,
     proving_ground: ProvingGround,
 }
@@ -82,6 +97,19 @@ impl Site {
             .iter()
             .find(|task| task.family == "catalog")
             .map(|task| task.start_url.clone());
+        let access_origin = task_list
+            .tasks
+            .iter()
+            .find(|task| task.family == "access")
+            .and_then(|task| {
+                let rest = task.start_url.strip_prefix("http://")?;
+                let authority = rest.split('/').next()?;
+                Some(format!("http://{authority}"))
+            });
+        let port = address
+            .rsplit_once(':')
+            .map_or("80", |(_, port)| port)
+            .to_owned();
         let mut resolve = serde_json::Map::new();
         for task in &task_list.tasks {
             if let Some(host) = host_of(&task.start_url) {
@@ -91,6 +119,10 @@ impl Site {
         for host in NAMED_HOSTS {
             resolve.insert(host.to_owned(), json!([ip]));
         }
+        // The access family's secure host, which no task names: a browser
+        // would resolve it to every loopback address, the Proving ground's
+        // among them, and this keeps it on that one.
+        resolve.insert(launch::IDENTITY_HOST.to_owned(), json!([ip]));
         Self {
             page_url,
             start_urls: task_list
@@ -98,6 +130,8 @@ impl Site {
                 .iter()
                 .map(|task| (task.id.as_str().to_owned(), task.start_url.clone()))
                 .collect(),
+            access_origin,
+            port,
             resolve: Value::Object(resolve),
             proving_ground: proving_ground.clone(),
         }
@@ -133,13 +167,16 @@ fn host_of(url: &str) -> Option<&str> {
     )
 }
 
-/// The checks a case made so far.
+/// The checks a case made so far, and the oracle's answers it was given.
 #[derive(Default)]
-pub(crate) struct Checks(pub(crate) Vec<CaseCheck>);
+pub(crate) struct Checks {
+    pub(crate) checks: Vec<CaseCheck>,
+    pub(crate) oracle_answers: Vec<OracleAnswer>,
+}
 
 impl Checks {
     fn check(&mut self, name: impl Into<String>, passed: bool) {
-        self.0.push(CaseCheck {
+        self.checks.push(CaseCheck {
             name: name.into(),
             passed,
         });
@@ -175,23 +212,29 @@ impl Case {
             "a-navigation-superseded-before-it-committed-is-interrupted" => {
                 Self::SupersededNavigationIsInterrupted
             }
-            "a-redirect-loop-raises-too-many-redirects" => Self::RedirectLoopIsTooManyRedirects,
-            "a-redirect-is-followed-without-waiting-its-retry-after" => {
-                Self::RetryAfterOnARedirectIsNotWaited
+            "markdown-matches-the-oracle-on-the-markdown-pages" => Self::MarkdownMatchesTheOracle,
+            "a-format-the-request-does-not-name-is-left-out" => Self::FormatNotNamedIsLeftOut,
+            "a-page-with-no-main-content-answers-empty-markdown-and-none" => {
+                Self::NoMainContentIsNone
             }
-            "a-cut-document-raises-response-truncated-unless-the-navigation-returned-at-commit" => {
-                Self::CutDocumentsAreTruncated
+            "a-headless-page-shows-the-site-its-windows-identity" => Self::HeadlessIdentity,
+            "a-page-behind-another-keeps-its-timer-and-its-focus" => Self::BackgroundTimer,
+            "a-click-on-a-covered-target-lands-once-the-cover-leaves" => Self::ClickWaitsOutACover,
+            "an-ambiguous-target-that-becomes-unique-is-acted-on" => {
+                Self::TransientDuplicateIsWaitedOut
             }
-            "a-coding-that-fails-to-decode-fails-the-navigation-and-an-unknown-one-passes" => {
-                Self::ContentCodingsDecodeAsChrome
+            "a-locator-survives-a-re-render-that-replaces-its-element" => {
+                Self::LocatorSurvivesARerender
             }
-            "a-goto-to-a-file-emits-download-and-answers-no-response" => {
-                Self::FileNavigationIsADownload
+            "typed-text-reaches-a-controlled-field-as-trusted-input" => {
+                Self::TypedTextReachesAControlledField
             }
-            "each-document-response-names-its-decoded-encoding" => {
-                Self::ResponsesNameTheirDecodedEncoding
+            "a-pressed-key-reaches-a-field-as-a-trusted-key" => Self::KeyReachesAField,
+            "a-target-still-ambiguous-raises-target-not-unique" => Self::StillAmbiguous,
+            "a-target-never-actionable-raises-deadline-exceeded-naming-the-step" => {
+                Self::NeverActionable
             }
-            _ => return None,
+            _ => return fetch_edge::Case::from_id(id).map(Self::FetchEdge),
         })
     }
 
@@ -250,22 +293,58 @@ impl Case {
             Self::SupersededNavigationIsInterrupted => {
                 navigation::superseded(connection, site, checks)
             }
-            Self::RedirectLoopIsTooManyRedirects => {
-                fetch_edge::redirect_loop(connection, site, checks)
+            Self::FetchEdge(case) => case.run(connection, site, checks),
+            Self::MarkdownMatchesTheOracle => {
+                formats::markdown_matches_the_oracle(connection, site, checks)
             }
-            Self::RetryAfterOnARedirectIsNotWaited => {
-                fetch_edge::retry_after_on_a_redirect(connection, site, checks)
+            Self::FormatNotNamedIsLeftOut => {
+                formats::a_format_not_named_is_left_out(connection, site, checks)
             }
-            Self::CutDocumentsAreTruncated => fetch_edge::cut_documents(connection, site, checks),
-            Self::ContentCodingsDecodeAsChrome => {
-                fetch_edge::content_codings(connection, site, checks)
-            }
-            Self::FileNavigationIsADownload => {
-                fetch_edge::file_navigation(connection, site, checks)
-            }
-            Self::ResponsesNameTheirDecodedEncoding => {
-                fetch_edge::decoded_encodings(connection, site, checks)
-            }
+            Self::NoMainContentIsNone => formats::no_main_content_is_none(connection, site, checks),
+            Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
+            Self::BackgroundTimer => launch::background_timer(connection, site, checks),
+            Self::ClickWaitsOutACover => guard::lands(
+                connection,
+                site,
+                "actionability/2",
+                "conformance-cover",
+                &[Step::Click("#target")],
+                checks,
+            ),
+            Self::TransientDuplicateIsWaitedOut => guard::lands(
+                connection,
+                site,
+                "actionability/27",
+                "conformance-transient-duplicate",
+                &[Step::Click("#target")],
+                checks,
+            ),
+            Self::LocatorSurvivesARerender => guard::lands(
+                connection,
+                site,
+                "actionability/6",
+                "conformance-rerender",
+                &[Step::Click("#target")],
+                checks,
+            ),
+            Self::TypedTextReachesAControlledField => guard::lands(
+                connection,
+                site,
+                "actionability/28",
+                "conformance-controlled-field",
+                &[Step::Fill("#name", "Goodfetch"), Step::Click("#save")],
+                checks,
+            ),
+            Self::KeyReachesAField => guard::lands(
+                connection,
+                site,
+                "actionability/15",
+                "conformance-key",
+                &[Step::Press("#field", "Enter")],
+                checks,
+            ),
+            Self::StillAmbiguous => guard::still_ambiguous(connection, site, checks),
+            Self::NeverActionable => guard::never_actionable(connection, site, checks),
         }
     }
 }
@@ -423,16 +502,20 @@ fn fabricated_hello(
     refused
 }
 
-/// Starts the Run `run_id`, its `network.resolve` mapping the site's hosts.
-fn start_run(
+/// Starts the Run `run_id` with `settings`, its `network.resolve` mapping
+/// the site's hosts.
+pub(crate) fn start_run(
     connection: &mut Connection,
     site: &Site,
     run_id: &str,
+    settings: &Value,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
+    let mut settings = settings.clone();
+    settings["network"] = json!({ "resolve": site.resolve });
     let id = connection.request(
         RUN_START.name,
-        &json!({ "run_id": run_id, "settings": { "network": { "resolve": site.resolve } } }),
+        &json!({ "run_id": run_id, "settings": settings }),
     )?;
     let answer = connection.answer(id)?.message;
     checks.check("the Run starts", answer.get("result").is_some());
@@ -440,7 +523,7 @@ fn start_run(
 }
 
 /// Opens a page of the Run `run_id`.
-fn new_page(
+pub(crate) fn new_page(
     connection: &mut Connection,
     run_id: &str,
     checks: &mut Checks,
@@ -460,7 +543,7 @@ fn new_page(
     Ok(opened)
 }
 
-fn finish_run(connection: &mut Connection, run_id: &str) -> Result<(), Gone> {
+pub(crate) fn finish_run(connection: &mut Connection, run_id: &str) -> Result<(), Gone> {
     let id = connection.request(RUN_FINISH.name, &json!({ "run_id": run_id }))?;
     connection.browser_answer(id)?;
     Ok(())
@@ -473,7 +556,7 @@ fn default_session(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-default-session";
-    start_run(connection, site, run_id, checks)?;
+    start_run(connection, site, run_id, &json!({}), checks)?;
     let first = new_page(connection, run_id, checks)?;
     let second = new_page(connection, run_id, checks)?;
     if let (Some(first), Some(second)) = (first, second) {
@@ -496,7 +579,7 @@ fn goto(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result
     let Some(url) = site.page_url.clone() else {
         return Ok(());
     };
-    start_run(connection, site, run_id, checks)?;
+    start_run(connection, site, run_id, &json!({}), checks)?;
     if let Some(page) = new_page(connection, run_id, checks)? {
         let id = connection.request(
             PAGE_GOTO.name,

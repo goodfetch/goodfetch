@@ -148,7 +148,7 @@ An answer whose every address fails to connect is dropped before its TTL ends, s
 - The browsers race their own.
 - Behind a proxy, the race is to the proxy's address, since the proxy resolves the site.
 - These are built-in values. Area 3's spec gives them keys under ADR 0083's rule, as ADR 0028 makes every parameter settable.
-  > Note (agent decision, pending owner review; [#1542](https://github.com/goodfetch/goodfetch/issues/1542)): the keys are `resolver.resolution_delay` (50 ms) and `resolver.attempt_delay` (250 ms), durations settable at every layer and honoured by both Products. An attempt that fails starts the next at once, the families alternate from IPv6, and an answer whose every address failed is forgotten for both families. The engine's own resolver keeps its answers itself, read on the `Clock`, with `hickory-resolver`'s cache off; that resolver still asks a server that failed twice more (its default two retries) before a lookup fails.
+  > Note (agent decision, accepted by the owner on 2026-10-21; [#1542](https://github.com/goodfetch/goodfetch/issues/1542)): the keys are `resolver.resolution_delay` (50 ms) and `resolver.attempt_delay` (250 ms), durations settable at every layer and honoured by both Products. An attempt that fails starts the next at once, the families alternate from IPv6, and an answer whose every address failed is forgotten for both families. The engine's own resolver keeps its answers itself, read on the `Clock`, with `hickory-resolver`'s cache off; that resolver still asks a server that failed twice more (its default two retries) before a lookup fails.
 
 ### Settings and Error codes
 

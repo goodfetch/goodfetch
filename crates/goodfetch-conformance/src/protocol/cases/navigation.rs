@@ -92,7 +92,7 @@ pub(super) fn open(
     if !served {
         return Ok(None);
     }
-    start_run(connection, site, run_id, checks)?;
+    start_run(connection, site, run_id, &json!({}), checks)?;
     Ok(new_page(connection, run_id, checks)?.map(|page| json!(page.page_id)))
 }
 

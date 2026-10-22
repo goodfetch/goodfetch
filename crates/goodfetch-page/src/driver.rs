@@ -8,23 +8,32 @@
 //! isolated world no page script reaches (ADR 0019). A page's navigations
 //! each wait for their document's `load` event, or the state the call
 //! names, and answer its response with the encoding it was decoded with,
-//! read in that world (ADR 0119); the back/forward cache is off at launch,
-//! so going back or forward always loads its document again (ADR 0121).
+//! read in the guard's world (ADR 0119); the back/forward cache is off at
+//! launch, so going back or forward always loads its document again (ADR
+//! 0121). Every page reports itself focused, so one behind another tab of
+//! its Session keeps its timers (ADR 0085's question), and a headless
+//! browser's pages show the identity it shows with a window (`identity`).
+
+mod identity;
 
 mod navigation;
+mod world;
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_cdp::generated::{browser, network, page, runtime, target};
-use goodfetch_cdp::{Command, Connection, Failure, SessionId as TargetSession, Subscription};
+use goodfetch_cdp::generated::{browser, dom, emulation, input, network, page, runtime, target};
+use goodfetch_cdp::{
+    Command, Connection, Failure, Refusal, SessionId as TargetSession, Subscription,
+};
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::Pins;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::runs::Run;
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{BrowserExit, PageResponse, WaitUntil};
 use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
-use tokio::sync::{OnceCell, watch};
+use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
 
 pub(crate) use self::navigation::Arrived;
 use self::navigation::{Ended, Expected, Navigation};
@@ -33,6 +42,7 @@ use crate::errors::{
 };
 use crate::launch::launch;
 use crate::trace::CommandLog;
+use identity::Identity;
 
 /// How long one CDP command may go unanswered.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
@@ -50,6 +60,48 @@ const GUARD_MARKER: &str = "globalThis.__goodfetch_guard__ = true;";
 /// The expression that reads the encoding a document was decoded with.
 const DOCUMENT_ENCODING: &str = "document.characterSet";
 
+/// The command that makes, or finds by its name, the guard's isolated
+/// world in `frame`'s document.
+fn isolated_world(frame: page::FrameId) -> page::CreateIsolatedWorldParams {
+    page::CreateIsolatedWorldParams {
+        frame_id: frame,
+        world_name: Some(GUARD_WORLD.to_owned()),
+        grant_univeral_access: None,
+        content_security_policy: None,
+    }
+}
+
+/// The command that reads the document's encoding in the world whose
+/// context is `context`, never through `Runtime.enable` (ADR 0019).
+fn encoding_read(context: runtime::ExecutionContextId) -> runtime::EvaluateParams {
+    runtime::EvaluateParams {
+        expression: DOCUMENT_ENCODING.to_owned(),
+        object_group: None,
+        include_command_line_api: None,
+        silent: Some(true),
+        context_id: Some(context),
+        return_by_value: Some(true),
+        generate_preview: None,
+        user_gesture: None,
+        await_promise: None,
+        throw_on_side_effect: None,
+        timeout: None,
+        disable_breaks: None,
+        repl_mode: None,
+        allow_unsafe_eval_blocked_by_csp: None,
+        unique_context_id: None,
+        serialization_options: None,
+    }
+}
+
+/// The encoding an [`encoding_read`] answered, when it named one.
+fn encoding_of(evaluated: runtime::EvaluateReturns) -> Option<String> {
+    evaluated
+        .result
+        .value
+        .and_then(|value| value.as_str().map(str::to_owned))
+}
+
 /// A browser's CDP connection as the driver uses it.
 #[derive(Clone)]
 pub(crate) struct Browser {
@@ -57,6 +109,8 @@ pub(crate) struct Browser {
     log: CommandLog,
     exit: watch::Receiver<Option<BrowserExit>>,
     executable: String,
+    /// The identity a headless browser's pages show; `None` with a window.
+    identity: Option<Identity>,
 }
 
 impl Browser {
@@ -68,11 +122,21 @@ impl Browser {
         params: &C,
         call: &Call,
     ) -> Result<C::Returns, CallError> {
-        self.log.record(C::METHOD).await;
-        match self.connection.send(session, params, COMMAND_TIMEOUT).await {
+        match self.try_send(session, params).await {
             Ok(returned) => Ok(returned),
             Err(failure) => Err(self.failed(call, &failure).await),
         }
+    }
+
+    /// Sends `params` on `session`, recorded in the Run trace, answering
+    /// the failure itself, for a caller that acts on some failures.
+    async fn try_send<C: Command>(
+        &self,
+        session: Option<&TargetSession>,
+        params: &C,
+    ) -> Result<C::Returns, Failure> {
+        self.log.record(C::METHOD).await;
+        self.connection.send(session, params, COMMAND_TIMEOUT).await
     }
 
     /// The Error code `failure` raises from `call`, naming how the browser
@@ -140,16 +204,20 @@ impl Connect for LocalBrowser {
                             },
                         )
                     })?;
-                let browser = Browser {
+                let mut browser = Browser {
                     connection: launched.connection,
                     log,
                     exit: launched.exit,
                     executable: launched.executable.display().to_string(),
+                    identity: None,
                 };
                 // The first answer says the browser is up.
-                browser
+                let version = browser
                     .send(None, &browser::GetVersionParams {}, &browser.opening())
                     .await?;
+                if launched.headless {
+                    browser.identity = Some(identity::read(&browser, &version.user_agent).await?);
+                }
                 Ok(browser)
             })
             .await
@@ -221,13 +289,25 @@ impl<B: Connect> SessionDriver<B> {
             .send(
                 None,
                 &target::AttachToTargetParams {
-                    target_id: created.target_id,
+                    target_id: created.target_id.clone(),
                     flatten: Some(true),
                 },
                 &opening,
             )
             .await?;
         let session = TargetSession(attached.session_id);
+        browser
+            .send(
+                Some(&session),
+                &emulation::SetFocusEmulationEnabledParams { enabled: true },
+                &opening,
+            )
+            .await?;
+        if let Some(identity) = &browser.identity {
+            browser
+                .send(Some(&session), &identity.command(), &opening)
+                .await?;
+        }
         browser
             .send(Some(&session), &page::EnableParams::default(), &opening)
             .await?;
@@ -259,8 +339,19 @@ impl<B: Connect> SessionDriver<B> {
             frame,
             navigation_timeout,
             started: Arc::new(watch::Sender::new(0)),
+            turn: Arc::new(Mutex::new(None)),
         })
     }
+}
+
+/// A page's document as it stands, serialized once.
+pub(crate) struct SerializedDocument {
+    /// Its HTML.
+    pub(crate) html: String,
+    /// Its URL.
+    pub(crate) url: String,
+    /// Its base URL.
+    pub(crate) base_url: String,
 }
 
 /// One page's target, driven over its CDP session.
@@ -274,6 +365,147 @@ pub(crate) struct PageDriver {
     /// How many navigations the engine started on the page, by which one
     /// the browser cancelled is known to be superseded.
     started: Arc<watch::Sender<u64>>,
+    /// The page's input order (ADR 0085): a gesture holds it from its first
+    /// command to its last, and waiters take it in arrival order. It keeps
+    /// the guard's world in the current document, once one was made.
+    turn: Arc<Mutex<Option<runtime::ExecutionContextId>>>,
+}
+
+/// A gesture's turn on its page: its commands, sent while no other
+/// gesture's are.
+pub(crate) struct Turn<'page> {
+    page: &'page PageDriver,
+    world: MutexGuard<'page, Option<runtime::ExecutionContextId>>,
+    call: Call,
+}
+
+/// Why a function did not answer in the guard's world.
+pub(crate) enum Unanswered {
+    /// The document it ran in went away, by a navigation: the world is made
+    /// again in the next document.
+    WorldGone,
+    /// The call fails with this Error code.
+    Failed(CallError),
+}
+
+impl Turn<'_> {
+    /// Calls `function`, a JavaScript function's source, with `argument` in
+    /// the guard's isolated world of the page's main frame, made on first
+    /// use in each document, and answers its value.
+    pub(crate) async fn call(
+        &mut self,
+        function: &str,
+        argument: serde_json::Value,
+    ) -> Result<serde_json::Value, Unanswered> {
+        let context = if let Some(context) = *self.world {
+            context
+        } else {
+            let made = self.send(&isolated_world(self.page.frame.clone())).await?;
+            *self.world = Some(made.execution_context_id);
+            made.execution_context_id
+        };
+        let called = self.send(&world::call(function, argument, context)).await?;
+        if let Some(thrown) = called.exception_details {
+            return Err(Unanswered::Failed(CallError::protocol(
+                ProtocolFailure::InternalError,
+                format!("the guard's script threw in the page: {}", thrown.text),
+            )));
+        }
+        Ok(called.result.value.unwrap_or(serde_json::Value::Null))
+    }
+
+    /// Moves the pointer to (`x`, `y`) in the page's viewport and clicks
+    /// there with its left button: input the page receives as trusted.
+    pub(crate) async fn click(&mut self, x: f64, y: f64) -> Result<(), CallError> {
+        for (kind, button, buttons) in [
+            (input::DispatchMouseEventType::MouseMoved, None, None),
+            (
+                input::DispatchMouseEventType::MousePressed,
+                Some(input::MouseButton::Left),
+                Some(1),
+            ),
+            (
+                input::DispatchMouseEventType::MouseReleased,
+                Some(input::MouseButton::Left),
+                Some(0),
+            ),
+        ] {
+            let params = input::DispatchMouseEventParams {
+                r#type: kind,
+                x,
+                y,
+                modifiers: None,
+                timestamp: None,
+                button,
+                buttons,
+                click_count: button.map(|_| 1),
+                force: None,
+                tangential_pressure: None,
+                tilt_x: None,
+                tilt_y: None,
+                twist: None,
+                delta_x: None,
+                delta_y: None,
+                pointer_type: None,
+            };
+            self.page
+                .browser
+                .send(Some(&self.page.session), &params, &self.call)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Sends one key event to the focused element.
+    pub(crate) async fn key(
+        &mut self,
+        event: &input::DispatchKeyEventParams,
+    ) -> Result<(), CallError> {
+        self.page
+            .browser
+            .send(Some(&self.page.session), event, &self.call)
+            .await
+            .map(|_| ())
+    }
+
+    /// Inserts `text` where the focused element's selection is, as an
+    /// input method commits text: one trusted `input` event.
+    pub(crate) async fn insert_text(&mut self, text: &str) -> Result<(), CallError> {
+        self.page
+            .browser
+            .send(
+                Some(&self.page.session),
+                &input::InsertTextParams {
+                    text: text.to_owned(),
+                },
+                &self.call,
+            )
+            .await
+            .map(|_| ())
+    }
+
+    /// Sends a command of the guard's world, a lost document being
+    /// [`Unanswered::WorldGone`].
+    async fn send<C: Command>(&mut self, params: &C) -> Result<C::Returns, Unanswered> {
+        match self
+            .page
+            .browser
+            .try_send(Some(&self.page.session), params)
+            .await
+        {
+            Ok(returned) => Ok(returned),
+            Err(Failure::Refused {
+                refusal: Refusal::ContextGone,
+                ..
+            }) => {
+                *self.world = None;
+                Err(Unanswered::WorldGone)
+            }
+            Err(failure) => Err(Unanswered::Failed(
+                self.page.browser.failed(&self.call, &failure).await,
+            )),
+        }
+    }
 }
 
 /// Where a navigation goes.
@@ -300,12 +532,30 @@ enum Step {
 }
 
 impl PageDriver {
+    /// Waits for the page's turn, in arrival order, for the gesture
+    /// `operation`, whose failures raise its codes.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future gives up the place in the order.
+    pub(crate) async fn turn(&self, operation: &'static str) -> Turn<'_> {
+        Turn {
+            page: self,
+            world: self.turn.lock().await,
+            call: Call::Action { operation },
+        }
+    }
+
     /// Navigates the page to `destination` and waits until its document
     /// reaches the state `wait_until` names, answering where it arrived:
     /// the document's response, with the encoding it was decoded with once
     /// it was; none for a navigation within the document, to a URL no
     /// server answers, or to a history entry the page does not have; or the
     /// file the browser downloads instead.
+    ///
+    /// A navigation takes no turn among the locator actions, so that a
+    /// later one supersedes it; a guard's world it leaves behind is made
+    /// again in the next document when the browser no longer knows it.
     ///
     /// # Cancel safety
     ///
@@ -406,16 +656,11 @@ impl PageDriver {
     /// the guard's world; none when the frame holds no document that names
     /// one.
     async fn document_encoding(&self, call: &Call) -> Result<Option<String>, CallError> {
-        let world = self
+        let made = self
             .browser
             .send(
                 Some(&self.session),
-                &page::CreateIsolatedWorldParams {
-                    frame_id: self.frame.clone(),
-                    world_name: Some(GUARD_WORLD.to_owned()),
-                    grant_univeral_access: None,
-                    content_security_policy: None,
-                },
+                &isolated_world(self.frame.clone()),
                 call,
             )
             .await?;
@@ -423,31 +668,11 @@ impl PageDriver {
             .browser
             .send(
                 Some(&self.session),
-                &runtime::EvaluateParams {
-                    expression: DOCUMENT_ENCODING.to_owned(),
-                    object_group: None,
-                    include_command_line_api: None,
-                    silent: Some(true),
-                    context_id: Some(world.execution_context_id),
-                    return_by_value: Some(true),
-                    generate_preview: None,
-                    user_gesture: None,
-                    await_promise: None,
-                    throw_on_side_effect: None,
-                    timeout: None,
-                    disable_breaks: None,
-                    repl_mode: None,
-                    allow_unsafe_eval_blocked_by_csp: None,
-                    unique_context_id: None,
-                    serialization_options: None,
-                },
+                &encoding_read(made.execution_context_id),
                 call,
             )
             .await?;
-        Ok(evaluated
-            .result
-            .value
-            .and_then(|value| value.as_str().map(str::to_owned)))
+        Ok(encoding_of(evaluated))
     }
 
     /// The URL `destination` names and the command that goes there; none
@@ -516,5 +741,43 @@ impl PageDriver {
                 },
             }
         }
+    }
+
+    /// The page's document as the DOM holds it now, serialized once, with
+    /// its URL and base URL.
+    pub(crate) async fn document(&self) -> Result<SerializedDocument, CallError> {
+        let call = Call::Document;
+        let root = self
+            .browser
+            .send(
+                Some(&self.session),
+                &dom::GetDocumentParams {
+                    depth: Some(0),
+                    pierce: None,
+                },
+                &call,
+            )
+            .await?
+            .root;
+        let html = self
+            .browser
+            .send(
+                Some(&self.session),
+                &dom::GetOuterHTMLParams {
+                    node_id: Some(root.node_id),
+                    backend_node_id: None,
+                    object_id: None,
+                    include_shadow_dom: None,
+                },
+                &call,
+            )
+            .await?
+            .outer_html;
+        let url = root.document_url.unwrap_or_default();
+        Ok(SerializedDocument {
+            html,
+            base_url: root.base_url.unwrap_or_else(|| url.clone()),
+            url,
+        })
     }
 }

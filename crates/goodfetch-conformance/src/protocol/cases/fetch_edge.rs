@@ -25,6 +25,61 @@ use super::navigation::{answered, call, failed_with, open, response, url_on};
 use super::{Checks, Site, finish_run};
 use crate::protocol::connection::{Connection, Gone};
 
+/// A case of these lines, by its ID in the page suite's case list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Case {
+    RedirectLoopIsTooManyRedirects,
+    RetryAfterOnARedirectIsNotWaited,
+    CutDocumentsAreTruncated,
+    ContentCodingsDecodeAsChrome,
+    FileNavigationIsADownload,
+    ResponsesNameTheirDecodedEncoding,
+}
+
+impl Case {
+    /// The case `id` names, if it is one of these lines.
+    pub(super) fn from_id(id: &str) -> Option<Self> {
+        Some(match id {
+            "a-redirect-loop-raises-too-many-redirects" => Self::RedirectLoopIsTooManyRedirects,
+            "a-redirect-is-followed-without-waiting-its-retry-after" => {
+                Self::RetryAfterOnARedirectIsNotWaited
+            }
+            "a-cut-document-raises-response-truncated-unless-the-navigation-returned-at-commit" => {
+                Self::CutDocumentsAreTruncated
+            }
+            "a-coding-that-fails-to-decode-fails-the-navigation-and-an-unknown-one-passes" => {
+                Self::ContentCodingsDecodeAsChrome
+            }
+            "a-goto-to-a-file-emits-download-and-answers-no-response" => {
+                Self::FileNavigationIsADownload
+            }
+            "each-document-response-names-its-decoded-encoding" => {
+                Self::ResponsesNameTheirDecodedEncoding
+            }
+            _ => return None,
+        })
+    }
+
+    /// Runs the case on the open Connection against `site`.
+    pub(super) fn run(
+        self,
+        connection: &mut Connection,
+        site: &Site,
+        checks: &mut Checks,
+    ) -> Result<(), Gone> {
+        match self {
+            Self::RedirectLoopIsTooManyRedirects => redirect_loop(connection, site, checks),
+            Self::RetryAfterOnARedirectIsNotWaited => {
+                retry_after_on_a_redirect(connection, site, checks)
+            }
+            Self::CutDocumentsAreTruncated => cut_documents(connection, site, checks),
+            Self::ContentCodingsDecodeAsChrome => content_codings(connection, site, checks),
+            Self::FileNavigationIsADownload => file_navigation(connection, site, checks),
+            Self::ResponsesNameTheirDecodedEncoding => decoded_encodings(connection, site, checks),
+        }
+    }
+}
+
 /// The browser's redirect count (ADR 0118): a navigation's chain holds at
 /// most this many requests, its first included.
 const BROWSER_REDIRECTS: usize = 20;
@@ -45,7 +100,7 @@ const CREDITS: u32 = 256;
 /// A redirect loop fails the navigation at the browser's count with
 /// `too_many_redirects`, naming the first URL, the hops followed and the
 /// browser's count (pitfall U12).
-pub(super) fn redirect_loop(
+fn redirect_loop(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,
@@ -85,7 +140,7 @@ pub(super) fn redirect_loop(
 
 /// A redirect carrying `Retry-After` is followed at once: the navigation
 /// answers its target sooner than the site asked to wait (ADR 0118).
-pub(super) fn retry_after_on_a_redirect(
+fn retry_after_on_a_redirect(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,
@@ -127,7 +182,7 @@ pub(super) fn retry_after_on_a_redirect(
 /// `response_truncated` for a `load` wait, naming the bytes received and
 /// expected; one that returned at `commit` answers the response, leaving
 /// the cut to the body's read (pitfall H15).
-pub(super) fn cut_documents(
+fn cut_documents(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,
@@ -208,7 +263,7 @@ pub(super) fn cut_documents(
 /// with the browser's `net::ERR_CONTENT_DECODING_FAILED`, a plain body
 /// labelled gzip and an invalid gzip header alike, while an unknown coding
 /// passes the body through, as in Chrome (ADR 0119; pitfalls H13, H25).
-pub(super) fn content_codings(
+fn content_codings(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,
@@ -252,7 +307,7 @@ pub(super) fn content_codings(
 /// A program's own `goto` to a PDF emits `page.download`, answers no
 /// response, and leaves the page on its document, which a reload loads
 /// again (ADR 0119).
-pub(super) fn file_navigation(
+fn file_navigation(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,
@@ -311,7 +366,7 @@ pub(super) fn file_navigation(
 
 /// Each document's response names the encoding the browser decoded it
 /// with: a `Shift_JIS` page and a UTF-8 page (ADR 0119).
-pub(super) fn decoded_encodings(
+fn decoded_encodings(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,

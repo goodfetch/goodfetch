@@ -186,6 +186,15 @@ export class ConsolePortInUseError extends UnavailableError {
 }
 
 /**
+ * The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.
+ */
+export class DaemonDrainingError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "daemon_draining", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.
  */
 export class EngineExitedError extends UnavailableError {
@@ -236,6 +245,24 @@ export class FileWriteFailedError extends UnavailableError {
 export class FormatVersionUnsupportedError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "format_version_unsupported", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.
+ */
+export class LimitNotUnderstoodError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "limit_not_understood", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.
+ */
+export class LimitReachedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "limit_reached", group: "refused", retryable: false });
   }
 }
 
@@ -447,11 +474,29 @@ export class SettingUnknownError extends ProgramError {
 }
 
 /**
+ * The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.
+ */
+export class TargetNotUniqueError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "target_not_unique", group: "page", retryable: false });
+  }
+}
+
+/**
  * The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain.
  */
 export class TooManyRedirectsError extends PageError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "too_many_redirects", group: "page", retryable: false });
+  }
+}
+
+/**
+ * `upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.
+ */
+export class UpgradeSourceUnsupportedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "upgrade_source_unsupported", group: "refused", retryable: false });
   }
 }
 
@@ -466,12 +511,15 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   call_cancelled: CallCancelledError,
   closed: ClosedError,
   console_port_in_use: ConsolePortInUseError,
+  daemon_draining: DaemonDrainingError,
   engine_exited: EngineExitedError,
   engine_not_found: EngineNotFoundError,
   engine_output_invalid: EngineOutputInvalidError,
   executable_blocked_by_smart_app_control: ExecutableBlockedBySmartAppControlError,
   file_write_failed: FileWriteFailedError,
   format_version_unsupported: FormatVersionUnsupportedError,
+  limit_not_understood: LimitNotUnderstoodError,
+  limit_reached: LimitReachedError,
   name_lookup_failed: NameLookupFailedError,
   name_not_resolved: NameNotResolvedError,
   navigation_failed: NavigationFailedError,
@@ -495,5 +543,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   setting_locked: SettingLockedError,
   setting_not_applicable: SettingNotApplicableError,
   setting_unknown: SettingUnknownError,
+  target_not_unique: TargetNotUniqueError,
   too_many_redirects: TooManyRedirectsError,
+  upgrade_source_unsupported: UpgradeSourceUnsupportedError,
 };

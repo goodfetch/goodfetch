@@ -16,10 +16,13 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::ProtocolVersion;
 use goodfetch_protocol::formats::{Compatibility, Format, RUN_STATE};
+use goodfetch_protocol::run::DURABILITY_FAST;
 use rusqlite::{Connection, OpenFlags, TransactionBehavior};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::tasks::TaskOwner;
+
+pub mod install;
 
 /// How many writes wait for the writer before their callers wait.
 const MAILBOX: usize = 1024;
@@ -47,6 +50,14 @@ const SCHEMA: &[&str] = &[
         clean_up_digest TEXT
     ) STRICT",
     "CREATE TABLE IF NOT EXISTS tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT",
+    // What the Run used of each Slice of the Usage ledger, by run epoch (ADR
+    // 0041), which an engine reclaiming its Slices charges.
+    "CREATE TABLE IF NOT EXISTS usage (
+        slice_id INTEGER NOT NULL,
+        epoch INTEGER NOT NULL,
+        used INTEGER NOT NULL,
+        PRIMARY KEY (slice_id, epoch)
+    ) STRICT",
 ];
 
 /// The tables one contribution adds to every run file: `CREATE TABLE IF NOT
@@ -64,8 +75,45 @@ pub struct RunStateTables {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RunStateOptions {
     /// The name of the SQLite VFS it opens through: none in production, the
-    /// crash VFS in tests (ADR 0060).
+    /// crash VFS in tests (ADR 0060), and the install database's in the
+    /// per-install layout ([`install`]).
     pub vfs: Option<String>,
+    /// How its commits reach the disk (`run_state.durability`).
+    pub durability: Durability,
+}
+
+/// How a run file's commits reach the disk (`run_state.durability`, ADR
+/// 0002).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Durability {
+    /// An acknowledged commit survives a power cut: `synchronous=FULL`,
+    /// with `fullfsync` on macOS.
+    #[default]
+    Full,
+    /// An acknowledged commit survives a process crash only:
+    /// `synchronous=NORMAL`, whose commits in WAL mode an OS crash or a
+    /// power cut may roll back, without damaging the file.
+    Fast,
+}
+
+impl Durability {
+    /// The durability `run_state.durability`'s value names; `full` for any
+    /// other, which the settings resolver never lets through.
+    pub fn named(value: &serde_json::Value) -> Self {
+        if value.as_str() == Some(DURABILITY_FAST) {
+            Self::Fast
+        } else {
+            Self::Full
+        }
+    }
+
+    /// Its `synchronous` pragma.
+    fn synchronous(self) -> &'static str {
+        match self {
+            Self::Full => "FULL",
+            Self::Fast => "NORMAL",
+        }
+    }
 }
 
 /// Why a run file did not open, or a write did not commit.
@@ -89,7 +137,9 @@ pub enum RunStateError {
         /// The file's.
         found: u64,
     },
-    /// The file is of a format version this engine cannot read (ADR 0066).
+    /// The file is of a format version this engine cannot read (ADR 0066),
+    /// or a shared store's lowest minor is newer than this engine (ADR
+    /// 0098).
     #[error("the file is {format} {found}, which this engine cannot read")]
     Format {
         /// The format's name.
@@ -98,10 +148,25 @@ pub enum RunStateError {
         found: String,
         /// What this engine makes of it.
         compatibility: Compatibility,
+        /// The Product version to install, when a shared store's lowest
+        /// minor refused this engine.
+        install: Option<String>,
     },
     /// The writer has stopped.
     #[error("the run file's writer has stopped")]
     Closed,
+}
+
+impl RunStateError {
+    /// The error of a shared store's refusal (ADR 0098).
+    pub(crate) fn refused(refusal: crate::lowest_minor::Refusal) -> Self {
+        Self::Format {
+            format: refusal.format,
+            found: refusal.found.to_string(),
+            compatibility: refusal.compatibility,
+            install: refusal.install,
+        }
+    }
 }
 
 type Completion = Box<dyn FnOnce(Result<(), RunStateError>) + Send>;
@@ -140,10 +205,10 @@ impl RunState {
         epoch: u64,
         owner: &TaskOwner,
     ) -> Result<Self, RunStateError> {
-        let vfs = options.vfs.clone();
+        let opened = options.clone();
         let opened_path = path.clone();
         let connection = owner
-            .blocking(move || open_file(&opened_path, vfs.as_deref(), &tables))
+            .blocking(move || open_file(&opened_path, &opened, &tables))
             .await?;
         let (mailbox, jobs) = mpsc::channel(MAILBOX);
         let actor_path = path.clone();
@@ -252,7 +317,7 @@ pub(crate) fn next_epoch(
     tables: &[RunStateTables],
     after: u64,
 ) -> Result<u64, RunStateError> {
-    let connection = open_file(path, options.vfs.as_deref(), tables)?;
+    let connection = open_file(path, options, tables)?;
     let epoch: i64 = connection
         .query_row(
             "UPDATE run SET epoch = max(epoch, ?1) + 1 RETURNING epoch",
@@ -261,6 +326,20 @@ pub(crate) fn next_epoch(
         )
         .map_err(|error| sqlite_error(path, &error))?;
     Ok(u64::try_from(epoch).unwrap_or_default())
+}
+
+/// The run epoch the run file at `path` holds, read without its writer;
+/// `None` when it cannot be read. It blocks: run it under a blocking policy.
+pub(crate) fn epoch_of(path: &Path) -> Option<u64> {
+    let connection = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+    let epoch: i64 = connection
+        .query_row("SELECT epoch FROM run", [], |row| row.get(0))
+        .ok()?;
+    u64::try_from(epoch).ok()
 }
 
 fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
@@ -289,14 +368,14 @@ pub(crate) fn open_reader(path: &Path, vfs: Option<&str>) -> Result<Connection, 
 /// Opens the file, sets its durability and creates its tables.
 fn open_file(
     path: &Path,
-    vfs: Option<&str>,
+    options: &RunStateOptions,
     tables: &[RunStateTables],
 ) -> Result<Connection, RunStateError> {
     let failed = |error: rusqlite::Error| sqlite_error(path, &error);
     let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
         | OpenFlags::SQLITE_OPEN_CREATE
         | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let mut connection = match vfs {
+    let mut connection = match options.vfs.as_deref() {
         Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs),
         None => Connection::open_with_flags(path, flags),
     }
@@ -305,7 +384,7 @@ fn open_file(
         .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
         .map_err(failed)?;
     connection
-        .pragma_update(None, "synchronous", "FULL")
+        .pragma_update(None, "synchronous", options.durability.synchronous())
         .map_err(failed)?;
     if cfg!(target_os = "macos") {
         connection
@@ -350,6 +429,7 @@ pub(crate) fn check_format(format: &Format, found: &str) -> Result<(), RunStateE
         format: format.name,
         found: found.to_owned(),
         compatibility,
+        install: None,
     };
     let version: ProtocolVersion = found
         .parse()

@@ -54,11 +54,22 @@ CREATE TABLE seeds (
             answer TEXT NOT NULL
         ) STRICT;
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
+CREATE TABLE usage (
+        slice_id INTEGER NOT NULL,
+        epoch INTEGER NOT NULL,
+        used INTEGER NOT NULL,
+        PRIMARY KEY (slice_id, epoch)
+    ) STRICT;
+CREATE TABLE visited (
+            identity TEXT NOT NULL PRIMARY KEY,
+            crawl_request TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE work_items (
             id TEXT NOT NULL PRIMARY KEY,
             position INTEGER NOT NULL UNIQUE,
             url TEXT NOT NULL,
-            identity TEXT NOT NULL,
+            method TEXT NOT NULL,
+            body BLOB,
             label TEXT NOT NULL,
             depth INTEGER NOT NULL,
             payload TEXT,
@@ -72,7 +83,6 @@ CREATE TABLE work_items (
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX work_items_by_domain
             ON work_items (status, domain_key, priority DESC, position);
-CREATE UNIQUE INDEX work_items_by_identity ON work_items (identity);
 CREATE INDEX work_items_by_status ON work_items (status, position);
 CREATE INDEX work_items_unkeyed ON work_items (position)
             WHERE domain_key IS NULL;

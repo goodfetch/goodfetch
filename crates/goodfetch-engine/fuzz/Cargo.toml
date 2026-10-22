@@ -40,3 +40,10 @@ path = "fuzz_targets/checkpoint.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "run_state_import"
+path = "fuzz_targets/run_state_import.rs"
+test = false
+doc = false
+bench = false

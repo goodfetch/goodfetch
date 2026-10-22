@@ -11,6 +11,13 @@
 export type ArtifactKind =
   "browser" | "driver" | "executable_copy" | "engine_executable" | "clean_up_rules" | "mouse_movements";
 /**
+ * The format, with its default options.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Asked".
+ */
+export type Asked = true;
+/**
  * Whether a Run's results cover everything in its scope (ADRs 0005 and
  * 0029).
  *
@@ -79,6 +86,13 @@ export type SettingsLayer =
  */
 export type Product = "collie" | "foxhound";
 /**
+ * The `markdown` format of a request: `true`, or its options.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MarkdownFormat".
+ */
+export type MarkdownFormat = true | MarkdownOptions;
+/**
  * When a navigation answers, by the state its document reached
  * (Playwright's `waitUntil`).
  *
@@ -94,12 +108,19 @@ export type WaitUntil = "commit" | "domcontentloaded" | "load";
  */
 export type Lifecycle = "running" | "stopped" | "finished" | "failed";
 /**
- * A page of a Run, named by the engine when it opens it.
+ * Who set a Limit, which decides whether it allows paying (ADR 0045).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "PageId".
+ * via the `definition` "LimitSetter".
  */
-export type PageId = string;
+export type LimitSetter = "person" | "managed_policy" | "client";
+/**
+ * What the engine that read a Limit makes of it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LimitStanding".
+ */
+export type LimitStanding = "held" | "foxhound" | "not_understood";
 /**
  * A point in time in UTC, as RFC 3339.
  *
@@ -107,6 +128,34 @@ export type PageId = string;
  * via the `definition` "PointInTime".
  */
 export type PointInTime = string;
+/**
+ * Whether the extractor found the document's main content.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MainContent".
+ */
+export type MainContent = "found" | "none";
+/**
+ * How much of the page a Markdown format holds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MarkdownContent".
+ */
+export type MarkdownContent = "main";
+/**
+ * A page of a Run, named by the engine when it opens it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageId".
+ */
+export type PageId = string;
+/**
+ * How long a period Limit counts before it starts again (ADR 0041).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PeriodLength".
+ */
+export type PeriodLength = "day" | "week" | "month";
 /**
  * A Product version, `major.minor.patch` with an optional pre-release (ADR 0090).
  *
@@ -165,7 +214,11 @@ export type StopReason =
     }
   | {
       kind: "timeout";
-    };
+    }
+  | {
+      kind: "drain";
+    }
+  | ReachedLimit1;
 /**
  * An opaque text a Run is tagged with (ADR 0036).
  *
@@ -224,6 +277,14 @@ export type Tags1 = Tag[];
 export interface CollieTypes {
   [k: string]: unknown;
 }
+/**
+ * What a locator action answers once its input landed on its target:
+ * nothing, since no operation returns a handle on an element (ADR 0085).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Acted".
+ */
+export interface Acted {}
 /**
  * Which Pinned artifact: its kind, its name and its build.
  *
@@ -316,6 +377,28 @@ export interface Chunk {
    * Where its bytes start in the body.
    */
   offset: number;
+}
+/**
+ * What `locator.click` takes: the locator whose element it clicks.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ClickParams".
+ */
+export interface ClickParams {
+  locator: Locator;
+}
+/**
+ * The locator.
+ */
+export interface Locator {
+  /**
+   * The page it looks on.
+   */
+  page_id: string;
+  /**
+   * A CSS selector, which also matches inside open shadow roots.
+   */
+  selector: string;
 }
 /**
  * What `config.explain` takes.
@@ -678,6 +761,78 @@ export interface ExplainedSetting {
   weakens: boolean;
 }
 /**
+ * What `locator.fill` takes: the locator whose field it fills, and the
+ * text.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FillParams".
+ */
+export interface FillParams {
+  locator: Locator1;
+  /**
+   * The text the field holds afterwards; an empty text clears it.
+   */
+  value: string;
+}
+/**
+ * The locator.
+ */
+export interface Locator1 {
+  /**
+   * The page it looks on.
+   */
+  page_id: string;
+  /**
+   * A CSS selector, which also matches inside open shadow roots.
+   */
+  selector: string;
+}
+/**
+ * What `page.formats` takes: the page, and the formats it asks for.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FormatsParams".
+ */
+export interface FormatsParams {
+  formats: FormatsRequest;
+  /**
+   * The page.
+   */
+  page_id: string;
+}
+/**
+ * The formats.
+ */
+export interface FormatsRequest {
+  /**
+   * The page's content as Markdown, with GFM's tables.
+   */
+  markdown?: MarkdownFormat | null;
+}
+/**
+ * With these options.
+ */
+export interface MarkdownOptions {
+  /**
+   * How much of the page it holds.
+   */
+  content: "main";
+}
+/**
+ * The formats a `page.formats` call asks for, each `true` or its options:
+ * one value, which a Record can carry and a Dataset's schema can be
+ * generated from (ADR 0103). A format left out is left out of the result.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FormatsRequest".
+ */
+export interface FormatsRequest1 {
+  /**
+   * The page's content as Markdown, with GFM's tables.
+   */
+  markdown?: MarkdownFormat | null;
+}
+/**
  * What `page.goto` takes: the page, the URL it goes to, and when it
  * answers.
  *
@@ -778,6 +933,196 @@ export interface PrivateEndpoint {
    * The path of the file holding its token.
    */
   token_file: string;
+}
+/**
+ * One Limit of the Usage ledger: a generic row, which a newer engine may
+ * write with a scope kind, a Usage kind, a currency or a period this one
+ * does not know (ADR 0041).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Limit".
+ */
+export interface Limit {
+  /**
+   * How much it allows per period: a count of the Usage kind, or
+   * millionths of the currency.
+   */
+  amount: number;
+  /**
+   * The currency it caps the Usage kind's price in, an ISO 4217 code;
+   * none for a Limit on the Usage itself.
+   */
+  currency?: string | null;
+  /**
+   * Whether an engine that cannot evaluate it must refuse the runs it
+   * cannot place outside it, with `limit_not_understood`.
+   */
+  must_understand: boolean;
+  /**
+   * The period it counts over; none for a Limit that never starts again,
+   * such as a Client connection's.
+   */
+  period?: Period | null;
+  scope: LimitScope;
+  /**
+   * Who set it.
+   */
+  set_by: "person" | "managed_policy" | "client";
+  /**
+   * The Usage kind it caps, a value of a type both Products share.
+   */
+  usage_kind: string;
+}
+/**
+ * The period a Limit counts over, in an explicit IANA time zone, so that
+ * it never depends on the host's (ADR 0041).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Period".
+ */
+export interface Period {
+  /**
+   * How long it counts.
+   */
+  every: "day" | "week" | "month";
+  /**
+   * The IANA time zone its midnights are in, such as `Europe/Paris`.
+   */
+  time_zone: string;
+}
+/**
+ * What it is on.
+ */
+export interface LimitScope {
+  /**
+   * Which one of its kind: the major's name for a Daemon, the person's
+   * name, the token's name or the Client connection's ID; empty for the
+   * install.
+   */
+  id: string;
+  /**
+   * The scope's kind.
+   */
+  kind: string;
+}
+/**
+ * What a Limit is on: a scope kind, a value of a type both Products share
+ * (`install`, `daemon`, `person`, `token`, `connection`, and Foxhound's
+ * `partitioned_crawl`), and which one of its kind (ADR 0041). A kind this
+ * reader does not know is kept as it is.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LimitScope".
+ */
+export interface LimitScope1 {
+  /**
+   * Which one of its kind: the major's name for a Daemon, the person's
+   * name, the token's name or the Client connection's ID; empty for the
+   * install.
+   */
+  id: string;
+  /**
+   * The scope's kind.
+   */
+  kind: string;
+}
+/**
+ * One Limit with the Usage counted against it in its current period.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LimitUsage".
+ */
+export interface LimitUsage {
+  /**
+   * The Usage charged in the current period: what ended runs used, and
+   * what was reclaimed from dead engines' Slices.
+   */
+  charged: number;
+  /**
+   * The Usage live runs hold in Slices they have not returned yet.
+   */
+  held: number;
+  /**
+   * What is left of the amount in the current period.
+   */
+  left: number;
+  limit: Limit1;
+  /**
+   * When the current period started; none for a Limit without one.
+   */
+  period_started_at?: PointInTime | null;
+  /**
+   * When the next period starts; none for a Limit without one.
+   */
+  resets_at?: PointInTime | null;
+  /**
+   * What the engine that read it makes of it.
+   */
+  standing: "held" | "foxhound" | "not_understood";
+}
+/**
+ * The Limit.
+ */
+export interface Limit1 {
+  /**
+   * How much it allows per period: a count of the Usage kind, or
+   * millionths of the currency.
+   */
+  amount: number;
+  /**
+   * The currency it caps the Usage kind's price in, an ISO 4217 code;
+   * none for a Limit on the Usage itself.
+   */
+  currency?: string | null;
+  /**
+   * Whether an engine that cannot evaluate it must refuse the runs it
+   * cannot place outside it, with `limit_not_understood`.
+   */
+  must_understand: boolean;
+  /**
+   * The period it counts over; none for a Limit that never starts again,
+   * such as a Client connection's.
+   */
+  period?: Period | null;
+  scope: LimitScope;
+  /**
+   * Who set it.
+   */
+  set_by: "person" | "managed_policy" | "client";
+  /**
+   * The Usage kind it caps, a value of a type both Products share.
+   */
+  usage_kind: string;
+}
+/**
+ * A locator (ADR 0085): what an action looks for on a page, resolved
+ * again at each use, never a handle on an element. This tracer's locators
+ * are CSS selectors.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Locator".
+ */
+export interface Locator2 {
+  /**
+   * The page it looks on.
+   */
+  page_id: string;
+  /**
+   * A CSS selector, which also matches inside open shadow roots.
+   */
+  selector: string;
+}
+/**
+ * The options of the `markdown` format.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MarkdownOptions".
+ */
+export interface MarkdownOptions1 {
+  /**
+   * How much of the page it holds.
+   */
+  content: "main";
 }
 /**
  * What a navigation answers: the document's response, or none for a
@@ -890,6 +1235,33 @@ export interface PageDownload {
   url: string;
 }
 /**
+ * What `page.formats` answers: the formats the request asked for, and
+ * none it did not, with the document's URL, its base URL and whether it
+ * has main content. Text is as the document holds it, never repaired.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageFormats".
+ */
+export interface PageFormats {
+  /**
+   * The URL its relative URLs resolve against: its first `<base href>`,
+   * else its URL.
+   */
+  base_url: string;
+  /**
+   * Whether it has main content.
+   */
+  main_content: "found" | "none";
+  /**
+   * Its content as Markdown, when the request asked for it.
+   */
+  markdown?: string;
+  /**
+   * The document's URL, after redirects.
+   */
+  url: string;
+}
+/**
  * What `run.new_page` answers: the page, and the Session it belongs to,
  * which `page.session()` returns.
  *
@@ -917,6 +1289,75 @@ export interface PageParams {
    * The page.
    */
   page_id: string;
+}
+/**
+ * What `locator.press` takes: the locator whose element gets the key, and
+ * the key.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PressParams".
+ */
+export interface PressParams {
+  /**
+   * A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by
+   * Playwright's key names.
+   */
+  key: string;
+  locator: Locator3;
+}
+/**
+ * The locator.
+ */
+export interface Locator3 {
+  /**
+   * The page it looks on.
+   */
+  page_id: string;
+  /**
+   * A CSS selector, which also matches inside open shadow roots.
+   */
+  selector: string;
+}
+/**
+ * The Limit a Run cannot take more of: what `limit_reached` details, and
+ * what a Run stopped for it names (ADR 0041).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ReachedLimit".
+ */
+export interface ReachedLimit {
+  /**
+   * The currency it caps a price in, for a price Limit.
+   */
+  currency?: string | null;
+  /**
+   * Its period; none for a Limit that never starts again.
+   */
+  period?: Period | null;
+  /**
+   * When its period starts again; none for a Limit without one.
+   */
+  resets_at?: PointInTime | null;
+  scope: LimitScope2;
+  /**
+   * The Usage kind it caps.
+   */
+  usage_kind: string;
+}
+/**
+ * The Limit's scope.
+ */
+export interface LimitScope2 {
+  /**
+   * Which one of its kind: the major's name for a Daemon, the person's
+   * name, the token's name or the Client connection's ID; empty for the
+   * install.
+   */
+  id: string;
+  /**
+   * The scope's kind.
+   */
+  kind: string;
 }
 /**
  * What `events.resync` gives: the current state, from which the stream
@@ -1066,7 +1507,7 @@ export interface RunReport {
    */
   completeness: "complete" | "incomplete" | "unverified";
   /**
-   * When it ended.
+   * A point in time in UTC, as RFC 3339.
    */
   ended_at: string;
   /**
@@ -1083,7 +1524,7 @@ export interface RunReport {
    */
   run_id: string;
   /**
-   * When it started.
+   * A point in time in UTC, as RFC 3339.
    */
   started_at: string;
   /**
@@ -1099,6 +1540,14 @@ export interface RunReport {
    * off a costly control, with its value and layer (ADR 0028).
    */
   weakened_by?: SettingLimit[];
+}
+/**
+ * It could not take another Slice of a Limit, and stopped at its next
+ * safe point, resumable once the period starts again or a person
+ * raises the Limit (ADR 0041).
+ */
+export interface ReachedLimit1 {
+  kind: "limit";
 }
 /**
  * A setting that decided an outcome: its key, its value and the layer that
@@ -1229,7 +1678,11 @@ export interface RunStopping {
       }
     | {
         kind: "timeout";
-      };
+      }
+    | {
+        kind: "drain";
+      }
+    | ReachedLimit1;
   /**
    * The Run's ID.
    */
@@ -1351,3 +1804,57 @@ export interface SettingsFile {
  * via the `definition` "SubscriptionEnded".
  */
 export interface SubscriptionEnded {}
+/**
+ * What `usage.list` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UsageListParams".
+ */
+export interface UsageListParams {}
+/**
+ * What `usage.list` answers, and what `usage --json` prints.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UsageListResult".
+ */
+export interface UsageListResult {
+  /**
+   * Every Limit of the Usage ledger, by scope, with its Usage.
+   */
+  limits: LimitUsage[];
+}
+/**
+ * What `usage.set` takes: a Limit of the caller's own, which holds beside
+ * the others, so the tightest one holds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UsageSetParams".
+ */
+export interface UsageSetParams {
+  /**
+   * How much it allows per period: a count of the Usage kind, or
+   * millionths of the currency.
+   */
+  amount: number;
+  /**
+   * The currency it caps the price in, an ISO 4217 code.
+   */
+  currency?: string | null;
+  /**
+   * The period it counts over; none for a Limit that never starts again.
+   */
+  period?: Period | null;
+  /**
+   * The scope's kind.
+   */
+  scope: string;
+  /**
+   * Which one of its kind; the caller's own when absent (its Client
+   * connection, its person, the engine's Daemon, the install).
+   */
+  scope_id?: string | null;
+  /**
+   * The Usage kind it caps.
+   */
+  usage_kind: string;
+}

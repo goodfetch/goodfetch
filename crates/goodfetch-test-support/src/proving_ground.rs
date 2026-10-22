@@ -218,6 +218,34 @@ impl ProvingGround {
             .and_then(|mut response| response.body_mut().read_json())
             .map_err(|error| ProvingGroundError::Observations(error.to_string()))
     }
+
+    /// The start URL of the task `id` of its task list, such as
+    /// `actionability/2`.
+    pub fn start_url(&self, id: &str) -> Result<String, ProvingGroundError> {
+        let tasks: serde_json::Value = ureq::get(format!("http://{}/tasks", self.address))
+            .call()
+            .and_then(|mut response| response.body_mut().read_json())
+            .map_err(|error| ProvingGroundError::Oracle(error.to_string()))?;
+        tasks["tasks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|task| task["id"] == id)
+            .and_then(|task| task["start_url"].as_str())
+            .map(str::to_owned)
+            .ok_or_else(|| ProvingGroundError::Oracle(format!("the task list has no `{id}`")))
+    }
+
+    /// The oracle's verdict on the task `id`, which the tool under test
+    /// reports as `status` (`success` or `failure`), from the Effects the
+    /// task's pages recorded: its `outcome`, such as `verified`, and what
+    /// it found.
+    pub fn judge(&self, id: &str, status: &str) -> Result<serde_json::Value, ProvingGroundError> {
+        ureq::post(format!("http://{}/oracle", self.address))
+            .send_json(serde_json::json!({ "task": id, "status": status, "files": [] }))
+            .and_then(|mut response| response.body_mut().read_json())
+            .map_err(|error| ProvingGroundError::Oracle(error.to_string()))
+    }
 }
 
 impl Drop for ProvingGround {
@@ -261,4 +289,7 @@ pub enum ProvingGroundError {
     /// Its observations could not be read.
     #[error("the Proving ground's observations: {0}")]
     Observations(String),
+    /// Its task list or its oracle gave no answer.
+    #[error("the Proving ground's oracle: {0}")]
+    Oracle(String),
 }

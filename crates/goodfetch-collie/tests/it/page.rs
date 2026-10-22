@@ -35,7 +35,7 @@ const SEED: u64 = 695;
 
 /// How long a call may take: the first page launches the browser, checking
 /// its build's digest, and the Run's end waits for the browser to exit.
-const BROWSER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+pub(crate) const BROWSER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Starts an Attached engine whose Browser cache is `cache`, and a Run whose
 /// `network.resolve` maps the Proving ground's hosts to its address.
@@ -45,8 +45,24 @@ fn started<'env>(
     proving_ground: &ProvingGround,
     run_id: &str,
 ) -> Attached<'env> {
+    started_with(env, cache, proving_ground, run_id, &Map::new(), |_| {})
+}
+
+/// Starts an Attached engine whose Browser cache is `cache`, its command
+/// changed by `change`, and a Run whose `network.resolve` maps the Proving
+/// ground's hosts to its address, beside `settings`, more of the Run's
+/// settings by area.
+pub(crate) fn started_with<'env>(
+    env: &'env TestEnv,
+    cache: &Path,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    settings: &Map<String, Value>,
+    change: impl FnOnce(&mut Command),
+) -> Attached<'env> {
     let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
         command.env(BROWSERS_PATH_VARIABLE, cache);
+        change(command);
     });
     engine.send(&hello("collie", "0.1"));
     let _ = engine.next();
@@ -56,17 +72,19 @@ fn started<'env>(
         .iter()
         .map(|(host, address)| (host.clone(), json!([address])))
         .collect();
+    let mut settings = settings.clone();
+    settings.insert("network".to_owned(), json!({ "resolve": resolve }));
     let started = call(
         &mut engine,
         1,
         "run.start",
-        &json!({ "run_id": run_id, "settings": { "network": { "resolve": resolve } } }),
+        &json!({ "run_id": run_id, "settings": settings }),
     );
     assert!(started.get("result").is_some(), "{started}");
     engine
 }
 
-fn opened(answer: &Value) -> PageOpened {
+pub(crate) fn opened(answer: &Value) -> PageOpened {
     serde_json::from_value(answer["result"].clone())
         .unwrap_or_else(|error| panic!("{error}: {answer}"))
 }
@@ -130,6 +148,89 @@ fn a_program_opens_pages_in_the_runs_default_session_and_gets_a_documents_respon
     );
 }
 
+/// `page.formats` reads the main content of the page a program is on as
+/// Markdown, answers only the formats asked, and answers a page with no
+/// main content with empty Markdown and `none`, a value.
+/// Covers: story:6-1, story:6-8, story:6-12, operation:page.formats
+#[test]
+fn a_program_reads_the_main_content_of_its_page_as_markdown() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "formats");
+    let product = proving_ground.url("extraction.test", "/markdown/mixed/product");
+    let navigation = proving_ground.url("extraction.test", "/markdown/none/navigation-only");
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "formats" }),
+    ));
+
+    call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": product }),
+    );
+    let markdown = call(
+        &mut engine,
+        4,
+        "page.formats",
+        &json!({ "page_id": page.page_id, "formats": { "markdown": true } }),
+    );
+    let envelope = call(
+        &mut engine,
+        5,
+        "page.formats",
+        &json!({ "page_id": page.page_id, "formats": {} }),
+    );
+    call(
+        &mut engine,
+        6,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": navigation }),
+    );
+    let none = call(
+        &mut engine,
+        7,
+        "page.formats",
+        &json!({ "page_id": page.page_id, "formats": { "markdown": { "content": "main" } } }),
+    );
+    call(
+        &mut engine,
+        8,
+        "run.finish",
+        &json!({ "run_id": "formats" }),
+    );
+    let (rest, exited) = engine.finish();
+
+    assert_eq!(
+        (
+            &markdown["result"],
+            &envelope["result"],
+            &none["result"],
+            (rest, exited)
+        ),
+        (
+            &json!({
+                "url": product,
+                "base_url": product,
+                "main_content": "found",
+                "markdown": "## Desk Lamp\n\n**Price:** 39 €\n\n## Specifications\n\n| Power | 8 W |\n| --- | --- |\n| Colour | Black |\n\n## In the box\n\n- Lamp\n- USB cable\n",
+            }),
+            &json!({ "url": product, "base_url": product, "main_content": "found" }),
+            &json!({
+                "url": navigation,
+                "base_url": navigation,
+                "main_content": "none",
+                "markdown": "",
+            }),
+            (vec![], true)
+        )
+    );
+}
+
 /// Covers: error:browser_not_installed
 #[cfg(unix)]
 #[test]
@@ -174,7 +275,7 @@ fn a_launch_with_an_empty_browser_cache_fails_from_the_call_that_launches() {
 /// those whose profile is in the test's folder, which `ps` names by the
 /// folder name's last, ASCII, part.
 #[cfg(unix)]
-fn browser_command_lines(env: &TestEnv) -> Vec<String> {
+pub(crate) fn browser_command_lines(env: &TestEnv) -> Vec<String> {
     let name = env.folder().file_name().unwrap().to_string_lossy();
     let marker = name.rsplit(' ').next().unwrap().to_owned();
     let listed = Command::new("ps")
@@ -235,13 +336,15 @@ fn probe_reports(proving_ground: &ProvingGround) -> Vec<(String, String)> {
 }
 
 /// What the probe would see of `Runtime` enabled and of a script outside
-/// its isolated world. `navigator.webdriver`, which it also reports, is the
-/// launch's identity, #696's to settle.
+/// its isolated world. `navigator.webdriver`, which it also reports, is
+/// the same with a window or without (#696); hiding it is area 8's.
 const SIDE_EFFECTS: [&str; 2] = ["runtime_enable", "automation_bindings"];
 
 /// The browser runs over a pipe with no debugging port, `Runtime` is never
-/// enabled, and a page's own script sees neither `Runtime`'s side effect
-/// nor the guard's isolated world (ADRs 0017 and 0019).
+/// enabled (a headless browser's identity is read with `Runtime.evaluate`
+/// on a page of its own, which needs no `Runtime.enable`), and a page's own
+/// script sees neither `Runtime`'s side effect nor the guard's isolated
+/// world (ADRs 0017 and 0019).
 /// Covers: story:5-61
 #[cfg(unix)]
 #[test]
@@ -400,6 +503,36 @@ fn page_goto_of_a_page_no_engine_holds_fails_with_closed() {
             &checked.documents[0]["error"]["operation"],
         ),
         (Some(3), &json!("closed"), &json!("page.goto"))
+    );
+}
+
+/// `page formats` through the command generated from the catalog, its
+/// request given as JSON: no engine holds a page the command names, so the
+/// call fails with `closed`.
+/// Covers: command:page.formats
+#[test]
+fn page_formats_of_a_page_no_engine_holds_fails_with_closed() {
+    let env = TestEnv::new();
+
+    let checked = cli(&env, COLLIE)
+        .args([
+            "page",
+            "formats",
+            "page-1",
+            "--formats",
+            r#"{"markdown":true}"#,
+            "--json",
+        ])
+        .json("CommandFailed")
+        .unwrap();
+
+    assert_eq!(
+        (
+            checked.output.exit,
+            &checked.documents[0]["error"]["code"],
+            &checked.documents[0]["error"]["operation"],
+        ),
+        (Some(3), &json!("closed"), &json!("page.formats"))
     );
 }
 

@@ -24,7 +24,9 @@ use goodfetch_engine::browser_cache::{self, MaxUnusedAge};
 use goodfetch_engine::daemon::files::{DaemonFiles, FileLock, new_token};
 use goodfetch_engine::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Holds, Succession};
 use goodfetch_engine::home::Home;
-use goodfetch_engine::installed::{InstalledList, Seen, pick};
+use goodfetch_engine::installed::{InstalledList, Seen, pick, stores_floor};
+use goodfetch_engine::run_state::install::InstallDatabase;
+use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::transport::{DaemonListener, Network, listen_console};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
@@ -35,7 +37,7 @@ use goodfetch_protocol::console::{
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, IDLE_TIMEOUT};
 use goodfetch_protocol::settings::SETTING_INVALID;
 
-use super::{Failure, Machine, multi_thread_runtime, now, unavailable};
+use super::{Failure, Machine, multi_thread_runtime, now, per_install, unavailable};
 use goodfetch_cli::output;
 
 use crate::executable::browsers;
@@ -155,6 +157,10 @@ pub(in crate::executable) fn launched(
             )
         },
     );
+    let install = match install_database(machine, &dependencies, settings.as_ref()) {
+        Ok(install) => install,
+        Err(failure) => return failure.report(),
+    };
     let (socket, _socket_folder) = match files.socket_place() {
         Ok(place) => place,
         Err(error) => return unavailable("the Daemon's socket has no folder")(error).report(),
@@ -201,6 +207,8 @@ pub(in crate::executable) fn launched(
                 keeps_socket: activated,
             }),
             console,
+            drain: None,
+            install,
         };
         Ok::<_, Failure>((
             engine.run_daemon(listener, dependencies, options).await,
@@ -212,6 +220,31 @@ pub(in crate::executable) fn launched(
         Ok((ended, activated)) => finish(machine, &files, pid, serving, ended, activated),
         Err(failure) => failure.report(),
     }
+}
+
+/// The install database, which the Daemon alone writes, in the
+/// per-install layout that the machine's `settings` choose (ADR 0002);
+/// none in the per-run layout.
+pub(super) fn install_database(
+    machine: &Machine<'_>,
+    dependencies: &Dependencies,
+    settings: Option<&Resolved>,
+) -> Result<Option<InstallDatabase>, Failure> {
+    if !per_install(settings) {
+        return Ok(None);
+    }
+    InstallDatabase::of(
+        machine.home,
+        &machine.identity.product_version,
+        &dependencies.run_state_location,
+        &dependencies.run_state,
+    )
+    .map(Some)
+    .map_err(|error| {
+        Failure::Unavailable(format!(
+            "the per-install layout's run state cannot be opened: {error}"
+        ))
+    })
 }
 
 /// The Daemon's Console (ADR 0031): its listener at `address`, the
@@ -332,7 +365,7 @@ fn finish(
             }
         }
         DaemonEnd::ListenerFailed => ExitCode::FAILURE,
-        DaemonEnd::Idle | DaemonEnd::Stopped => ExitCode::SUCCESS,
+        DaemonEnd::Idle | DaemonEnd::Stopped | DaemonEnd::Drained => ExitCode::SUCCESS,
     }
 }
 
@@ -356,7 +389,8 @@ impl Succession for OnTheMachine {
             .iter()
             .map(|entry| Seen::look(entry, &self.cache))
             .collect();
-        pick(&seen, &self.version, None, now(), self.max_unused_age).is_none_or(|picked| {
+        let floor = stores_floor(&self.home, &self.version);
+        pick(&seen, &self.version, floor, now(), self.max_unused_age).is_none_or(|picked| {
             picked.product == self.product && picked.product_version == self.version
         })
     }

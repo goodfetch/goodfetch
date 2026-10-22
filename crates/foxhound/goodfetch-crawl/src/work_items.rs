@@ -10,15 +10,15 @@
 //! inside one of the run-state writer's commits. Each pending work item
 //! also waits under its domain key and priority, from which its per-domain
 //! queue fills again, after a drain or a resume (ADR 0004). A work item is
-//! added once per identity, exactly, by the run file's unique index, so the
-//! Frontier's duplicate check holds nothing in memory (STYLE.md).
+//! added once per identity, as the Frontier's visited set, in the same run
+//! file, decides; it keeps the method and body it is sent with.
 
 use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::run_state::RunStateTables;
-use goodfetch_frontier::{Candidate, Identified, admit};
+use goodfetch_frontier::{Candidate, Declared, Url, admit};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, PushedRecord, Seed};
-use goodfetch_protocol::foxhound::frontier::Enqueued;
+use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod};
 use goodfetch_protocol::foxhound::outcomes::{
     AttemptError, CrawlRequestOutcome, DatasetRecords, Ending, NothingCommitted, OutcomeRequest,
     SkipReason,
@@ -35,7 +35,8 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             id TEXT NOT NULL PRIMARY KEY,
             position INTEGER NOT NULL UNIQUE,
             url TEXT NOT NULL,
-            identity TEXT NOT NULL,
+            method TEXT NOT NULL,
+            body BLOB,
             label TEXT NOT NULL,
             depth INTEGER NOT NULL,
             payload TEXT,
@@ -46,7 +47,6 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             domain_key TEXT,
             priority INTEGER NOT NULL
         ) STRICT",
-        "CREATE UNIQUE INDEX IF NOT EXISTS work_items_by_identity ON work_items (identity)",
         "CREATE INDEX IF NOT EXISTS work_items_by_status ON work_items (status, position)",
         "CREATE INDEX IF NOT EXISTS work_items_unkeyed ON work_items (position)
             WHERE domain_key IS NULL",
@@ -127,6 +127,10 @@ fn integer(value: u64) -> i64 {
 /// What a work item the Frontier admits carries beside its URL.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Adding<'a> {
+    /// The method it is sent with.
+    pub(crate) method: &'a HttpMethod,
+    /// The body it is sent with, if any.
+    pub(crate) body: Option<&'a HttpBody>,
     /// Its Label.
     pub(crate) label: &'a str,
     /// Its Payload.
@@ -146,11 +150,22 @@ pub(crate) fn admit_seeds(
     seeds
         .iter()
         .map(|seed| {
-            admit(Candidate::Seed { url: &seed.url }, |request| {
+            let declared = Declared {
+                method: &seed.method,
+                body: seed.body.as_ref().map(HttpBody::bytes),
+                key: seed.key.as_deref(),
+            };
+            let candidate = Candidate::Seed {
+                url: &seed.url,
+                declared,
+            };
+            admit(connection, candidate, |url| {
                 add(
                     connection,
-                    request,
+                    url,
                     Adding {
+                        method: &seed.method,
+                        body: seed.body.as_ref(),
                         label: &seed.label,
                         payload: seed.payload.as_ref(),
                         priority: seed.priority,
@@ -162,32 +177,30 @@ pub(crate) fn admit_seeds(
         .collect()
 }
 
-/// Adds `request` as a pending work item, next in order, its ID its
-/// position; `None` when a work item of its identity is already there.
+/// Adds a request to `url`, the URL it is fetched at, as a pending work
+/// item, next in order, and answers its ID, its position.
 pub(crate) fn add(
     connection: &Connection,
-    request: Identified<'_>,
+    url: &Url,
     adding: Adding<'_>,
-) -> rusqlite::Result<Option<String>> {
-    connection
-        .query_row(
-            "INSERT INTO work_items
-                 (id, position, url, identity, label, depth, payload, status, attempts, lease_epoch, priority)
-             SELECT CAST(next AS TEXT), next, ?1, ?2, ?3, ?4, ?5, 'pending', 0, 0, ?6
-             FROM (SELECT coalesce(max(position), 0) + 1 AS next FROM work_items) WHERE true
-             ON CONFLICT (identity) DO NOTHING
-             RETURNING id",
-            (
-                request.url.as_str(),
-                request.identity,
-                adding.label,
-                adding.depth,
-                adding.payload.map(Value::to_string),
-                adding.priority,
-            ),
-            |row| row.get(0),
-        )
-        .optional()
+) -> rusqlite::Result<String> {
+    connection.query_row(
+        "INSERT INTO work_items
+             (id, position, url, method, body, label, depth, payload, status, attempts, lease_epoch, priority)
+         SELECT CAST(next AS TEXT), next, ?1, ?2, ?3, ?4, ?5, ?6, 'pending', 0, 0, ?7
+         FROM (SELECT coalesce(max(position), 0) + 1 AS next FROM work_items)
+         RETURNING id",
+        (
+            url.as_str(),
+            adding.method.as_str(),
+            adding.body.map(HttpBody::bytes),
+            adding.label,
+            adding.depth,
+            adding.payload.map(Value::to_string),
+            adding.priority,
+        ),
+        |row| row.get(0),
+    )
 }
 
 /// The URL and depth of the work item `id` while its attempt under
@@ -283,7 +296,8 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
     let mut statement = connection.prepare(
         "UPDATE work_items SET status = 'leased', attempts = attempts + 1, lease_epoch = lease_epoch + 1
          WHERE id = ?1 AND status = 'pending'
-         RETURNING id, url, label, payload, attempts, lease_epoch, domain_key, priority, position",
+         RETURNING id, url, label, payload, attempts, lease_epoch, domain_key, priority, position,
+             method, body",
     )?;
     let mut leased = Vec::with_capacity(ids.len());
     for id in ids {
@@ -296,6 +310,14 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
                         url: row.get(1)?,
                         label: row.get(2)?,
                         payload: payload.and_then(|payload| serde_json::from_str(&payload).ok()),
+                        method: HttpMethod::parse(&row.get::<_, String>(9)?).map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                9,
+                                rusqlite::types::Type::Text,
+                                Box::new(error),
+                            )
+                        })?,
+                        body: row.get::<_, Option<Vec<u8>>>(10)?.map(HttpBody::new),
                     },
                     attempt: row.get(4)?,
                     lease_epoch: u64::try_from(row.get::<_, i64>(5)?).unwrap_or_default(),

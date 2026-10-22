@@ -43,7 +43,8 @@ use goodfetch_engine::browser_cache::{
 use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::daemon::{RefusedClient, RefusedExecutable, refusal_fix};
 use goodfetch_engine::home::{Home, major_name};
-use goodfetch_engine::installed::{InstalledList, Seen, fingerprint, pick};
+use goodfetch_engine::installed::{InstalledList, Seen, fingerprint, pick, stores_floor};
+use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter};
 use goodfetch_protocol::browser_cache::MAX_UNUSED_AGE;
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
@@ -57,6 +58,7 @@ use goodfetch_protocol::daemon::{
 };
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 use goodfetch_protocol::jsonrpc::{ErrorObject, Message, Request, RequestId, Version};
+use goodfetch_protocol::run::{LAYOUT_PER_INSTALL, RUN_STATE_LAYOUT};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -66,10 +68,44 @@ use goodfetch_cli::output;
 
 use super::browsers;
 
+mod foreground;
 mod launched;
+#[cfg(target_os = "linux")]
+mod reaper;
 
 use launched::launch;
 pub(super) use launched::launched;
+
+/// `daemon run`, the foreground Daemon (ADR 0049); on Linux, under its
+/// reaper unless `reaped` says it runs under it already.
+pub(super) fn run(
+    engine: &goodfetch_engine::Engine,
+    dependencies: goodfetch_engine::Dependencies,
+    machine: &Machine<'_>,
+    reaped: bool,
+) -> ExitCode {
+    #[cfg(target_os = "linux")]
+    if !reaped {
+        let Some(executable) = machine.executable.as_deref() else {
+            tracing::error!(
+                "the executable's own path is unknown, so its reaper cannot start the Daemon"
+            );
+            return ExitCode::FAILURE;
+        };
+        return reaper::reap_around(executable, machine.environment);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = reaped;
+    foreground::run(engine, dependencies, machine)
+}
+
+/// Whether the machine's `settings` choose the per-install layout
+/// (`run_state.layout`), in which the Daemon alone writes run state.
+pub(super) fn per_install(settings: Option<&Resolved>) -> bool {
+    settings.is_some_and(|settings| {
+        settings.value(RUN_STATE_LAYOUT.name).as_str() == Some(LAYOUT_PER_INSTALL)
+    })
+}
 
 /// How many times a Client looks for the Daemon again when the one it
 /// found went away, or handed over, before it gives up.
@@ -190,7 +226,7 @@ impl Machine<'_> {
         pick(
             &seen,
             &self.identity.product_version,
-            None,
+            stores_floor(self.home, &self.identity.product_version),
             now(),
             self.max_unused_age(),
         )
@@ -319,11 +355,14 @@ impl Machine<'_> {
     /// runtime file; whoever calls it holds the start lock.
     pub(super) fn start_pick(&self, keep_alive: bool) -> Result<DaemonRuntimeFile, Failure> {
         let Some(picked) = self.pick() else {
+            let install = stores_floor(self.home, &self.identity.product_version).map_or_else(
+                || self.identity.product_version.to_string(),
+                |floor| floor.to_string(),
+            );
             return Err(Failure::Unavailable(format!(
-                "no installed executable can run the Daemon of major {}: install {} {} or newer",
+                "no installed executable can run the Daemon of major {}, whose shared stores need Goodfetch {install} or newer: install {} {install} or newer",
                 self.major(),
                 self.identity.product.name(),
-                self.identity.product_version,
             )));
         };
         let (executable, build) = self.copy_of(&picked)?;
@@ -477,6 +516,14 @@ impl Machine<'_> {
                 .map_err(unavailable("the Daemon's serving lock cannot be taken"))?,
         );
         Ok(Some(stopping))
+    }
+
+    /// Where the running Daemon is reached and the token its `hello`
+    /// takes, starting the pick when none runs: what an Attached engine in
+    /// the per-install layout relays its Client to (ADR 0002).
+    pub(super) fn reach_for_relay(&self) -> Result<(DaemonEndpoint, String), Failure> {
+        let (found, _) = self.running_or_started(false)?;
+        Ok((found.endpoint, found.token))
     }
 
     /// Starts the Daemon unless it runs, and answers its status.

@@ -47,6 +47,66 @@
           }
         ]
       },
+      "LimitScope": {
+        "description": "What a Limit is on: a scope kind, a value of a type both Products share\n(`install`, `daemon`, `person`, `token`, `connection`, and Foxhound's\n`partitioned_crawl`), and which one of its kind (ADR 0041). A kind this\nreader does not know is kept as it is.",
+        "properties": {
+          "id": {
+            "arrived_in": "0.1",
+            "description": "Which one of its kind: the major's name for a Daemon, the person's\nname, the token's name or the Client connection's ID; empty for the\ninstall.",
+            "type": "string"
+          },
+          "kind": {
+            "arrived_in": "0.1",
+            "description": "The scope's kind.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "type": "object"
+      },
+      "Period": {
+        "description": "The period a Limit counts over, in an explicit IANA time zone, so that\nit never depends on the host's (ADR 0041).",
+        "properties": {
+          "every": {
+            "$ref": "#/$defs/PeriodLength",
+            "arrived_in": "0.1",
+            "description": "How long it counts."
+          },
+          "time_zone": {
+            "arrived_in": "0.1",
+            "description": "The IANA time zone its midnights are in, such as `Europe/Paris`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "every",
+          "time_zone"
+        ],
+        "type": "object"
+      },
+      "PeriodLength": {
+        "description": "How long a period Limit counts before it starts again (ADR 0041).",
+        "oneOf": [
+          {
+            "const": "day",
+            "description": "From one midnight to the next.",
+            "type": "string"
+          },
+          {
+            "const": "week",
+            "description": "From Monday's midnight to the next Monday's.",
+            "type": "string"
+          },
+          {
+            "const": "month",
+            "description": "From the first day's midnight to the next month's.",
+            "type": "string"
+          }
+        ]
+      },
       "PointInTime": {
         "description": "A point in time in UTC, as RFC 3339.",
         "format": "date-time",
@@ -66,6 +126,58 @@
             "type": "string"
           }
         ]
+      },
+      "ReachedLimit": {
+        "description": "The Limit a Run cannot take more of: what `limit_reached` details, and\nwhat a Run stopped for it names (ADR 0041).",
+        "properties": {
+          "currency": {
+            "arrived_in": "0.1",
+            "description": "The currency it caps a price in, for a price Limit.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Period"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "Its period; none for a Limit that never starts again."
+          },
+          "resets_at": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PointInTime"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "When its period starts again; none for a Limit without one."
+          },
+          "scope": {
+            "$ref": "#/$defs/LimitScope",
+            "arrived_in": "0.1",
+            "description": "The Limit's scope."
+          },
+          "usage_kind": {
+            "arrived_in": "0.1",
+            "description": "The Usage kind it caps.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "usage_kind"
+        ],
+        "type": "object"
       },
       "RunId": {
         "description": "A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
@@ -267,6 +379,33 @@
             "properties": {
               "kind": {
                 "const": "timeout",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Its foreground Daemon drained on `SIGTERM`: checkpointed and\nstopped, to be resumed by its Run ID on the Daemon's next start\n(ADR 0049).",
+            "properties": {
+              "kind": {
+                "const": "drain",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "$ref": "#/$defs/ReachedLimit",
+            "description": "It could not take another Slice of a Limit, and stopped at its next\nsafe point, resumable once the period starts again or a person\nraises the Limit (ADR 0041).",
+            "properties": {
+              "kind": {
+                "const": "limit",
                 "type": "string"
               }
             },

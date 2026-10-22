@@ -4,7 +4,8 @@
 # jobs' host-tools action, ci/host/runtimes.env, package.json's
 # packageManager, the pnpm catalog's Playwright, the workspace's gungraun,
 # which gungraun's runner must match, the hosted jobs' gitleaks
-# (ci/host/gitleaks.sh) and the sanitizer toolchain and cargo-fuzz of
+# (ci/host/gitleaks.sh), the hosts' OSV-Scanner (ci/host/osv-scanner.sh)
+# and the sanitizer toolchain and cargo-fuzz of
 # ci/sanitizer-toolchain.toml. The image's tag hashes only its Containerfile, so a version changed
 # elsewhere alone would leave the image and the hosted jobs apart.
 set -euo pipefail
@@ -49,6 +50,11 @@ agree gitleaks "$(image_arg GITLEAKS_VERSION)" "$(sed -n 's/^version=//p' "$root
 agree gitleaks-linux-x64 "$(image_arg GITLEAKS_SHA256)" \
   "$(sed -n 's/^ *Linux-x86_64) platform=linux_x64 sha256=\([0-9a-f]*\) ;;$/\1/p' "$root/ci/host/gitleaks.sh")" \
   "the CI image and ci/host/gitleaks.sh"
+agree osv-scanner "$(image_arg OSV_SCANNER_VERSION)" "$(sed -n 's/^version=//p' "$root/ci/host/osv-scanner.sh")" \
+  "the CI image and ci/host/osv-scanner.sh"
+agree osv-scanner-linux-x64 "$(image_arg OSV_SCANNER_SHA256)" \
+  "$(sed -n 's/^ *Linux-x86_64) platform=linux_amd64 sha256=\([0-9a-f]*\) ;;$/\1/p' "$root/ci/host/osv-scanner.sh")" \
+  "the CI image and ci/host/osv-scanner.sh"
 sanitizer() { sed -n "s/^$1 = \"\(.*\)\"\$/\1/p" "$root/ci/sanitizer-toolchain.toml"; }
 agree sanitizer-toolchain "$(image_arg SANITIZER_TOOLCHAIN)" "$(sanitizer toolchain)" \
   "the CI image and ci/sanitizer-toolchain.toml"

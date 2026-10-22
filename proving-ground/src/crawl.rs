@@ -17,7 +17,9 @@
 //! - `facets`: a faceted listing that grows combinatorially (ADR 0120);
 //! - `fields`: Records that gain fields over time (pitfall D07);
 //! - `sitemaps`: a sitemap index past the protocol's 50,000 entries, plain
-//!   and gzip.
+//!   and gzip;
+//! - `scope`: a site with a `www` host and a subdomain beside a sister
+//!   domain and an off-site host (pitfall U15), on host names of its own.
 //!
 //! Every page and expected result is a pure function of the seed and the
 //! page's place; what a family keeps between requests is what it saw a
@@ -31,6 +33,7 @@ mod links;
 mod pacing;
 mod parameters;
 mod scale;
+mod scope;
 mod sitemaps;
 mod statuses;
 mod traps;
@@ -241,6 +244,7 @@ impl Families {
             facets::FAMILY => facets::respond(&visit, &self.facets),
             fields::FAMILY => fields::respond(&visit),
             sitemaps::FAMILY => sitemaps::respond(&visit),
+            scope::FAMILY => scope::respond(&visit),
             _ => scale::respond(&visit),
         })
     }
@@ -248,6 +252,9 @@ impl Families {
 
 /// The family whose host name, or one of whose task host names, `host` is.
 fn family_of(host: &str) -> Option<&'static str> {
+    if scope::serves(host) {
+        return Some(scope::FAMILY);
+    }
     FAMILIES.iter().find_map(|(name, family)| {
         let task_host = host
             .strip_suffix(name)
@@ -265,6 +272,7 @@ pub(crate) fn hosts(seed: u64) -> Vec<(String, Option<String>)> {
     FAMILIES
         .iter()
         .map(|(host, _)| ((*host).to_owned(), None))
+        .chain(scope::HOSTS.iter().map(|host| ((*host).to_owned(), None)))
         .chain(
             tasks(seed, None)
                 .into_iter()

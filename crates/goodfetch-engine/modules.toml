@@ -73,8 +73,9 @@ lifecycle = []
 outcome = []
 reader = ["folder"]
 reindex = ["folder", "writer"]
+report = []
 slices = ["folder", "writer"]
-takeover = ["folder", "lifecycle", "writer"]
+takeover = ["folder", "lifecycle", "report", "writer"]
 writer = []
 
 # Which of `rpc`'s own modules may import which.

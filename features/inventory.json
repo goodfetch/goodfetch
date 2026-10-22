@@ -910,7 +910,7 @@
     {
       "id": "error:path_not_writable",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1760,7 +1760,7 @@
     {
       "id": "operation:run.stop",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1771,7 +1771,7 @@
     {
       "id": "operation:run.usage",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

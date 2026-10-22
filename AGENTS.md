@@ -4,7 +4,7 @@ The repository of Goodfetch's two Products: Collie, for browser automation, and 
 
 ## Money
 
-Goodfetch has no revenue: spend nothing until the owner says so (ADR 0076). For every runner, credit, account, service or assessment, choose the free tier or a local alternative and record the paid option as declined; never create, enable or list as pending anything that bills. Live model calls go through the Vercel AI Gateway's free tier. Local secrets live in the git-ignored `.env`, filled by `scripts/env-setup.sh` from `.env.example`.
+Goodfetch has no revenue: spend nothing until the owner says so (ADR 0076). For every runner, credit, account, service or assessment, choose the free tier or a local alternative and record the paid option as declined; never create, enable or list as pending anything that bills. Live model calls go through the Vercel AI Gateway's free tier. Local secrets live in the git-ignored `.env`, filled by `scripts/env-setup.sh` from `.env.example`. The owner approved renting one Hetzner Cloud CCX43 server by the hour (€0.531 an hour including VAT) for the implementation and its gate, until the owner ends it.
 
 ## Release status
 
@@ -19,7 +19,7 @@ this status remains pre-release, ask the owner before a breaking change.
 
 ## Merging
 
-CI runs locally (owner decisions of 2026-10-19 and 2026-10-21, ADR 0135): GitHub Actions is on for the Release suite only, which `just release-ci` dispatches, and every other workflow is disabled. Merge a pull request with `just merge <number>` only: it runs `just pre-merge all`, which starts with `just quick all`'s lint and Quick suite, in a clean checkout of the pull request's exact head (one locked gate worktree whose build caches persist), and merges only when it passes. In a stack of pull requests, merge the bottom one first.
+CI runs locally (owner decisions of 2026-10-19 and 2026-10-21, ADR 0135): GitHub Actions is on for the Release suite only, which `just release-ci` dispatches, and every other workflow is disabled. Merge a pull request with `just merge <number>` only: it runs `just pre-merge all`, which starts with `just quick all`'s lint and Quick suite, in a clean checkout of the pull request's exact head (one locked gate worktree whose build caches persist), and merges only when it passes. In a stack of pull requests, merge the bottom one first. While the owner rents it, `just merge` runs on the Hetzner server (ADR 0135's amendment of 2026-10-22).
 
 ## Authorship
 

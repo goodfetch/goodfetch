@@ -97,7 +97,9 @@ pub fn kill_at_within<R: Serialize>(
     deadline: Duration,
 ) -> Result<Killed, KillAtError> {
     let stdout = process.child().stdout.take().ok_or(KillAtError::NoStdout)?;
-    let (sender, receiver) = mpsc::channel();
+    // Bounded (STYLE.md): the reader waits while the test has not taken a
+    // line, and ends once the receiver is gone.
+    let (sender, receiver) = mpsc::sync_channel(16);
     #[expect(
         clippy::disallowed_methods,
         reason = "a test helper's reader thread, which ends when the child's output does (ADR 0062)"

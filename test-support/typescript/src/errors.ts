@@ -83,6 +83,8 @@ export type TestSupportErrorCode =
   | "covers_unknown"
   /** axe found a violation of WCAG 2.2 AA or a best practice on a served test's page (ADR 0073). */
   | "axe_violations"
+  /** `browserStateReset` lifted a test's overrides and the page still read them past its deadline (ADR 0068). */
+  | "browser_state_not_reset"
   /** An entry of the axe exception file names a selector that matches nothing on a page where its rule ran (ADR 0073). */
   | "axe_exception_unmatched"
   /** The axe exception file cannot be read, or an entry lacks a field or has one it does not define (ADR 0073). */

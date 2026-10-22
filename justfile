@@ -982,6 +982,44 @@ audit-live:
     ci/audit.sh live python
     ci/proofs/live.sh
 
+# The daily Feature and Journey reports (ADRs 0063 and 0072), from the
+# server's cron on `main`'s head while the hosted workflows are off (ADR
+# 0135): every runner's listings on this build, then `xtask features report`
+# at the gate of `milestone`, the milestone whose owner test comes next, and
+# `xtask journeys report` with that owner test's "Journeys to try", both from
+# `main`'s latest Release run in the results store checked out at `store`.
+# Each day's reports are scanned for secrets, then committed into the store
+# under `reports/<date>/` and pushed, so the reports keep a history (ADR
+# 0072, Reports). The store's checkout keeps the credential that pushes.
+reports store milestone="M1":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    store=$(cd "{{ store }}" && pwd)
+    git -C "$store" pull --quiet --ff-only
+    day=$(date -u +%F)
+    out="$store/reports/$day"
+    rm -rf "$out"
+    mkdir -p "$out"
+    {{ just_executable() }} console-build
+    cargo run --quiet --locked -p xtask -- journeys listings --out target/journey-listings \
+      --cargo-profile {{ test_profile }}
+    cargo run --quiet --locked -p xtask -- features report --milestone "{{ milestone }}" \
+      --store "$store" --listings target/journey-listings --out "$out/features" >"$out/features.txt"
+    cargo run --quiet --locked -p xtask -- journeys report --store "$store" \
+      --out "$out/journeys" >"$out/journeys.md"
+    cargo run --quiet --locked -p xtask -- journeys report --owner-test "{{ milestone }}" \
+      >"$out/journeys/journeys-to-try.md"
+    {{ just_executable() }} leaks "$out"
+    cat "$out/features.txt"
+    git -C "$store" add "reports/$day"
+    if git -C "$store" diff --cached --quiet; then
+      echo "The store already holds the reports of $day."
+      exit 0
+    fi
+    git -C "$store" commit --quiet --message "Reports of $day"
+    git -C "$store" push --quiet origin HEAD
+    echo "Reports of $day written into $out and pushed."
+
 # Builds the workspace with the toolchain of its `rust-version`, the MSRV of
 # ADR 0030 (latest stable minus two).
 msrv:

@@ -163,6 +163,8 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 
 - **`xtask features report`** joins the inventory, the declarations and ADR 0064's results store. For each area and each milestone it gives the Features tested, untested (by cause), excepted (by evidence kind) and planned, and for each untested Feature its declaring tests with their last outcomes.
 - **The daily test-health job (ADR 0064) builds it** as JSON for agents and an HTML page beside the Allure report, and writes each run's report into the `test-results` repository, so coverage has a history.
+
+  > Agent decision, pending owner review (spec #325's review, H4, 2026-10-22): while ADR 0135 keeps the test-health workflow off, `just reports <store>` builds the daily Feature report, and the Journey report with the next owner test's "Journeys to try", run daily by the server's cron on `main`'s head. It commits each day's reports into the `test-results` checkout under `reports/<date>/` and pushes them, after the secret scan.
 - **Each milestone's owner test** lists its `manual` exceptions as manual steps, and links the feature, coverage and mutation reports.
 - **`just features`** runs the static Feature check locally and prints what the changed packages declare and miss.
 

@@ -2,12 +2,12 @@
 # the repository is public, on GitHub-hosted Linux:
 #
 # - the daily test-health job, on `main`'s head, 15 minutes in all: the 10
-#   oldest quarantined tests 50 times each (`quarantined`), which then lists
-#   every runner's tests on the build it made, then the scan of the results
-#   store, the drift check of `xtask perf` (ADR 0071), the Allure Report 3
-#   build from it, the Feature report (ADR 0072) from the store, the
-#   quarantine list and those listings, and the Journey report (ADR 0063)
-#   with the next owner test's "Journeys to try" (`report`).
+#   oldest quarantined tests 50 times each (`quarantined`), then the scan of
+#   the results store, the drift check of `xtask perf` (ADR 0071) and the
+#   Allure Report 3 build from it (`report`). The Feature report (ADR 0072)
+#   and the Journey report (ADR 0063) with the next owner test's "Journeys to
+#   try" are `just reports`, which the server's cron runs daily and which
+#   writes them into the results store (ADR 0135).
 # - the constrained test-health run, weekly and after each manual-dispatch
 #   Release run: the Pre-merge suite under a cgroup that halves the runner's
 #   CPU and memory, with a fresh order seed and Vitest's `detectAsyncLeaks`,
@@ -80,14 +80,6 @@ jobs:
         run: ci/egress/egress.sh canary
       - name: "Test: the 10 oldest quarantined tests, 50 times each"
         run: ci/egress/under-deny.sh just repeat 50 --quarantined 10
-      # The Feature report reads the Vitest, Playwright and pytest
-      # declarations and each Journey variant's tests from these listings,
-      # written on this job's build so `report` builds no test.
-      - name: List every runner's tests for the Feature report
-        if: always()
-        run: >-
-          ci/egress/under-deny.sh cargo run --quiet --locked -p xtask -- journeys listings
-          --out target/journey-listings --cargo-profile ci-test
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -100,20 +92,13 @@ jobs:
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()
-        run: ci/leaks.sh target/junit/ target/journey-listings/
+        run: ci/leaks.sh target/junit/
       - name: Upload the JUnit files
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-quarantined-test-health-linux-x64-1
           path: target/junit/
-          if-no-files-found: ignore
-      - name: Upload the runners' listings
-        if: always() && steps.leaks.outcome == 'success'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: journey-listings
-          path: target/journey-listings/
           if-no-files-found: ignore
 
   report:
@@ -126,16 +111,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      # The runners' listings `quarantined` uploaded.
-      actions: read
       contents: read
       # The scan opens and reopens flaky-test and live-check issues, and the
       # drift check needs-triage ones.
       issues: write
-    env:
-      # The milestone whose owner test comes next: the Feature report judges
-      # its gate, and the Journey report lists its "Journeys to try".
-      GATE: M1
     steps:
       - name: Check out main's head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -187,89 +166,6 @@ jobs:
           name: allure-report
           path: target/allure/report/
           if-no-files-found: ignore
-      - name: Download the runners' listings
-        id: listings
-        if: always()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
-          --name journey-listings --dir target/journey-listings
-      # ADR 0072: each Feature tested, untested by cause, excepted by
-      # evidence kind or planned at the gate of GATE, the milestone whose
-      # owner test comes next, from main's latest Release run in the store.
-      # Without the listings it says so, and counts no Vitest, Playwright or
-      # pytest declaration and no Journey variant as proved. Its last line,
-      # the milestone gate's state, goes to the job summary once the scan
-      # passed, since the summary page is an output too.
-      - name: Build the Feature report
-        if: always()
-        env:
-          LISTED: ${{ steps.listings.outcome }}
-        run: |
-          set -o pipefail
-          listings=()
-          [[ $LISTED == success ]] && listings=(--listings target/journey-listings)
-          cargo run --quiet --locked -p xtask -- features report --milestone "$GATE" \
-            --store test-results "${listings[@]}" --out target/features-report | tee target/features-report.txt
-      - name: Scan the Feature report for secrets before it uploads
-        id: features-leaks
-        if: always()
-        run: ci/leaks.sh target/features-report/ target/features-report.txt
-      # Published beside the Allure report once the repository is public;
-      # attached to the run until then.
-      - name: Attach the Feature report
-        id: features-report
-        if: always() && steps.features-leaks.outcome == 'success'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: features-report
-          path: target/features-report/
-          if-no-files-found: ignore
-      # With the report's link, which each milestone's gate issue carries
-      # (ADR 0072).
-      - name: Write the Feature report's lines to the job summary
-        if: always() && steps.features-leaks.outcome == 'success'
-        env:
-          URL: ${{ steps.features-report.outputs.artifact-url }}
-        run: |
-          if [[ -f target/features-report.txt ]]; then
-            {
-              echo "### Feature report"
-              echo
-              sed 's/$/  /' target/features-report.txt
-              [[ -z "$URL" ]] || { echo; echo "Report: $URL"; }
-            } >>"$GITHUB_STEP_SUMMARY"
-          fi
-      # ADRs 0058, 0063 and 0094: each Journey variant's outcome on main's
-      # latest Release run, from the result documents its cells kept in the
-      # store, by milestone, area and Product, shown in the job summary; and
-      # the "Journeys to try" of GATE's owner test, from the catalog and the
-      # milestone's `manual` exceptions.
-      - name: Build the Journey report
-        if: always()
-        run: |
-          cargo run --quiet --locked -p xtask -- journeys report --store test-results \
-            --out target/journeys-report >target/journeys-summary.md
-          cargo run --quiet --locked -p xtask -- journeys report --owner-test "$GATE" \
-            >target/journeys-report/journeys-to-try.md
-      - name: Scan the Journey report for secrets before it uploads
-        id: journeys-leaks
-        if: always()
-        run: ci/leaks.sh target/journeys-report/ target/journeys-summary.md
-      # Published beside the Feature report once the repository is public;
-      # attached to the run until then.
-      - name: Attach the Journey report
-        if: always() && steps.journeys-leaks.outcome == 'success'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: journeys-report
-          path: target/journeys-report/
-          if-no-files-found: ignore
-      - name: Write the Journey report to the job summary
-        if: always() && steps.journeys-leaks.outcome == 'success'
-        run: if [[ -f target/journeys-summary.md ]]; then cat target/journeys-summary.md >>"$GITHUB_STEP_SUMMARY"; fi
 
   budget:
     name: budget

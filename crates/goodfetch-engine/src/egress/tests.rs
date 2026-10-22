@@ -15,7 +15,9 @@ use proptest::prelude::*;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{InvalidEntry, Judgment, Policy, Refused, Request, RequestKind, judge};
+use super::{
+    InvalidEntry, Judgment, Policy, Refused, Request, RequestKind, judge, judge_addresses,
+};
 use crate::settings::{Layers, Values, resolve};
 
 fn policy(allowed: &[&str], blocked: &[&str]) -> Policy {
@@ -275,7 +277,9 @@ fn with_no_setting_every_host_is_allowed() {
 
 /// A label of a domain name.
 fn label() -> impl Strategy<Value = String> {
-    "[a-z][a-z0-9-]{0,8}[a-z0-9]"
+    // A label starting `xn--` is punycode, which the URL parser refuses
+    // unless it decodes: no host at all.
+    "[a-z][a-z0-9-]{0,8}[a-z0-9]".prop_filter("an ASCII label", |label| !label.starts_with("xn--"))
 }
 
 proptest! {
@@ -299,4 +303,129 @@ proptest! {
             Err(refused(&url, EgressRule::DomainPolicy, BLOCKED))
         );
     }
+}
+
+mod ssrf;
+
+/// The socket addresses a connection to `addresses` on port 80 tries.
+fn sockets(addresses: &[&str]) -> Vec<std::net::SocketAddr> {
+    addresses
+        .iter()
+        .map(|address| std::net::SocketAddr::new(address.parse().unwrap(), 80))
+        .collect()
+}
+
+fn private(url: &str, address: &str, setting: Option<&'static str>) -> Refused {
+    Refused {
+        url: url.to_owned(),
+        rule: EgressRule::PrivateAddress,
+        address: Some(address.parse().unwrap()),
+        setting,
+    }
+}
+
+const PRIVATE_RANGES: Option<&str> = Some("egress.private_ranges");
+
+/// Covers: story:4-8
+#[rstest]
+#[case::loopback(&["127.0.0.1"], "127.0.0.1")]
+#[case::metadata(&["169.254.169.254"], "169.254.169.254")]
+#[case::a_private_answer_after_a_public_one(&["93.184.215.14", "10.0.0.1"], "10.0.0.1")]
+#[case::ipv6_unique_local(&["fd00::1"], "fd00::1")]
+fn a_connection_that_may_try_a_private_address_is_refused_naming_it(
+    #[case] addresses: &[&str],
+    #[case] refused: &str,
+) {
+    let url = "http://internal.test/";
+
+    assert_eq!(
+        judge_addresses(url, &sockets(addresses), &policy(&["*"], &[])),
+        Err(private(url, refused, PRIVATE_RANGES))
+    );
+}
+
+#[test]
+fn a_connection_to_public_addresses_only_is_allowed() {
+    assert_eq!(
+        judge_addresses(
+            "http://public.test/",
+            &sockets(&["93.184.215.14", "2606:2800:21f:cb07:6820:80da:af6b:8b2c"]),
+            &policy(&["*"], &[])
+        ),
+        Ok(())
+    );
+}
+
+/// Covers: story:4-9
+#[test]
+fn a_connection_with_a_zone_id_is_refused_whatever_the_ranges() {
+    let url = "http://link.test/";
+    let session = policy(&["*"], &[])
+        .with_private_ranges(&["fe80::/10"])
+        .unwrap();
+    let scoped = std::net::SocketAddr::V6(std::net::SocketAddrV6::new(
+        "fe80::1".parse().unwrap(),
+        80,
+        0,
+        2,
+    ));
+
+    assert_eq!(
+        judge_addresses(url, &[scoped], &session),
+        Err(private(url, "fe80::1", None))
+    );
+}
+
+/// Covers: story:4-9
+#[rstest]
+#[case::a_named_zone("http://[fe80::1%25eth0]/", "fe80::1")]
+#[case::a_numbered_zone("http://[fe80::1%251]:8080/path", "fe80::1")]
+fn a_url_with_a_zone_id_is_refused_as_a_private_address(#[case] url: &str, #[case] address: &str) {
+    assert_eq!(
+        verdict(judge(&fetch(url), &policy(&["*"], &[]))),
+        Err(private(url, address, None))
+    );
+}
+
+#[rstest]
+#[case::an_address_in_a_listed_range(&["127.0.0.0/8"], "127.0.0.1", true)]
+#[case::a_listed_address(&["10.0.0.7"], "10.0.0.7", true)]
+#[case::an_address_outside_the_range(&["127.0.0.1/32"], "127.0.0.2", false)]
+#[case::an_ipv6_range(&["fd00::/8"], "fd00::1", true)]
+#[case::metadata_under_a_range_that_covers_it(&["169.254.0.0/16"], "169.254.169.254", false)]
+#[case::metadata_listed_by_its_exact_address(&["169.254.169.254"], "169.254.169.254", true)]
+#[case::metadata_listed_as_its_own_block(&["169.254.169.254/32"], "169.254.169.254", true)]
+#[case::link_local_under_its_range(&["169.254.0.0/16"], "169.254.1.1", true)]
+fn a_private_address_is_reached_only_when_a_range_lists_it(
+    #[case] ranges: &[&str],
+    #[case] address: &str,
+    #[case] allowed: bool,
+) {
+    let url = "http://intranet.test/";
+    let session = policy(&["*"], &[]).with_private_ranges(ranges).unwrap();
+
+    assert_eq!(
+        judge_addresses(url, &sockets(&[address]), &session),
+        if allowed {
+            Ok(())
+        } else {
+            Err(private(url, address, PRIVATE_RANGES))
+        }
+    );
+}
+
+#[rstest]
+#[case::a_host_name("intranet.test")]
+#[case::a_prefix_too_long("10.0.0.0/33")]
+#[case::no_prefix_length("10.0.0.0/")]
+fn a_private_range_that_is_no_range_is_refused(#[case] entry: &str) {
+    assert_eq!(
+        policy(&["*"], &[])
+            .with_private_ranges(&[entry])
+            .unwrap_err(),
+        InvalidEntry {
+            setting: "egress.private_ranges",
+            entry: entry.to_owned(),
+        }
+    );
 }

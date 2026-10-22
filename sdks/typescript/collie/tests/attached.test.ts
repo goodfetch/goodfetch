@@ -3,7 +3,7 @@
 // and the test's own Goodfetch home. The tracer program is the one the unit
 // tests run on the Scripted engine.
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { once } from "node:events";
 import { Worker } from "node:worker_threads";
 import { Collie } from "@goodfetch/collie";
@@ -126,6 +126,35 @@ describe("a Collie Connection on an Attached engine", () => {
   );
 });
 
+describe("an Attached engine that exits before its hello is answered", () => {
+  test(
+    "fails connect() with engine_exited, keeping the last 64 KiB of its stderr and logging it",
+    { tags: ["error:engine_exited"] },
+    async () => {
+      const warned: string[] = [];
+      const logger = {
+        debug: () => {},
+        info: () => {},
+        warn: (message: string) => warned.push(message),
+        error: () => {},
+      };
+      const env = {
+        GOODFETCH_COLLIE_ENGINE_PATH: join(import.meta.dirname, "fixtures", "noisy-engine.ts"),
+        PATH: dirname(process.execPath),
+      };
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env, logger }));
+
+      expect(error).toMatchObject({
+        code: "engine_exited",
+        details: { exit_code: 3, signal: null, stderr_tail: "é".repeat(32_768) },
+      });
+      expect(warned).toEqual(["é".repeat(40_000)]);
+    },
+  );
+});
+
 describe("the goodfetch-collie bin", () => {
   test(
     "runs Collie's executable with its arguments and exit code",
@@ -166,3 +195,13 @@ describe("a worker_threads worker", () => {
     },
   );
 });
+
+/** The error `promise` rejects with. */
+async function failure(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+  } catch (error) {
+    return error;
+  }
+  throw new Error("the call succeeded");
+}

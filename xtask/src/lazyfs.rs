@@ -126,6 +126,9 @@ fn build(folder: &Path, sources: &Path, pins: &[Pin]) -> Result<PathBuf> {
         "-B".into(),
         pcache_build.display().to_string(),
         "-DCMAKE_BUILD_TYPE=Release".into(),
+        // The pinned toml11 declares a CMake minimum below 3.5, which CMake
+        // 4 refuses unless told the oldest policy version to assume.
+        POLICY_MINIMUM.into(),
         "-DFETCHCONTENT_FULLY_DISCONNECTED=ON".into(),
         format!("-DFETCHCONTENT_SOURCE_DIR_TOML={}", toml_source.display()),
         format!(
@@ -146,6 +149,7 @@ fn build(folder: &Path, sources: &Path, pins: &[Pin]) -> Result<PathBuf> {
         lazyfs_build.display().to_string(),
         "-DCMAKE_BUILD_TYPE=Release".into(),
         "-DLAZYFS_BUILD_TESTS=OFF".into(),
+        POLICY_MINIMUM.into(),
         "-DCMAKE_BUILD_RPATH=$ORIGIN".into(),
     ])?;
     cmake(&[
@@ -183,15 +187,25 @@ fn extract(archive: &Path, into: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The oldest `CMake` policy version the pinned sources' `CMake` files are
+/// configured under, which `CMake` 3 ignores.
+const POLICY_MINIMUM: &str = "-DCMAKE_POLICY_VERSION_MINIMUM=3.5";
+
 fn cmake(arguments: &[String]) -> Result<()> {
-    // Its output goes to stderr, so stdout holds only the executable's path.
-    let status = Process::new("cmake")
+    // Its output goes to stderr through xtask's writer, so stdout holds only
+    // the executable's path.
+    let output = Process::new("cmake")
         .args(arguments)
-        .stdout(std::io::stderr())
-        .status()
+        .output()
         .context("starting cmake, which the LazyFS build needs")?;
-    if !status.success() {
-        bail!("cmake {} failed ({status})", arguments.join(" "));
+    for stream in [&output.stdout, &output.stderr] {
+        let text = String::from_utf8_lossy(stream);
+        if !text.trim().is_empty() {
+            output::error(text.trim_end());
+        }
+    }
+    if !output.status.success() {
+        bail!("cmake {} failed ({})", arguments.join(" "), output.status);
     }
     Ok(())
 }

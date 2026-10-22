@@ -250,6 +250,19 @@ impl TestEnv {
 
     /// Starts a command with its standard input and output piped and records
     /// its process, which must have exited when the test's teardown runs.
+    /// Starts `command` with the standard streams it sets, and records it,
+    /// for a process whose output goes to a file, such as LazyFS's.
+    pub(crate) fn spawn_with_streams(
+        &self,
+        command: &mut std::process::Command,
+    ) -> io::Result<Process> {
+        let program = Path::new(command.get_program())
+            .file_name()
+            .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        let child = command.spawn()?;
+        Ok(self.processes.record(program, child))
+    }
+
     pub fn spawn(&self, command: &mut std::process::Command) -> io::Result<Process> {
         let program = Path::new(command.get_program())
             .file_name()

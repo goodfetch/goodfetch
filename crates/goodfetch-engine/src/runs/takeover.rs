@@ -1,6 +1,7 @@
 //! Taking the writer role of a Run no engine of this one's runs, to abort it
 //! (ADRs 0003, 0031 and 0098): the Run's writer lock, then the next run
-//! epoch, then the end written under it. A held lock goes first to the
+//! epoch, then the end the Run's table gives an abort (ADR 0128), written
+//! under it. A held lock goes first to the
 //! owner the Run index names, then is retried with backoff, since a
 //! reader's test holds it for a moment, before the abort fails as busy. A
 //! Run that needs a Product this engine is not is refused before anything
@@ -17,6 +18,7 @@ use goodfetch_protocol::run::{
 };
 
 use super::folder::{Recorded, point_in_time, read_recorded, write_end};
+use super::lifecycle::{self, Next, RunEvent};
 use super::writer::{LockError, RETRIES, backoff, take_lock};
 use super::{Forwarder, RUN_FILE, RunError};
 use crate::clock::Clock;
@@ -46,6 +48,14 @@ pub(super) struct TakeOver {
     pub(super) owner: Arc<TaskOwner>,
 }
 
+/// What an abort does to the Run its state holds.
+enum Decided {
+    /// It ended already: its report.
+    Report(Box<RunReport>),
+    /// It stops, in this Lifecycle.
+    Stop(Box<Recorded>, Lifecycle),
+}
+
 /// What taking the writer's lock came to.
 enum Taken {
     /// This engine holds it.
@@ -64,9 +74,10 @@ impl TakeOver {
         let Some(recorded) = self.recorded().await? else {
             return Err(RunError::NotFound(self.run_id));
         };
-        if let Some(report) = recorded.report {
-            return Ok(report);
-        }
+        let recorded = match self.decide(recorded)? {
+            Decided::Report(report) => return Ok(*report),
+            Decided::Stop(recorded, _) => *recorded,
+        };
         if !self.product.contains(recorded.needs) {
             return Err(RunError::NotInProduct {
                 run_id: self.run_id,
@@ -87,10 +98,11 @@ impl TakeOver {
         let Some(recorded) = self.recorded().await? else {
             return Err(RunError::NotFound(self.run_id));
         };
-        if let Some(report) = recorded.report {
-            return Ok(report);
-        }
-        let report = self.stop(&recorded).await?;
+        let (recorded, lifecycle) = match self.decide(recorded)? {
+            Decided::Report(report) => return Ok(*report),
+            Decided::Stop(recorded, lifecycle) => (*recorded, lifecycle),
+        };
+        let report = self.stop(&recorded, lifecycle).await?;
         let row = RunIndexRow {
             run_id: self.run_id.clone(),
             location: self.location.clone(),
@@ -125,6 +137,27 @@ impl TakeOver {
             })
             .await;
         Ok(report)
+    }
+
+    /// What the Run's table makes of the abort of the Run `recorded`
+    /// holds: an ended Run's report, which it leaves as it is, or the
+    /// Lifecycle a `running` one stops in.
+    fn decide(&self, recorded: Recorded) -> Result<Decided, RunError> {
+        let state = recorded
+            .report
+            .as_ref()
+            .map_or(Lifecycle::Running, |report| report.lifecycle);
+        match lifecycle::apply(state, RunEvent::Abort) {
+            Ok(Next::To(lifecycle)) => Ok(Decided::Stop(Box::new(recorded), lifecycle)),
+            Ok(Next::Unchanged) => match recorded.report {
+                Some(report) => Ok(Decided::Report(Box::new(report))),
+                None => Err(RunError::Internal {
+                    run_id: self.run_id.clone(),
+                    message: "the Run's table left a running Run running on an abort".to_owned(),
+                }),
+            },
+            Err(refused) => Err(RunError::refused(&self.run_id, &self.folder, refused)),
+        }
     }
 
     fn unavailable(&self, error: &impl ToString) -> RunError {
@@ -197,7 +230,7 @@ impl TakeOver {
 
     /// Under the writer's lock: takes the next run epoch, then writes the
     /// Run's end under it.
-    async fn stop(&self, recorded: &Recorded) -> Result<RunReport, RunError> {
+    async fn stop(&self, recorded: &Recorded, lifecycle: Lifecycle) -> Result<RunReport, RunError> {
         let file = self.folder.join(RUN_FILE);
         let (options, tables) = (self.run_state.clone(), self.tables.clone());
         let next = file.clone();
@@ -219,7 +252,7 @@ impl TakeOver {
             .map_err(|error| self.unavailable(&error))?;
         let report = RunReport {
             run_id: self.run_id.clone(),
-            lifecycle: Lifecycle::Stopped,
+            lifecycle,
             stop_reason: Some(StopReason::Abort { by: self.by }),
             verdict: Verdict::Verified,
             completeness: Completeness::Incomplete,

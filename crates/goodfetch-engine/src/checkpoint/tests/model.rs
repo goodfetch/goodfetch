@@ -9,11 +9,15 @@
 //! holds the run file as of its own moment under the writer's run epoch;
 //! a resume from a Checkpoint holds that Checkpoint's state, so the work
 //! since is to be redone; and every resume takes a run epoch higher than
-//! any the run file or the Checkpoint held. 16 cases in the Quick suite and
-//! 256 in the Pre-merge suite (`proptest_config`).
+//! any the run file or the Checkpoint held. The Run's Lifecycle and when a
+//! resume takes a run epoch come from the Run's transition table (ADR
+//! 0128): a crash loses the Run's engine and a resume takes its writer
+//! role again. 16 cases in the Quick suite and 256 in the Pre-merge suite
+//! (`proptest_config`).
 
 use std::path::PathBuf;
 
+use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
@@ -23,6 +27,7 @@ use tokio::runtime::Runtime;
 use super::{ITEMS, insert, insert_run, items};
 use crate::checkpoint::{install, open_checkpoint, write};
 use crate::run_state::{self, RunState, RunStateOptions};
+use crate::runs::lifecycle::{self, Next, RunEvent};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// What a Checkpoint held when it was taken: the values acknowledged and
@@ -35,14 +40,39 @@ struct Taken {
 }
 
 /// What the reference model knows: each value acknowledged, each one whose
-/// commit a crash cut off, the writer's run epoch and each Checkpoint.
+/// commit a crash cut off, the writer's run epoch, the Run's Lifecycle and
+/// each Checkpoint.
 #[derive(Clone, Debug)]
 struct Reference {
     next: i64,
     acknowledged: Vec<i64>,
     uncertain: Vec<i64>,
     epoch: u64,
+    lifecycle: Lifecycle,
     checkpoints: Vec<Taken>,
+}
+
+impl Reference {
+    /// `event`, as the Run's table says: whether it changed the Lifecycle.
+    fn apply_event(&mut self, event: RunEvent) -> bool {
+        match lifecycle::apply(self.lifecycle, event) {
+            Ok(Next::To(next)) => {
+                self.lifecycle = next;
+                true
+            }
+            Ok(Next::Unchanged) => false,
+            Err(refused) => panic!("the Run's table refused {refused}"),
+        }
+    }
+
+    /// The Run's engine is lost, and a resume takes its writer role again
+    /// at the run epoch past its own and `after`.
+    fn lose_engine_and_resume(&mut self, after: u64) {
+        self.apply_event(RunEvent::EngineLost);
+        if self.apply_event(RunEvent::Resume) {
+            self.epoch = self.epoch.max(after) + 1;
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -75,6 +105,7 @@ impl ReferenceStateMachine for Reference {
             acknowledged: Vec::new(),
             uncertain: Vec::new(),
             epoch: 1,
+            lifecycle: Lifecycle::Running,
             checkpoints: Vec::new(),
         })
         .boxed()
@@ -108,19 +139,22 @@ impl ReferenceStateMachine for Reference {
             Transition::CrashDuringCommit(_) => {
                 state.uncertain.push(state.next);
                 state.next += 1;
-                state.epoch += 1;
+                state.lose_engine_and_resume(0);
             }
-            Transition::Crash(_) => state.epoch += 1,
-            Transition::Checkpoint => state.checkpoints.push(Taken {
-                acknowledged: state.acknowledged.clone(),
-                uncertain: state.uncertain.clone(),
-                epoch: state.epoch,
-            }),
+            Transition::Crash(_) => state.lose_engine_and_resume(0),
+            Transition::Checkpoint => {
+                state.apply_event(RunEvent::Checkpoint);
+                state.checkpoints.push(Taken {
+                    acknowledged: state.acknowledged.clone(),
+                    uncertain: state.uncertain.clone(),
+                    epoch: state.epoch,
+                });
+            }
             Transition::ResumeFrom(index) => {
                 let taken = state.checkpoints[index % state.checkpoints.len()].clone();
                 state.acknowledged = taken.acknowledged;
                 state.uncertain = taken.uncertain;
-                state.epoch = state.epoch.max(taken.epoch) + 1;
+                state.lose_engine_and_resume(taken.epoch);
             }
         }
         state
@@ -332,6 +366,19 @@ impl StateMachineTest for Subject {
             .unwrap();
         check(&present, &reference.acknowledged, &reference.uncertain);
         assert_eq!(state.epoch(), reference.epoch, "the writer's run epoch");
+        let recorded = subject
+            .runtime
+            .block_on(state.read(|connection| {
+                connection.query_row("SELECT lifecycle FROM run", [], |row| {
+                    row.get::<_, String>(0)
+                })
+            }))
+            .unwrap();
+        assert_eq!(
+            recorded,
+            reference.lifecycle.as_str(),
+            "the Run's Lifecycle"
+        );
     }
 
     fn teardown(mut subject: Self, _: Reference) {

@@ -8,6 +8,14 @@
 # `status = "retired"` and a `reason`.
 
 [[story]]
+id = 23
+title = "As a developer, I want the engine to reach the browsers it launches over a pipe, never a debugging port, so that no local process can read my cookies through one (ADR 0017)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 80
 title = "As a user, I want no telemetry at all, with no setting that could turn it on, so that my URLs, accounts and tasks never leave my machine unless I configured where (ADR 0043, SC-10, P13)."
 milestone = "M1 Core"
@@ -26,4 +34,12 @@ id = 82
 title = "As a user in an air-gapped network, I want `egress.offline`, which Operator policy can lock, to turn each of those downloads into `artifact_unavailable_offline`, naming the command that supplies it beforehand, so that nothing even tries to connect (ADRs 0043, 0115)."
 milestone = "M1 Core"
 journey = true
+status = "active"
+
+[[story]]
+id = 83
+title = "As a user, I want every browser Goodfetch launches to have its background traffic (component updates, Safe Browsing, field trials, sync, crash upload) turned off, so that no call goes to a browser vendor from my machine (ADR 0043)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
 status = "active"

@@ -97,6 +97,83 @@ impl FromStr for Digest {
     }
 }
 
+/// One entry of [`CHROMIUM_BACKGROUND_TRAFFIC_OFF`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChromiumSwitch {
+    /// A command-line switch, as Chromium takes it: `--name` or
+    /// `--name=value`.
+    Flag(&'static str),
+    /// A feature that the launch's one `--disable-features` switch names.
+    DisabledFeature(&'static str),
+}
+
+/// What turns off the background traffic of every Chromium the engine
+/// launches (ADR 0043): no component update, Safe Browsing, field trial,
+/// sync, crash upload, account or search call goes to a browser vendor
+/// from the user's machine. It starts from Playwright's switches, which ADR
+/// 0043 names; a launch of the pinned build through the Proving ground's
+/// forward proxy found the rest (spec #564, ticket #639). Two endpoints
+/// that no switch turns off point at `.invalid` names, which the launcher's
+/// host resolver rule fails without a DNS query. This module owns the
+/// table and the launcher applies it: [`chromium_background_traffic_off`].
+pub const CHROMIUM_BACKGROUND_TRAFFIC_OFF: [ChromiumSwitch; 15] = [
+    // Variations seed, Safe Browsing list and other periodic fetches.
+    ChromiumSwitch::Flag("--disable-background-networking"),
+    // Component updates on the updater's own schedule.
+    ChromiumSwitch::Flag("--disable-component-update"),
+    // Crash reports uploaded.
+    ChromiumSwitch::Flag("--disable-breakpad"),
+    // Sync.
+    ChromiumSwitch::Flag("--disable-sync"),
+    // Safe Browsing's client-side phishing model.
+    ChromiumSwitch::Flag("--disable-client-side-phishing-detection"),
+    // Metrics recorded, never uploaded.
+    ChromiumSwitch::Flag("--metrics-recording-only"),
+    // The field-trial configuration built into the binary.
+    ChromiumSwitch::Flag("--disable-field-trial-config"),
+    // The Google account endpoints, which sign-in services ask for the
+    // accounts in the cookie jar at startup, signed in or not.
+    ChromiumSwitch::Flag("--gaia-url=https://gaia.invalid"),
+    // Components installed on demand, such as the on-device model's
+    // manifest, which `--disable-component-update` leaves on.
+    ChromiumSwitch::Flag("--component-updater=url-source=https://components.invalid"),
+    // Optimization hints fetched for each navigation.
+    ChromiumSwitch::DisabledFeature("OptimizationHints"),
+    // Network time queried from `clients2.google.com`.
+    ChromiumSwitch::DisabledFeature("NetworkTimeServiceQuerying"),
+    // Translation.
+    ChromiumSwitch::DisabledFeature("Translate"),
+    // Cast device discovery.
+    ChromiumSwitch::DisabledFeature("MediaRouter"),
+    // AI Mode's eligibility, asked of `www.google.com` at startup.
+    ChromiumSwitch::DisabledFeature("AimEnabled"),
+    // The default search engine's connection opened ahead of a search.
+    ChromiumSwitch::DisabledFeature("PreconnectToSearch"),
+];
+
+/// [`CHROMIUM_BACKGROUND_TRAFFIC_OFF`] as command-line arguments: its flags,
+/// then one `--disable-features` naming its features. A launch that turns
+/// off other features names them in that argument, since Chromium reads
+/// only the last `--disable-features`.
+pub fn chromium_background_traffic_off() -> Vec<String> {
+    let mut arguments: Vec<String> = CHROMIUM_BACKGROUND_TRAFFIC_OFF
+        .iter()
+        .filter_map(|switch| match switch {
+            ChromiumSwitch::Flag(flag) => Some((*flag).to_owned()),
+            ChromiumSwitch::DisabledFeature(_) => None,
+        })
+        .collect();
+    let features: Vec<&str> = CHROMIUM_BACKGROUND_TRAFFIC_OFF
+        .iter()
+        .filter_map(|switch| match switch {
+            ChromiumSwitch::DisabledFeature(feature) => Some(*feature),
+            ChromiumSwitch::Flag(_) => None,
+        })
+        .collect();
+    arguments.push(format!("--disable-features={}", features.join(",")));
+    arguments
+}
+
 /// What a pinned download may do: whether `egress.offline` refuses it,
 /// what it may reach and trust, and how it races the host's addresses.
 #[derive(Clone, Debug)]

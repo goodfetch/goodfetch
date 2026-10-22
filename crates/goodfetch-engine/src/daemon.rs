@@ -8,7 +8,8 @@
 //! not its major's pick, it hands over to the pick once it hosts no live
 //! Run and no Client but a Console, or when it refuses a Client by Product
 //! or version while idle, the refusal then telling that Client to wait for
-//! the pick.
+//! the pick. Its state changes only as the engine's transition table says
+//! (ADR 0128): an end that comes once another is decided changes nothing.
 //!
 //! Which executable is the pick, and what a handover takes on the machine
 //! (the start lock, the runtime file), is the [`Succession`] its starter
@@ -41,7 +42,8 @@ use crate::rpc::{self, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::runs::{ConnectionId, Runs};
 use crate::tasks::TaskOwner;
-use crate::transport::{ConsoleListener, DaemonListener, TransportError};
+use crate::transition::engine::{self as table, EngineEvent, EngineState, InvalidEngineTransition};
+use crate::transport::{Connection, ConsoleListener, DaemonListener, TransportError};
 
 /// How long a Daemon asked to stop waits for the asking Client to read the
 /// answer and close before it closes that Connection itself.
@@ -223,8 +225,9 @@ struct Shared {
     runs: Runs,
     blocking: TaskOwner,
     endings: mpsc::Sender<Ending>,
-    /// Taken while a handover is decided, so at most one begins.
-    deciding: Mutex<bool>,
+    /// Where the Daemon is, which only the engine's table changes; held
+    /// while a handover is decided, so at most one begins.
+    state: Mutex<EngineState>,
 }
 
 impl Shared {
@@ -248,8 +251,18 @@ impl Shared {
             runs: serving.runs.clone(),
             blocking,
             endings,
-            deciding: Mutex::new(false),
+            state: Mutex::new(EngineState::Serving),
         }
+    }
+
+    /// Applies `event` to the Daemon's state, as the engine's table says:
+    /// its next state, or why it is refused, logged when only a bug causes
+    /// it.
+    async fn transition(&self, event: EngineEvent) -> Result<EngineState, InvalidEngineTransition> {
+        let mut state = self.state.lock().await;
+        let next = table::engine(*state, event).map_err(InvalidEngineTransition::logged)?;
+        *state = next;
+        Ok(next)
     }
 
     fn kept_alive(&self) -> bool {
@@ -265,8 +278,8 @@ impl Shared {
     /// Hands over when this Daemon is idle but for Consoles and is not its
     /// major's pick; whether it began to.
     async fn hand_over_if_not_the_pick(&self) -> bool {
-        let mut deciding = self.deciding.lock().await;
-        if *deciding {
+        let mut state = self.state.lock().await;
+        if *state == EngineState::HandingOver {
             // A handover began already: the Client waits for it too.
             return true;
         }
@@ -277,12 +290,29 @@ impl Shared {
         if self.blocking.blocking(move || succession.is_pick()).await {
             return false;
         }
+        match table::engine(*state, EngineEvent::HandOver) {
+            Ok(EngineState::HandingOver) => {}
+            // A draining or stopping Daemon hands nothing over.
+            Ok(
+                next @ (EngineState::Attached
+                | EngineState::Serving
+                | EngineState::Draining
+                | EngineState::Stopping),
+            ) => {
+                *state = next;
+                return false;
+            }
+            Err(refused) => {
+                let _ = refused.logged();
+                return false;
+            }
+        }
         let succession = Arc::clone(&self.succession);
         let begun = self
             .blocking
             .blocking(move || succession.begin_handover())
             .await;
-        *deciding = true;
+        *state = EngineState::HandingOver;
         let _ = self.endings.send(Ending::HandOver(begun)).await;
         true
     }
@@ -391,11 +421,27 @@ pub(crate) async fn serve(
     let idle = idle(&shared, serving.clock);
     tokio::pin!(idle);
     let mut accepting = true;
+    let mut idled = false;
+    let mut drain_asked = false;
     let end = loop {
         tokio::select! {
             biased;
-            Some(asked) = ending.recv() => break asked,
+            Some(asked) = ending.recv() => match asked {
+                Ending::HandOver(begun) => break Ending::HandOver(begun),
+                Ending::Stop(asking) => match shared.transition(EngineEvent::StopAsked).await {
+                    Ok(EngineState::Stopping) => break Ending::Stop(asking),
+                    // A stop once a handover or a drain is decided changes nothing.
+                    Ok(
+                        EngineState::Attached
+                        | EngineState::Serving
+                        | EngineState::HandingOver
+                        | EngineState::Draining,
+                    )
+                    | Err(_) => {}
+                },
+            },
             Some(connection) = endings_of_connections.recv() => {
+                let _ = shared.transition(EngineEvent::ClientLost).await;
                 open.remove(&connection);
                 let presence = *shared.presence.borrow();
                 if presence.clients == presence.consoles {
@@ -405,46 +451,39 @@ pub(crate) async fn serve(
                     });
                 }
             }
-            () = &mut idle => return finish(DaemonEnd::Idle, &connections_owner, &shared).await,
-            () = &mut asked => {
-                let grace = drain.as_ref().map_or(Duration::ZERO, |drain| drain.grace);
-                drain_runs(&serving, grace).await;
-                drop(listener);
-                return finish(DaemonEnd::Drained, &connections_owner, &shared).await;
+            () = &mut idle, if !idled => {
+                idled = true;
+                if let Ok(EngineState::Stopping) = shared.transition(EngineEvent::Idle).await {
+                    return finish(DaemonEnd::Idle, &connections_owner, &shared).await;
+                }
+            }
+            () = &mut asked, if !drain_asked => {
+                drain_asked = true;
+                // A drain once a handover is decided changes nothing.
+                if let Ok(EngineState::Draining) = shared.transition(EngineEvent::Drain).await {
+                    let grace = drain.as_ref().map_or(Duration::ZERO, |drain| drain.grace);
+                    drain_runs(&serving, grace).await;
+                    drop(listener);
+                    let _ = shared.transition(EngineEvent::Drained).await;
+                    return finish(DaemonEnd::Drained, &connections_owner, &shared).await;
+                }
             }
             accepted = listener.accept(), if accepting => match accepted {
                 Ok(connection) => {
                     let id = next;
                     next += 1;
-                    let token = connections_owner.token().child_token();
-                    open.insert(id, token.clone());
-                    let side: Arc<dyn DaemonSide> = Arc::new(ConnectionSide {
-                        shared: Arc::clone(&shared),
-                        connection: id,
-                    });
-                    let (dispatch, runs, events) = (
-                        Arc::clone(&serving.dispatch),
-                        serving.runs.on_connection(id),
-                        serving.events.clone(),
-                    );
-                    let its_owner = connections_owner.child();
-                    let ended = ended.clone();
-                    connections_owner.spawn(async move {
-                        tokio::select! {
-                            biased;
-                            () = token.cancelled() => {}
-                            () = rpc::serve(dispatch, connection, &its_owner, runs.clone(), events, rpc::Access::Daemon(side)) => {}
-                        }
-                        its_owner.stop().await;
-                        runs.stop_connection(id).await;
-                        let _ = ended.send(id);
-                    });
+                    let token = serve_connection(&serving, &shared, &connections_owner, connection, id, ended.clone());
+                    open.insert(id, token);
                 }
                 // Every in-memory dialer is gone: it goes on with its Clients.
                 Err(TransportError::DialerClosed) => accepting = false,
                 Err(error) => {
                     tracing::error!(%error, "the Daemon's listener failed");
-                    return finish(DaemonEnd::ListenerFailed, &connections_owner, &shared).await;
+                    accepting = false;
+                    let failed = shared.transition(EngineEvent::ListenerFailed).await;
+                    if let Ok(EngineState::Stopping) = failed {
+                        return finish(DaemonEnd::ListenerFailed, &connections_owner, &shared).await;
+                    }
                 }
             },
         }
@@ -453,28 +492,73 @@ pub(crate) async fn serve(
     let end = match end {
         Ending::HandOver(begun) => DaemonEnd::HandedOver(begun),
         Ending::Stop(asking) => {
-            for (connection, token) in &open {
-                if *connection != asking {
-                    token.cancel();
-                }
-            }
-            // The asking Client reads the answer and closes; one that does
-            // not is closed after the grace.
-            let closed = async {
-                while let Some(connection) = endings_of_connections.recv().await {
-                    if connection == asking {
-                        return;
-                    }
-                }
-            };
-            tokio::select! {
-                () = closed => {}
-                () = serving.clock.sleep(STOP_GRACE) => {}
-            }
+            close_all_but(&open, asking, &mut endings_of_connections, serving.clock).await;
             DaemonEnd::Stopped
         }
     };
     finish(end, &connections_owner, &shared).await
+}
+
+/// Serves `connection` as the Daemon's Connection `id`, a task of
+/// `connections`, telling `ended` once it closes; the token that closes it.
+fn serve_connection(
+    serving: &Serving,
+    shared: &Arc<Shared>,
+    connections: &TaskOwner,
+    connection: Connection,
+    id: ConnectionId,
+    ended: mpsc::UnboundedSender<ConnectionId>,
+) -> CancellationToken {
+    let token = connections.token().child_token();
+    let side: Arc<dyn DaemonSide> = Arc::new(ConnectionSide {
+        shared: Arc::clone(shared),
+        connection: id,
+    });
+    let (dispatch, runs, events) = (
+        Arc::clone(&serving.dispatch),
+        serving.runs.on_connection(id),
+        serving.events.clone(),
+    );
+    let its_owner = connections.child();
+    let cancelled = token.clone();
+    connections.spawn(async move {
+        tokio::select! {
+            biased;
+            () = cancelled.cancelled() => {}
+            () = rpc::serve(dispatch, connection, &its_owner, runs.clone(), events, rpc::Access::Daemon(side)) => {}
+        }
+        its_owner.stop().await;
+        runs.stop_connection(id).await;
+        let _ = ended.send(id);
+    });
+    token
+}
+
+/// Closes every Connection of `open` but `asking`, which `daemon.stop`
+/// asked: that Client reads the answer and closes, and one that does not
+/// is closed after the grace.
+async fn close_all_but(
+    open: &BTreeMap<ConnectionId, CancellationToken>,
+    asking: ConnectionId,
+    endings_of_connections: &mut mpsc::UnboundedReceiver<ConnectionId>,
+    clock: Clock,
+) {
+    for (connection, token) in open {
+        if *connection != asking {
+            token.cancel();
+        }
+    }
+    let closed = async {
+        while let Some(connection) = endings_of_connections.recv().await {
+            if connection == asking {
+                return;
+            }
+        }
+    };
+    tokio::select! {
+        () = closed => {}
+        () = clock.sleep(STOP_GRACE) => {}
+    }
 }
 
 /// Drains the Daemon's Runs, waiting at most `grace` for them to stop.

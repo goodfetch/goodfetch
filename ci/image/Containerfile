@@ -100,9 +100,10 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=-Clink-arg=-fuse-ld=mold
 # The Secret Service the keychain tests meet (ci/os-services.sh starts it):
 # a D-Bus session bus, gnome-keyring and libsecret's secret-tool; and
 # iproute2's `tc`, which the Proving ground's netem tests shape `lo` with
-# (the container gets CAP_NET_ADMIN from ci/vm/start.sh).
+# (the container gets CAP_NET_ADMIN from ci/vm/start.sh); and `lsof`, whose
+# list of listening sockets shows that a launched browser opens no port.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends dbus-daemon gnome-keyring libsecret-tools iproute2 \
+ && apt-get install -y --no-install-recommends dbus-daemon gnome-keyring libsecret-tools iproute2 lsof \
  && rm -rf /var/lib/apt/lists/*
 
 # libclang and Clang's own headers, which sqlite-plugin's build script loads

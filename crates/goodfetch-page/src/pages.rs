@@ -51,15 +51,21 @@ pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
         state: Arc::new(Mutex::new(State::default())),
         pins,
     };
-    let (opening, going, reloading, going_back, going_forward) = (
+    let contribution = with_page_handlers(Contribution::new("page"), &pages);
+    with_locator_handlers(contribution, &pages)
+}
+
+/// Adds the handlers of `run.new_page`, the navigations and `page.formats`.
+fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
+    let (opening, going, reloading, going_back, going_forward, formatting) = (
+        pages.clone(),
         pages.clone(),
         pages.clone(),
         pages.clone(),
         pages.clone(),
         pages.clone(),
     );
-    let (clicking, filling, pressing) = (pages.clone(), pages.clone(), pages.clone());
-    Contribution::new("page")
+    contribution
         .with_handler(Handler::new(
             &RUN_NEW_PAGE,
             move |params: NewPageParams, context: CallContext| {
@@ -102,10 +108,16 @@ pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
         .with_handler(Handler::new(
             &PAGE_FORMATS,
             move |params: FormatsParams, _context: CallContext| {
-                let pages = pages.clone();
+                let pages = formatting.clone();
                 async move { pages.formats(params).await }
             },
         ))
+}
+
+/// Adds the handlers of the locator actions.
+fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
+    let (clicking, filling, pressing) = (pages.clone(), pages.clone(), pages.clone());
+    contribution
         .with_handler(Handler::new(
             &LOCATOR_CLICK,
             move |params: ClickParams, context: CallContext| {

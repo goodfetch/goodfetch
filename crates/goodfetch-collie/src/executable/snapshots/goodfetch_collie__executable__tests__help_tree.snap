@@ -9,6 +9,7 @@ Usage: goodfetch-collie [OPTIONS] <COMMAND>
 
 Commands:
   browsers         Manages the browser builds this version pins in the Browser cache
+  console          Opens the Console in the browser, signed in: starts the major's Daemon unless one runs
   config           Shows the settings and where each value comes from
   daemon           Starts, stops and shows the Daemon of this executable's major, which both Products share
   runs             Works on the runs of this executable's major, of both Products
@@ -67,6 +68,17 @@ Usage: goodfetch-collie browsers clean [OPTIONS]
 Options:
       --dry-run       Lists what it would delete, and deletes nothing
       --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie console --help
+Opens the Console in the browser, signed in: starts the major's Daemon unless one runs
+
+Usage: goodfetch-collie console [OPTIONS]
+
+Options:
+      --no-browser    Opens no browser: prints the sign-in link instead
+      --json          Prints the sign-in link as JSON
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 

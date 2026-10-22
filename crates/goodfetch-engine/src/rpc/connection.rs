@@ -34,7 +34,7 @@ use goodfetch_protocol::connection::{
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
 use goodfetch_protocol::jsonrpc::{
-    ErrorObject, META, Notification, ProtocolFailure, Request, RequestId, TraceContext, Version,
+    ErrorObject, Notification, ProtocolFailure, Request, RequestId, TraceContext, Version,
 };
 use serde_json::{Map, Value};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -48,7 +48,7 @@ use super::websocket::{
 };
 use super::{
     failure_line, handshake, line, not_in_product, notification_line, record, record_cancel,
-    success_line,
+    success_line, trace_context,
 };
 use crate::client::{Client, Outgoing};
 use crate::composition::{
@@ -967,30 +967,6 @@ fn same_token(given: &str, expected: &str) -> bool {
                 difference | (left ^ right)
             })
             == 0
-}
-
-/// Takes the Trace context out of a request's `params`, which then go to
-/// its handler without it: none when they hold no `_meta`, and
-/// `invalid_params` when their `_meta` holds a key other than
-/// `traceparent` and `tracestate` or a value that is no string (ADRs 0077
-/// and 0132).
-fn trace_context(
-    params: Option<Value>,
-) -> Result<(Option<Value>, Option<TraceContext>), CallError> {
-    let mut members = match params {
-        Some(Value::Object(members)) => members,
-        params => return Ok((params, None)),
-    };
-    let Some(meta) = members.remove(META) else {
-        return Ok((Some(Value::Object(members)), None));
-    };
-    let meta = serde_json::from_value::<TraceContext>(meta).map_err(|error| {
-        CallError::protocol(
-            ProtocolFailure::InvalidParams,
-            format!("`{META}` holds only `traceparent` and `tracestate`, each a string: {error}"),
-        )
-    })?;
-    Ok((Some(Value::Object(members)), Some(meta)))
 }
 
 /// `person_required`: `method` is a person's answer, which only the Console

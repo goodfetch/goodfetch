@@ -92,7 +92,12 @@ describe("playScript", () => {
       expect(reply).toEqual({
         jsonrpc: "2.0",
         id,
-        result: { protocol_version: "0.1", product, product_version: productVersion },
+        result: {
+          protocol_version: "0.1",
+          product,
+          product_version: productVersion,
+          engine_instance: "0123456789abcdef",
+        },
       });
       expect(played.done()).toEqual({ kind: "finished" });
     },
@@ -327,7 +332,12 @@ describe("playScript", () => {
         message: {
           jsonrpc: "2.0",
           id: 0,
-          result: { protocol_version: "0.1", product: "collie", product_version: "0.1.0" },
+          result: {
+            protocol_version: "0.1",
+            product: "collie",
+            product_version: "0.1.0",
+            engine_instance: "0123456789abcdef",
+          },
         },
       },
     ]);

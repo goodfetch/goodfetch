@@ -501,7 +501,8 @@ impl Ledger {
     /// it lacks is added, and a row of that major the policy no longer
     /// names is dropped with its Slices. Rows of other majors, and rows
     /// anyone else set, are left as they are. Each engine does this when it
-    /// starts.
+    /// starts; with no Limit to write, a ledger no engine created holds no
+    /// row to drop, and stays uncreated.
     ///
     /// # Errors
     ///
@@ -512,7 +513,14 @@ impl Ledger {
         limits: &[Limit],
         now: Timestamp,
     ) -> Result<(), LedgerError> {
-        let mut connection = self.open()?;
+        let opened = if limits.is_empty() {
+            self.open_existing()?
+        } else {
+            Some(self.open()?)
+        };
+        let Some(mut connection) = opened else {
+            return Ok(());
+        };
         (|| {
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;

@@ -915,6 +915,7 @@ impl Session<'_> {
         };
         let context = CallContext::new(
             Arc::clone(&self.connection),
+            id.clone(),
             token.clone(),
             stream,
             call_input,

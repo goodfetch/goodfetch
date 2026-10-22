@@ -155,6 +155,7 @@ impl std::error::Error for CallError {}
 #[derive(Clone)]
 pub struct CallContext {
     connection: Arc<ConnectionContext>,
+    id: RequestId,
     token: CancellationToken,
     stream: Option<Arc<CallStream>>,
     input: Option<Arc<CallInput>>,
@@ -262,20 +263,28 @@ impl CallInput {
 }
 
 impl CallContext {
-    /// A call on `connection`, cancelled through `token`, with `stream`
-    /// when its handler streams, and `input` when it takes input.
+    /// The call `id` on `connection`, cancelled through `token`, with
+    /// `stream` when its handler streams, and `input` when it takes input.
     pub(crate) fn new(
         connection: Arc<ConnectionContext>,
+        id: RequestId,
         token: CancellationToken,
         stream: Option<CallStream>,
         input: Option<CallInput>,
     ) -> Self {
         Self {
             connection,
+            id,
             token,
             stream: stream.map(Arc::new),
             input: input.map(Arc::new),
         }
+    }
+
+    /// The call's id, which the handler requests it sends its Client may
+    /// name, such as a route's `route.handle`.
+    pub fn id(&self) -> &RequestId {
+        &self.id
     }
 
     /// The call's stream of input from its Client, which only a handler
@@ -367,6 +376,10 @@ impl Handler {
     /// Handles `operation` with `handle`, which takes the operation's params
     /// type and answers its result type; params that do not read as `P`,
     /// such as an array where a struct belongs, answer `invalid_params`.
+    /// `handle` itself is called when the request arrives, before the
+    /// Connection reads its next message, and its future runs as a task:
+    /// what it does before returning its future, such as arming a route, is
+    /// done in the order the Client sent its calls (ADR 0080).
     pub fn new<P, R, F, Fut>(operation: &'static Operation, handle: F) -> Self
     where
         P: DeserializeOwned + Send + 'static,
@@ -374,15 +387,17 @@ impl Handler {
         F: Fn(P, CallContext) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<R, CallError>> + Send + 'static,
     {
-        let handle = Arc::new(handle);
         let call = move |params: Value, context: CallContext| -> Answer {
-            let read = params::read::<P>(params);
-            let handle = Arc::clone(&handle);
-            Box::pin(async move {
-                let params = read.map_err(|error| {
+            // `handle` runs when the request arrives, before the next one
+            // is read, so what it does before its future (arming a route or
+            // a waiter, ADR 0080) is done in the Connection's arrival order.
+            let answering = params::read::<P>(params)
+                .map(|params| handle(params, context))
+                .map_err(|error| {
                     CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
-                })?;
-                let result = handle(params, context).await?;
+                });
+            Box::pin(async move {
+                let result = answering?.await?;
                 serde_json::to_value(result).map_err(|error| {
                     CallError::protocol(ProtocolFailure::InternalError, error.to_string())
                 })

@@ -11,7 +11,8 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 # of `cargo-nextest` that then executes the test (its double-spawn): on macOS
 # under load, a test that starts no process at all kept its output pipes open
 # past the leak timeout through the stub and failed as leaky (TESTING.md,
-# Before merge). The stub only guards against a hang on Ctrl-Z.
+# Before merge). On Linux it makes no difference. The stub only guards
+# against a hang on Ctrl-Z.
 export NEXTEST_DOUBLE_SPAWN := "0"
 
 # In CI, test builds use the `ci-test` Cargo profile (ADR 0061).

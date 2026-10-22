@@ -170,10 +170,10 @@ fn print_schemas() -> Result<(), Failure> {
 fn serve(arguments: &Arguments) -> Result<(), Failure> {
     let mut env = TestEnv::create(&arguments.test_name, &Variables::from_process())?;
     if let Some(tag) = &arguments.locale {
-        env = env.with_locale(tag);
+        env = env.with_locale(tag)?;
     }
     if let Some(zone) = &arguments.time_zone {
-        env = env.with_time_zone(zone);
+        env = env.with_time_zone(zone)?;
     }
     let tools = tools()?;
     let mut description = Description::new(&env, tools.clone());

@@ -168,6 +168,10 @@ struct Case {
     /// every mode of each surface otherwise.
     #[serde(default)]
     modes: Option<Vec<Mode>>,
+    /// The platforms it runs on, by Rust's `cfg` name (`unix`, `windows`),
+    /// for a case a platform lacks; every platform otherwise.
+    #[serde(default)]
+    platforms: Option<Vec<String>>,
 }
 
 impl Case {
@@ -179,6 +183,18 @@ impl Case {
             .copied()
             .filter(|mode| self.modes.as_ref().is_none_or(|modes| modes.contains(mode)))
             .collect()
+    }
+
+    /// Whether a test with these gates runs wherever the case does: one
+    /// with none, or one behind the `cfg` of the one platform the case
+    /// lists. An `#[ignore]`d test, or one behind any other `cfg`, may never
+    /// run, so it implements nothing.
+    fn runs_wherever_it_does(&self, gates: &[String]) -> bool {
+        match (gates, self.platforms.as_deref()) {
+            ([], _) => true,
+            ([gate], Some([platform])) => *gate == format!("cfg({platform})"),
+            _ => false,
+        }
     }
 
     /// The name of its module in a test's path.
@@ -210,7 +226,15 @@ fn check(cargo: &OsStr, root: &Path, listings: Option<&Path>) -> Result<Verdict>
     let mut findings = Vec::new();
     let mut notes = Vec::new();
     let cases = match read(root)? {
-        Ok(cases) => cases,
+        Ok(Some(cases)) => cases,
+        Ok(None) => {
+            findings.push(Finding::new(
+                "missing-list",
+                CASE_LIST,
+                "the case list is not there, so no case would be checked",
+            ));
+            return Ok(Verdict { findings, notes });
+        }
         Err(message) => {
             findings.push(Finding::new("schema", CASE_LIST, message));
             return Ok(Verdict { findings, notes });
@@ -297,12 +321,12 @@ fn check(cargo: &OsStr, root: &Path, listings: Option<&Path>) -> Result<Verdict>
     Ok(Verdict { findings, notes })
 }
 
-/// The cases of the case list, in its order, or why it does not parse; none
-/// when there is no list.
-fn read(root: &Path) -> Result<Result<Vec<Case>, String>> {
+/// The cases of the case list, in its order, or why it does not parse;
+/// `None` when there is no list.
+fn read(root: &Path) -> Result<Result<Option<Vec<Case>>, String>> {
     let path = root.join(CASE_LIST);
     if !path.is_file() {
-        return Ok(Ok(Vec::new()));
+        return Ok(Ok(None));
     }
     let text = std::fs::read_to_string(&path).with_context(|| format!("reading {CASE_LIST}"))?;
     Ok(toml::from_str::<CaseList>(&text)
@@ -312,6 +336,7 @@ fn read(root: &Path) -> Result<Result<Vec<Case>, String>> {
                 .flat_map(|capability| capability.case)
                 .collect()
         })
+        .map(Some)
         .map_err(|error| error.message().to_owned()))
 }
 
@@ -360,6 +385,17 @@ fn cli_tests<'a>(
             ));
             continue;
         }
+        if !case.runs_wherever_it_does(&test.gates) {
+            findings.push(Finding::new(
+                "gated",
+                subject,
+                format!(
+                    "behind {}, it may not run where the case does; drop the gate, or list the case's one platform in its `platforms`",
+                    test.gates.join(" and ")
+                ),
+            ));
+            continue;
+        }
         implemented.insert((case.id.as_str(), mode));
     }
     Ok(implemented)
@@ -371,6 +407,10 @@ struct VitestTest {
     name: String,
     file: PathBuf,
     tags: Vec<String>,
+    /// How Vitest runs it: `run`, `only`, or `skip` and `todo`, which never
+    /// run; a listing written before the field counts as `run`.
+    #[serde(default)]
+    mode: Option<String>,
 }
 
 /// Each case and mode a Vitest test of the TypeScript SDK packages
@@ -441,6 +481,14 @@ fn typescript_tests<'a>(
                     "unlisted",
                     &subject,
                     format!("the case does not list the sdk-typescript surface in the {mode} mode"),
+                ));
+                continue;
+            }
+            if matches!(test.mode.as_deref(), Some("skip" | "todo")) {
+                findings.push(Finding::new(
+                    "gated",
+                    &subject,
+                    "a skipped or todo test never runs, so it implements no case",
                 ));
                 continue;
             }

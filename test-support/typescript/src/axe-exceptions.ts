@@ -78,10 +78,10 @@ function exceptionAt(entry: unknown, position: number): AxeException {
     throw invalid(`has fields it does not define: ${unknownFields.join(", ")}`);
   }
   const { rule, selector, pages, reason, issue } = fields;
-  if (typeof rule !== "string" || rule === "") {
+  if (typeof rule !== "string" || rule.trim() === "") {
     throw invalid("has no rule");
   }
-  if (typeof selector !== "string" || selector === "") {
+  if (typeof selector !== "string" || selector.trim() === "") {
     throw invalid("has no selector");
   }
   if (!Array.isArray(pages) || pages.length === 0) {
@@ -94,7 +94,7 @@ function exceptionAt(entry: unknown, position: number): AxeException {
     }
     patterns.push(pattern);
   }
-  if (typeof reason !== "string" || reason === "") {
+  if (typeof reason !== "string" || reason.trim() === "") {
     throw invalid("has no reason");
   }
   if (typeof issue !== "number" || !Number.isSafeInteger(issue) || issue < 1) {

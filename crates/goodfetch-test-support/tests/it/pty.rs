@@ -4,41 +4,17 @@
 //! property cases, which pass on a fixture command that keeps each property
 //! and fail on one that breaks it.
 
-use std::path::Path;
-
 use goodfetch_test_support::{
     COMMAND_RECORD, ColourError, ColourProperty, PtyError, Tool, assert_cli_snapshot, cli, pty,
     tools,
 };
 use rstest::rstest;
-use serde_json::{Value, json};
+use serde_json::json;
 
-use crate::cli::unrecorded;
-
-/// The arguments that run one probe of `probe.rs`, this test binary run as
-/// a child, as the fixture command.
-fn probe_arguments(name: &str) -> [&str; 6] {
-    [
-        "--exact",
-        name,
-        "--ignored",
-        "--nocapture",
-        "--test-threads",
-        "1",
-    ]
-}
+use crate::cli::{json_lines, probe_arguments, unrecorded};
 
 fn this_binary() -> std::path::PathBuf {
     std::env::current_exe().unwrap()
-}
-
-/// Every JSON line of the file at `path`.
-fn json_lines(path: &Path) -> Vec<Value> {
-    std::fs::read_to_string(path)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
 }
 
 #[test]
@@ -162,6 +138,23 @@ fn broken(error: &ColourError) -> Option<ColourProperty> {
         ColourError::ColorAlwaysIgnored { .. } => Some(ColourProperty::ColorAlwaysOverridesNoColor),
         _ => None,
     }
+}
+
+#[test]
+fn a_command_that_never_colours_fails_the_stripped_colour_property() {
+    let env = unrecorded();
+
+    let checked = ColourProperty::StrippedColourEqualsNoColor.check(
+        &env,
+        this_binary(),
+        &probe_arguments("probe::never_colours"),
+    );
+
+    let error = checked.unwrap_err();
+    assert!(
+        matches!(error, ColourError::NoColourShown { .. }),
+        "{error}"
+    );
 }
 
 #[rstest]

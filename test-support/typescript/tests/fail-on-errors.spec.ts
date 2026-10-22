@@ -190,17 +190,9 @@ test.describe("watchPageErrors' known issues", () => {
   });
 });
 
+// That `failOnErrors` fails a test whose page made an error, by its Error
+// code, is `fixture-failures.test.ts`'s.
 servedTest.describe("failOnErrors", () => {
-  for (const { page: name, kind } of BROKEN_PAGES) {
-    servedTest.fail(
-      `fails a test whose page made a ${kind} error (${name})`,
-      async ({ page, cspPages }) => {
-        await page.goto(cspPages.url(name));
-        await expect(page.locator("main")).toBeVisible();
-      },
-    );
-  }
-
   servedTest(
     "passes a test that took the errors its page made on purpose",
     async ({ page, cspPages, failOnErrors }) => {

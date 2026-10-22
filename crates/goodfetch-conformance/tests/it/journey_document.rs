@@ -32,6 +32,7 @@ fn facts(outcome: OracleOutcome) -> JourneyFacts {
         unreachable!("a JSON object literal")
     };
     JourneyFacts {
+        test_errors: Vec::new(),
         journey_id: JourneyId::try_from("J-002".to_owned()).unwrap(),
         surface: "sdk-typescript".to_owned(),
         executable: Executable {

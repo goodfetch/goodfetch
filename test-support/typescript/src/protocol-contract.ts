@@ -8,7 +8,7 @@ import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import { fullFormats } from "ajv-formats/dist/formats.js";
 import bundle from "../../../crates/goodfetch-protocol/generated/bundle.json" with { type: "json" };
 import catalog from "../../../crates/goodfetch-protocol/generated/catalog.json" with { type: "json" };
-import type { Product } from "@goodfetch/collie-client/generated";
+import type { CancelParams, CreditParams, Product } from "@goodfetch/collie-client/generated";
 
 /** Where the bundle's `$defs` are registered, so each catalog `$ref` resolves against them. */
 const BUNDLE_ID = "https://goodfetch.dev/schemas/protocol-bundle.json";
@@ -90,16 +90,11 @@ export interface WireNotification {
   readonly params?: unknown;
 }
 
-/** What `$/credit` grants: more events, or chunks, for a streaming call. */
-export interface WireCredit {
-  readonly id: RequestId;
-  readonly credits: number;
-}
+/** What `$/credit` grants: more events, or chunks, for a streaming call; the bundle's generated type, so its schema and this type cannot part. */
+export type WireCredit = Readonly<CreditParams>;
 
-/** What `$/cancel` names: the call to stop. */
-export interface WireCancel {
-  readonly id: RequestId;
-}
+/** What `$/cancel` names: the call to stop; the bundle's generated type. */
+export type WireCancel = Readonly<CancelParams>;
 
 /** An operation of the catalog: what its params and its result must be. */
 export interface OperationContract {

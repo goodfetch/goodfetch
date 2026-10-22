@@ -5,7 +5,9 @@
 //! (a slow-test report's, an `IntersectionObserver`'s), so it counts only in
 //! the options of `toHaveScreenshot`, `toMatchScreenshot` or
 //! `toMatchSnapshot`, as their argument or their config key, and in
-//! `comparatorOptions`. Comments and string values set nothing.
+//! `comparatorOptions`; in a visual test file it counts wherever it is
+//! written, so options held in a variable or spread do not hide it.
+//! Comments and string values set nothing.
 
 /// The tolerance settings Playwright's and Vitest's comparisons take, apart
 /// from `threshold`.
@@ -31,8 +33,8 @@ const COMPARISONS: [&str; 4] = [
 pub(super) const EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
 
 /// Each line (counted from 1) of `text` that sets a tolerance, with the
-/// setting's name, in order.
-pub(super) fn settings(text: &str) -> Vec<(usize, &'static str)> {
+/// setting's name, in order; `visual_test` counts every `threshold`.
+pub(super) fn settings(text: &str, visual_test: bool) -> Vec<(usize, &'static str)> {
     let code = code(text.as_bytes());
     let mut found = Vec::new();
     let mut position = 0;
@@ -52,8 +54,7 @@ pub(super) fn settings(text: &str) -> Vec<(usize, &'static str)> {
         {
             Some(*tolerance)
         } else if name == THRESHOLD.as_bytes()
-            && is_key(&code, start, position)
-            && in_comparison(&code, start)
+            && (visual_test || (is_key(&code, start, position) && in_comparison(&code, start)))
         {
             Some(THRESHOLD)
         } else {

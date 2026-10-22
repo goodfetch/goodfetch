@@ -330,7 +330,7 @@ fn tier_without_a_budget_row_is_reported_and_fails_nothing() {
 /// The repository's table names every budget the tiers need, so the check
 /// reports none missing.
 #[test]
-fn repositorys_table_has_every_budget_the_tiers_need() {
+fn the_table_in_testing_md_has_every_budget_the_tiers_need() {
     let workspace = workspace_with(&[]);
     let github = github("[]");
 

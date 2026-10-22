@@ -4,9 +4,11 @@
 // run in any order. Playwright runs the repository's own
 // `playwright.config.ts` on a spec file of two tests in one worker, through
 // `repository-playwright.ts`.
-// Each writes down what its fixture gave it; once both have ended, while the
-// worker still runs, a worker fixture counts the distinct homes, sockets
-// and ports they were given and looks for what is left of each.
+// Each writes down what its fixture gave it, the Console being the one the
+// Daemon serves itself; once both have ended, while the worker still runs,
+// a worker fixture counts the distinct homes, sockets and Console ports
+// they were given and looks for what is left of each, the Daemon's process
+// among it.
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,12 +18,20 @@ import { test } from "@goodfetch/test-support";
 import { runRepositoryPlaywright } from "./repository-playwright.ts";
 
 const FIXTURES = pathToFileURL(join(import.meta.dirname, "..", "src", "playwright.ts")).href;
-const STAND_IN = pathToFileURL(join(import.meta.dirname, "console-stand-in.ts")).href;
 
-const SPEC = `import { existsSync, writeFileSync } from "node:fs";
+const SPEC = `import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
+import { join } from "node:path";
 import { test } from ${JSON.stringify(FIXTURES)};
-import { standInConsole } from ${JSON.stringify(STAND_IN)};
+
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const answers = (port) =>
   new Promise((resolve) => {
@@ -36,11 +46,12 @@ const served = test.extend({
       const given = [];
       await use(given);
       const left = [];
-      for (const { home, socket, port } of given) {
+      for (const { home, socket, port, pid } of given) {
         left.push({
           homeLeft: existsSync(home),
           socketLeft: process.platform !== "win32" && existsSync(socket),
           portAnswers: await answers(port),
+          daemonAlive: alive(pid),
         });
       }
       const distinct = (key) => new Set(given.map((one) => one[key])).size;
@@ -51,11 +62,11 @@ const served = test.extend({
   ],
 });
 
-served.use({ consoleServer: standInConsole() });
-
+// The Console the Daemon serves itself, so the port is the Daemon's own.
 for (const name of ["first", "second"]) {
   served(name, ({ given, daemon }) => {
-    given.push({ home: daemon.home, socket: daemon.socket, port: daemon.port });
+    const { pid } = JSON.parse(readFileSync(join(daemon.home, "0.0", "daemon.json"), "utf8"));
+    given.push({ home: daemon.home, socket: daemon.socket, port: daemon.port, pid });
   });
 }
 `;
@@ -77,7 +88,12 @@ describe("the daemon fixture", () => {
 
     expect(code).toBe(0);
     const left: unknown = JSON.parse(readFileSync(record, "utf8"));
-    const nothingLeft = { homeLeft: false, socketLeft: false, portAnswers: false };
+    const nothingLeft = {
+      homeLeft: false,
+      socketLeft: false,
+      portAnswers: false,
+      daemonAlive: false,
+    };
     expect(left).toEqual({
       homes: 2,
       sockets: 2,

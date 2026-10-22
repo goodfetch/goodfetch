@@ -326,24 +326,28 @@ impl Target<'_> {
         if !is_test(attributes) {
             return;
         }
-        let mut all = features.to_vec();
-        all.extend(covers(attributes));
         let mut name = module.names.to_vec();
         name.push(function.sig.ident.to_string());
         let base = name.join("::");
-        let cases = cases(attributes);
-        let names: Vec<String> = if cases.is_empty() {
-            vec![base]
+        // A `Covers:` line rstest gives one case declares for that case only.
+        let (cases, shared) = cases(attributes);
+        let mut all = features.to_vec();
+        all.extend(covers(shared));
+        let named: Vec<(String, Vec<String>)> = if cases.is_empty() {
+            vec![(base, Vec::new())]
         } else {
-            cases.iter().map(|case| format!("{base}::{case}")).collect()
+            cases
+                .into_iter()
+                .map(|case| (format!("{base}::{}", case.name), covers(case.own)))
+                .collect()
         };
         let path = relative(self.root, module.path);
-        tests.extend(names.into_iter().map(|name| Test {
+        tests.extend(named.into_iter().map(|(name, own)| Test {
             binary: self.binary.to_owned(),
             name,
             package: self.package.to_owned(),
             path: path.clone(),
-            features: all.clone(),
+            features: all.iter().cloned().chain(own).collect(),
         }));
     }
 }
@@ -380,9 +384,9 @@ fn is_test(attributes: &[syn::Attribute]) -> bool {
 }
 
 /// The Feature IDs of the `Covers:` lines among doc attributes.
-fn covers(attributes: &[syn::Attribute]) -> Vec<String> {
+fn covers<'a>(attributes: impl IntoIterator<Item = &'a syn::Attribute>) -> Vec<String> {
     attributes
-        .iter()
+        .into_iter()
         .filter(|attribute| attribute.path().is_ident("doc"))
         .filter_map(|attribute| match &attribute.meta {
             syn::Meta::NameValue(syn::MetaNameValue {
@@ -406,35 +410,56 @@ fn covers(attributes: &[syn::Attribute]) -> Vec<String> {
         .collect()
 }
 
-/// The names nextest gives an rstest test's cases: `case_<n>` or
-/// `case_<n>_<description>`, `n` from 1, padded to the count's digits.
-fn cases(attributes: &[syn::Attribute]) -> Vec<String> {
-    let descriptions: Vec<Option<String>> = attributes
-        .iter()
-        .filter_map(|attribute| {
-            let segments: Vec<String> = attribute
-                .path()
-                .segments
-                .iter()
-                .map(|segment| segment.ident.to_string())
-                .collect();
-            match segments.as_slice() {
-                [case] if case == "case" => Some(None),
-                [case, description] if case == "case" => Some(Some(description.clone())),
-                _ => None,
+/// One case of an rstest test: the name suffix nextest gives it, and the
+/// attributes rstest gives its `#[case]` alone.
+struct Case<'a> {
+    name: String,
+    own: Vec<&'a syn::Attribute>,
+}
+
+/// The names nextest gives an rstest test's cases, `case_<n>` or
+/// `case_<n>_<description>`, `n` from 1, padded to the count's digits, each
+/// with the attributes between the case before it, or `#[rstest]`, and its
+/// `#[case]`, as rstest gives them; and the attributes every case shares:
+/// those above `#[rstest]` and below the last `#[case]`, all of them
+/// without a `#[case]`.
+fn cases(attributes: &[syn::Attribute]) -> (Vec<Case<'_>>, Vec<&syn::Attribute>) {
+    let mut found: Vec<(Option<String>, Vec<&syn::Attribute>)> = Vec::new();
+    let mut shared = Vec::new();
+    let mut own = Vec::new();
+    let mut below_rstest = false;
+    for attribute in attributes {
+        let segments: Vec<String> = attribute
+            .path()
+            .segments
+            .iter()
+            .map(|segment| segment.ident.to_string())
+            .collect();
+        match segments.as_slice() {
+            [case] if case == "case" => found.push((None, std::mem::take(&mut own))),
+            [case, description] if case == "case" => {
+                found.push((Some(description.clone()), std::mem::take(&mut own)));
             }
-        })
-        .collect();
-    let width = descriptions.len().to_string().len();
-    descriptions
-        .iter()
+            _ if below_rstest => own.push(attribute),
+            _ => {
+                below_rstest = segments.last().is_some_and(|last| last == "rstest");
+                shared.push(attribute);
+            }
+        }
+    }
+    shared.extend(own);
+    let width = found.len().to_string().len();
+    let cases = found
+        .into_iter()
         .enumerate()
-        .map(|(index, description)| {
+        .map(|(index, (description, own))| {
             let number = format!("{:0width$}", index + 1);
-            match description {
+            let name = match description {
                 Some(description) => format!("case_{number}_{description}"),
                 None => format!("case_{number}"),
-            }
+            };
+            Case { name, own }
         })
-        .collect()
+        .collect();
+    (cases, shared)
 }

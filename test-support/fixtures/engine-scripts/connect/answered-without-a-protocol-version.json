@@ -1,0 +1,24 @@
+{
+  "description": "The engine answers hello with a result that names no protocol version, which the Client cannot check, so it refuses the engine.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "product": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    }
+  ]
+}

@@ -196,20 +196,27 @@ export class ClientConnection implements AsyncDisposable {
       needs,
       product_version: PRODUCT_VERSION,
     };
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the one answer checked is the protocol version it speaks, next (STYLE.md).
-    const result = (await this.#channel.call("hello", params)) as HelloResult;
-    if (!speaks(result.protocol_version)) {
+    const answer = await this.#channel.call("hello", params);
+    const spoken = protocolVersionOf(answer);
+    if (spoken === undefined || !speaks(spoken)) {
       throw new ProtocolVersionUnsupportedError(
-        `this Client speaks protocol ${PROTOCOL_VERSION}, and the engine answered with ${result.protocol_version}`,
+        spoken === undefined
+          ? `this Client speaks protocol ${PROTOCOL_VERSION}, and the engine's answer names no protocol version`
+          : `this Client speaks protocol ${PROTOCOL_VERSION}, and the engine answered with ${spoken}`,
         {
-          fix: `Use the engine and the SDK of one Product version: this SDK ${PRODUCT_VERSION} speaks protocol ${PROTOCOL_VERSION}, and the engine ${result.product_version} speaks ${result.protocol_version}.`,
+          fix:
+            spoken === undefined
+              ? `Use the engine and the SDK of one Product version: this SDK ${PRODUCT_VERSION} speaks protocol ${PROTOCOL_VERSION}.`
+              : `Use the engine and the SDK of one Product version: this SDK ${PRODUCT_VERSION} speaks protocol ${PROTOCOL_VERSION}, and the engine ${productVersionOf(answer)} speaks ${spoken}.`,
           details: {
             client_protocol_version: PROTOCOL_VERSION,
-            engine_protocol_version: result.protocol_version,
+            engine_protocol_version: spoken ?? null,
           },
         },
       );
     }
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the one answer checked is the protocol version it speaks, above (STYLE.md).
+    const result = answer as HelloResult;
     this.#info = {
       kind: "attached",
       product: result.product,
@@ -334,6 +341,24 @@ function cancelledByClose(): CallCancelledError {
   return new CallCancelledError("the call's Connection was closed", {
     details: { by: "client" },
   });
+}
+
+/** The protocol version a `hello` answer names, when it names one. */
+function protocolVersionOf(answer: unknown): string | undefined {
+  const version: unknown =
+    typeof answer === "object" && answer !== null && "protocol_version" in answer
+      ? answer.protocol_version
+      : undefined;
+  return typeof version === "string" ? version : undefined;
+}
+
+/** The Product version a `hello` answer names, for a message. */
+function productVersionOf(answer: unknown): string {
+  const version: unknown =
+    typeof answer === "object" && answer !== null && "product_version" in answer
+      ? answer.product_version
+      : undefined;
+  return typeof version === "string" ? version : "of an unknown version";
 }
 
 /** Whether an engine of `version` takes this Client: the same major, the same or a newer minor (ADR 0030). */

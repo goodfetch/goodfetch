@@ -132,6 +132,22 @@ describe("a Collie Connection", () => {
   );
 
   test(
+    "refuses an engine whose hello answer names no protocol version",
+    { tags: ["error:protocol_version_unsupported"] },
+    async () => {
+      const played = playScript("connect/answered-without-a-protocol-version.json");
+
+      const error = await failure(connectOver(played.transport));
+
+      expect(error).toMatchObject({
+        code: "protocol_version_unsupported",
+        details: { client_protocol_version: "0.1", engine_protocol_version: null },
+      });
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
     "closes a Run still running by aborting it, and refuses every later call with closed",
     { tags: ["client_case/closed-after-close", "attached", "error:closed"] },
     async ({ clientCase }) => {

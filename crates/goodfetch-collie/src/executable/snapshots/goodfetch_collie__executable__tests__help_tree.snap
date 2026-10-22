@@ -237,6 +237,61 @@ Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
+$ goodfetch-collie usage --help
+Shows, sets and raises the Limits of the user's Usage ledger, which hold every engine of the user
+
+Usage: goodfetch-collie usage [OPTIONS] <COMMAND>
+
+Commands:
+  list   Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left
+  set    Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage
+  raise  Raises a Limit, in place of the ones of its scope, Usage kind, currency and period but a managed Operator policy's: a person's answer, asked at the terminal, and refused with `person_required` when stdin is no terminal
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie usage list --help
+Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left
+
+Usage: goodfetch-collie usage list [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie usage set --help
+Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage
+
+Usage: goodfetch-collie usage set [OPTIONS] --amount <AMOUNT> --scope <SCOPE> --usage-kind <USAGE_KIND>
+
+Options:
+      --amount <AMOUNT>          How much it allows per period: a count of the Usage kind, or millionths of the currency
+      --currency <CURRENCY>      The currency it caps the price in, an ISO 4217 code
+      --period <PERIOD>          The period it counts over; none for a Limit that never starts again
+      --scope <SCOPE>            The scope's kind
+      --scope-id <SCOPE_ID>      Which one of its kind; the caller's own when absent (its Client connection, its person, the engine's Daemon, the install)
+      --usage-kind <USAGE_KIND>  The Usage kind it caps
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --json                     Prints the result as JSON
+  -h, --help                     Print help
+
+$ goodfetch-collie usage raise --help
+Raises a Limit, in place of the ones of its scope, Usage kind, currency and period but a managed Operator policy's: a person's answer, asked at the terminal, and refused with `person_required` when stdin is no terminal
+
+Usage: goodfetch-collie usage raise [OPTIONS] --scope <SCOPE> --usage-kind <USAGE_KIND> --amount <AMOUNT>
+
+Options:
+      --scope <SCOPE>            The scope's kind
+      --scope-id <SCOPE_ID>      Which one of its kind; the person's own when absent
+      --usage-kind <USAGE_KIND>  The Usage kind it caps
+      --currency <CURRENCY>      The currency it caps the price in, an ISO 4217 code
+      --period <PERIOD>          The period it counts over, as JSON such as `{"every":"month","time_zone":"UTC"}`; none for a Limit that never starts again
+      --amount <AMOUNT>          How much it allows per period from now on: a count of the Usage kind, or millionths of the currency
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                     Print help
+
 $ goodfetch-collie upgrade-files --help
 Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
 
@@ -688,58 +743,3 @@ Options:
   -h, --help          Print help
 
 Deprecated since protocol 0.1, and removed no earlier than the next major: A sample entry, which the real catalog replaces.
-
-$ goodfetch-collie usage --help
-Shows, sets and raises the Limits of the user's Usage ledger, which hold every engine of the user
-
-Usage: goodfetch-collie usage [OPTIONS] <COMMAND>
-
-Commands:
-  list   Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left
-  set    Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage
-  raise  Raises a Limit, in place of the ones of its scope, Usage kind, currency and period but a managed Operator policy's: a person's answer, asked at the terminal, and refused with `person_required` when stdin is no terminal
-
-Options:
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
-
-$ goodfetch-collie usage list --help
-Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left
-
-Usage: goodfetch-collie usage list [OPTIONS]
-
-Options:
-      --json          Prints the result as JSON
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
-
-$ goodfetch-collie usage set --help
-Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage
-
-Usage: goodfetch-collie usage set [OPTIONS] --amount <AMOUNT> --scope <SCOPE> --usage-kind <USAGE_KIND>
-
-Options:
-      --amount <AMOUNT>          How much it allows per period: a count of the Usage kind, or millionths of the currency
-      --currency <CURRENCY>      The currency it caps the price in, an ISO 4217 code
-      --period <PERIOD>          The period it counts over; none for a Limit that never starts again
-      --scope <SCOPE>            The scope's kind
-      --scope-id <SCOPE_ID>      Which one of its kind; the caller's own when absent (its Client connection, its person, the engine's Daemon, the install)
-      --usage-kind <USAGE_KIND>  The Usage kind it caps
-      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-      --json                     Prints the result as JSON
-  -h, --help                     Print help
-
-$ goodfetch-collie usage raise --help
-Raises a Limit, in place of the ones of its scope, Usage kind, currency and period but a managed Operator policy's: a person's answer, asked at the terminal, and refused with `person_required` when stdin is no terminal
-
-Usage: goodfetch-collie usage raise [OPTIONS] --scope <SCOPE> --usage-kind <USAGE_KIND> --amount <AMOUNT>
-
-Options:
-      --scope <SCOPE>            The scope's kind
-      --scope-id <SCOPE_ID>      Which one of its kind; the person's own when absent
-      --usage-kind <USAGE_KIND>  The Usage kind it caps
-      --currency <CURRENCY>      The currency it caps the price in, an ISO 4217 code
-      --period <PERIOD>          The period it counts over, as JSON such as `{"every":"month","time_zone":"UTC"}`; none for a Limit that never starts again
-      --amount <AMOUNT>          How much it allows per period from now on: a count of the Usage kind, or millionths of the currency
-      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help                     Print help

@@ -15,6 +15,9 @@
 //! `goodfetch-test-env --print-schemas` prints (ADR 0062), the script
 //! format's among the engine scripts (ADR 0069), and `goodfetch-cdp`'s CDP
 //! bindings, from the pinned Chromium's protocol file (spec #577).
+//! It writes the resolved-address classification's table into
+//! `goodfetch-protocol`, from IANA's special-purpose registries committed
+//! beside it with their date (ADR 0067).
 //!
 //! `--check` regenerates in memory what `xtask codegen` writes itself and
 //! fails on any difference. It runs neither outside generator: the output of
@@ -42,6 +45,7 @@ mod names;
 mod naming;
 mod projection;
 mod python;
+mod special_purpose;
 mod test_support;
 mod typescript;
 
@@ -324,6 +328,7 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         format!("{PROTOCOL_GENERATED}/foxhound_names.rs"),
         names::render(&foxhound_names).into_bytes(),
     );
+    files.extend(special_purpose::generate(root)?);
     files.extend(cli::namespaces(root)?);
     let sources = features::Sources {
         root,

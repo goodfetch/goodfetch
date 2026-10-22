@@ -184,6 +184,26 @@ impl Human {
         write_stdout(format!("{name} {value}\n").as_bytes());
     }
 
+    /// Asks a person `question` on stderr and reads their answer, a line of
+    /// stdin, without its ends' white space; none when stdin is not a
+    /// terminal, where no person answers: a person-only prompt is then
+    /// refused (ADRs 0041 and 0069). An ended stdin answers nothing.
+    pub fn ask(&self, question: &str) -> Option<String> {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a person-only prompt asks whether stdin is a terminal before it asks"
+        )]
+        let stdin = std::io::stdin();
+        if !stdin.is_terminal() {
+            return None;
+        }
+        let question = styled(self.colour_stderr, Style::Strong, question);
+        write_stderr(format!("{question} ").as_bytes());
+        let mut answer = String::new();
+        let _ = stdin.read_line(&mut answer);
+        Some(answer.trim().to_owned())
+    }
+
     /// Writes `warning: text` on stderr, the label styled.
     pub fn warning(&self, text: &str) {
         let label = styled(self.colour_stderr, Style::Warning, "warning:");

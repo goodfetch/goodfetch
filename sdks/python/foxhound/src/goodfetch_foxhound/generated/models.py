@@ -398,6 +398,13 @@ class CrawlRequestEnqueueParams(BaseModel):
     The document the handler read, whose base URL a relative `url`
     resolves against; absent, the crawl request's own URL is the base.
     """
+    forefront: bool | None = False
+    """
+    Whether it goes ahead of every request its domain holds pending,
+    whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+    such requests, the later goes first. A priority or `forefront` never
+    orders requests of different domains (ADR 0004); `false` by default.
+    """
     key: str | None = None
     """
     Its identity in the Frontier, declared by the program in place of

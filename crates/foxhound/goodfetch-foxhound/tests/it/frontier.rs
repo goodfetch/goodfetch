@@ -7,7 +7,8 @@
 //! the Proving ground's `links` family. A request's identity is its method,
 //! its URL's key and its body's hash, or its declared `key`: tracking
 //! parameters, parameter order, `;jsessionid=` and the fragment never split
-//! a page, which is fetched at its own URL.
+//! a page, which is fetched at its own URL. A priority and `forefront`
+//! order a domain's requests and never the domains' turns.
 #![expect(
     clippy::disallowed_types,
     reason = "the test's handler fetches the Proving ground's pages from outside the engine (ADR 0060)"
@@ -525,6 +526,70 @@ fn a_post_with_two_bodies_is_two_requests_and_a_declared_key_replaces_the_identi
                 json!([search, "GET", null]),
                 json!(["https://api.test/item/1?ref=home", "GET", null]),
             ]
+        )
+    );
+}
+
+/// A handler's enqueues with a priority and `forefront`, crawled one
+/// request at a time: within `a.test`, the higher priority goes before the
+/// lower and the `forefront` request ahead of every one pending, whatever
+/// their priority; `b.test`'s urgent request goes first in its own domain
+/// only, so the domains still take turns as they would with no priority.
+///
+/// Covers: story:6-215, operation:crawl_request.enqueue
+#[test]
+fn priority_and_forefront_order_a_domains_requests_and_never_the_domains_turns() {
+    let env = TestEnv::new();
+    let seeds = [
+        json!({ "url": "https://a.test/start", "label": "page" }),
+        json!({ "url": "https://b.test/start", "label": "page" }),
+    ];
+    let mut engine = Attached::start(&env);
+
+    let mut handled = Vec::new();
+    let report = crawl(&mut engine, "ordered", &seeds, &mut |inside, handle| {
+        let url = handle["crawl_request"]["url"].as_str().unwrap().to_owned();
+        if url == "https://a.test/start" {
+            for (enqueued, priority, forefront) in [
+                ("https://a.test/low", 0, false),
+                ("https://a.test/high", 5, false),
+                ("https://a.test/front", -5, true),
+                ("https://b.test/urgent", 100, false),
+            ] {
+                let reply = inside.call(
+                    "crawl_request.enqueue",
+                    &json!({
+                        "run_id": handle["run_id"],
+                        "crawl_request_id": handle["crawl_request"]["id"],
+                        "lease_epoch": handle["lease_epoch"],
+                        "url": enqueued,
+                        "label": "page",
+                        "priority": priority,
+                        "forefront": forefront,
+                    }),
+                );
+                assert_eq!(reply["result"]["kind"], "added", "{reply}");
+            }
+        }
+        handled.push(url);
+        json!({ "result": { "records": [] } })
+    });
+    assert!(engine.finish());
+
+    assert_eq!(
+        (&report["result"]["lifecycle"], handled),
+        (
+            &json!("finished"),
+            [
+                "https://a.test/start",
+                "https://b.test/urgent",
+                "https://a.test/front",
+                "https://b.test/start",
+                "https://a.test/high",
+                "https://a.test/low",
+            ]
+            .map(str::to_owned)
+            .to_vec()
         )
     );
 }

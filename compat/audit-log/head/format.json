@@ -125,6 +125,18 @@
             "minimum": 0,
             "type": "integer"
           },
+          "surface": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Surface"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "The surface the actor acted through, such as `console` for a person\nin the Console; none for the engine's own events."
+          },
           "time": {
             "$ref": "#/$defs/PointInTime",
             "arrived_in": "0.1",

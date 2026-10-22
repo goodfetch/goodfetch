@@ -2,8 +2,11 @@
 //! the engine opens an outbound connection on the OS's network, which the
 //! Simulation never carries. It sends one HTTP or HTTPS request over
 //! HTTP/1.1 and streams the answer's body, the `resolve` setting applied before any
-//! lookup (ADR 0059), Mozilla's roots trusted beside the certificate
-//! authorities its caller adds. It adds no header of its own.
+//! lookup (ADR 0059), every certificate verified by [`tls`]'s per-host
+//! decision: Mozilla's roots, and the certificate authorities trusted for
+//! the host's domain (ADR 0042). A certificate that fails ends the request
+//! with `certificate_invalid` before anything is sent. It adds no header of
+//! its own.
 //!
 //! Every connection it opens races the host's addresses under RFC 8305
 //! ([`happy_eyeballs`], ADR 0118). [`connect`] is that step for the HTTP
@@ -37,7 +40,7 @@ use http_body_util::{BodyExt as _, Empty};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, StatusCode};
 use hyper_util::rt::TokioIo;
-use rustls::pki_types::{CertificateDer, ServerName};
+use rustls::pki_types::ServerName;
 use url::Host;
 
 use crate::clock::Clock;
@@ -45,6 +48,7 @@ use crate::dns::{Dns, IpFamily, LookupError, Route, family_of};
 use crate::egress::{self, Judgment, Refused};
 use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
 use crate::run_trace::RequestLog;
+use crate::tls::{self, CertificateInvalid, Trust};
 
 #[cfg(test)]
 mod tests;
@@ -76,9 +80,8 @@ impl Resolve {
 pub(crate) struct Network<'a> {
     /// The `resolve` setting.
     pub(crate) resolve: &'a Resolve,
-    /// Certificate authorities trusted beside Mozilla's roots, such as those
-    /// of `tls.trusted_cas`.
-    pub(crate) trusted_certificates: &'a [CertificateDer<'static>],
+    /// What each host's certificate may chain to beside Mozilla's roots.
+    pub(crate) trust: &'a Trust,
     /// What the race waits on.
     pub(crate) clock: Clock,
     /// The race's delays.
@@ -217,9 +220,9 @@ pub struct PageTraffic {
     pub egress: egress::Policy,
     /// The `resolve` setting (ADR 0059).
     pub resolve: Resolve,
-    /// Certificate authorities trusted beside Mozilla's roots, such as those
-    /// of `tls.trusted_cas`.
-    pub trusted_certificates: Vec<CertificateDer<'static>>,
+    /// What each host's certificate may chain to beside Mozilla's roots:
+    /// the certificate authorities `tls.trusted_cas` lists for its domain.
+    pub trust: Trust,
     /// What the Happy Eyeballs race waits on (ADR 0118).
     pub clock: Clock,
     /// `resolver.resolution_delay` and `resolver.attempt_delay`.
@@ -312,7 +315,7 @@ impl PageTraffic {
             .map_err(|_| FetchError::Failed(Failure::ServerName))?;
         let network = Network {
             resolve: &self.resolve,
-            trusted_certificates: &self.trusted_certificates,
+            trust: &self.trust,
             clock: self.clock,
             delays: self.delays,
         };
@@ -356,6 +359,9 @@ pub enum Failure {
     ServerName,
     /// No answer, or a connection that broke.
     Network,
+    /// The host's certificate failed verification, so nothing was sent:
+    /// `certificate_invalid`.
+    CertificateInvalid(CertificateInvalid),
 }
 
 /// The task that drives one connection, plain or over TLS, until it ends.
@@ -465,10 +471,13 @@ async fn send_to(
         let server_name =
             ServerName::try_from(server.host.to_owned()).map_err(|_| Failure::ServerName)?;
         let tcp = race_to(server, found, network).await?;
-        let tls = tokio_rustls::TlsConnector::from(Arc::new(tls_config(network)))
+        let tls = tokio_rustls::TlsConnector::from(Arc::new(network.trust.client_config()))
             .connect(server_name, tcp)
             .await
-            .map_err(|_| Failure::Network)?;
+            .map_err(|error| {
+                tls::certificate_invalid(&error, server.host)
+                    .map_or(Failure::Network, Failure::CertificateInvalid)
+            })?;
         let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tls))
             .await
             .map_err(|_| Failure::Network)?;
@@ -572,22 +581,4 @@ async fn addresses(server: &Server<'_>, resolve: &Resolve) -> Result<Vec<SocketA
         return Err(Failure::Network);
     }
     Ok(found)
-}
-
-fn tls_config(network: &Network<'_>) -> rustls::ClientConfig {
-    let mut roots = rustls::RootCertStore::empty();
-    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    for certificate in network.trusted_certificates {
-        // A certificate that is no CA certificate trusts nothing; it is the
-        // setting's to refuse, not the request's.
-        let _ = roots.add(certificate.clone());
-    }
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let mut config = rustls::ClientConfig::builder_with_provider(provider)
-        .with_safe_default_protocol_versions()
-        .expect("invariant: ring supports rustls's default protocol versions")
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-    config.alpn_protocols = vec![b"http/1.1".to_vec()];
-    config
 }

@@ -22,6 +22,7 @@ use crate::adversarial;
 use crate::agent;
 use crate::browser_pages;
 use crate::catalog;
+use crate::certificates;
 use crate::crawl::{self, Families};
 use crate::encodings;
 use crate::exchange::{Reply, Request};
@@ -141,6 +142,7 @@ impl Site {
         hosts.extend(raw_site::hosts().into_iter().map(|host| (host, None)));
         hosts.extend(hostile::hosts());
         hosts.extend(canaries::hosts());
+        hosts.extend(certificates::hosts());
         hosts
     }
 
@@ -285,6 +287,9 @@ impl Site {
             return reply;
         }
         if let Some(reply) = canaries::respond(self.seed, &self.canaries, &name, request) {
+            return reply;
+        }
+        if let Some(reply) = certificates::respond(&name) {
             return reply;
         }
         if name == model::HOST {

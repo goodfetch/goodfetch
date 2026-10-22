@@ -12,7 +12,8 @@ use std::net::SocketAddr;
 use serde_json::{Map, Value};
 
 use super::connection::ListenerAddress;
-use super::table::{EndpointTable, Expected, ListenerKind, Rule, Transport};
+use super::sign_in::SignIns;
+use super::table::{EndpointTable, Expected, ListenerKind, Rule, SignInRoutes, Transport};
 use super::{http, json_rpc, websocket};
 
 /// The method of the first message that is not a `hello`.
@@ -23,6 +24,9 @@ const FOREIGN_HOST: &str = "foreign.invalid";
 const FOREIGN_ORIGIN: &str = "https://foreign.invalid";
 /// The ops listener's probes (ADR 0050).
 const PROBES: [&str; 2] = ["/livez", "/readyz"];
+/// How many sign-in attempts the `sign_in_rate_exceeded` row makes, the
+/// last of which a rate of 10 a minute refuses whatever came before.
+const SIGN_IN_ATTEMPTS: usize = 11;
 
 /// The `hello` a JSON-RPC stream listener accepts, without its token: its
 /// params, and the field of the params that carries the token.
@@ -80,7 +84,8 @@ pub enum Endpoint {
     /// A WebSocket listener on loopback TCP whose valid handshake names
     /// `address` as its `Host` and `http://<address>` as its `Origin` and
     /// carries the token as the cookie `cookie`, and whose first message
-    /// is a `hello` with these params, which carry no token.
+    /// is a `hello` with these params, which carry no token. Its sign-in
+    /// routes swap `link_token`, the sign-in link's, for a new sign-in.
     SignedInWebSocket {
         /// Where it listens.
         address: SocketAddr,
@@ -88,6 +93,8 @@ pub enum Endpoint {
         cookie: String,
         /// The `hello`'s params.
         hello: Map<String, Value>,
+        /// The token the sign-in link carries.
+        link_token: String,
     },
 }
 
@@ -295,14 +302,17 @@ impl<A: AuditVerifier> EndpointRunner<A> {
                     address,
                     cookie,
                     hello,
+                    link_token,
                 },
-                Transport::SignedInWebSocket { path },
-            ) => Reach::SignedInWebSocket {
+                Transport::SignedInWebSocket { path, sign_in },
+            ) => Reach::SignedInWebSocket(SignedInReach {
                 address: *address,
                 path,
                 cookie,
                 hello,
-            },
+                sign_in,
+                link_token,
+            }),
             _ => {
                 return Err(EndpointRunError::TransportMismatch {
                     listener: listener.kind,
@@ -361,6 +371,9 @@ fn apply(
                 .find(|observed| !observed.meets(expected))
                 .map(|observed| Failure::Unexpected { expected, observed });
         }
+        Rule::CsrfTokenMissing => reach.attempt(token, Attempt::SignOutWithoutCsrf),
+        Rule::SignInRevoked => reach.attempt(token, Attempt::SignedOut),
+        Rule::SignInRateExceeded => reach.attempt(token, Attempt::SignInTooOften),
     };
     if !observed.meets(expected) {
         return Some(Failure::Unexpected { expected, observed });
@@ -397,6 +410,13 @@ enum Attempt<'a> {
     NotHello,
     /// A request without a token for one of the ops listener's probes.
     Probe(&'a str),
+    /// A signed-in `POST` to sign out, with the valid cookie and no CSRF
+    /// token.
+    SignOutWithoutCsrf,
+    /// The handshake with the cookie of a new sign-in, signed out first.
+    SignedOut,
+    /// Sign-in attempts with a wrong token, the last of which is answered.
+    SignInTooOften,
 }
 
 /// A listener's endpoint, with what its kind's transport adds.
@@ -413,12 +433,18 @@ enum Reach<'a> {
         address: SocketAddr,
         hello: &'a Hello,
     },
-    SignedInWebSocket {
-        address: SocketAddr,
-        path: &'static str,
-        cookie: &'a str,
-        hello: &'a Map<String, Value>,
-    },
+    SignedInWebSocket(SignedInReach<'a>),
+}
+
+/// A listener whose WebSocket's handshake carries a sign-in's cookie, and
+/// its sign-in routes.
+struct SignedInReach<'a> {
+    address: SocketAddr,
+    path: &'static str,
+    cookie: &'a str,
+    hello: &'a Map<String, Value>,
+    sign_in: SignInRoutes,
+    link_token: &'a str,
 }
 
 impl Reach<'_> {
@@ -436,7 +462,10 @@ impl Reach<'_> {
                     | Attempt::ForeignHost
                     | Attempt::ForeignOrigin
                     | Attempt::NoOrigin
-                    | Attempt::Probe(_) => hello.message("hello", Some(token)),
+                    | Attempt::Probe(_)
+                    | Attempt::SignOutWithoutCsrf
+                    | Attempt::SignedOut
+                    | Attempt::SignInTooOften => hello.message("hello", Some(token)),
                 };
                 json_rpc::attempt(address, &message)
             }
@@ -451,7 +480,11 @@ impl Reach<'_> {
                 };
                 let mut message = hello.message("hello", Some(token));
                 match attempt {
-                    Attempt::Valid | Attempt::Probe(_) => {}
+                    Attempt::Valid
+                    | Attempt::Probe(_)
+                    | Attempt::SignOutWithoutCsrf
+                    | Attempt::SignedOut
+                    | Attempt::SignInTooOften => {}
                     Attempt::Token(token) => message = hello.message("hello", token),
                     Attempt::TokenInQuery => {
                         handshake.target = format!("/?access_token={}", percent_encoded(token));
@@ -464,38 +497,7 @@ impl Reach<'_> {
                 }
                 websocket::attempt(*address, &handshake, &message)
             }
-            Self::SignedInWebSocket {
-                address,
-                path,
-                cookie,
-                hello,
-            } => {
-                let authority = address.to_string();
-                let origin = format!("http://{authority}");
-                let signed_in = |token: &str| format!("{cookie}={token}");
-                let mut handshake = websocket::Handshake {
-                    target: (*path).to_owned(),
-                    host: &authority,
-                    origin: Some(&origin),
-                    cookie: Some(signed_in(token)),
-                };
-                let first = |method: &str| serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": hello });
-                let mut message = first("hello");
-                match attempt {
-                    Attempt::Valid | Attempt::Probe(_) => {}
-                    Attempt::Token(token) => handshake.cookie = token.map(signed_in),
-                    Attempt::TokenInQuery => {
-                        handshake.target =
-                            format!("{path}?access_token={}", percent_encoded(token));
-                        handshake.cookie = None;
-                    }
-                    Attempt::ForeignHost => handshake.host = FOREIGN_HOST,
-                    Attempt::ForeignOrigin => handshake.origin = Some(FOREIGN_ORIGIN),
-                    Attempt::NoOrigin => handshake.origin = None,
-                    Attempt::NotHello => message = first(NOT_HELLO),
-                }
-                websocket::attempt(*address, &handshake, &message)
-            }
+            Self::SignedInWebSocket(reach) => reach.attempt(token, attempt),
             Self::Http {
                 address,
                 protected_path,
@@ -508,7 +510,12 @@ impl Reach<'_> {
                     origin: None,
                 };
                 match attempt {
-                    Attempt::Valid | Attempt::NotHello | Attempt::NoOrigin => {}
+                    Attempt::Valid
+                    | Attempt::NotHello
+                    | Attempt::NoOrigin
+                    | Attempt::SignOutWithoutCsrf
+                    | Attempt::SignedOut
+                    | Attempt::SignInTooOften => {}
                     Attempt::Token(token) => request.bearer = token,
                     Attempt::TokenInQuery => {
                         request.target =
@@ -525,6 +532,50 @@ impl Reach<'_> {
                 http::attempt(*address, &request)
             }
         }
+    }
+}
+
+impl SignedInReach<'_> {
+    /// Tries `attempt` with the sign-in `token`: at the handshake of the
+    /// WebSocket, or through the sign-in routes.
+    fn attempt(&self, token: &str, attempt: Attempt<'_>) -> Observed {
+        let sign_ins = SignIns {
+            address: self.address,
+            routes: self.sign_in,
+            cookie: self.cookie,
+        };
+        let authority = self.address.to_string();
+        let origin = format!("http://{authority}");
+        let signed_in = |token: &str| format!("{}={token}", self.cookie);
+        let mut handshake = websocket::Handshake {
+            target: self.path.to_owned(),
+            host: &authority,
+            origin: Some(&origin),
+            cookie: Some(signed_in(token)),
+        };
+        let first = |method: &str| serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": self.hello });
+        let mut message = first("hello");
+        match attempt {
+            Attempt::Valid | Attempt::Probe(_) => {}
+            Attempt::SignOutWithoutCsrf => return sign_ins.sign_out(token, None),
+            Attempt::SignedOut => match sign_ins.signed_out(self.link_token) {
+                Some(ended) => handshake.cookie = Some(signed_in(&ended)),
+                None => return Observed::Malformed,
+            },
+            Attempt::SignInTooOften => {
+                return sign_ins.too_often(&wrong_token(self.link_token), SIGN_IN_ATTEMPTS);
+            }
+            Attempt::Token(token) => handshake.cookie = token.map(signed_in),
+            Attempt::TokenInQuery => {
+                handshake.target = format!("{}?access_token={}", self.path, percent_encoded(token));
+                handshake.cookie = None;
+            }
+            Attempt::ForeignHost => handshake.host = FOREIGN_HOST,
+            Attempt::ForeignOrigin => handshake.origin = Some(FOREIGN_ORIGIN),
+            Attempt::NoOrigin => handshake.origin = None,
+            Attempt::NotHello => message = first(NOT_HELLO),
+        }
+        websocket::attempt(self.address, &handshake, &message)
     }
 }
 

@@ -26,6 +26,7 @@ use std::time::Duration;
 
 use goodfetch_protocol::audit::{Actor, AuditEntry, AuditVerified};
 use goodfetch_protocol::catalog::{SharedType, SharedTypeValue};
+use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::formats::{AUDIT_LOG, Compatibility};
 use goodfetch_protocol::run::{PointInTime, RunId};
 use goodfetch_protocol::settings::SettingsLayer;
@@ -95,6 +96,8 @@ pub enum AuditError {
 pub struct Origin {
     /// Who did it.
     pub actor: Actor,
+    /// The surface they did it through, if any.
+    pub surface: Option<Surface>,
     /// The settings layer it came through, if one applies.
     pub layer: Option<SettingsLayer>,
     /// The Run it happened in, if any.
@@ -179,6 +182,7 @@ impl AuditLog {
             time: PointInTime::from_rfc3339(now.to_string()),
             kind: kind.name.to_owned(),
             actor: origin.actor.clone(),
+            surface: origin.surface,
             layer: origin.layer,
             run_id: origin.run_id.clone(),
             details,

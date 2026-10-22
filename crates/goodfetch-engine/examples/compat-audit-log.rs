@@ -37,6 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     log.record(
         &Origin {
             actor: Actor::Engine,
+            surface: None,
             layer: Some(SettingsLayer::OperatorPolicy),
             run_id: Some(RunId::parse("weakened")?),
         },
@@ -49,6 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             actor: Actor::ClientSurface {
                 surface: Surface::Cli,
             },
+            surface: None,
             layer: Some(SettingsLayer::Run),
             run_id: Some(RunId::parse("logged-in")?),
         },
@@ -65,6 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             actor: Actor::Person {
                 name: "os_user".to_owned(),
             },
+            surface: Some(Surface::Console),
             layer: None,
             run_id: None,
         },

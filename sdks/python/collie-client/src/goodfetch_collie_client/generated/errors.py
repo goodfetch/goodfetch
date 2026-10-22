@@ -122,6 +122,14 @@ class CallCancelledError(UnavailableError):
         super().__init__(message, code="call_cancelled", group="unavailable", retryable=False)
 
 
+class CertificateInvalidError(PageError):
+    """A host's certificate failed verification and no exception covers its domain, so nothing was sent to it. The details name the host, the failure (`expired`, `not_yet_valid`, `unknown_issuer`, `name_mismatch`, `self_signed`, `revoked`, or another failure as text) and, in `fix`, the setting that makes an exception for that domain."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="certificate_invalid", group="page", retryable=False)
+
+
 class ClosedError(ProgramError):
     """The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID."""
 
@@ -515,6 +523,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "browser_launch_failed": BrowserLaunchFailedError,
     "browser_not_installed": BrowserNotInstalledError,
     "call_cancelled": CallCancelledError,
+    "certificate_invalid": CertificateInvalidError,
     "closed": ClosedError,
     "connection_lost": ConnectionLostError,
     "console_port_in_use": ConsolePortInUseError,

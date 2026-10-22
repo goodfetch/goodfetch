@@ -13,6 +13,7 @@ mod authority;
 mod blackhole;
 mod browser_pages;
 mod catalog;
+mod certificates;
 mod client_hello;
 mod clock;
 mod command;

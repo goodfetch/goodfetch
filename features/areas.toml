@@ -448,6 +448,13 @@ number = 4
 kind = "error"
 prefix = "egress_"
 
+# Area 4's certificate verification (#625): the Error codes a certificate
+# fails with.
+[[area]]
+number = 4
+kind = "error"
+prefix = "certificate_"
+
 # Area 4's Secret references (#615): the Error codes a resolution fails
 # with.
 [[area]]
@@ -715,6 +722,23 @@ prefix = "console_"
 number = 12
 kind = "setting"
 prefix = "console."
+
+# Its sign-ins (#826): the person-only `sign_in.*` and `console.rotate_key`,
+# and the accounts store that keeps them.
+[[area]]
+number = 12
+kind = "operation"
+prefix = "sign_in."
+
+[[area]]
+number = 12
+kind = "operation"
+prefix = "console."
+
+[[area]]
+number = 12
+kind = "format"
+prefix = "accounts-store"
 
 # The `console` command that opens it signed in, and the Error code its
 # Client raises when its Connection drops (#817).

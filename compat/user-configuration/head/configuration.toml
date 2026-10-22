@@ -11,6 +11,10 @@ metrics_endpoint = "example"
 [settings.console]
 address = "example"
 
+[settings.console.sign_in]
+idle_expiry = 30000
+rate = 4
+
 [settings.daemon]
 idle_timeout = 30000
 address = "example"
@@ -30,6 +34,10 @@ attempt_delay = 30000
 allowed_domains = ["example"]
 blocked_domains = ["example"]
 offline = true
+
+[settings.tls]
+trusted_cas = { "example.test" = ["example"] }
+accept_invalid_certs = { "example.test" = "example" }
 
 [settings.browser]
 headless = true
@@ -57,10 +65,6 @@ echo_repeats = 4
 
 [settings.network]
 resolve = { "example.test" = ["127.0.0.1"] }
-
-[settings.tls]
-trusted_cas = { "example.test" = ["example"] }
-accept_invalid_certs = { "example.test" = "example" }
 
 [settings.consent]
 domains = ["example"]

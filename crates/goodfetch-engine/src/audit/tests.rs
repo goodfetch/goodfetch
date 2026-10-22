@@ -42,6 +42,7 @@ fn origin() -> Origin {
         actor: Actor::ClientSurface {
             surface: Surface::Cli,
         },
+        surface: None,
         layer: Some(SettingsLayer::Run),
         run_id: Some(RunId::parse("audited").unwrap()),
     }
@@ -133,6 +134,7 @@ fn an_entry_holds_its_sequence_time_kind_actor_layer_run_and_details() {
         .record(
             &Origin {
                 actor: Actor::Engine,
+                surface: None,
                 layer: Some(SettingsLayer::OperatorPolicy),
                 run_id: None,
             },
@@ -165,6 +167,7 @@ fn the_first_entry_hashes_zero_bytes_then_its_canonical_json() {
     log.record(
         &Origin {
             actor: Actor::Engine,
+            surface: None,
             layer: None,
             run_id: None,
         },

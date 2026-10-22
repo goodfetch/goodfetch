@@ -26,6 +26,7 @@ use goodfetch_engine::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Holds, S
 use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, pick, stores_floor};
 use goodfetch_engine::ops::Ops;
+use goodfetch_engine::people::SignInPolicy;
 use goodfetch_engine::run_state::install::InstallDatabase;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::transport::{DaemonListener, Network, listen_console};
@@ -36,6 +37,7 @@ use goodfetch_protocol::console::{
     ADDRESS as CONSOLE_ADDRESS, CONSOLE_PORT_IN_USE, ConsoleFailure, ConsoleState, default_address,
 };
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, IDLE_TIMEOUT};
+use goodfetch_protocol::people::{SIGN_IN_IDLE_EXPIRY, SIGN_IN_RATE};
 use goodfetch_protocol::settings::SETTING_INVALID;
 
 use super::{Failure, Machine, multi_thread_runtime, now, per_install, unavailable};
@@ -174,7 +176,7 @@ pub(in crate::executable) fn launched(
         let (listener, endpoint, token, activated) =
             take_listener(machine, &files, &socket, service).await?;
         let (console, console_state) = if engine.serves_console() {
-            start_console(&console_address).await
+            start_console(&console_address, sign_in_policy(settings.as_ref())).await
         } else {
             (DaemonConsole::Absent, ConsoleState::Absent)
         };
@@ -250,11 +252,31 @@ pub(super) fn install_database(
     })
 }
 
+/// How long the Console's sign-ins last and how often an address may try
+/// to sign in: `console.sign_in.idle_expiry` and `console.sign_in.rate`,
+/// which only an Operator policy sets, else their defaults.
+fn sign_in_policy(settings: Option<&Resolved>) -> SignInPolicy {
+    let defaults = SignInPolicy::default();
+    let Some(settings) = settings else {
+        return defaults;
+    };
+    SignInPolicy {
+        idle_expiry: settings
+            .value(SIGN_IN_IDLE_EXPIRY.name)
+            .as_u64()
+            .map_or(defaults.idle_expiry, Duration::from_millis),
+        rate: settings
+            .value(SIGN_IN_RATE.name)
+            .as_u64()
+            .unwrap_or(defaults.rate),
+    }
+}
+
 /// The Daemon's Console (ADR 0031): its listener at `address`, the
 /// `console.address` setting, and the URL it is reached at; or, when the
 /// address is no `host:port` or another program holds its port, why it did
 /// not start, which fails only the Console, never the Daemon's protocol.
-async fn start_console(address: &str) -> (DaemonConsole, ConsoleState) {
+async fn start_console(address: &str, sign_in: SignInPolicy) -> (DaemonConsole, ConsoleState) {
     let failed = |failure: ConsoleFailure| {
         tracing::error!(
             code = failure.code.as_str(),
@@ -279,7 +301,14 @@ async fn start_console(address: &str) -> (DaemonConsole, ConsoleState) {
             Ok(bound) => {
                 let url = format!("http://{bound}/");
                 tracing::info!(%url, "the Console serves");
-                (DaemonConsole::Listening { listener, url: url.clone() }, ConsoleState::Serving(url))
+                (
+                    DaemonConsole::Listening {
+                        listener,
+                        url: url.clone(),
+                        sign_in,
+                    },
+                    ConsoleState::Serving(url),
+                )
             }
             Err(error) => failed(ConsoleFailure {
                 code: SETTING_INVALID.name.to_owned(),
@@ -492,7 +521,9 @@ mod tests {
                 .await
                 .unwrap();
             let address = held.local_address().unwrap().to_string();
-            start_console(&address).await.1
+            start_console(&address, goodfetch_engine::people::SignInPolicy::default())
+                .await
+                .1
         });
 
         let code = match state {

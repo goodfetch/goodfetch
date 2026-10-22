@@ -627,7 +627,7 @@ impl Session<'_> {
     /// on a listener with a token, answered with its error otherwise.
     async fn refuse(&mut self, message: Message) -> Flow {
         if self.access.guarded() {
-            self.refused("hello_not_first");
+            self.refused("hello_not_first").await;
             return Flow::Close;
         }
         match message {
@@ -745,11 +745,11 @@ impl Session<'_> {
             let token = hello.as_ref().ok().and_then(|hello| hello.token.as_deref());
             match token {
                 None => {
-                    self.refused("token_missing");
+                    self.refused("token_missing").await;
                     return self.rejected();
                 }
                 Some(token) if !same_token(token, expected) => {
-                    self.refused("token_wrong");
+                    self.refused("token_wrong").await;
                     return self.rejected();
                 }
                 Some(_) => {}
@@ -1042,10 +1042,17 @@ impl Session<'_> {
         if known { method } else { UNKNOWN_METHOD }
     }
 
-    /// Logs the listener's refusal of the Connection, with its reason.
-    fn refused(&self, reason: &'static str) {
+    /// Logs the listener's refusal of the Connection, with its reason; on
+    /// the Console's WebSocket, also records it in the Audit log through
+    /// its sign-in driver.
+    async fn refused(&self, reason: &'static str) {
         let listener = self.listener;
         tracing::warn!(target: REFUSAL_TARGET, listener, reason, "a Connection that did not open with `hello` and its token was closed");
+        if let Access::Console(daemon) = &self.access
+            && let Some(sign_ins) = daemon.sign_ins()
+        {
+            sign_ins.refused(listener, reason).await;
+        }
     }
 }
 

@@ -1,0 +1,90 @@
+//! The `certificates` family: one host name per certificate a client must
+//! refuse (pitfall H03, ADR 0042), each served over TLS with a leaf that
+//! fails verification in one way only, so a refusal names that one
+//! failure. A client that accepts the certificate anyway, as a per-domain
+//! exception allows, reads a page naming the defect.
+//!
+//! - `expired.certificates.test`: signed by the seed's authority, its
+//!   validity ended the day before the authority was made.
+//! - `not-yet-valid.certificates.test`: signed by the seed's authority, valid
+//!   from 30 days after it was made.
+//! - `unknown-issuer.certificates.test`: signed by another authority from the
+//!   seed, which the Proving ground never publishes.
+//! - `name-mismatch.certificates.test`: signed by the seed's authority for
+//!   `elsewhere.certificates.test` only.
+//! - `self-signed.certificates.test`: signed by its own key.
+
+use crate::exchange::{Reply, encode};
+
+/// How a host's leaf certificate fails verification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Defect {
+    /// Its validity has ended.
+    Expired,
+    /// Its validity has not begun.
+    NotYetValid,
+    /// An authority no client trusts signed it.
+    UnknownIssuer,
+    /// It names another host.
+    NameMismatch,
+    /// Its own key signed it.
+    SelfSigned,
+}
+
+impl Defect {
+    /// Every defect, in the order the family lists its hosts.
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Expired,
+        Self::NotYetValid,
+        Self::UnknownIssuer,
+        Self::NameMismatch,
+        Self::SelfSigned,
+    ];
+
+    /// The host name that serves it.
+    pub(crate) fn host(self) -> &'static str {
+        match self {
+            Self::Expired => "expired.certificates.test",
+            Self::NotYetValid => "not-yet-valid.certificates.test",
+            Self::UnknownIssuer => "unknown-issuer.certificates.test",
+            Self::NameMismatch => "name-mismatch.certificates.test",
+            Self::SelfSigned => "self-signed.certificates.test",
+        }
+    }
+
+    /// The defect `host`, a lowercased name without its port, serves.
+    pub(crate) fn of(host: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|defect| defect.host() == host)
+    }
+
+    fn describe(self) -> &'static str {
+        match self {
+            Self::Expired => "an expired certificate",
+            Self::NotYetValid => "a certificate not valid yet",
+            Self::UnknownIssuer => "a certificate from an unknown issuer",
+            Self::NameMismatch => "a certificate for another host name",
+            Self::SelfSigned => "a self-signed certificate",
+        }
+    }
+}
+
+/// The name the leaf of `name-mismatch.certificates.test` names instead.
+pub(crate) const MISMATCHED_NAME: &str = "elsewhere.certificates.test";
+
+/// Every host name of the family, none a task's.
+pub(crate) fn hosts() -> Vec<(String, Option<String>)> {
+    Defect::ALL
+        .into_iter()
+        .map(|defect| (defect.host().to_owned(), None))
+        .collect()
+}
+
+/// The page every path of a host of the family answers, for a client that
+/// accepted its certificate; `None` for any other host.
+pub(crate) fn respond(name: &str) -> Option<Reply> {
+    let defect = Defect::of(name)?;
+    let described = encode(defect.describe());
+    Some(Reply::html(format!(
+        "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Reached past {described}</title></head>\n<body><main><h1>Reached past {described}</h1><p>This host serves {described}; a client reads this page only when an exception lets it through.</p></main></body>\n</html>\n"
+    )))
+}

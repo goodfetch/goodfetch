@@ -423,6 +423,18 @@
           "minimum": 0,
           "type": "integer"
         },
+        "surface": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Surface"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The surface the actor acted through, such as `console` for a person\nin the Console; none for the engine's own events."
+        },
         "time": {
           "$ref": "#/$defs/PointInTime",
           "arrived_in": "0.1",
@@ -1248,6 +1260,22 @@
       ],
       "type": "object"
     },
+    "ConsoleKeyRotated": {
+      "description": "What `console.rotate_key` answers.",
+      "properties": {
+        "signed_out": {
+          "arrived_in": "0.1",
+          "description": "How many sign-ins it ended: every one.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "signed_out"
+      ],
+      "type": "object"
+    },
     "ConsoleOpened": {
       "description": "What `console --json` prints (ADR 0069): the Console's sign-in link,\nwhose fragment carries the token the page swaps once for its cookie\n(ADR 0024), the URL the command opened the browser on, or would have.",
       "properties": {
@@ -1260,6 +1288,17 @@
       "required": [
         "url"
       ],
+      "type": "object"
+    },
+    "ConsoleRotateKeyParams": {
+      "additionalProperties": false,
+      "description": "What `console.rotate_key` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        }
+      },
       "type": "object"
     },
     "ConsoleState": {
@@ -7963,6 +8002,143 @@
       "pattern": "^[0-9a-f]{64}$",
       "type": "string"
     },
+    "SignInList": {
+      "description": "What `sign_in.list` answers.",
+      "properties": {
+        "sign_ins": {
+          "arrived_in": "0.1",
+          "description": "Every sign-in that has not ended, oldest first.",
+          "items": {
+            "$ref": "#/$defs/SignInSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sign_ins"
+      ],
+      "type": "object"
+    },
+    "SignInListParams": {
+      "additionalProperties": false,
+      "description": "What `sign_in.list` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
+    "SignInRevokeParams": {
+      "additionalProperties": false,
+      "description": "What `sign_in.revoke` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "id": {
+          "arrived_in": "0.1",
+          "description": "The sign-in's identifier, as `sign_in.list` gives it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "SignInRevoked": {
+      "description": "What `sign_in.revoke` answers.",
+      "properties": {
+        "revoked": {
+          "arrived_in": "0.1",
+          "description": "Whether a sign-in ended: `false` when none had that identifier, or\nit had already ended.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "revoked"
+      ],
+      "type": "object"
+    },
+    "SignInRow": {
+      "description": "One sign-in as the accounts store keeps it: the schema of the\n`accounts-store` format. Never its cookie: the store keeps a verifier,\nan HMAC of the cookie under the Console key, so a stolen store signs\nnobody in and a rotated key ends every sign-in.",
+      "properties": {
+        "created": {
+          "arrived_in": "0.1",
+          "description": "When it was created, as RFC 3339.",
+          "type": "string"
+        },
+        "id": {
+          "arrived_in": "0.1",
+          "description": "Its identifier, the first part of its cookie.",
+          "type": "string"
+        },
+        "last_used": {
+          "arrived_in": "0.1",
+          "description": "When it was last used, as RFC 3339.",
+          "type": "string"
+        },
+        "person": {
+          "arrived_in": "0.1",
+          "description": "The person it signs in.",
+          "type": "string"
+        },
+        "verifier": {
+          "arrived_in": "0.1",
+          "description": "HMAC-SHA-256 of its cookie under the Console key, in hex.",
+          "type": "string"
+        },
+        "wrapping_key": {
+          "arrived_in": "0.1",
+          "description": "The key, in hex, that wraps the sign-in's offline cache key in the\nbrowser, which the Daemon unwraps only for its cookie (ADR 0031).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "verifier",
+        "person",
+        "created",
+        "last_used",
+        "wrapping_key"
+      ],
+      "type": "object"
+    },
+    "SignInSummary": {
+      "description": "One sign-in, as `sign_in.list` shows it: never its cookie.",
+      "properties": {
+        "created": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it was created."
+        },
+        "id": {
+          "arrived_in": "0.1",
+          "description": "Its identifier, which `sign_in.revoke` takes.",
+          "type": "string"
+        },
+        "last_used": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it was last used, from which its idle expiry counts."
+        },
+        "person": {
+          "arrived_in": "0.1",
+          "description": "The person it signs in, by the name their account or OS user goes\nby.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "person",
+        "created",
+        "last_used"
+      ],
+      "type": "object"
+    },
     "SinkReport": {
       "description": "A Sink that applies to a crawl's Run (ADRs 0026 and 0103).",
       "properties": {
@@ -9227,6 +9403,16 @@
     },
     {
       "hello_from": [],
+      "name": "accounts-store",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/SignInRow"
+      },
+      "storage": "sqlite",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
       "name": "operator-policy",
       "rule": "shared_store",
       "schema": {
@@ -9289,6 +9475,28 @@
                       }
                     ],
                     "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+                  }
+                },
+                "type": "object"
+              },
+              "console": {
+                "additionalProperties": false,
+                "properties": {
+                  "sign_in": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "idle_expiry": {
+                        "description": "How long a Console sign-in lasts without being used, in milliseconds: 30 days. Each use starts it again; a sign-in unused for longer ends, and its person signs in again. Set in an Operator policy only.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "rate": {
+                        "description": "How many times one address may try to sign in to the Console in a minute: 10. A further attempt in that minute is refused, whatever its credential. Set in an Operator policy only.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -9667,6 +9875,22 @@
                   "address": {
                     "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
                     "type": "string"
+                  },
+                  "sign_in": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "idle_expiry": {
+                        "description": "How long a Console sign-in lasts without being used, in milliseconds: 30 days. Each use starts it again; a sign-in unused for longer ends, and its person signs in again. Set in an Operator policy only.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "rate": {
+                        "description": "How many times one address may try to sign in to the Console in a minute: 10. A further attempt in that minute is refused, whatever its credential. Set in an Operator policy only.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -10273,7 +10497,7 @@
                       },
                       "type": "array"
                     },
-                    "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
+                    "description": "Extra certificate authorities by domain: a host or a registrable domain with its subdomains, mapped to certificate files or Secret references, trusted beside the default roots for that domain and nowhere else. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run; on a Daemon with accounts only the operator role writes it, in the Operator policy.",
                     "type": "object"
                   }
                 },
@@ -10435,6 +10659,22 @@
                   "address": {
                     "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
                     "type": "string"
+                  },
+                  "sign_in": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "idle_expiry": {
+                        "description": "How long a Console sign-in lasts without being used, in milliseconds: 30 days. Each use starts it again; a sign-in unused for longer ends, and its person signs in again. Set in an Operator policy only.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "rate": {
+                        "description": "How many times one address may try to sign in to the Console in a minute: 10. A further attempt in that minute is refused, whatever its credential. Set in an Operator policy only.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -11041,7 +11281,7 @@
                       },
                       "type": "array"
                     },
-                    "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
+                    "description": "Extra certificate authorities by domain: a host or a registrable domain with its subdomains, mapped to certificate files or Secret references, trusted beside the default roots for that domain and nowhere else. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run; on a Daemon with accounts only the operator role writes it, in the Operator policy.",
                     "type": "object"
                   }
                 },
@@ -11219,6 +11459,22 @@
                   "address": {
                     "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
                     "type": "string"
+                  },
+                  "sign_in": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "idle_expiry": {
+                        "description": "How long a Console sign-in lasts without being used, in milliseconds: 30 days. Each use starts it again; a sign-in unused for longer ends, and its person signs in again. Set in an Operator policy only.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "rate": {
+                        "description": "How many times one address may try to sign in to the Console in a minute: 10. A further attempt in that minute is refused, whatever its credential. Set in an Operator policy only.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -11825,7 +12081,7 @@
                       },
                       "type": "array"
                     },
-                    "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
+                    "description": "Extra certificate authorities by domain: a host or a registrable domain with its subdomains, mapped to certificate files or Secret references, trusted beside the default roots for that domain and nowhere else. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run; on a Daemon with accounts only the operator role writes it, in the Operator policy.",
                     "type": "object"
                   }
                 },

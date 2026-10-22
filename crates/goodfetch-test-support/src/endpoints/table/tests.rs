@@ -141,6 +141,27 @@ listeners.private_endpoint = { expect = "closed" }
     Rule::ProbesAnswerStatusOnly,
     ListenerKind::OpsListener
 )]
+#[case::a_sign_in_route_rule_on_a_listener_without_sign_in_routes(
+    "sign_in_rate_exceeded",
+    "daemon_websocket",
+    r#"{ expect = "status", status = 429 }"#,
+    Rule::SignInRateExceeded,
+    ListenerKind::DaemonWebsocket
+)]
+#[case::a_closed_connection_for_a_sign_in_route(
+    "csrf_token_missing",
+    "console",
+    r#"{ expect = "closed" }"#,
+    Rule::CsrfTokenMissing,
+    ListenerKind::Console
+)]
+#[case::a_revoked_sign_in_on_a_listener_without_sign_ins(
+    "sign_in_revoked",
+    "ops_listener",
+    r#"{ expect = "status", status = 401 }"#,
+    Rule::SignInRevoked,
+    ListenerKind::OpsListener
+)]
 fn a_cell_its_listener_cannot_try_fails(
     #[case] rule_name: &str,
     #[case] listener_name: &str,

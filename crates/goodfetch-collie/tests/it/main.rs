@@ -40,6 +40,7 @@ mod run;
 mod secrets;
 mod service_manager;
 mod settings_flags;
+mod sign_in;
 mod upgrade_files;
 mod usage;
 #[cfg(target_os = "linux")]

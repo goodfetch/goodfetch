@@ -20,8 +20,8 @@ use goodfetch_protocol::run::{RunKind, RunOwner};
 use crate::admission::Gates;
 use crate::attached::{ParentWatch, PrivateFiles, relay};
 use crate::clock::Clock;
-use crate::composition::{Composition, CompositionError};
-use crate::console::{self, ConsoleBuild};
+use crate::composition::{Composition, CompositionError, ConsoleBuild};
+use crate::console;
 use crate::daemon::{self, DaemonConsole, DaemonEnd, DaemonOptions};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
@@ -29,6 +29,7 @@ use crate::forward::ToOwner;
 use crate::home::{Home, RunStateLocation};
 use crate::log::LogEvents;
 use crate::metrics::Metrics;
+use crate::people::{SignInDriver, SingleUserLink};
 use crate::politeness::{PolitenessOptions, PolitenessTables};
 use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
@@ -42,6 +43,10 @@ use crate::transition::{
     engine::{EngineEvent, EngineState},
 };
 use crate::transport::{Connection, DaemonListener, Network, TransportError};
+
+/// How many `WebSocket`s the Console's server opened wait for the Daemon to
+/// serve them before it waits too.
+const CONSOLE_SOCKETS: usize = 16;
 
 /// An engine of one Product, composed and ready to serve.
 #[derive(Clone)]
@@ -188,12 +193,22 @@ impl Engine {
             options.install.take(),
             console_url,
         );
+        let (opened_sockets, console_sockets) = tokio::sync::mpsc::channel(CONSOLE_SOCKETS);
         let console = match (
             self.console,
             std::mem::replace(&mut options.console, DaemonConsole::Absent),
         ) {
             (Some(build), DaemonConsole::Listening { listener, url }) => {
-                owner.spawn(console::serve(build, listener, owner.child()));
+                let sign_ins = SignInDriver::new(SingleUserLink::new(options.token.clone()));
+                owner.spawn(console::serve(
+                    console::Served {
+                        build,
+                        listener,
+                        sign_ins,
+                        sockets: opened_sockets,
+                    },
+                    owner.child(),
+                ));
                 ConsoleState::Serving(url)
             }
             (_, DaemonConsole::Failed(failure)) => ConsoleState::Failed(failure),
@@ -208,6 +223,7 @@ impl Engine {
                 events,
                 clock,
                 console,
+                console_sockets,
                 metrics: self.metrics.clone(),
             },
             listener,

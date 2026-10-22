@@ -36,9 +36,16 @@ fn run_state_writes(count: usize) -> usize {
     black_box(scenarios::run_state_writes(black_box(count)))
 }
 
+#[library_benchmark]
+#[bench::thousand_entries(scenarios::egress_policy(1000))]
+fn egress_judge(input: (goodfetch_engine::egress::Policy, Vec<String>)) -> usize {
+    let (policy, urls) = input;
+    black_box(scenarios::judge_all(black_box(&policy), black_box(&urls)))
+}
+
 library_benchmark_group!(
     name = engine,
-    benchmarks = [framing, dispatch, run_state_writes]
+    benchmarks = [framing, dispatch, run_state_writes, egress_judge]
 );
 
 main!(

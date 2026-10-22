@@ -432,6 +432,7 @@ impl Machine<'_> {
         let hello = HelloParams {
             protocol_version: PROTOCOL_VERSION,
             surface: Surface::Cli,
+            form: None,
             token: Some(found.token.clone()),
             needs: Some(needs),
             product_version: self.identity.product_version.clone(),
@@ -529,6 +530,31 @@ impl Machine<'_> {
     pub(super) fn reach_for_relay(&self) -> Result<(DaemonEndpoint, String), Failure> {
         let (found, _) = self.running_or_started(false)?;
         Ok((found.endpoint, found.token))
+    }
+
+    /// The Console's sign-in link, `<url>#token=<token>`, starting the
+    /// major's pick unless a Daemon runs: its Console's URL, with the token
+    /// in the fragment, which never reaches a server (ADR 0024).
+    pub(super) fn console_link(&self) -> Result<String, Failure> {
+        let (found, _) = self.running_or_started(false)?;
+        let mut connected = self.connect(true, Product::Collie)?.ok_or_else(|| {
+            Failure::Unavailable("the Daemon stopped as soon as it started".to_owned())
+        })?;
+        let status: DaemonStatus = connected.call("daemon.status", &serde_json::json!({}))?;
+        connected.close();
+        match status.console {
+            ConsoleState::Serving(url) => Ok(format!("{url}#token={}", found.token)),
+            ConsoleState::Failed(failure) => Err(Failure::Refused {
+                code: failure.code,
+                group: ErrorGroup::Unavailable,
+                message: failure.message,
+                fix: failure.fix,
+            }),
+            ConsoleState::Absent => Err(Failure::Unavailable(format!(
+                "the Daemon of major {} serves no Console: its executable carries no Console build",
+                self.major()
+            ))),
+        }
     }
 
     /// What the running Daemon of the major, or else the foreground Daemon

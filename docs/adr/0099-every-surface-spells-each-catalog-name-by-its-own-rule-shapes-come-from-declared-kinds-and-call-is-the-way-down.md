@@ -227,6 +227,7 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
   - `cli`;
   - `tool` for the MCP server and the Framework adapters;
   - `catalog` for the Console, Integrations and the HTTP listener.
+  > Note (agent decision, pending owner review), 2026-10-22, [#817](https://github.com/goodfetch/goodfetch/issues/817): `hello`'s params carry the form as the optional `form` (`typescript`, `python`, `rust`, `cli`, `tool` or `catalog`); the Console names `catalog`, and each other surface names its own with the ticket that renders names in it ([#1272](https://github.com/goodfetch/goodfetch/issues/1272)).
 - **What the engine renders in that form:** every name a message shows (the operation, parameters, setting keys in `limit` and `fix`, events) and targets (ADR 0079). For example, `page.waitForURL` in TypeScript, `page.wait_for_url` in Python, and a setting as `crawl.payload.maxSize`, `crawl.payload.max_size` or `crawl::payload::MAX_SIZE`.
 - **One naming crate** serves `xtask codegen` and the engine's renderer, so a message names exactly what the program writes. One renderer per form is tested once, as ADR 0079 argued for targets, and Playwright's server renders locators in its client's `SDKLanguage` (CM A6).
 - **Structured fields stay canonical,** so programs match on them across languages: `operation` holds the canonical name, and `limit` keeps ADR 0083's canonical key.

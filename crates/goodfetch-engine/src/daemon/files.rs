@@ -59,6 +59,8 @@ const START_LOCK: &str = "daemon-start.lock";
 const TOKEN_FILE: &str = "daemon.token";
 const SERVICE_FILE: &str = "daemon-service.json";
 const OPS_TOKEN_FILE: &str = "ops.token";
+/// The page that opens the Console's sign-in link in a browser.
+const CONSOLE_OPENER: &str = "console.html";
 
 /// The longest socket path every OS takes: macOS's `sun_path` holds 104
 /// bytes, its last a NUL.
@@ -257,6 +259,36 @@ impl DaemonFiles {
         drop(written);
         fs::rename(&partial, self.folder.join(name))?;
         Ok(token)
+    }
+
+    /// Writes the page that opens the Console's sign-in link `link`,
+    /// readable and writable by its owner alone, as the runtime file that
+    /// holds the same token is, and answers its path: a browser opened on
+    /// it goes on to the link, so the token is never in a command line
+    /// another user's process list shows.
+    ///
+    /// # Errors
+    ///
+    /// When its file cannot be written.
+    pub fn write_console_opener(&self, link: &str) -> io::Result<PathBuf> {
+        let escaped = link
+            .replace('&', "&amp;")
+            .replace('"', "&quot;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        let page = format!(
+            "<!doctype html>\n<meta charset=\"utf-8\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<meta http-equiv=\"refresh\" content=\"0;url={escaped}\">\n<title>Console</title>\n<a href=\"{escaped}\" rel=\"noreferrer\">Open the Console</a>\n"
+        );
+        fs::create_dir_all(&self.folder)?;
+        let path = self.folder.join(CONSOLE_OPENER);
+        let partial = self.folder.join(".console.html.partial");
+        remove(&partial)?;
+        let mut written = owner_only(&partial)?;
+        written.write_all(page.as_bytes())?;
+        written.sync_all()?;
+        drop(written);
+        fs::rename(&partial, &path)?;
+        Ok(path)
     }
 
     /// Removes the persistent token.

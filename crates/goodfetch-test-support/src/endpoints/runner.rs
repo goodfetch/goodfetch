@@ -77,6 +77,18 @@ pub enum Endpoint {
         /// The `hello` it accepts.
         hello: Hello,
     },
+    /// A WebSocket listener on loopback TCP whose valid handshake names
+    /// `address` as its `Host` and `http://<address>` as its `Origin` and
+    /// carries the token as the cookie `cookie`, and whose first message
+    /// is a `hello` with these params, which carry no token.
+    SignedInWebSocket {
+        /// Where it listens.
+        address: SocketAddr,
+        /// The sign-in cookie's name.
+        cookie: String,
+        /// The `hello`'s params.
+        hello: Map<String, Value>,
+    },
 }
 
 /// The listener under test, as a value.
@@ -278,6 +290,19 @@ impl<A: AuditVerifier> EndpointRunner<A> {
                 address: *address,
                 hello,
             },
+            (
+                Endpoint::SignedInWebSocket {
+                    address,
+                    cookie,
+                    hello,
+                },
+                Transport::SignedInWebSocket { path },
+            ) => Reach::SignedInWebSocket {
+                address: *address,
+                path,
+                cookie,
+                hello,
+            },
             _ => {
                 return Err(EndpointRunError::TransportMismatch {
                     listener: listener.kind,
@@ -388,6 +413,12 @@ enum Reach<'a> {
         address: SocketAddr,
         hello: &'a Hello,
     },
+    SignedInWebSocket {
+        address: SocketAddr,
+        path: &'static str,
+        cookie: &'a str,
+        hello: &'a Map<String, Value>,
+    },
 }
 
 impl Reach<'_> {
@@ -416,6 +447,7 @@ impl Reach<'_> {
                     target: "/".to_owned(),
                     host: &authority,
                     origin: Some(&origin),
+                    cookie: None,
                 };
                 let mut message = hello.message("hello", Some(token));
                 match attempt {
@@ -429,6 +461,38 @@ impl Reach<'_> {
                     Attempt::ForeignOrigin => handshake.origin = Some(FOREIGN_ORIGIN),
                     Attempt::NoOrigin => handshake.origin = None,
                     Attempt::NotHello => message = hello.message(NOT_HELLO, Some(token)),
+                }
+                websocket::attempt(*address, &handshake, &message)
+            }
+            Self::SignedInWebSocket {
+                address,
+                path,
+                cookie,
+                hello,
+            } => {
+                let authority = address.to_string();
+                let origin = format!("http://{authority}");
+                let signed_in = |token: &str| format!("{cookie}={token}");
+                let mut handshake = websocket::Handshake {
+                    target: (*path).to_owned(),
+                    host: &authority,
+                    origin: Some(&origin),
+                    cookie: Some(signed_in(token)),
+                };
+                let first = |method: &str| serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": hello });
+                let mut message = first("hello");
+                match attempt {
+                    Attempt::Valid | Attempt::Probe(_) => {}
+                    Attempt::Token(token) => handshake.cookie = token.map(signed_in),
+                    Attempt::TokenInQuery => {
+                        handshake.target =
+                            format!("{path}?access_token={}", percent_encoded(token));
+                        handshake.cookie = None;
+                    }
+                    Attempt::ForeignHost => handshake.host = FOREIGN_HOST,
+                    Attempt::ForeignOrigin => handshake.origin = Some(FOREIGN_ORIGIN),
+                    Attempt::NoOrigin => handshake.origin = None,
+                    Attempt::NotHello => message = first(NOT_HELLO),
                 }
                 websocket::attempt(*address, &handshake, &message)
             }

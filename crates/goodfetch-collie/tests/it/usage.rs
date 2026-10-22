@@ -188,7 +188,7 @@ fn usage_raise_asks_the_person_at_the_terminal(
     );
 }
 
-/// Covers: story:3-75, command:usage.raise, error:person_required
+/// Covers: story:3-75, command:usage.raise
 #[test]
 fn usage_raise_is_refused_when_stdin_is_no_terminal() {
     let env = TestEnv::new();

@@ -13,6 +13,7 @@ publish.workspace = true
 # with the code it judges (ADR 0032; `xtask dependency-direction`).
 [dependencies]
 anyhow.workspace = true
+brotli.workspace = true
 clap.workspace = true
 crc32fast.workspace = true
 data-encoding.workspace = true

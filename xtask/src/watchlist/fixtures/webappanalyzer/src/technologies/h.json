@@ -1,0 +1,11 @@
+{
+  "HackerOne": {
+    "cats": [16],
+    "description": "A bug bounty platform whose researchers' scanners read robots.txt first.",
+    "website": "https://www.hackerone.com"
+  },
+  "HSTS": {
+    "cats": [16],
+    "description": "A response header telling browsers to reach a site over HTTPS only."
+  }
+}

@@ -141,6 +141,10 @@ enum Route {
 #[case::a_policy_report("POST", Route::Path("/csp-report"), 204, None, "no-store")]
 #[case::a_path_with_no_file("GET", Route::Path("/runs"), 404, None, "no-store")]
 #[case::a_write_to_the_page("POST", Route::Path("/"), 405, None, "no-store")]
+#[case::a_sign_in_from_no_page("POST", Route::Path("/sign-in"), 403, None, "no-store")]
+#[case::a_read_of_the_sign_in("GET", Route::Path("/sign-in"), 405, None, "no-store")]
+#[case::a_session_signed_out("GET", Route::Path("/session"), 401, None, "no-store")]
+#[case::a_websocket_from_no_page("GET", Route::Path("/protocol"), 403, None, "no-store")]
 fn every_console_answer_carries_the_production_headers(
     #[case] method: &str,
     #[case] route: Route,

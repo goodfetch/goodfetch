@@ -250,6 +250,44 @@ class Enqueued1(BaseModel):
     """
 
 
+class ErrorData(BaseModel):
+    """
+    What a failure's `data` holds: its Error code, whether the same call may
+    succeed when made again, and the code's own details.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    """The Error code, or the name of the protocol failure."""
+    retryable: bool
+    """Whether the same call may succeed when made again."""
+
+
+class Form(StrEnum):
+    """
+    The form a Client's user writes names in (ADR 0099), which the engine
+    renders the names and targets of its messages in.
+    """
+
+    typescript = "typescript"
+    """The TypeScript SDK, and Code mode."""
+    python = "python"
+    """The Python SDK."""
+    rust = "rust"
+    """A Rust program."""
+    cli = "cli"
+    """The CLI."""
+    tool = "tool"
+    """The MCP server and the Framework adapters."""
+    catalog = "catalog"
+    """
+    The catalog's own names: the Console, Integrations and the HTTP
+    listener.
+    """
+
+
 class HttpBody(RootModel[str]):
     root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
     """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
@@ -712,6 +750,26 @@ class RecordingReport(BaseModel):
     """The engine that wrote them."""
 
 
+class RequestFailed(BaseModel):
+    """
+    What `page.request_failed` reports: a request of the run that failed
+    while no call waited for it, such as one the egress policy refused.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    failure: ErrorData
+    """
+    Why it failed: the Error code a call waiting for it would have
+    raised, with its details, such as `egress_refused`.
+    """
+    method: str
+    """Its method, such as `GET`."""
+    url: str
+    """The request's URL, as the run gave it."""
+
+
 class RequestId(RootModel[int | str]):
     root: int | str
     """A request's id, which its reply carries back."""
@@ -1151,6 +1209,29 @@ class Tags(RootModel[list[Tag]]):
     """A Run's tags, in the order given."""
 
 
+class TraceContext(BaseModel):
+    """
+    A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
+    and `tracestate`, which its runtime writes and never a program, with no
+    Baggage. The schema checks only that each is a string: a receiver drops
+    a value it cannot use, and never fails the call for it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    traceparent: str | None = None
+    """
+    The caller's span, as W3C Trace Context's `traceparent` header
+    holds it.
+    """
+    tracestate: str | None = None
+    """
+    Its vendors' values, as W3C Trace Context's `tracestate` header
+    holds them.
+    """
+
+
 class UncertainEffect(BaseModel):
     """An Effect a Run left uncertain (ADR 0106), until a person reconciles it."""
 
@@ -1571,6 +1652,11 @@ class HelloParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    form: Form | None = None
+    """
+    The form its user writes names in (ADR 0099); none until each
+    surface names its own.
+    """
     log_level: LogLevel | None = None
     """
     The level of the engine's log events the Client receives as `$/log`

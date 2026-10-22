@@ -118,6 +118,27 @@ pub(crate) struct Expected {
     /// judged by structure, each link on it by its path (ADR 0007).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) markdown_site: Option<&'static str>,
+    /// A decompression bomb's declared sizes, present on a `bombs` task:
+    /// the codings its body carries and the bytes it sends compressed
+    /// against the bytes it would decode to, so the task list names both and
+    /// a refusal at the ratio limit, not the decoded content, is the only
+    /// right result (ADR 0067).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) bomb: Option<Bomb>,
+}
+
+/// A decompression bomb's declared sizes (ADR 0067): a small compressed body
+/// that decodes to far more, which a correct tool refuses at the engine's
+/// decompression-ratio limit rather than reading to its end.
+#[derive(Clone, Serialize)]
+pub(crate) struct Bomb {
+    /// The `Content-Encoding` codings the body carries, in the order they
+    /// were applied (`["gzip"]`, or `["gzip", "gzip"]` for a double coding).
+    pub(crate) content_encodings: Vec<&'static str>,
+    /// The bytes the page sends, compressed.
+    pub(crate) compressed_bytes: u64,
+    /// The bytes the body decodes to if fully decompressed.
+    pub(crate) expanded_bytes: u64,
 }
 
 /// The error a refusal must report: its Error code and, for a navigation
@@ -130,6 +151,11 @@ pub(crate) struct ExpectedError {
     pub(crate) network_error: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) rule: Option<&'static str>,
+    /// The engine setting whose limit a `response_limit_exceeded` names, such
+    /// as `network.max_decompression_ratio` for a decompression bomb
+    /// (ADR 0067).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) setting: Option<&'static str>,
 }
 
 impl Expected {

@@ -77,6 +77,7 @@ impl Forwarder for ToOwner {
             let hello = HelloParams {
                 protocol_version: PROTOCOL_VERSION,
                 surface: Surface::Rust,
+                form: None,
                 token: Some(token),
                 needs: Some(Product::Collie),
                 product_version: self.version.clone(),

@@ -5,7 +5,7 @@
 // or menu). "Incomplete" results are attached to the report and never fail.
 import { AxeBuilder } from "@axe-core/playwright";
 import { test, type Page, type TestInfo } from "@playwright/test";
-import { readAxeExceptions, type AxeException } from "./axe-exceptions.ts";
+import { namesPage, readAxeExceptions, type AxeException } from "./axe-exceptions.ts";
 import { TestSupportError } from "./errors.ts";
 
 /** The axe tags every audit runs: WCAG 2.0, 2.1 and 2.2 at A and AA, and best practices. */
@@ -32,9 +32,10 @@ type AxeNode = AxeResult["nodes"][number];
 
 /**
  * Audits `page` with axe. Fails with `axe_violations` when a violation is
- * left once each exception has suppressed its rule on the elements its
- * selector matches, or with `axe_exception_unmatched` when an exception's
- * rule ran on the page and its selector matches no element there. Attaches
+ * left once each exception that names the page has suppressed its rule on
+ * the elements its selector matches, or with `axe_exception_unmatched` when
+ * an exception names the page, its rule ran there and its selector matches
+ * no element there. Attaches
  * the page's incomplete results to the test as `axe-incomplete`.
  */
 export async function auditAccessibility(page: Page, options: AuditOptions): Promise<void> {
@@ -42,7 +43,9 @@ export async function auditAccessibility(page: Page, options: AuditOptions): Pro
   const ran = new Set(
     [...results.passes, ...results.violations, ...results.incomplete].map(({ id }) => id),
   );
-  const applied = options.exceptions.filter(({ rule }) => ran.has(rule));
+  const applied = options.exceptions.filter(
+    (exception) => ran.has(exception.rule) && namesPage(exception, page.url()),
+  );
   const unmatched: AxeException[] = [];
   let violations = results.violations;
   for (const exception of applied) {

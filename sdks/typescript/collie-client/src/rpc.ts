@@ -32,12 +32,26 @@ export interface ChannelOwner {
 interface Waiting {
   resolve(result: unknown): void;
   reject(error: unknown): void;
+  /** Hears the notifications the engine sends for this call, such as a stream's `$/events`. */
+  notified: ((method: string, params: unknown) => void) | undefined;
 }
 
 /** The options of one call. */
 export interface ChannelCallOptions {
   /** Cancels the call in flight, rejecting it with the signal's reason. */
   readonly signal?: AbortSignal | undefined;
+}
+
+/** The options of a call that stays in flight while the engine streams to it. */
+export interface ChannelOpenOptions extends ChannelCallOptions {
+  /** Hears each notification whose params name the call's id, such as `$/events` or `$/chunk`. */
+  readonly notified?: ((method: string, params: unknown) => void) | undefined;
+}
+
+/** A call in flight: its id, which its notifications and credits name, and its answer. */
+export interface OpenCall {
+  readonly id: MessageId;
+  readonly result: Promise<unknown>;
 }
 
 /** One transport's calls. */
@@ -58,15 +72,34 @@ export class Channel {
 
   /** Sends `method` and answers its result, or fails with its error. */
   async call(method: string, params: unknown, options: ChannelCallOptions = {}): Promise<unknown> {
+    return this.open(method, params, options).result;
+  }
+
+  /**
+   * Sends `method` and answers its id at once, with its result to come:
+   * a call that stays in flight while the engine streams to it, such as
+   * `events.subscribe`, whose notifications `notified` hears.
+   */
+  open(method: string, params: unknown, options: ChannelOpenOptions = {}): OpenCall {
     const { signal } = options;
-    signal?.throwIfAborted();
-    if (this.#failure !== undefined) {
-      throw this.#failure;
-    }
     const id = this.#nextId;
     this.#nextId += 1;
+    if (signal?.aborted === true) {
+      return { id, result: Promise.reject(signal.reason) };
+    }
+    if (this.#failure !== undefined) {
+      return { id, result: Promise.reject(this.#failure) };
+    }
+    // Encoded before the call waits, so params that cannot be encoded, such
+    // as a BigInt, fail this call alone and leave no waiter behind.
+    let request: Uint8Array;
+    try {
+      request = encodeMessage({ id, method, params });
+    } catch (error) {
+      return { id, result: Promise.reject(error) };
+    }
     const answer = new Promise<unknown>((resolve, reject) => {
-      this.#waiting.set(id, { resolve, reject });
+      this.#waiting.set(id, { resolve, reject, notified: options.notified });
     });
     const abort = (): void => {
       const waiting = this.#waiting.get(id);
@@ -77,11 +110,15 @@ export class Channel {
       }
     };
     signal?.addEventListener("abort", abort, { once: true });
-    try {
-      this.#send({ id, method, params });
-      return await answer;
-    } finally {
-      signal?.removeEventListener("abort", abort);
+    this.#write(request);
+    const result = answer.finally(() => signal?.removeEventListener("abort", abort));
+    return { id, result };
+  }
+
+  /** Sends the notification `method`, such as `$/credit`. */
+  notify(method: string, params: unknown): void {
+    if (this.#failure === undefined) {
+      this.#send({ method, params });
     }
   }
 
@@ -104,9 +141,13 @@ export class Channel {
   }
 
   #send(message: Readonly<Record<string, unknown>>): void {
+    this.#write(encodeMessage(message));
+  }
+
+  #write(bytes: Uint8Array): void {
     // A write fails only once the engine's side has gone, which `ended`
     // reports to every waiting call; the rejection itself carries nothing more.
-    this.#writer.write(encodeMessage(message)).catch(() => {});
+    this.#writer.write(bytes).catch(() => {});
   }
 
   async #read(readable: ReadableStream<Uint8Array>): Promise<void> {
@@ -154,8 +195,15 @@ export class Channel {
           error: { code: -32601, message: `this Client serves no \`${message.method}\`` },
         });
         return;
-      case "notification":
+      case "notification": {
+        const params = message.params;
+        const id =
+          typeof params === "object" && params !== null && "id" in params ? params.id : undefined;
+        const waiting =
+          typeof id === "number" || typeof id === "string" ? this.#waiting.get(id) : undefined;
+        waiting?.notified?.(message.method, params);
         return;
+      }
       default: {
         const unknown: never = message;
         return unknown;

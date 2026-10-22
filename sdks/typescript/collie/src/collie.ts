@@ -70,7 +70,6 @@ export class Collie implements Connection {
         engine,
         needs: "collie",
         errorClasses: collieErrorClasses,
-        logger: options.logger,
       }),
     );
   }
@@ -104,9 +103,10 @@ export class Collie implements Connection {
 }
 
 /**
- * Opens a Collie Connection over `transport`, the Scripted engine's
- * in-process player in this package's own tests (ADR 0069): the same
- * Connection as `connect()`'s, with no process behind it.
+ * Opens a Collie Connection over `transport`, such as the Scripted engine's
+ * in-memory player in a program's tests (ADR 0069): the same Connection as
+ * `connect()`'s, with no process behind it. Programs reach it through
+ * `@goodfetch/collie/testing`.
  */
 export function connectOver(transport: Transport): Promise<Collie> {
   return ClientConnection.open({

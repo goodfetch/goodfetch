@@ -21,7 +21,12 @@
 //! Exposed Daemon's address carries its Connections as lines or over
 //! WebSocket (ADR 0049), whose refused handshakes are logged the same way.
 //! Only the Client of an Attached engine's stdio is told its private
-//! endpoint, in the reply to its `hello`.
+//! endpoint, in the reply to its `hello`. The Console's WebSocket, whose
+//! sign-in its handshake proved, opens with a `hello` that carries no token
+//! (ADR 0031).
+//!
+//! Size: one Connection's life, the transition table's states and every
+//! carriage that reaches them, kept whole so each message passes one loop.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
@@ -34,20 +39,21 @@ use goodfetch_protocol::connection::{
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
 use goodfetch_protocol::jsonrpc::{
-    ErrorObject, Notification, ProtocolFailure, Request, RequestId, Version,
+    ErrorObject, Notification, ProtocolFailure, Request, RequestId, TraceContext, Version,
 };
 use serde_json::{Map, Value};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument as _;
 
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use super::websocket::{
-    self, Authorities, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
+    self, Authorities, ConsoleSocket, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
 };
 use super::{
     failure_line, handshake, line, not_in_product, notification_line, record, record_cancel,
-    success_line,
+    success_line, trace_context,
 };
 use crate::client::{Client, Outgoing};
 use crate::composition::{
@@ -58,6 +64,7 @@ use crate::log::LogEvents;
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
+use crate::trace;
 use crate::transition::engine::{
     ConnectionEffect, ConnectionEvent, ConnectionState, InvalidConnectionTransition,
 };
@@ -102,13 +109,17 @@ pub(crate) enum Access {
     Exposed(Arc<dyn DaemonSide>, Arc<Authorities>),
     /// An Attached engine's private endpoint: its token.
     PrivateEndpoint(Arc<str>),
+    /// The Console's WebSocket on its own origin (ADR 0031): a Daemon's
+    /// Connection whose sign-in cookie its handshake carried, so its
+    /// `hello` carries no token.
+    Console(Arc<dyn DaemonSide>),
 }
 
 impl Access {
     /// The token its `hello` must carry, if any.
     fn token(&self) -> Option<&str> {
         match self {
-            Self::Attached(_) => None,
+            Self::Attached(_) | Self::Console(_) => None,
             Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(daemon.token()),
             Self::PrivateEndpoint(token) => Some(token),
         }
@@ -117,7 +128,9 @@ impl Access {
     /// The Daemon it reaches, if any.
     fn daemon(&self) -> Option<Arc<dyn DaemonSide>> {
         match self {
-            Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(Arc::clone(daemon)),
+            Self::Daemon(daemon) | Self::Exposed(daemon, _) | Self::Console(daemon) => {
+                Some(Arc::clone(daemon))
+            }
             Self::Attached(_) | Self::PrivateEndpoint(_) => None,
         }
     }
@@ -130,9 +143,20 @@ impl Access {
             Self::Daemon(_) => "daemon_socket",
             Self::Exposed(..) => "exposed_daemon",
             Self::PrivateEndpoint(_) => "private_endpoint",
+            Self::Console(_) => CONSOLE_LISTENER,
         }
     }
+
+    /// Whether a stranger learns nothing from it: a first message that is
+    /// no `hello` is closed unanswered on a listener a Client proves
+    /// itself to.
+    fn guarded(&self) -> bool {
+        self.token().is_some() || matches!(self, Self::Console(_))
+    }
 }
+
+/// The endpoint table's name of the Console's WebSocket (ADR 0067).
+pub const CONSOLE_LISTENER: &str = "console";
 
 /// The endpoint table's name of a Daemon's WebSocket listener (ADR 0067).
 const WEBSOCKET_LISTENER: &str = "daemon_websocket";
@@ -247,9 +271,76 @@ pub(crate) async fn serve(
     events: Events,
     access: Access,
 ) {
-    let Some((mut reading, writing, listener)) = carriage(connection, &access).await else {
+    let Some((reading, writing, listener)) = carriage(connection, &access).await else {
         return;
     };
+    serve_carried(
+        dispatch,
+        Carried {
+            reading,
+            writing,
+            listener,
+        },
+        owner,
+        runs,
+        events,
+        access,
+    )
+    .await;
+}
+
+/// Serves the Console's WebSocket `socket`, a Connection of the Daemon
+/// `daemon` reaches, until it ends, its tasks those of `owner`.
+///
+/// # Cancel safety
+///
+/// Dropping the future leaves the calls it started to `owner`, which stops
+/// them.
+pub(crate) async fn serve_console(
+    dispatch: Arc<Dispatch>,
+    socket: ConsoleSocket,
+    owner: &TaskOwner,
+    runs: Runs,
+    events: Events,
+    daemon: Arc<dyn DaemonSide>,
+) {
+    let carried = Carried {
+        reading: Reading::Messages(socket.reader),
+        writing: Writing::Messages(socket.writer),
+        listener: CONSOLE_LISTENER,
+    };
+    serve_carried(
+        dispatch,
+        carried,
+        owner,
+        runs,
+        events,
+        Access::Console(daemon),
+    )
+    .await;
+}
+
+/// How a Connection's messages travel, and its listener's name.
+struct Carried {
+    reading: Reading,
+    writing: Writing,
+    listener: &'static str,
+}
+
+/// Serves the Connection `carried` gives until it ends.
+async fn serve_carried(
+    dispatch: Arc<Dispatch>,
+    carried: Carried,
+    owner: &TaskOwner,
+    runs: Runs,
+    events: Events,
+    access: Access,
+) {
+    let Carried {
+        mut reading,
+        writing,
+        listener,
+    } = carried;
     let (outgoing, lines) = mpsc::channel(OUTGOING_LINES);
     owner.spawn(write_lines(writing, lines));
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
@@ -531,7 +622,7 @@ impl Session<'_> {
     /// Refuses a first message that is no `hello`, then closes: unanswered
     /// on a listener with a token, answered with its error otherwise.
     async fn refuse(&mut self, message: Message) -> Flow {
-        if self.access.token().is_some() {
+        if self.access.guarded() {
             self.refused("hello_not_first");
             return Flow::Close;
         }
@@ -637,7 +728,15 @@ impl Session<'_> {
     /// on a private endpoint.
     async fn open(&mut self, request: Request) -> Flow {
         let daemon = self.connection.daemon.clone();
-        let hello = serde_json::from_value::<HelloParams>(request.params.unwrap_or(Value::Null));
+        let (hello, meta) = match trace_context(request.params) {
+            Ok((params, meta)) => (
+                serde_json::from_value::<HelloParams>(params.unwrap_or(Value::Null)).map_err(
+                    |error| CallError::protocol(ProtocolFailure::InvalidParams, error.to_string()),
+                ),
+                meta,
+            ),
+            Err(error) => (Err(error), None),
+        };
         if let Some(expected) = self.access.token() {
             let token = hello.as_ref().ok().and_then(|hello| hello.token.as_deref());
             match token {
@@ -652,6 +751,9 @@ impl Session<'_> {
                 Some(_) => {}
             }
         }
+        // Opened once the token is checked: a stranger's `hello` has no
+        // span, and its Trace context is not read.
+        let span = trace::server_span(HELLO, &request.id, None, meta.as_ref());
         let answered = match hello {
             Ok(hello) => handshake::answer(
                 &self.dispatch.identity,
@@ -659,10 +761,7 @@ impl Session<'_> {
                 &hello,
             )
             .map(|accepted| (accepted, hello.surface, hello.log_level)),
-            Err(error) => Err(handshake::Refused::Invalid(CallError::protocol(
-                ProtocolFailure::InvalidParams,
-                error.to_string(),
-            ))),
+            Err(error) => Err(handshake::Refused::Invalid(error)),
         };
         let answered = match answered {
             Ok(accepted) => Ok(accepted),
@@ -694,6 +793,7 @@ impl Session<'_> {
                 }
                 let result = serde_json::to_value(accepted.result)
                     .expect("invariant: a `hello` reply encodes");
+                drop(span);
                 if self.send(success_line(request.id, result)).await {
                     Flow::Continue
                 } else {
@@ -702,6 +802,8 @@ impl Session<'_> {
             }
             Err(error) => {
                 record(HELLO, Some(error.code()));
+                trace::record_failure(&span, error.code(), error.wire_code());
+                drop(span);
                 self.send(failure_line(Some(request.id), &error)).await;
                 self.rejected()
             }
@@ -740,8 +842,13 @@ impl Session<'_> {
                 Some(person_required(&method))
             } else {
                 let handler = handler.clone();
-                self.call(id, &handler, params);
-                return Flow::Continue;
+                match trace_context(params) {
+                    Ok((params, meta)) => {
+                        self.call(id, &handler, params, meta.as_ref());
+                        return Flow::Continue;
+                    }
+                    Err(error) => Some(error),
+                }
             }
         } else if !self.dispatch.identity.product.contains(Product::Foxhound)
             && foxhound_names::OPERATIONS.contains(&method.as_str())
@@ -769,10 +876,18 @@ impl Session<'_> {
         }
     }
 
-    /// Starts `handler` on `params` as a task of the Connection.
-    fn call(&mut self, id: RequestId, handler: &Handler, params: Option<Value>) {
+    /// Starts `handler` on `params` as a task of the Connection, in the
+    /// request's span, the child of the span the Trace context `meta` names.
+    fn call(
+        &mut self,
+        id: RequestId,
+        handler: &Handler,
+        params: Option<Value>,
+        meta: Option<&TraceContext>,
+    ) {
         let token = self.owner.token().child_token();
         let operation = handler.operation();
+        let span = trace::server_span(operation.name, &id, params.as_ref(), meta);
         let credits = handler.streams().then(Credits::new);
         let stream = credits.clone().map(|credits| CallStream {
             id: id.clone(),
@@ -800,7 +915,9 @@ impl Session<'_> {
             stream,
             call_input,
         );
-        let answer = handler.call(params.unwrap_or(Value::Object(Map::new())), context);
+        let answer = handler
+            .call(params.unwrap_or(Value::Object(Map::new())), context)
+            .instrument(span.clone());
         self.in_flight.insert(
             id.clone(),
             InFlight {
@@ -832,9 +949,11 @@ impl Session<'_> {
                 }
                 Err(error) => {
                     record(operation.name, Some(error.code()));
+                    trace::record_failure(&span, error.code(), error.wire_code());
                     failure_line(Some(id.clone()), &error)
                 }
             };
+            drop(span);
             let _ = outgoing.send(line).await;
             let _ = completed.send(id).await;
         });

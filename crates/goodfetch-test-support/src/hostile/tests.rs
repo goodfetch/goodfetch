@@ -317,7 +317,7 @@ fn the_committed_tables_parse_with_unique_names() {
 }
 
 #[test]
-fn the_committed_tables_name_the_proving_grounds_hostile_heads() {
+fn the_committed_tables_name_the_proving_grounds_hostile_pages() {
     let tables = HostileTables::committed().unwrap();
 
     let pages = tables.pages();
@@ -327,6 +327,11 @@ fn the_committed_tables_name_the_proving_grounds_hostile_heads() {
         vec![
             ("header_values", "response_head_with_nul", "headers/5"),
             ("header_values", "response_head_with_a_bare_cr", "headers/6"),
+            ("limits", "gzip_bomb", "bombs/1"),
+            ("limits", "deflate_bomb", "bombs/2"),
+            ("limits", "brotli_bomb", "bombs/3"),
+            ("limits", "zstd_bomb", "bombs/4"),
+            ("limits", "stacked_codings_bomb", "bombs/5"),
             ("limits", "response_head_past_256_kib", "headers/1"),
         ]
     );

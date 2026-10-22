@@ -1,0 +1,21 @@
+{
+  "description": "The engine answers hello with a result that names no protocol version, which the Client cannot check, so it refuses the engine. The answer breaks the bundle's hello result on purpose, so it is written as raw bytes, which the corpus check skips; it answers the Client's first request, id 0.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "raw": {
+        "text": "{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"product\":\"collie\",\"product_version\":\"0.0.0\"}}\n"
+      }
+    }
+  ]
+}

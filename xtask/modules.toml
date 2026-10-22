@@ -163,6 +163,7 @@ names = []
 naming = []
 projection = []
 python = ["layer", "naming"]
+special_purpose = []
 test_support = []
 typescript = ["layer", "naming"]
 

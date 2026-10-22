@@ -416,7 +416,7 @@ impl Session<'_> {
                 let failure = CallError::protocol(error.failure, error.detail);
                 self.send(failure_line(error.id, &failure)).await;
             }
-            Message::Notification(notification) => {
+            Message::Notification(_) => {
                 tracing::debug!("a notification before `hello` closes the Connection");
             }
             Message::Reply { id, .. } => {
@@ -693,16 +693,15 @@ impl Session<'_> {
             return;
         }
         let params = notification.params.clone().unwrap_or(Value::Null);
-        match serde_json::from_value::<CancelParams>(params) {
-            Ok(CancelParams { id }) => {
-                if let Some(call) = self.in_flight.get(&id)
-                    && call.cancellable
-                {
-                    record_cancel(CANCEL);
-                    call.token.cancel();
-                }
-            }
-            Err(_) => tracing::debug!("a `$/cancel` without a call's id is ignored"),
+        let Ok(CancelParams { id }) = serde_json::from_value::<CancelParams>(params) else {
+            tracing::debug!("a `$/cancel` without a call's id is ignored");
+            return;
+        };
+        if let Some(call) = self.in_flight.get(&id)
+            && call.cancellable
+        {
+            record_cancel(CANCEL);
+            call.token.cancel();
         }
     }
 
@@ -710,17 +709,17 @@ impl Session<'_> {
     /// longer in flight, or for one that does not stream, is ignored.
     fn credit(&self, notification: &Notification) {
         let params = notification.params.clone().unwrap_or(Value::Null);
-        match serde_json::from_value::<CreditParams>(params) {
-            Ok(CreditParams { id, credits }) => {
-                if let Some(call_credits) = self
-                    .in_flight
-                    .get(&id)
-                    .and_then(|call| call.credits.as_ref())
-                {
-                    call_credits.grant(credits);
-                }
-            }
-            Err(_) => tracing::debug!("a `$/credit` that is not one is ignored"),
+        let Ok(CreditParams { id, credits }) = serde_json::from_value::<CreditParams>(params)
+        else {
+            tracing::debug!("a `$/credit` that is not one is ignored");
+            return;
+        };
+        if let Some(call_credits) = self
+            .in_flight
+            .get(&id)
+            .and_then(|call| call.credits.as_ref())
+        {
+            call_credits.grant(credits);
         }
     }
 

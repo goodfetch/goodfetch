@@ -112,6 +112,19 @@ impl<'env> Attached<'env> {
         record_command(self.env, &["attached-engine"], status.code()).unwrap();
         (rest, status.success())
     }
+
+    /// As [`Attached::finish`], answering what it still sent and everything
+    /// it wrote on stderr.
+    pub(crate) fn finish_with_stderr(mut self) -> (Vec<Value>, String) {
+        drop(self.stdin.take());
+        let mut rest = Vec::new();
+        while let Some(message) = self.next() {
+            rest.push(message);
+        }
+        let status = self.process.child().wait().unwrap();
+        record_command(self.env, &["attached-engine"], status.code()).unwrap();
+        (rest, self.stdout.stderr_to_end())
+    }
 }
 
 pub(crate) fn hello(needs: &str, protocol_version: &str) -> Value {

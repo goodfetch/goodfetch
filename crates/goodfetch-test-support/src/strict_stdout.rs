@@ -131,6 +131,15 @@ impl StrictStdout {
         }
     }
 
+    /// Everything the child wrote on its stderr, once it closed it: read it
+    /// after the child exited, such as to check its logs.
+    pub fn stderr_to_end(&mut self) -> String {
+        while let Ok(bytes) = self.stderr.recv() {
+            self.stderr_read.extend_from_slice(&bytes);
+        }
+        String::from_utf8_lossy(&self.stderr_read).into_owned()
+    }
+
     /// The failure of `kind`, with the child's stderr: all of it if the
     /// child closes its stderr, or what came until it was quiet for
     /// [`STDERR_GRACE`].

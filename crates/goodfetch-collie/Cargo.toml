@@ -14,7 +14,7 @@ autobenches = false
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:dirs", "dep:goodfetch-cli", "dep:jiff", "dep:mimalloc", "dep:serde", "dep:tempfile", "dep:libc", "dep:tokio-util", "dep:tracing", "dep:tracing-subscriber", "tokio/io-util", "tokio/rt-multi-thread", "tokio/signal"]
+executable = ["dep:clap", "dep:dirs", "dep:goodfetch-cli", "dep:jiff", "dep:mimalloc", "dep:serde", "dep:tempfile", "dep:libc", "dep:tokio-util", "dep:tracing", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "dep:ureq", "tokio/io-util", "tokio/rt-multi-thread", "tokio/signal"]
 
 [dependencies]
 clap = { workspace = true, optional = true }
@@ -37,6 +37,17 @@ tokio = { workspace = true, features = ["rt"] }
 tokio-util = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true, features = ["env-filter", "json"] }
+# The opt-in OTLP export of the engine's spans (RT-18, ADR 0132), sent with
+# ureq from the batch processor's own thread.
+async-trait = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry-http = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+ureq = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The foreground Daemon's reaper: the subreaper, `waitpid` and `kill` (ADR 0049).
@@ -67,6 +78,9 @@ toml.workspace = true
 # The Console's headers test, an HTTP Client of the Daemon's Console
 # (tests/it/console.rs), and the pins' lever's download.
 ureq.workspace = true
+# The OTLP collector stand-in of the trace export's tests (tests/it/log.rs).
+opentelemetry-proto.workspace = true
+prost.workspace = true
 # The corpus writer's in-memory Client (examples/compat-protocol.rs).
 tokio = { workspace = true, features = ["io-util", "macros"] }
 zip = { workspace = true, features = ["deflate-flate2"] }

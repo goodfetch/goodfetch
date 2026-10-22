@@ -43,6 +43,14 @@ pub use address::{AddressClass, classify, classify_socket};
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod address_classification {
+    goodfetch_test_support::fuzz_replay!(
+        crate::egress::fuzz_address_classification,
+        "fuzz/address_classification"
+    );
+}
+
 /// A Session's egress policy: its domain policy, which [`judge`] applies.
 #[derive(Clone, Debug)]
 pub struct Policy {
@@ -436,4 +444,63 @@ fn zone_id_address(url: &str) -> Option<Ipv6Addr> {
         return None;
     }
     address.parse().ok()
+}
+
+/// The fuzz target of the resolved-address classification (ADR 0067):
+/// `data` read as an IPv4 address (its first 4 bytes), an IPv6 address (its
+/// first 16) with a zone ID (the next 4), and as text, an address or a host
+/// in a URL. The classification never panics; an IPv4-mapped address
+/// classifies as the address it embeds; a zone ID is refused; and judging
+/// a URL with the text as its host, then the address it names, never
+/// panics.
+pub fn fuzz_address_classification(data: &[u8]) {
+    if let Some(octets) = data.first_chunk::<4>() {
+        let address = std::net::Ipv4Addr::from(*octets);
+        assert_eq!(
+            classify(IpAddr::V6(address.to_ipv6_mapped())),
+            classify(IpAddr::V4(address)),
+            "an IPv4-mapped address classifies as another than the address it embeds"
+        );
+    }
+    if let Some(octets) = data.first_chunk::<16>() {
+        let address = Ipv6Addr::from(*octets);
+        let zone = data
+            .get(16..20)
+            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+            .map_or(0, u32::from_be_bytes);
+        let socket = std::net::SocketAddrV6::new(address, 0, 0, zone);
+        let class = classify_socket(SocketAddr::V6(socket));
+        if zone == 0 {
+            assert_eq!(
+                class,
+                classify(IpAddr::V6(address)),
+                "a socket address with no zone classifies as another than its address"
+            );
+        } else {
+            assert_eq!(class, AddressClass::ZoneId, "a zone ID is not refused");
+        }
+    }
+    let Ok(text) = std::str::from_utf8(data) else {
+        return;
+    };
+    if let Ok(address) = text.parse::<IpAddr>() {
+        let _ = classify(address);
+    }
+    let every_host = Policy::new(&[EVERY_HOST], &[] as &[&str])
+        .expect("invariant: `*` is an entry of a domain list");
+    for url in [format!("http://{text}/"), format!("http://[{text}]/")] {
+        let request = Request {
+            url: &url,
+            kind: RequestKind::Fetch,
+        };
+        let Judgment::Allowed(allowed) = judge(&request, &every_host) else {
+            continue;
+        };
+        let address = match allowed.host() {
+            Some(Host::Ipv4(address)) => IpAddr::V4(address),
+            Some(Host::Ipv6(address)) => IpAddr::V6(address),
+            _ => continue,
+        };
+        let _ = judge_addresses(&url, &[SocketAddr::new(address, 80)], &every_host);
+    }
 }

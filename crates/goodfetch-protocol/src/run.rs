@@ -343,7 +343,7 @@ pub enum StopReason {
     /// It could not take another Slice of a Limit, and stopped at its next
     /// safe point, resumable once the period starts again or a person
     /// raises the Limit (ADR 0041).
-    Limit(ReachedLimit),
+    Limit(Box<ReachedLimit>),
 }
 
 /// What a Limit is on: a scope kind, a value of a type both Products share

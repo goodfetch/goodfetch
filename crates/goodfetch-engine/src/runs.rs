@@ -862,7 +862,7 @@ impl Run {
                 Ok(())
             }
             Err(Refusal::Reached(reached)) => {
-                self.stop_at_safe_point(StopReason::Limit(ReachedLimit::clone(&reached)));
+                self.stop_at_safe_point(StopReason::Limit(Box::new(ReachedLimit::clone(&reached))));
                 Err(Refusal::Reached(reached).into())
             }
             Err(refusal) => Err(refusal.into()),

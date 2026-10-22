@@ -1,30 +1,27 @@
 //! The event stream on Collie's executable over stdio (spec #213's Seam 1;
 //! ADR 0094: axis changes are Collie's): a subscriber that grants no credits
-//! holds back the Runs whose axis changes its full queue cannot take, and
-//! once it grants them it reads every one, in the order of their positions.
-//! Credits are granted, never timed (ADR 0064).
+//! holds back none of Collie's Runs; its full queue falls behind, and once
+//! it grants credits it reads the axes of every Run in one `events.resync`
+//! (ADR 0024). Credits are granted, never timed (ADR 0064).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
 use std::collections::BTreeSet;
-use std::time::Duration;
 
 use goodfetch_test_support::TestEnv;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::attached::{Attached, hello};
 
 /// How many lossless events a subscription's queue holds by default.
 const QUEUE: usize = 64;
 
-/// How long the test waits to see that nothing more is written.
-const QUIET: Duration = Duration::from_millis(500);
-
-/// Covers: story:3-8, operation:events.subscribe, event:run.axes_changed
+/// Covers: story:3-8, operation:events.subscribe, event:run.axes_changed, event:events.resync
 #[test]
-fn a_subscriber_that_grants_no_credits_holds_back_collies_runs_and_then_reads_every_axis_change() {
+fn a_subscriber_that_grants_no_credits_holds_back_none_of_collies_runs_and_then_reads_their_axes_in_a_resync()
+ {
     const RUNS: usize = QUEUE + 3;
     let env = TestEnv::new();
     let mut engine = Attached::start(&env);
@@ -40,51 +37,51 @@ fn a_subscriber_that_grants_no_credits_holds_back_collies_runs_and_then_reads_ev
         }));
     }
 
-    let (mut answered, mut events) = (0, Vec::new());
-    let read = |engine: &mut Attached, answered: &mut usize, events: &mut Vec<Value>| {
-        let message = engine.next().unwrap();
-        if message["method"] == "$/events" && message["params"]["id"] == "events" {
-            events.extend(message["params"]["events"].as_array().unwrap().clone());
-        } else if message["result"]["lifecycle"] == "running" {
-            *answered += 1;
-        } else {
-            panic!("an unexpected message: {message}");
-        }
-    };
-    while answered < QUEUE {
-        read(&mut engine, &mut answered, &mut events);
-    }
-    let held = engine.is_quiet_for(QUIET);
+    // No credit is granted yet, so every message is a Run's answer: one
+    // the subscriber held back would never come.
+    let answered = (0..RUNS)
+        .filter(|_| engine.next().unwrap()["result"]["lifecycle"] == "running")
+        .count();
     engine.send(&json!({
         "jsonrpc": "2.0", "method": "$/credit",
         "params": { "id": "events", "credits": RUNS },
     }));
-    while answered < RUNS || events.len() < RUNS {
-        read(&mut engine, &mut answered, &mut events);
-    }
+    let batch = engine.next().unwrap();
     let (rest, exited) = engine.finish();
 
-    let positions: Vec<u64> = events
-        .iter()
-        .map(|event| event["position"].as_u64().unwrap())
+    let events = batch["params"]["events"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let runs: BTreeSet<(&str, &str)> = events
+        .first()
+        .and_then(|resync| resync["data"]["runs"].as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|run| Some((run["run_id"].as_str()?, run["lifecycle"].as_str()?)))
         .collect();
-    let runs: BTreeSet<&str> = events
-        .iter()
-        .map(|event| event["data"]["run_id"].as_str().unwrap())
-        .collect();
+    let started: BTreeSet<String> = (0..RUNS).map(|index| format!("run-{index}")).collect();
     assert_eq!(
         (
-            held,
+            answered,
+            batch["method"].clone(),
             events.len(),
-            runs.len(),
-            positions.windows(2).all(|pair| pair[0] < pair[1]),
-            events
-                .iter()
-                .all(|event| event["event"] == "run.axes_changed"
-                    && event["data"]["lifecycle"] == "running"),
+            events.first().map(|resync| resync["event"].clone()),
+            runs.iter()
+                .map(|(run_id, _)| (*run_id).to_owned())
+                .collect::<BTreeSet<_>>(),
+            runs.iter().all(|(_, lifecycle)| *lifecycle == "running"),
             exited,
         ),
-        (true, RUNS, RUNS, true, true, true),
-        "{rest:#?}"
+        (
+            RUNS,
+            json!("$/events"),
+            1,
+            Some(json!("events.resync")),
+            started,
+            true,
+            true,
+        ),
+        "{batch:#?} {rest:#?}"
     );
 }

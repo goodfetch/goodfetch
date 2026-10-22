@@ -7,6 +7,7 @@
 //! Daemon can mark the one it hands over on (ADR 0098).
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::connection::EngineInstance;
 use goodfetch_protocol::connection::{
     HelloParams, HelloResult, NOT_IN_PRODUCT, NotInProductDetails, PROTOCOL_VERSION_UNSUPPORTED,
     ProtocolVersionUnsupportedDetails, Surface,
@@ -60,8 +61,12 @@ impl Refused {
     }
 }
 
-/// Accepts `hello`, or refuses it.
-pub(crate) fn answer(identity: &Identity, hello: &HelloParams) -> Result<Accepted, Refused> {
+/// Accepts `hello`, naming the engine as `instance`, or refuses it.
+pub(crate) fn answer(
+    identity: &Identity,
+    instance: &EngineInstance,
+    hello: &HelloParams,
+) -> Result<Accepted, Refused> {
     let behind_gateway = hello.surface == Surface::Cloud;
     if hello.surface != Surface::BrowserHost {
         let Some(needs) = hello.needs else {
@@ -115,6 +120,7 @@ pub(crate) fn answer(identity: &Identity, hello: &HelloParams) -> Result<Accepte
                     protocol_version: PROTOCOL_VERSION.min(client),
                     product: identity.product,
                     product_version: identity.product_version.clone(),
+                    engine_instance: instance.clone(),
                     private_endpoint: None,
                 },
                 behind_gateway,

@@ -1,5 +1,5 @@
 //! The pinned pair of TLA+ tools: `tla2tools.jar` and the `CommunityModules`
-//! release's `CommunityModules-deps.jar`, each a URL with its SHA-256 in
+//! release's `CommunityModules-deps.jar`, each a source with its SHA-256 in
 //! `test-support/models/tools.toml` (ADR 0060). A kept file is used only
 //! while its SHA-256 is its pin, so TLC never runs other tools than the pair.
 
@@ -9,6 +9,7 @@ use anyhow::{Result, bail};
 use serde::Deserialize;
 
 use crate::check::Finding;
+use crate::github::Api;
 use crate::pinned::{self, Pin};
 
 /// The pinned tools, from the repository root.
@@ -30,14 +31,16 @@ fn read(root: &Path) -> Result<Vec<Pin>> {
     pinned::read(root, TOOLS_FILE, |file: ToolsFile| file.tool)
 }
 
-/// Downloads each tool whose kept file lacks its pinned SHA-256. A download
-/// with another SHA-256 is a finding, and leaves no kept file of that tool.
-pub(super) fn fetch(root: &Path) -> Result<Vec<Finding>> {
+/// Downloads each tool whose kept file lacks its pinned SHA-256, a release
+/// asset through `api`. A download with another SHA-256 is a finding, and
+/// leaves no kept file of that tool.
+pub(super) fn fetch(root: &Path, api: Api<'_>) -> Result<Vec<Finding>> {
     pinned::fetch(
         &root.join(KEPT_FOLDER),
         &read(root)?,
         TOOLS_FILE,
         MAXIMUM_DOWNLOAD,
+        api,
     )
 }
 

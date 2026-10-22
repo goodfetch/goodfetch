@@ -13,9 +13,12 @@ pub(crate) struct Arguments {
     #[arg(long, default_value = "goodfetch/goodfetch")]
     pub(crate) repository: String,
     /// GitHub's API, or a stand-in's address.
-    #[arg(long, default_value = "https://api.github.com")]
+    #[arg(long, default_value = API_URL)]
     pub(crate) api_url: String,
 }
+
+/// GitHub's API.
+pub(crate) const API_URL: &str = "https://api.github.com";
 
 impl Arguments {
     /// The API, read and written with `token` when there is one.
@@ -54,6 +57,21 @@ impl Api<'_> {
             Err(ureq::Error::StatusCode(404)) => Ok(None),
             Err(error) => Err(error).with_context(|| format!("reading {url}")),
         }
+    }
+
+    /// The bytes at `path`, at most `maximum`, asked for as
+    /// `application/octet-stream`: a release asset's content. GitHub answers
+    /// with a redirect to its storage, which ureq follows without the token.
+    pub(crate) fn download(&self, path: &str, maximum: u64) -> Result<Vec<u8>> {
+        let url = self.url(path);
+        self.headers_accepting(ureq::get(&url), "application/octet-stream")
+            .call()
+            .with_context(|| format!("downloading {url}"))?
+            .body_mut()
+            .with_config()
+            .limit(maximum)
+            .read_to_vec()
+            .with_context(|| format!("reading {url}"))
     }
 
     /// Sends `body` as JSON with `method` to `path`, which needs a token
@@ -130,8 +148,17 @@ impl Api<'_> {
     /// The headers of every request: GitHub's media type and API version,
     /// the user agent, and the token when there is one.
     fn headers<B>(&self, request: ureq::RequestBuilder<B>) -> ureq::RequestBuilder<B> {
+        self.headers_accepting(request, "application/vnd.github+json")
+    }
+
+    /// As [`Api::headers`], asking for the media type `accept`.
+    fn headers_accepting<B>(
+        &self,
+        request: ureq::RequestBuilder<B>,
+        accept: &str,
+    ) -> ureq::RequestBuilder<B> {
         let request = request
-            .header("Accept", "application/vnd.github+json")
+            .header("Accept", accept)
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header("User-Agent", "goodfetch-xtask");
         match self.token {

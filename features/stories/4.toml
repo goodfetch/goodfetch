@@ -1,15 +1,628 @@
-# Area 4's user stories (specs #563 and #564, Security and egress, Collie),
-# the declared `story:4-<id>` Features of ADR 0072. Each story's milestone is
-# that of the ticket that finishes it; a story without a Journey carries ADR
-# 0075's reason (`actor`, `part` or `reach`). The spec's issue keeps the full
-# text; this copy is the one the Feature check reads. It holds the stories a
-# test declares so far; the others join with the tickets that declare them.
-# Never renumber or reuse an ID: a removed story stays with
-# `status = "retired"` and a `reason`.
+# Area 4's user stories (specs #563 and #564, Security and egress, Collie,
+# and #565, Foxhound's part, its stories numbered after Collie's), the
+# declared `story:4-<id>` Features of ADR 0072, every story of the specs as
+# their Further Notes give them: each story's milestone is that of the
+# ticket that finishes it, and a story without a Journey carries ADR 0075's
+# reason (`actor`, `part` or `reach`). The specs' issues keep the full text;
+# this copy is the one the Feature check reads. Never renumber or reuse an
+# ID: a removed story stays with `status = "retired"` and a `reason`.
+
+[[story]]
+id = 1
+title = "As a developer, I want every request a page makes (navigations, subresources, workers, service workers, WebSockets, WebRTC and `javascript:` URLs) judged by my run's domain policy in the engine, a request the policy cannot judge being blocked, so that no page, script or model reaches a site I did not allow (ADR 0014, SC-04, P15)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 2
+title = "As a developer, I want the policy as two settings, `egress.allowed_domains` (every host by default) and `egress.blocked_domains`, each entry matching its host and their subdomains, a blocked entry winning, so that I state it once for a run (shape)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 3
+title = "As a developer, I want a call whose navigation or request the policy refuses to raise `egress_refused`, naming the URL, the rule that refused it and the setting that would allow it, and a refused request no call waits on to be a `requestfailed` event recorded in the Run trace, so that a refusal is never a timeout (G1, G6) (shape)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 4
+title = "As the person behind an agent, I want a Client acting for a model, and a Recipe, able only to narrow the domain policy that lower layers set, so that a prompt-injected agent cannot widen where it may go (G5) (shape)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 5
+title = "As a developer, I want a redirect of any status or kind re-checked at every hop, and one to `file:`, `data:`, `javascript:` or `gopher:` always refused, so that a redirect cannot carry a page past the policy (ADR 0017)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 6
+title = "As a developer on my own machine, I want my own code's `goto` to a `file:` URL to work on a local engine, and the same refused for a Client acting for a model, a Recipe run and any Daemon with accounts, so that a model never reads my files through a page (ADRs 0056, 0089) (shape)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 7
+title = "As a developer, I want a site's service workers on Chromium attached before they run and their own requests judged like a page's subresources, and no service worker registered on Firefox or WebKit, where nothing could judge them, so that a service worker never slips past the policy (ADR 0121)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 8
+title = "As a developer running Collie on a cloud VM, I want addresses a page can reach refused when they fall in a private, loopback, link-local, cloud-metadata, IPv4-mapped or other IANA special-purpose block that is not globally reachable, judged on the address the connection uses, so that no page reaches my intranet or the metadata service (ADR 0017, SC-04)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 9
+title = "As a developer, I want IPv6 forms that embed an IPv4 address (IPv4-mapped, NAT64, 6to4, Teredo) judged by the address they embed, and a zone ID refused, so that an encoding never hides a private address (ADR 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 10
+title = "As a developer, I want every browser Session the engine launches to reach the network through the engine's egress relay, which checks the address it connects to, so that a DNS answer that changes between the check and the connection (rebinding) cannot reach a private address (ADR 0017) (shape)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 11
+title = "As a developer testing against a local site or an intranet, I want `egress.private_ranges` to allow the ranges and hosts I list, recorded in the Audit log and the Run report, a metadata address reached only when listed by its exact address, so that a wide range never opens the metadata service by accident (ADRs 0016, 0017) (shape)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 12
+title = "As a developer using an upstream proxy, I want the engine to check the host and any literal address, resolve the name itself before sending and refuse a private answer, so that the proxy is not a way around the check (ADR 0017)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 13
+title = "As a developer, I want `resolve`'s mapping applied before every lookup and the mapped address still judged by the check, so that pointing a host at a test server never bypasses it (ADR 0059)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 14
+title = "As a developer, I want a Borrowed browser held to the policy by interception, each host resolved in the engine and private ranges refused, and the rebinding gap that remains recorded in Provenance, so that I know what a browser I lent the engine is protected from (ADR 0056)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 15
+title = "As a developer, I want a `cdp_url` from my own code or the CLI allowed on loopback except on an Exposed Daemon, one set in Operator policy or configuration treated as an operator-configured endpoint, and any other private address refused with `cdp_url_not_allowed`, so that a model cannot point the engine at an internal debugging port (ADRs 0056, 0115)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 16
+title = "As an operator, I want endpoints I configure (Model providers on localhost, Secret providers, proxies, Notification webhooks) allowed on private ranges locally, and `egress.no_private_endpoints`, set in Operator policy, to refuse them where tenants share a network, so that a tenant's webhook URL never reaches a cloud's internal network (ADR 0017) (shape)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 17
+title = "As a developer measuring speed, I want to switch the resolved-address check off for one run, recorded in the Audit log, the Run report and one warning, and lockable by Operator policy, so that a benchmark can measure its cost without hiding that it ran unprotected (ADR 0016)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 18
+title = "As a developer, I want a page with a raw CDP session attached, a Lent page, or a page of a Borrowed browser other code drives to refuse every secret with `secret_input_refused`, its results marked unguarded, and each attach recorded in the Audit log under its own token, so that code outside the engine never receives what the engine types (ADRs 0017, 0089, 0092)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 19
+title = "As a developer lending a page to Playwright, Puppeteer or Browser Use, I want the endpoint to refuse a new browser context, the `Extensions` domain, ignoring certificate errors, crashing the browser and exposing the protocol to the page, with `cdp_command_refused`, so that the library can neither bypass the egress relay nor break the engine's browser (ADR 0089)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 20
+title = "As an operator of a Daemon with accounts, I want a raw CDP client or a Lent page refused any command that reads a file on the browser's machine by path, so that one person's program never reads another's files (ADR 0089)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 21
+title = "As a developer, I want every endpoint the engine opens (the Daemon's socket and WebSocket, the HTTP listener, MCP over HTTP, the Live view, raw CDP, the Attached engine's private endpoint, the Console) bound to loopback by default, checking `Host` and `Origin`, and requiring a random token that never travels in a query string, so that a web page I visit cannot drive my engine (ADR 0017)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 22
+title = "As a developer, I want raw CDP and Lent page tokens issued per attach, short-lived and revoked when the attach ends, so that a token a library logged cannot reconnect later (ADRs 0017, 0089)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
 
 [[story]]
 id = 23
 title = "As a developer, I want the engine to reach the browsers it launches over a pipe, never a debugging port, so that no local process can read my cookies through one (ADR 0017)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 24
+title = "As an operator, I want every refused token, `Host` or `Origin` recorded in the Audit log, so that I see who tried (ADR 0016)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 25
+title = "As an operator exposing a Daemon, I want it to terminate TLS itself from certificate files it reloads when they change, and `daemon run` refused on an address other than loopback until TLS or upstream termination is configured, so that no token crosses a network in clear (ADR 0049) (shape)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 26
+title = "As an operator behind an ingress, I want to opt in to TLS terminated upstream, the Daemon still requiring tokens and checking `Host` and `Origin`, trusting `X-Forwarded-*` only from the proxy addresses I list, and recording the choice in the Audit log, so that a mesh can terminate TLS without opening the Daemon (ADR 0049)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 27
+title = "As an operator, I want an Exposed Daemon to refuse every request with `setup_required` until its first operator completes setup through a one-time link, whose token comes from a Secret reference or is printed once to the logs and expires after 24 hours, so that a fresh Daemon is never open to whoever finds it first (ADR 0049) (shape)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 28
+title = "As an operator using GitOps, I want program tokens declared in configuration with their values as Secret references, so that Helm values create them without a secret in the chart (ADR 0049)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 29
+title = "As an operator, I want the ops listener's `/livez` and `/readyz` to answer without a token and with no body, and `/metrics` to require a scoped read-only token, so that probes need no secret and metrics reveal nothing to strangers (ADR 0050)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 30
+title = "As a team operator, I want the Daemon group's peer link to refuse another group's certificate authority, a revoked Group member and an expired certificate, so that nobody joins a group by copying a certificate (ADR 0055)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 31
+title = "As a developer, I want every certificate verified on every path, with no switch to turn verification off, so that one broken site never exposes my other logins (ADRs 0016, 0042, SC-06)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 32
+title = "As a developer, I want a certificate that fails verification to raise `certificate_invalid`, naming the host, the failure and the setting that makes an exception, so that I know what to change (G6) (shape)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 33
+title = "As an operator, I want `tls.trusted_cas` to add certificate authorities per domain, set only in configuration or Operator policy, so that an internal CA is trusted where I say and nowhere else (ADR 0042)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 34
+title = "As a developer, I want `tls.client_certificates` per domain, from configuration, a Recipe or my run, their keys as Secret references, so that a site needing mutual TLS works without installing anything on my machine (ADR 0042)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 35
+title = "As a developer, I want a domain listed in `tls.accept_invalid_certs` to accept its invalid certificate once and pin its public key, recorded in the Audit log, so that a broken site works and a later attacker on its path does not (ADR 0042)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 36
+title = "As a developer, I want a pinned host whose key changed stopped with `certificate_changed`, carrying both hashes, until a person accepts the new key with `certs accept` in an interactive prompt or the Console, which no agent, Recipe or `--json` command can do, so that a substitution never passes silently (ADR 0042)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 37
+title = "As a test author, I want the value `any` for a fixture that regenerates its certificate, from configuration only, recorded on each run and never overriding a pin, which only `certs forget` removes, so that tests run without weakening real pins (ADR 0042)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 38
+title = "As a developer, I want no secret typed and no Session cookie sent to a host reached through an invalid-certificate exception, and every result fetched under an exception marked in Provenance with its kind and the certificate hash, so that an accepted certificate never receives my login (ADR 0042)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 39
+title = "As a developer, I want a browser Session with an exception to reach the listed hosts through the engine's TLS relay, which shows the site the browser's own ClientHello and HTTP/2 settings, and the hosts it terminated reported on the Session, so that the exception does not change what the site sees (ADR 0042)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 40
+title = "As a developer, I want the relay's certificate authority generated at each browser launch, held only in memory and constrained to the listed hosts, so that nothing on disk can ever forge a certificate for another site (ADR 0042)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 41
+title = "As an operator, I want endpoints I configure to take only their own trusted CA and client certificate and never accept an invalid one, so that an exception for a site never weakens my vault or model connection (ADR 0042)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 42
+title = "As a developer, I want a Session with an exception refused with `certificate_exception_unsupported` on a third-party CDP browser and on a Borrowed browser, and served by the relay a Browser host runs beside its browser, so that an exception is never silently ignored (ADRs 0042, 0056)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 43
+title = "As a person on a shared Daemon, I want my pins kept apart from other people's, readable by every engine major, and an unreadable pin row treated as a changed key, so that an older engine never trusts a pinned host as unpinned (ADRs 0042, 0066)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 44
+title = "As an operator with several addresses, I want `egress.local_addresses` to take a list of addresses, an interface name or an IPv6 prefix, and each Session to bind one address per family for its life, so that I spread traffic over my own addresses without buying proxies (ADR 0044, SA-25)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 45
+title = "As a developer, I want a Session's DNS queries to leave from its local address through the engine's resolver on every OS, WebRTC held to non-proxied UDP off, and a browser Session sent through the egress relay bound to that address, so that nothing reveals my other addresses (ADR 0044)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 46
+title = "As a developer, I want a prefix that yields no usable address to refuse the run with `local_address_unavailable`, and a target with no address in a family the Session holds to fail with `address_family_unavailable`, so that a binding is never silently ignored (ADR 0044)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 47
+title = "As an operator, I want new Sessions spread round-robin across /24 and /64 blocks, sizes I can set, so that my own Sessions do not cluster in one block (ADR 0044) (shape)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 48
+title = "As a developer, I want a local address refused on a Browser host, a third-party CDP browser and a Borrowed browser with `local_address_unavailable`, so that an address of my machine is never claimed for another (ADRs 0044, 0056)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 49
+title = "As a developer, I want every credential to be a Secret reference (`env:`, `keychain:`, `op://`, `caller:` and the other providers), and a value that is not one refused with `setting_invalid`, so that a raw password never sits in my code, configuration, Plan or state (ADR 0015)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 50
+title = "As a developer, I want the V1 Secret providers (the environment, the OS keychain, an encrypted local file, the caller, 1Password, Bitwarden and Vaultwarden, HashiCorp Vault and OpenBao, AWS Secrets Manager, GCP Secret Manager and Azure Key Vault), and a custom provider as a Plugin, so that my secrets stay where I already keep them (ADR 0015)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 51
+title = "As a developer, I want `secret(\"name\")` in code and `%name%` in an AI instruction to name a Secret placeholder that `secrets.<name>` binds, at the connection, a Run or a Session, nearest winning, so that each Session can log in to its own account (ADR 0092, SC-08)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 52
+title = "As a developer, I want a binding's `domains` required, registrable domains only (`www.example.com` refused with `setting_invalid` naming `example.com`), checked against the frame holding the field, so that a payment frame on an allowed page needs its own domain (ADRs 0092, 0117)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 53
+title = "As a developer logging in through an API, I want a placeholder in a request header or a JSON string checked against the request's URL at every hop, dropped with `secret_domain_not_allowed` on a redirect outside the binding, and added at the engine's interception after the page's scripts and service workers, so that no script reads it and no redirect carries it away (ADR 0092, H21)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 54
+title = "As a developer, I want `session.http_credentials` answered only from the listed domains and only over HTTPS, so that Basic credentials never cross a network in clear (ADR 0092) (shape)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 55
+title = "As the person behind an agent, I want a Recipe never to bind a placeholder and a Client acting for a model never to set one (`setting_locked`), nor `session.http_credentials`, `proxy.server` or the proxy's credentials, so that model-written code cannot bind my AWS key to its own domain (ADR 0092)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 56
+title = "As a developer, I want every value the engine resolved masked as `%name%` in everything a call returns or an event carries and in everything it keeps, in the encodings Goodfetch produces and in the headers it builds from a value, so that a password never comes back to my program or into a log (ADRs 0014, 0092, P14)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 57
+title = "As a developer, I want a value shorter than eight characters, such as a one-time code, masked where it was typed and in what the engine keeps, but not in every page read, so that masking never corrupts prices and identifiers that happen to match it (ADR 0092) (shape)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 58
+title = "As a developer, I want TOTP codes typed from a seed held behind a reference with `totp: true`, and codes from a provider that makes them itself typed with no flag, so that the seed never leaves my vault when it can (ADR 0015)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 59
+title = "As a developer whose credentials live in my own store, I want `connect({ resolveSecret })` (Rust: the declared resolver and `secret_requests()`) to answer `caller:` references at the moment of use, only for Runs my connection opened, the SDK keeping no copy, so that my per-customer credentials never touch disk (ADRs 0015, 0092)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 60
+title = "As a developer, I want `secret_unbound` to list the names bound, `secret_unavailable` to say which provider failed and how, and every error to name the placeholder and the reference, never a value, so that I fix a secret problem without seeing a secret (ADR 0092)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 61
+title = "As the person helping a paused program, I want a Client acting for a model to observe nothing of the page I am acting on while the Human pause holds, so that what I type for my login never reaches a model (ADR 0092) (shape)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 62
+title = "As a compliance reviewer, I want every use of a Secret reference recorded in the Audit log, with its placeholder, reference and receiving domain, never its value, so that I can answer who used which credential where (ADR 0016)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 63
+title = "As a team operator, I want a Daemon group to refuse the OS keychain and the encrypted local file for its key-encryption key and rotating credentials with `secret_provider_not_shared`, naming the fix, so that a run moved between Group members can always be read (ADR 0055)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 64
+title = "As a developer, I want what my run creates (cookies, tokens, login state) encrypted in run state under a per-run data key wrapped by a key the caller holds (the OS keychain locally, a shared Secret provider in a group), so that a copied Checkpoint is useless without it (ADR 0015)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 65
+title = "As a developer, I want discarding a run to destroy its data key, the secret tables written with `secure_delete`, so that no secret survives in the file or its free pages (ADR 0015)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 66
+title = "As a developer, I want a resumed run to get its key back over JSON-RPC, never from the Checkpoint, so that moving a Checkpoint never moves the key with it (ADR 0015)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 67
+title = "As a developer, I want field encryption and `secure_delete` switchable per run, each switch recorded, so that a throwaway benchmark can measure their cost (ADR 0016)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 68
+title = "As a developer, I want a session export bundle encrypted with `age` to a public key or a passphrase given as a Secret reference, and its import recorded in the Audit log, so that moving a login to CI never exposes it in transit (ADRs 0015, 0056)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 69
+title = "As a compliance reviewer, I want an append-only, hash-chained Audit log of secret uses, confirmations, overrides, security switches turned off, private addresses allowed, stealth, raw CDP attaches, imports and borrows, certificate exceptions, Human pause actions and endpoint authentication failures, so that I can show what happened (ADR 0016, pain 7)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 70
+title = "As a compliance reviewer, I want `audit verify` to report any edit, deletion, reordering or truncation of entries or of the chain's tail, so that tampering shows (ADRs 0016, 0067)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 71
+title = "As an operator, I want to export the Audit log as JSONL, and as OpenTelemetry events when OTLP export is configured, so that my log stack keeps it off the machine (ADR 0016)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 72
+title = "As an operator, I want to keep the Audit log as long as I decide, a pruned beginning leaving a verifiable anchor, so that I meet the six months the EU AI Act asks of high-risk deployers without an unbounded file (ADR 0016) (shape)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 73
+title = "As a team operator, I want one chain for a Daemon group, kept by the Lead Daemon, with merge records for what a cut-off Group member chained alone, so that every event stays verifiable from the head (ADR 0055)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 74
+title = "As a developer, I want every security control that costs speed (field encryption, `secure_delete`, the resolved-address check, the egress relay of raw CDP Sessions, the browser sandbox, the Audit log's hash chain, redaction) on by default and switchable per run, each switch recorded in the Audit log, the Run report's `weakened` list and one warning through my logging, so that a run that ran unprotected says so (ADRs 0016, 0102)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 75
+title = "As an operator, I want Operator policy or a Recipe to cap or lock those switches, so that a shared Daemon can forbid running unprotected (ADRs 0016, 0028)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 76
+title = "As a developer, I want switching redaction off to lift masking only for logs, traces, HAR files, screenshots and recordings kept as outputs, never for what a call returns or a model receives, so that debugging never sends a secret to a model (ADRs 0014, 0016)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 77
+title = "As a developer, I want every run to declare a Purpose (`search` by default), recorded with the Site preferences read for each result in Provenance, so that a reviewer can judge what was collected for what (ADR 0016)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 78
+title = "As a developer, I want schema fields marked as personal to show the relevant notice once per run, recorded, so that I meet my obligations without being blocked (ADR 0016) (shape)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 79
+title = "As an operator, I want a Collie Run's `politeness.sharing` other than `shared` recorded as a value that presses harder, so that sharing per Daemon is never silent (ADRs 0086, 0088)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -42,4 +655,312 @@ title = "As a user, I want every browser Goodfetch launches to have its backgrou
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
+status = "active"
+
+[[story]]
+id = 84
+title = "As a user filing a bug, I want crash reports kept in a local file, and `doctor` to build a redacted bug-report file I choose to attach, so that diagnosing never sends anything by itself (ADR 0043)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 85
+title = "As an operator, I want Chromium's sandbox on by default, never `--no-sandbox` unless switched off, so that an exploit in a page stays in its renderer (ADR 0017, SC-07)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 86
+title = "As an operator, I want the engine to probe at startup whether the sandbox can start, refuse browser runs with `browser_sandbox_unavailable` naming the fix where one exists (Docker's and containerd's default seccomp profiles, Kubernetes `RuntimeDefault`, Ubuntu's AppArmor restriction), and switch it off automatically, recorded, only where the platform allows none, so that a misconfigured container is fixed rather than weakened (ADR 0049) (shape)."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 87
+title = "As an operator, I want to switch the sandbox off in Operator policy, audited and reported, so that the choice is mine and visible (ADRs 0016, 0049)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 88
+title = "As a developer receiving Notifications, I want each delivery signed under Standard Webhooks (HMAC-SHA256 `v1` by default, ed25519 `v1a` as an option, several signatures during a rotation, the run epoch in the signed body), and verification helpers that reject a timestamp more than five minutes off, so that my receiver knows a delivery is genuine (ADR 0017)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 89
+title = "As a contributor, I want one SSRF case table, kept as data, run at every layer Collie carries, with \"no connection reached the target\" as the oracle, so that a bypass found at one layer is tested at all of them (ADR 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 90
+title = "As a contributor, I want the endpoint table run against every listener Collie carries, each refusal also checked in the Audit log, so that a new listener cannot skip a rule (ADR 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 91
+title = "As a contributor, I want a Secret canary planted for every kind of secret Collie handles and searched for in every output, raw and in Goodfetch's encodings, so that a leak is found exactly (ADR 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 92
+title = "As a contributor, I want a `cargo-fuzz` target for each decoder this area adds, replayed on every OS, and one regression test per bypass, so that a crash or a disclosed bypass never returns (ADR 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 93
+title = "As a maintainer, I want the fuzzing Live check, owned by this area, to hold the next minor's promotion while a fuzz crash is open, with no private result posted on a public commit, so that no vulnerability is published before its fix (ADRs 0064, 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 94
+title = "As a developer, I want the crawl's scope checked on every redirect hop, a redirect leaving it ending the request `skipped` with `out_of_scope`, so that a redirect never carries my crawl to another host (ADR 0093, SC-02, U15)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 95
+title = "As a developer, I want hosts compared for the scope and the domain policy as the WHATWG parser leaves them (punycode, dotted-decimal IPv4, one leading `www.` ignored by the scope alone), so that no spelling of a host slips past either (ADR 0120)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 96
+title = "As a developer, I want a seed, an `addSeed`, an enqueue or a sitemap entry the domain policy refuses answered \"not added\" with `domain_policy`, never fetched, so that my crawl says why it skipped a URL (ADRs 0093, 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 97
+title = "As a developer, I want a redirect or a Hook's rewrite to a host the domain policy refuses to end the request `skipped` with `domain_policy`, so that a refused hop is an outcome, not a failure (ADRs 0079, 0093, 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 98
+title = "As a developer, I want a crawl request whose host resolves to an address the policy refuses to end `skipped` with `domain_policy` before anything is sent, so that a private address is treated as the policy refusal it is (G1) (shape)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 99
+title = "As a developer, I want a sitemap entry outside the scope not added with `out_of_scope` and counted in its sitemap's totals, the sitemap's own fetches judged by the domain policy and not the scope, so that a sitemap cannot widen my crawl or inject targets (ADR 0120, U20)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 100
+title = "As a developer, I want only `http` and `https` URLs to enter the Frontier (`unsupported_scheme`, `invalid_url` for one that does not parse), and a redirect whose `Location` is not an HTTP(S) URL to fail with `response_not_ok`, so that no crawl fetches `file:` or `gopher:` (ADRs 0118, 0120, SC-03)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 101
+title = "As a Recipe user, I want a Plugin's or a Script Hook's rewrite held to its declared domains as well as the scope and the domain policy, so that a stranger's Hook cannot send my crawl elsewhere (ADRs 0033, 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 102
+title = "As a developer, I want the HTTP and discovered-API tiers to check the address each connection uses, every address Happy Eyeballs tries included, and to resolve and check a name themselves before sending it through an upstream proxy, so that rebinding never reaches a private address from a tier with no browser (ADRs 0017, 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 103
+title = "As a developer, I want every redirect hop on those tiers judged again by the domain policy and the address check, so that a redirect is never a way around them (ADRs 0017, 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 104
+title = "As a developer, I want the HTTP tiers to verify TLS per host with Collie's per-domain exceptions and pins (the default roots, `tls.trusted_cas`, a pin), a different key stopping the host with `certificate_changed` before any request is sent, so that a crawl over HTTP is as safe as one in a browser (ADR 0042, SC-06)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 105
+title = "As a developer, I want impersonated HTTP to use one client per trust scope of a Session with the same emulation profile in each, so that a site cannot tell which scope served it (ADR 0042)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 106
+title = "As a developer, I want a crawl request whose certificate fails verification to end `failed` with `certificate_invalid`, not retried, and every Record fetched under an exception marked in Provenance, so that a broken certificate is visible in my results (ADR 0042, H03)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 107
+title = "As a developer, I want a body past `network.max_body_size`, a decompression past `network.max_decompression_ratio` or an endless body on the HTTP tiers to end the request `failed` with `response_limit_exceeded`, so that a decompression bomb never exhausts my memory (ADR 0067, SC-05, H14)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 108
+title = "As an operator, I want the HTTP tiers to send from the Session's local address (`egress.local_addresses`), binding the interface where the OS allows and the address on Windows, so that a crawl spreads over my own addresses (ADR 0044, SA-25)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 109
+title = "As an operator, I want the Session pool, when a block retires a Session without a proxy, to give its replacement an address outside every /24 or /64 blocked on that domain during the run, rotating within a block and noting it in the run when none is left, so that a replacement is not the same client to the site (ADR 0044)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 110
+title = "As a developer, I want `secrets.*` and `session.http_credentials` set on a Label, giving that Label its own Session pool, so that logged-in pages use their own accounts and anonymous pages carry no credential (ADRs 0092, 0093)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 111
+title = "As a developer, I want a before-request Hook's header value to take a Secret placeholder, checked against the request's URL at every hop and added by the engine after the last Hook, so that a cross-cutting `Authorization` header never reaches the Hook's code or another domain (ADR 0104)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 112
+title = "As a Recipe user, I want a Plugin, a Script Hook and a Fetch backend never to receive a secret's value, so that third-party code in my crawl cannot read my credentials (ADRs 0033, 0051)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 113
+title = "As an operator, I want Sinks and Sink webhooks to be operator-configured endpoints, their credentials Secret references, refused on private ranges under `egress.no_private_endpoints`, so that a tenant's Sink URL never reaches a cloud's internal network (ADR 0017, CVE-2025-57818)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 114
+title = "As a developer, I want Exports never to contain session secrets, and an Export's file name refused when it would leave its folder, so that results are safe to share and no path escapes (ADRs 0015, 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 115
+title = "As an operator, I want a Fetch backend Plugin's connection to the target allowed into a run's private ranges only for a first-party backend or where Operator policy allows a third-party one, and link-local and metadata addresses always refused for it, so that a backend Plugin is no way into my network (ADR 0017)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 116
+title = "As a Sink receiver, I want Sink webhooks signed under Standard Webhooks with the run epoch in the signed body, so that I can verify a delivery and order deliveries across a resumed run (ADR 0017)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 117
+title = "As a compliance reviewer, I want every Politeness or Site-preferences value that presses a site harder than its built-in default (`politeness.domain.concurrency` above 1, `politeness.domain.delay` below 1 s, backoff off or shortened, `site_preferences.respect_robots_txt` off) and every `site_preferences.robots_txt_user_agent` recorded once per run in the Audit log with the layer that set it, listed in the Run report's `weakened` and logged once as a warning, so that I can show who pressed a site and when (ADR 0086, SC-01, pain 6)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 118
+title = "As a site owner's correspondent, I want every Record fetched against its host's robots.txt marked in Provenance, so that a result taken against a site's stated preferences can be found and removed (ADR 0086)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 119
+title = "As an operator, I want Operator policy or a Recipe able to lock those values, so that a shared Daemon can forbid a run from turning robots.txt off (ADRs 0028, 0086)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 120
+title = "As a user collecting personal data, I want a Dataset's retention period applied by the engine, an erasure operation across a run's Datasets, Baselines, Checkpoints and Response cache entries, and personal columns flagged in Exports, so that I meet my obligations without leaving Goodfetch (ADR 0016) (shape)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 121
+title = "As a contributor, I want the SSRF table run at Foxhound's layers (the Frontier, the HTTP and discovered-API tiers, the Fetch backend's traffic, Sinks and Sink webhooks), with \"no connection reached the target\" as the oracle, so that a crawl meets every case one page does (ADR 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 122
+title = "As a contributor, I want Secret canaries for Sink credentials and for a header a Hook sets, searched in Datasets, Exports, Sink deliveries and Notifications, so that no crawl output leaks a secret (ADR 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
 status = "active"

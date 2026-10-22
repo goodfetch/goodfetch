@@ -200,7 +200,7 @@ fn a_tool_that_follows_the_redirect_to_its_own_loopback_is_recorded_reaching_it(
 }
 
 #[test]
-fn a_chain_of_20_redirects_is_followed_to_its_record() {
+fn a_chain_of_19_redirects_is_followed_to_its_record() {
     let proving_ground = ProvingGround::start(SEED);
     let (page, followed) = follow(&proving_ground, &start_url(&proving_ground, "redirects/17"));
 
@@ -212,14 +212,14 @@ fn a_chain_of_20_redirects_is_followed_to_its_record() {
         ))
         .json();
 
-    assert_eq!(followed, 20);
+    assert_eq!(followed, 19);
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
 
 #[rstest]
-#[case::a_chain_of_21("redirects/18")]
+#[case::a_chain_of_20("redirects/18")]
 #[case::a_loop("redirects/19")]
-fn too_many_redirects_is_the_only_right_answer_past_20(#[case] id: &str) {
+fn too_many_redirects_is_the_only_right_answer_past_19(#[case] id: &str) {
     let proving_ground = ProvingGround::start(SEED);
 
     let refused = proving_ground
@@ -232,7 +232,7 @@ fn too_many_redirects_is_the_only_right_answer_past_20(#[case] id: &str) {
 }
 
 #[test]
-fn a_tool_that_follows_a_chain_of_21_and_keeps_its_record_is_a_false_success() {
+fn a_tool_that_follows_a_chain_of_20_and_keeps_its_record_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
     let (page, followed) = follow(&proving_ground, &start_url(&proving_ground, "redirects/18"));
 
@@ -244,7 +244,7 @@ fn a_tool_that_follows_a_chain_of_21_and_keeps_its_record_is_a_false_success() {
         ))
         .json();
 
-    assert_eq!(followed, 21);
+    assert_eq!(followed, 20);
     assert_eq!(answer["outcome"], "false_success", "{answer}");
 }
 

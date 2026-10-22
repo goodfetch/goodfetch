@@ -357,8 +357,10 @@ Usage: goodfetch-collie run [OPTIONS] <COMMAND>
 Commands:
   new-page    Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call
   start       Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise
-  finish      Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait
+  finish      Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait
+  stop        Stops a Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by its program, resumable by its Run ID, and answers its Run report; an ended Run's report is answered as it is. The wait is bounded by `timeout.close`, or the call's `timeout`: past it, the call fails with `deadline_exceeded` and the Run still stops at its next safe point. A Run that ended `failed` fails the call as `run.finish` does
   abort       Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
+  usage       Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage
   checkpoint  Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file
   pause       Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint
   migrate     Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint
@@ -397,7 +399,7 @@ Options:
   -h, --help               Print help
 
 $ goodfetch-collie run finish --help
-Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait
+Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait
 
 Usage: goodfetch-collie run finish [OPTIONS] <RUN_ID>
 
@@ -405,9 +407,24 @@ Arguments:
   <RUN_ID>  The Run's ID
 
 Options:
-      --json          Prints the result as JSON
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
+      --timeout <DURATION>  How long the call waits for the Run's end, in milliseconds; past it, it fails with `deadline_exceeded` and only the wait ends. None by default for `run.finish`, which the Run's own `timeout.run` bounds; `timeout.close` by default for `run.stop`
+      --json                Prints the result as JSON
+      --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                Print help
+
+$ goodfetch-collie run stop --help
+Stops a Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by its program, resumable by its Run ID, and answers its Run report; an ended Run's report is answered as it is. The wait is bounded by `timeout.close`, or the call's `timeout`: past it, the call fails with `deadline_exceeded` and the Run still stops at its next safe point. A Run that ended `failed` fails the call as `run.finish` does
+
+Usage: goodfetch-collie run stop [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --timeout <DURATION>  How long the call waits for the Run's end, in milliseconds; past it, it fails with `deadline_exceeded` and only the wait ends. None by default for `run.finish`, which the Run's own `timeout.run` bounds; `timeout.close` by default for `run.stop`
+      --json                Prints the result as JSON
+      --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                Print help
 
 $ goodfetch-collie run abort --help
 Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
@@ -419,6 +436,19 @@ Arguments:
 
 Options:
       --forwarded     Set by an engine that forwards the abort to the owner the Run index names (ADR 0031): an engine that does not own the Run then answers `run_not_owned` instead of taking its writer role
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie run usage --help
+Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage
+
+Usage: goodfetch-collie run usage [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
       --json          Prints the result as JSON
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help

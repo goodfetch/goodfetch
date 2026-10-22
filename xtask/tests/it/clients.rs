@@ -278,6 +278,15 @@ fn check_with_listings_notes_only_the_surfaces_whose_tests_it_does_not_read_yet(
         "vitest sdks/typescript/collie-client/src/framing.test.ts > frames a message",
     )],
 )]
+#[case::skipped_test_carrying_a_case(
+    VITEST,
+    "\"tags\": [\"client_case/start-a-run\", \"daemon\"]",
+    "\"tags\": [\"client_case/start-a-run\", \"daemon\"],\n    \"mode\": \"skip\"",
+    vec![
+        finding("gated", "vitest sdks/typescript/collie-client/tests/runs.test.ts > runs > starts a run on a Daemon"),
+        finding("missing", "start-a-run sdk-typescript daemon"),
+    ],
+)]
 #[case::test_carrying_two_modes(
     VITEST,
     "\"tags\": [\"story:1-4\"]",

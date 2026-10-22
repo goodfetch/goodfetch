@@ -407,6 +407,10 @@ struct VitestTest {
     name: String,
     file: PathBuf,
     tags: Vec<String>,
+    /// How Vitest runs it: `run`, `only`, or `skip` and `todo`, which never
+    /// run; a listing written before the field counts as `run`.
+    #[serde(default)]
+    mode: Option<String>,
 }
 
 /// Each case and mode a Vitest test of the TypeScript SDK packages
@@ -477,6 +481,14 @@ fn typescript_tests<'a>(
                     "unlisted",
                     &subject,
                     format!("the case does not list the sdk-typescript surface in the {mode} mode"),
+                ));
+                continue;
+            }
+            if matches!(test.mode.as_deref(), Some("skip" | "todo")) {
+                findings.push(Finding::new(
+                    "gated",
+                    &subject,
+                    "a skipped or todo test never runs, so it implements no case",
                 ));
                 continue;
             }

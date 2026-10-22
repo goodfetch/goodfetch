@@ -5,6 +5,7 @@ CREATE TABLE attempt_errors (
             attempt INTEGER NOT NULL,
             code TEXT NOT NULL,
             message TEXT NOT NULL,
+            details TEXT,
             PRIMARY KEY (work_item, attempt)
         ) STRICT;
 CREATE TABLE domains (

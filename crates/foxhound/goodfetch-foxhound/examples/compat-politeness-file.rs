@@ -4,7 +4,8 @@
 //! test `Clock` and a fixed `Entropy` seed, in a home of its own. A crawl of
 //! `shop.test` under a one-second delay meets a 429 on its first request,
 //! which halves the domain's concurrency and backs it off, and goes on once
-//! the backoff ended; then a crawl of `hold.test` with one request in flight
+//! the backoff ended, its second page meeting a 503 that backs it off again
+//! (the backoff's last wait kept); then a crawl of `hold.test` with one request in flight
 //! at a time leaves its first request unanswered, so its second waits for a
 //! wake. A copy of the file taken then, its Run folder and wake endpoint
 //! written relative to the home, goes as SQL text into the folder given as
@@ -37,8 +38,8 @@ fn call(id: i64, method: &str, params: &Value) -> Value {
 }
 
 /// The handler's answer to one handler request: a 429 for `shop.test`'s
-/// first page, Records for every other, and none for `hold.test`'s first,
-/// which stays in flight.
+/// first page, a 503 for its second, Records for every other, and none for
+/// `hold.test`'s first, which stays in flight.
 fn handle(request: &Value) -> Option<Value> {
     let id = &request["id"];
     match request["params"]["crawl_request"]["url"].as_str() {
@@ -50,6 +51,15 @@ fn handle(request: &Value) -> Option<Value> {
                 "code": -32003,
                 "message": "too many requests",
                 "data": { "code": "blocked", "retryable": false, "cause": "rate_limit" },
+            },
+        })),
+        Some("https://shop.test/2") => Some(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {
+                "code": -32003,
+                "message": "service unavailable",
+                "data": { "code": "response_unavailable", "retryable": false, "status": 503 },
             },
         })),
         _ => Some(json!({ "jsonrpc": "2.0", "id": id, "result": { "records": [] } })),

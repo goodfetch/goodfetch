@@ -285,6 +285,17 @@ pub const HANDLER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A site failing for now, or holding a crawl request unsent past the
+/// bound on its `Retry-After` (ADRs 0093 and 0118).
+pub const RESPONSE_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "response_unavailable",
+    description: "The site is failing for now: its 5xx or 408 response stayed after the retries ran out, or its `Retry-After` asked for a time further away than `politeness.retry_after.max`, so nothing is sent to its domain before then and nothing waits for it. The details name the response's `status` (`null` for a request held unsent), the time the site asked for as `retryAfter` when it asked, and a `fix`. `run.retry_failed` re-admits the request once the site is back.",
+    group: ErrorGroup::Page,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// An attempt whose lease ended with no word from the program (ADR 0093).
 pub const HANDLER_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "handler_lost",
@@ -449,6 +460,7 @@ pub const ENTRIES: Entries = Entries {
     handler_requests: &[CRAWL_REQUEST_HANDLE],
     error_codes: &[
         HANDLER_FAILED,
+        RESPONSE_UNAVAILABLE,
         HANDLER_LOST,
         CLIENT_GONE,
         LEASE_LOST,

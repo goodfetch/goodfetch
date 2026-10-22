@@ -99,6 +99,14 @@ sharing = "shared"
 concurrency = 4
 delay = 30000
 
+[settings.politeness.backoff]
+enabled = true
+initial = 30000
+max = 30000
+
+[settings.politeness.retry_after]
+max = 30000
+
 [settings.crawl]
 sample_pages = 4
 domain_keys = { "example.test" = "example" }
@@ -224,6 +232,14 @@ sharing = "shared"
 concurrency = 4
 delay = 30000
 
+[lock.politeness.backoff]
+enabled = true
+initial = 30000
+max = 30000
+
+[lock.politeness.retry_after]
+max = 30000
+
 [lock.crawl]
 sample_pages = 4
 domain_keys = { "example.test" = "example" }
@@ -298,6 +314,13 @@ max_error_score = 4
 [cap.politeness.domain]
 concurrency = 4
 delay = 30000
+
+[cap.politeness.backoff]
+initial = 30000
+max = 30000
+
+[cap.politeness.retry_after]
+max = 30000
 
 [managed]
 install_limits = [{ usage_kind = "paid_solves", currency = "USD", period = { every = "month", time_zone = "UTC" }, amount = 20000000 }]

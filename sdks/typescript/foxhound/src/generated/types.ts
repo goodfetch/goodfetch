@@ -245,6 +245,14 @@ export interface AttemptError {
    */
   code: string;
   /**
+   * The error's own details, as its Error code defines them, such as the
+   * time a site's `Retry-After` asked for and a `fix`; left out when it
+   * has none.
+   */
+  details?: {
+    [k: string]: unknown;
+  };
+  /**
    * What it said.
    */
   message: string;
@@ -405,6 +413,14 @@ export interface AttemptError1 {
    * Its Error code.
    */
   code: string;
+  /**
+   * The error's own details, as its Error code defines them, such as the
+   * time a site's `Retry-After` asked for and a `fix`; left out when it
+   * has none.
+   */
+  details?: {
+    [k: string]: unknown;
+  };
   /**
    * What it said.
    */

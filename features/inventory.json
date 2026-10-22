@@ -996,6 +996,16 @@
       ]
     },
     {
+      "id": "error:response_unavailable",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:run_busy",
       "kind": "error",
       "area": 3,
@@ -4358,6 +4368,36 @@
       ]
     },
     {
+      "id": "setting:politeness.backoff.enabled",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:politeness.backoff.initial",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:politeness.backoff.max",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:politeness.domain.concurrency",
       "kind": "setting",
       "area": 3,
@@ -4369,6 +4409,16 @@
     },
     {
       "id": "setting:politeness.domain.delay",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:politeness.retry_after.max",
       "kind": "setting",
       "area": 3,
       "milestone": null,
@@ -11094,7 +11144,40 @@
       ]
     },
     {
+      "id": "story:3-158",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-159",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:3-16",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-160",
       "kind": "story",
       "area": 3,
       "milestone": "M1 Core",

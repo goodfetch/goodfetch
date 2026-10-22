@@ -180,6 +180,13 @@ number = 3
 kind = "error"
 prefix = "client_gone"
 
+# A site failing for now, or holding a crawl request unsent past the bound
+# on its `Retry-After` (#1541, ADR 0118).
+[[area]]
+number = 3
+kind = "error"
+prefix = "response_unavailable"
+
 [[area]]
 number = 3
 kind = "setting"

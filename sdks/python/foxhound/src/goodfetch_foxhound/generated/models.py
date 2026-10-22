@@ -52,6 +52,12 @@ class AttemptError(BaseModel):
     """Which attempt it was, from 1."""
     code: str
     """Its Error code."""
+    details: dict[str, Any] | None = None
+    """
+    The error's own details, as its Error code defines them, such as the
+    time a site's `Retry-After` asked for and a `fix`; left out when it
+    has none.
+    """
     message: str
     """What it said."""
 

@@ -60,10 +60,10 @@ use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
-    AppliedLimit, Checkpoint, EndingError, Lifecycle, NotUnderstoodLimit, NothingDone, PointInTime,
-    Presence, ProgressMessage, RUN_IN_USE, RUN_PROGRESS, RUN_STATE_DURABILITY, ReachedLimit,
-    RunAxes, RunId, RunIndexRow, RunKind, RunOwner, RunProgress, RunReport, RunStarted, RunUsage,
-    RunWarning, StartInput, StartedAs, StopReason, Tags,
+    AppliedLimit, AxisReason, Checkpoint, EndingError, Lifecycle, NotUnderstoodLimit, NothingDone,
+    PointInTime, Presence, ProgressMessage, RUN_IN_USE, RUN_PROGRESS, RUN_STATE_DURABILITY,
+    ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunOwner, RunProgress, RunReport,
+    RunStarted, RunUsage, RunWarning, StartInput, StartedAs, StopReason, Tags,
 };
 use goodfetch_protocol::secrets::{RUN_STATE_KEY_REFERENCE, TIMEOUT_SECRET};
 use goodfetch_protocol::settings::WeakenedSetting;
@@ -556,6 +556,11 @@ enum Waiting {
 pub enum Ending {
     /// Its work is done: `finished`.
     Finished,
+    /// Its work is done, but part of it could not be, such as requests a
+    /// site held unsent further away than the Run waits (ADR 0118):
+    /// `finished` and `incomplete` (ADR 0029), for the reason the driver
+    /// gives.
+    FinishedIncomplete(AxisReason),
     /// An error in the engine ended it: `failed`, the calls that end it
     /// raising `error` (ADR 0102).
     Failed(EndingError),
@@ -568,6 +573,7 @@ pub enum Ending {
 #[derive(Clone, Debug)]
 enum End {
     Finished,
+    FinishedIncomplete(AxisReason),
     Failed(EndingError),
     Stopped(StopReason),
 }
@@ -576,7 +582,7 @@ impl End {
     /// The event of the Run's table it is.
     fn event(&self) -> RunEvent {
         match self {
-            Self::Finished => RunEvent::Finish,
+            Self::Finished | Self::FinishedIncomplete(_) => RunEvent::Finish,
             Self::Failed(_) => RunEvent::Fail,
             Self::Stopped(reason) => match reason {
                 StopReason::Abort { .. } => RunEvent::Abort,
@@ -968,9 +974,10 @@ impl Run {
         };
         let opening = settings.clone();
         let (wall, now) = (self.clock.wall(), self.clock.now());
+        let entropy = self.fork_entropy().await;
         let gate = self
             .state
-            .read(move |connection| gates.open(&opening, connection, wall, now))
+            .read(move |connection| gates.open(&opening, connection, wall, now, entropy))
             .await?;
         let admission = Admission::new(gate, settings);
         if !admission.shares(settings) {
@@ -1020,6 +1027,7 @@ impl Run {
     pub async fn end(&self, ending: Ending) {
         let end = match ending {
             Ending::Finished => End::Finished,
+            Ending::FinishedIncomplete(reason) => End::FinishedIncomplete(reason),
             Ending::Failed(error) => End::Failed(error),
             Ending::Stopped(reason) => End::Stopped(reason),
         };
@@ -2624,7 +2632,7 @@ impl Registry {
         };
         let stopping = match &end {
             End::Stopped(cause) => Some(cause.clone()),
-            End::Finished | End::Failed(_) => None,
+            End::Finished | End::FinishedIncomplete(_) | End::Failed(_) => None,
         };
         if let Some(cause) = &stopping {
             announce_stop(&events, run_id, cause).await;
@@ -3387,10 +3395,11 @@ impl Closing {
             console_url,
         } = self;
         run.owner.stop().await;
-        let (stop_reason, error) = match end {
-            End::Finished => (None, None),
-            End::Failed(error) => (None, Some(error)),
-            End::Stopped(reason) => (Some(reason), None),
+        let (stop_reason, error, incomplete) = match end {
+            End::Finished => (None, None, None),
+            End::FinishedIncomplete(reason) => (None, None, Some(reason)),
+            End::Failed(error) => (None, Some(error), None),
+            End::Stopped(reason) => (Some(reason), None, None),
         };
         let limits = given_back(&run, &writer).await;
         let facts = EndFacts {
@@ -3408,6 +3417,7 @@ impl Closing {
             console_url,
             limits,
             error,
+            incomplete,
         };
         let state = run.state.clone();
         let (run_id, folder) = (run.id.clone(), run.folder.clone());

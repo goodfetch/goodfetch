@@ -3,7 +3,7 @@
 //! codes, and one start, from the composition and Product its `main` passes.
 //! Today the command line holds `--version`, the hidden Attached-engine
 //! entry, which an SDK starts, `browsers install`, `browsers clean`,
-//! `config explain`, `daemon start|stop|restart|status|install|uninstall|rotate-token|run`,
+//! `console`, `config explain`, `daemon start|stop|restart|status|install|uninstall|rotate-token|run`,
 //! with the hidden `daemon launched` a start or the installed service
 //! runs, `runs reindex` and `upgrade-files`, beside the commands `goodfetch-cli` generates
 //! from the catalog for every other namespace, such as `run start` and
@@ -67,6 +67,7 @@ use goodfetch_protocol::connection::ProductVersion;
 
 mod browsers;
 mod config;
+mod console;
 mod daemon;
 mod logs;
 mod runs;
@@ -123,6 +124,18 @@ enum Command {
     Browsers {
         #[command(subcommand)]
         command: BrowsersCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
+    /// Opens the Console in the browser, signed in: starts the major's
+    /// Daemon unless one runs.
+    Console {
+        /// Opens no browser: prints the sign-in link instead.
+        #[arg(long)]
+        no_browser: bool,
+        /// Prints the sign-in link as JSON.
+        #[arg(long)]
+        json: bool,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -625,6 +638,9 @@ fn run(
             command: BrowsersCommand::Clean { dry_run, json },
             ..
         } => browsers::clean(pinned_by, environment, dry_run, json),
+        Command::Console {
+            no_browser, json, ..
+        } => console::open(&machine, no_browser, json),
         Command::Config {
             command:
                 ConfigCommand::Explain {

@@ -31,9 +31,10 @@ use serde_json::Value;
 use crate::composition::{CallContext, CallError, Handler};
 use crate::product::{Identity, Requested};
 
-pub use connection::REFUSAL_TARGET;
-pub(crate) use connection::{Access, Dispatch, serve};
+pub(crate) use connection::{Access, Dispatch, serve, serve_console};
+pub use connection::{CONSOLE_LISTENER, REFUSAL_TARGET};
 pub use websocket::Authorities;
+pub(crate) use websocket::{ConsoleSocket, Refusal};
 
 /// The protocol server's own operations: the streaming calls and
 /// `connection.set_log_level`.

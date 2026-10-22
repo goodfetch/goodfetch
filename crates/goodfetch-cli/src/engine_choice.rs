@@ -106,6 +106,7 @@ pub fn call_attached(
     let hello = HelloParams {
         protocol_version: PROTOCOL_VERSION,
         surface: Surface::Cli,
+        form: None,
         token: None,
         needs: Some(needs),
         product_version: engine.identity().product_version.clone(),

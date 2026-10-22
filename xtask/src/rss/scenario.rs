@@ -88,6 +88,7 @@ fn idle_attached_engine(needs: Product, mut stdin: ChildStdin, stdout: ChildStdo
         params: Some(serde_json::to_value(HelloParams {
             protocol_version: PROTOCOL_VERSION,
             surface: Surface::Rust,
+            form: None,
             token: None,
             needs: Some(needs),
             product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))

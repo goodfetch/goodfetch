@@ -1,0 +1,7 @@
+---
+source: crates/goodfetch-collie/tests/it/sign_in.rs
+expression: opened.output.stdout
+---
+{
+  "url": "http://127.0.0.1:[PORT]/#token=[TOKEN]"
+}

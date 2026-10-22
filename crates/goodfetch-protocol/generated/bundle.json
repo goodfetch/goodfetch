@@ -1042,6 +1042,20 @@
       ],
       "type": "object"
     },
+    "ConsoleOpened": {
+      "description": "What `console --json` prints (ADR 0069): the Console's sign-in link,\nwhose fragment carries the token the page swaps once for its cookie\n(ADR 0024), the URL the command opened the browser on, or would have.",
+      "properties": {
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The sign-in link, such as `http://127.0.0.1:7801/#token=…`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
     "ConsoleState": {
       "description": "Where a Daemon's Console is, as its runtime file and `daemon status`\nreport it.",
       "oneOf": [
@@ -2371,6 +2385,41 @@
       ],
       "type": "object"
     },
+    "Form": {
+      "description": "The form a Client's user writes names in (ADR 0099), which the engine\nrenders the names and targets of its messages in.",
+      "oneOf": [
+        {
+          "const": "typescript",
+          "description": "The TypeScript SDK, and Code mode.",
+          "type": "string"
+        },
+        {
+          "const": "python",
+          "description": "The Python SDK.",
+          "type": "string"
+        },
+        {
+          "const": "rust",
+          "description": "A Rust program.",
+          "type": "string"
+        },
+        {
+          "const": "cli",
+          "description": "The CLI.",
+          "type": "string"
+        },
+        {
+          "const": "tool",
+          "description": "The MCP server and the Framework adapters.",
+          "type": "string"
+        },
+        {
+          "const": "catalog",
+          "description": "The catalog's own names: the Console, Integrations and the HTTP\nlistener.",
+          "type": "string"
+        }
+      ]
+    },
     "FormatVersion": {
       "description": "A registered format's version, `major.minor` (ADRs 0030 and 0066).",
       "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$",
@@ -2468,6 +2517,18 @@
       "additionalProperties": false,
       "description": "What a `hello` says.",
       "properties": {
+        "form": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Form"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The form its user writes names in (ADR 0099); none until each\nsurface names its own."
+        },
         "log_level": {
           "anyOf": [
             {
@@ -9089,6 +9150,9 @@
     },
     "config.explain": {
       "$ref": "#/$defs/SettingsExplanation"
+    },
+    "console": {
+      "$ref": "#/$defs/ConsoleOpened"
     },
     "daemon.install": {
       "$ref": "#/$defs/DaemonInstallOutput"

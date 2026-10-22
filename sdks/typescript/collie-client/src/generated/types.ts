@@ -86,6 +86,14 @@ export type SettingsLayer =
  */
 export type Product = "collie" | "foxhound";
 /**
+ * The form a Client's user writes names in (ADR 0099), which the engine
+ * renders the names and targets of its messages in.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Form".
+ */
+export type Form = "typescript" | "python" | "rust" | "cli" | "tool" | "catalog";
+/**
  * The `markdown` format of a request: `true`, or its options.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -931,6 +939,11 @@ export interface GotoParams {
  * via the `definition` "HelloParams".
  */
 export interface HelloParams {
+  /**
+   * The form its user writes names in (ADR 0099); none until each
+   * surface names its own.
+   */
+  form?: Form | null;
   /**
    * The level of the engine's log events the Client receives as `$/log`
    * notifications, until `connection.set_log_level` changes it; none,

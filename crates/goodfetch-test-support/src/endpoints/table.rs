@@ -42,16 +42,21 @@ pub enum ListenerKind {
     /// An Exposed Daemon's address, reached with newline-delimited
     /// JSON-RPC over TCP (ADR 0049).
     ExposedDaemon,
+    /// The Console's WebSocket on its own origin, whose handshake carries
+    /// a sign-in's cookie and the Console's `Host` and `Origin` (ADRs
+    /// 0024, 0031 and 0067).
+    Console,
 }
 
 impl ListenerKind {
     /// Every listener, each of which must have a row.
-    pub(super) const ALL: [Self; 5] = [
+    pub(super) const ALL: [Self; 6] = [
         Self::DaemonSocket,
         Self::PrivateEndpoint,
         Self::OpsListener,
         Self::DaemonWebsocket,
         Self::ExposedDaemon,
+        Self::Console,
     ];
 
     /// How the runner reaches this listener.
@@ -64,6 +69,7 @@ impl ListenerKind {
                 protected_path: "/metrics",
             },
             Self::DaemonWebsocket => Transport::WebSocket,
+            Self::Console => Transport::SignedInWebSocket { path: "/protocol" },
         }
     }
 }
@@ -80,6 +86,10 @@ pub(super) enum Transport {
     /// opens with a `hello` carrying the token once its handshake is
     /// accepted (ADR 0049).
     WebSocket,
+    /// JSON-RPC over a WebSocket at `path` whose handshake carries the
+    /// token as a sign-in's cookie, and whose `hello` carries none (ADR
+    /// 0031): every token is refused at the handshake.
+    SignedInWebSocket { path: &'static str },
 }
 
 /// A refusal rule: a row of the endpoint table, which the runner knows how
@@ -122,7 +132,10 @@ impl Rule {
     /// Whether the runner can try this rule over `transport`.
     fn tried_over(self, transport: Transport) -> bool {
         let http = matches!(transport, Transport::Http { .. });
-        let websocket = transport == Transport::WebSocket;
+        let websocket = matches!(
+            transport,
+            Transport::WebSocket | Transport::SignedInWebSocket { .. }
+        );
         match self {
             Self::TokenMissing | Self::TokenWrong | Self::TokenFromAnotherListener => true,
             Self::TokenInQueryString | Self::HostForeign | Self::OriginForeign => http || websocket,
@@ -132,14 +145,17 @@ impl Rule {
         }
     }
 
-    /// Whether a WebSocket listener refuses this rule's attempt at its
-    /// handshake, with a status, rather than by closing after the first
-    /// message.
-    fn at_the_handshake(self) -> bool {
-        matches!(
-            self,
-            Self::HostForeign | Self::OriginForeign | Self::OriginMissing
-        )
+    /// Whether a WebSocket listener reached over `transport` refuses this
+    /// rule's attempt at its handshake, with a status, rather than by
+    /// closing after the first message.
+    fn at_the_handshake(self, transport: Transport) -> bool {
+        match transport {
+            Transport::SignedInWebSocket { .. } => self != Self::HelloNotFirst,
+            Transport::JsonRpcStream | Transport::Http { .. } | Transport::WebSocket => matches!(
+                self,
+                Self::HostForeign | Self::OriginForeign | Self::OriginMissing
+            ),
+        }
     }
 }
 
@@ -177,14 +193,18 @@ impl Expected {
     /// `rule`'s attempt.
     fn fits(self, rule: Rule, transport: Transport) -> bool {
         let http = matches!(transport, Transport::Http { .. });
-        let websocket = transport == Transport::WebSocket;
+        let websocket = matches!(
+            transport,
+            Transport::WebSocket | Transport::SignedInWebSocket { .. }
+        );
+        let at_the_handshake = rule.at_the_handshake(transport);
         rule.tried_over(transport)
             && match self {
                 Self::Closed => {
-                    transport == Transport::JsonRpcStream || (websocket && !rule.at_the_handshake())
+                    transport == Transport::JsonRpcStream || (websocket && !at_the_handshake)
                 }
                 Self::Status { status } => {
-                    (http || (websocket && rule.at_the_handshake()))
+                    (http || (websocket && at_the_handshake))
                         && (400..=499).contains(&status)
                         && rule != Rule::ProbesAnswerStatusOnly
                 }

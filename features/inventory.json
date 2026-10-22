@@ -132,6 +132,17 @@
       ]
     },
     {
+      "id": "command:console",
+      "kind": "command",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:daemon.install",
       "kind": "command",
       "area": 3,

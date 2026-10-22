@@ -200,6 +200,29 @@ class EngineInstance(RootModel[str]):
     """One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only."""
 
 
+class Form(StrEnum):
+    """
+    The form a Client's user writes names in (ADR 0099), which the engine
+    renders the names and targets of its messages in.
+    """
+
+    typescript = "typescript"
+    """The TypeScript SDK, and Code mode."""
+    python = "python"
+    """The Python SDK."""
+    rust = "rust"
+    """A Rust program."""
+    cli = "cli"
+    """The CLI."""
+    tool = "tool"
+    """The MCP server and the Framework adapters."""
+    catalog = "catalog"
+    """
+    The catalog's own names: the Console, Integrations and the HTTP
+    listener.
+    """
+
+
 class KeyValueStoreDeleted(BaseModel):
     """What `key_value_store.delete` answers once the key is gone."""
 
@@ -1110,6 +1133,11 @@ class HelloParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    form: Form | None = None
+    """
+    The form its user writes names in (ADR 0099); none until each
+    surface names its own.
+    """
     log_level: LogLevel | None = None
     """
     The level of the engine's log events the Client receives as `$/log`

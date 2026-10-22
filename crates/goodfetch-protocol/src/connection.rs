@@ -56,6 +56,26 @@ pub enum Surface {
     Worker,
 }
 
+/// The form a Client's user writes names in (ADR 0099), which the engine
+/// renders the names and targets of its messages in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Form {
+    /// The TypeScript SDK, and Code mode.
+    Typescript,
+    /// The Python SDK.
+    Python,
+    /// A Rust program.
+    Rust,
+    /// The CLI.
+    Cli,
+    /// The MCP server and the Framework adapters.
+    Tool,
+    /// The catalog's own names: the Console, Integrations and the HTTP
+    /// listener.
+    Catalog,
+}
+
 impl Surface {
     /// Its name on the wire.
     pub fn as_str(self) -> &'static str {
@@ -188,6 +208,11 @@ pub struct HelloParams {
     /// The surface it comes from.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub surface: Surface,
+    /// The form its user writes names in (ADR 0099); none until each
+    /// surface names its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub form: Option<Form>,
     /// The Daemon's token; an Attached engine needs none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]

@@ -38,7 +38,7 @@ use crate::clock::Clock;
 use crate::composition::{Answering, CallContext, CallError, DaemonSide, Handler};
 use crate::events::Events;
 use crate::product::{Channel, Identity};
-use crate::rpc::{self, Authorities, Dispatch};
+use crate::rpc::{self, Authorities, ConsoleSocket, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::runs::{ConnectionId, Runs};
 use crate::tasks::TaskOwner;
@@ -200,6 +200,8 @@ pub(crate) struct Serving {
     pub(crate) clock: Clock,
     /// Where its Console is served, or why it is not.
     pub(crate) console: ConsoleState,
+    /// The `WebSocket`s its Console's server opens, each a Connection.
+    pub(crate) console_sockets: mpsc::Receiver<ConsoleSocket>,
 }
 
 /// The Clients connected now.
@@ -406,7 +408,7 @@ fn count(live: usize) -> u32 {
 /// Serves every Connection of `listener` until the Daemon stops, its tasks
 /// those of children of `owner`.
 pub(crate) async fn serve(
-    serving: Serving,
+    mut serving: Serving,
     mut listener: DaemonListener,
     mut options: DaemonOptions,
     owner: &TaskOwner,
@@ -428,6 +430,7 @@ pub(crate) async fn serve(
     let idle = idle(&shared, serving.clock);
     tokio::pin!(idle);
     let mut accepting = true;
+    let mut console_open = true;
     let mut idled = false;
     let mut drain_asked = false;
     let end = loop {
@@ -475,12 +478,18 @@ pub(crate) async fn serve(
                     return finish(DaemonEnd::Drained, &connections_owner, &shared).await;
                 }
             }
+            socket = serving.console_sockets.recv(), if console_open => match socket {
+                Some(socket) => {
+                    let id = admit(&mut next);
+                    open.insert(id, serve_connection(&serving, &shared, &connections_owner, Arriving::Console(socket), id, ended.clone()));
+                }
+                // The Console's server stopped, or there is none.
+                None => console_open = false,
+            },
             accepted = listener.accept(), if accepting => match accepted {
                 Ok(connection) => {
-                    let id = next;
-                    next += 1;
-                    let token = serve_connection(&serving, &shared, &connections_owner, connection, id, ended.clone());
-                    open.insert(id, token);
+                    let id = admit(&mut next);
+                    open.insert(id, serve_connection(&serving, &shared, &connections_owner, Arriving::Listener(connection), id, ended.clone()));
                 }
                 // Every in-memory dialer is gone: it goes on with its Clients.
                 Err(TransportError::DialerClosed) => accepting = false,
@@ -506,13 +515,27 @@ pub(crate) async fn serve(
     finish(end, &connections_owner, &shared).await
 }
 
+/// The ID of the next Connection, `next`, which moves on.
+fn admit(next: &mut ConnectionId) -> ConnectionId {
+    let id = *next;
+    *next += 1;
+    id
+}
+
+/// A Connection that reached the Daemon: through its listener, or as a
+/// WebSocket its Console's server opened.
+enum Arriving {
+    Listener(Connection),
+    Console(ConsoleSocket),
+}
+
 /// Serves `connection` as the Daemon's Connection `id`, a task of
 /// `connections`, telling `ended` once it closes; the token that closes it.
 fn serve_connection(
     serving: &Serving,
     shared: &Arc<Shared>,
     connections: &TaskOwner,
-    connection: Connection,
+    connection: Arriving,
     id: ConnectionId,
     ended: mpsc::UnboundedSender<ConnectionId>,
 ) -> CancellationToken {
@@ -526,17 +549,37 @@ fn serve_connection(
         serving.runs.on_connection(id),
         serving.events.clone(),
     );
-    let access = match &shared.websocket {
-        Some(authorities) => rpc::Access::Exposed(side, Arc::clone(authorities)),
-        None => rpc::Access::Daemon(side),
-    };
+    let websocket = shared.websocket.clone();
     let its_owner = connections.child();
     let cancelled = token.clone();
     connections.spawn(async move {
+        let served = async {
+            match connection {
+                Arriving::Listener(connection) => {
+                    let access = match websocket {
+                        Some(authorities) => rpc::Access::Exposed(side, authorities),
+                        None => rpc::Access::Daemon(side),
+                    };
+                    rpc::serve(
+                        dispatch,
+                        connection,
+                        &its_owner,
+                        runs.clone(),
+                        events,
+                        access,
+                    )
+                    .await;
+                }
+                Arriving::Console(socket) => {
+                    rpc::serve_console(dispatch, socket, &its_owner, runs.clone(), events, side)
+                        .await;
+                }
+            }
+        };
         tokio::select! {
             biased;
             () = cancelled.cancelled() => {}
-            () = rpc::serve(dispatch, connection, &its_owner, runs.clone(), events, access) => {}
+            () = served => {}
         }
         its_owner.stop().await;
         runs.stop_connection(id).await;

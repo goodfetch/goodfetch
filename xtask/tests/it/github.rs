@@ -9,7 +9,7 @@
 )]
 
 use std::collections::BTreeMap;
-use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+use std::io::{BufRead as _, BufReader, ErrorKind, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 
@@ -143,10 +143,21 @@ fn answer(
         authorization,
         accept,
     });
-    write!(
+    let written = write!(
         stream,
         "HTTP/1.1 {status}\r\n{location}content-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
         answer.len()
-    )
-    .unwrap();
+    );
+    // A client may close before the whole answer is written, as ureq does
+    // once a redirect's `location` line arrives: that ends this exchange,
+    // never the stand-in.
+    if let Err(error) = written {
+        assert!(
+            matches!(
+                error.kind(),
+                ErrorKind::BrokenPipe | ErrorKind::ConnectionReset | ErrorKind::ConnectionAborted
+            ),
+            "writing an answer: {error}"
+        );
+    }
 }

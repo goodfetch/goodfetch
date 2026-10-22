@@ -134,7 +134,7 @@ fn a_foxhound_client_meeting_an_idle_collie_daemon_gets_a_foxhound_daemon() {
     );
 }
 
-/// Covers: story:3-5, story:3-137, story:3-138, error:not_in_product
+/// Covers: story:3-5, story:3-137, story:3-138, error:not_in_product, command:daemon.restart
 #[test]
 fn a_foxhound_installed_but_never_run_becomes_the_pick_when_the_fixs_daemon_restart_runs() {
     let env = TestEnv::new();

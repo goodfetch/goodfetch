@@ -70,6 +70,49 @@ fn scan_reads_a_test_in_a_tests_folder_below_src_as_a_unit_test() {
     );
 }
 
+/// rstest gives a case the attributes written between the case before it
+/// and its own `#[case]`: a `Covers:` line there declares for that case
+/// only, so each case of a table can declare the row it reaches. A line
+/// above `#[rstest]` or below the last case declares for every case.
+#[test]
+fn scan_reads_a_covers_line_between_rstest_cases_for_the_case_below_it_only() {
+    let workspace = Workspace::from_fixture("features");
+    workspace.append("crates/sample/src/store/tests.rs", "mod table;\n");
+    workspace.write(
+        "crates/sample/src/store/tests/table.rs",
+        b"/// Covers: story:1-1\n\
+          #[rstest::rstest]\n\
+          /// Covers: story:1-2\n\
+          #[case::first(1)]\n\
+          #[case::second(2)]\n\
+          /// Covers: operation:sample.echo\n\
+          #[case::third(3)]\n\
+          /// Covers: operation:sample.crawl\n\
+          fn counts(#[case] number: u8) {\n    let _ = number;\n}\n",
+    );
+
+    let outcome = workspace.xtask(&["features", "scan", "--package", "sample"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        outcome
+            .stdout
+            .lines()
+            .filter(|line| line.contains("store::tests::table::") && !line.starts_with("event:"))
+            .collect::<Vec<_>>(),
+        vec![
+            "operation:sample.crawl\tunit\tnextest\tsample store::tests::table::counts::case_1_first",
+            "operation:sample.crawl\tunit\tnextest\tsample store::tests::table::counts::case_2_second",
+            "operation:sample.crawl\tunit\tnextest\tsample store::tests::table::counts::case_3_third",
+            "operation:sample.echo\tunit\tnextest\tsample store::tests::table::counts::case_3_third",
+            "story:1-1\tunit\tnextest\tsample store::tests::table::counts::case_1_first",
+            "story:1-1\tunit\tnextest\tsample store::tests::table::counts::case_2_second",
+            "story:1-1\tunit\tnextest\tsample store::tests::table::counts::case_3_third",
+            "story:1-2\tunit\tnextest\tsample store::tests::table::counts::case_1_first",
+        ]
+    );
+}
+
 /// A module whose file a `#[path]` attribute names is read from that file,
 /// relative to the declaring file's folder, and its own child modules from
 /// the named file's folder, as rustc reads them.

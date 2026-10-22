@@ -467,3 +467,38 @@ fn give_place_to_the_pick(machine: &Machine<'_>) -> Option<ExitCode> {
     drop(start);
     Some(exit)
 }
+
+#[cfg(test)]
+mod tests {
+    use goodfetch_engine::transport::listen_console;
+    use goodfetch_protocol::console::ConsoleState;
+
+    use super::start_console;
+
+    /// Covers: error:console_port_in_use
+    #[test]
+    #[expect(
+        clippy::doc_markdown,
+        reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+    )]
+    fn a_console_address_whose_port_another_listener_holds_fails_with_console_port_in_use() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let state = runtime.block_on(async {
+            let held = listen_console("127.0.0.1:0".parse().unwrap())
+                .await
+                .unwrap();
+            let address = held.local_address().unwrap().to_string();
+            start_console(&address).await.1
+        });
+
+        let code = match state {
+            ConsoleState::Failed(failure) => failure.code,
+            other => panic!("the Console started: {other:?}"),
+        };
+        assert_eq!(code, "console_port_in_use");
+    }
+}

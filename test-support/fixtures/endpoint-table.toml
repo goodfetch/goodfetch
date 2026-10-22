@@ -103,3 +103,24 @@ adrs = [50]
 
 [rule.probes_answer_status_only.listeners]
 ops_listener = { expect = "status_only" }
+
+[rule.csrf_token_missing]
+summary = "A signed-in `POST`, such as signing out, carries no CSRF token."
+adrs = [31, 67]
+
+[rule.csrf_token_missing.listeners]
+console = { expect = "status", status = 403 }
+
+[rule.sign_in_revoked]
+summary = "The cookie is of a sign-in that has ended: signed out, revoked or past its idle expiry."
+adrs = [31, 67]
+
+[rule.sign_in_revoked.listeners]
+console = { expect = "status", status = 401 }
+
+[rule.sign_in_rate_exceeded]
+summary = "The address tries to sign in an eleventh time in a minute, past `console.sign_in.rate`."
+adrs = [31, 67]
+
+[rule.sign_in_rate_exceeded.listeners]
+console = { expect = "status", status = 429 }

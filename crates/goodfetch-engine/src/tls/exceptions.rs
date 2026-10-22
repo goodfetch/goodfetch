@@ -241,6 +241,7 @@ impl PinBook {
             let audit = Arc::clone(&self.audit);
             let origin = Origin {
                 actor: Actor::Engine,
+                surface: None,
                 layer: None,
                 run_id: self.run_id.clone(),
             };

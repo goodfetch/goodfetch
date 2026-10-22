@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
-AuditKind: TypeAlias = Literal["certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pinned", "endpoint_authentication_failed", "exposed_daemon_set_up", "lent_page_attached", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "tls_terminated_upstream"] | str
+AuditKind: TypeAlias = Literal["certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pinned", "console_key_rotated", "endpoint_authentication_failed", "exposed_daemon_set_up", "lent_page_attached", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "sign_in_revoked", "signed_in", "tls_terminated_upstream"] | str
 """A `audit_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -17,6 +17,7 @@ received (ADR 0079).
 - `certificate_change_accepted`: A person accepted a pinned host's changed certificate, with both hashes (ADR 0042).
 - `certificate_exceptions_used`: The certificate exceptions a run used, once per run, by host and kind (ADR 0042).
 - `certificate_pinned`: A host's certificate was pinned on first use under its domain's exception, with the SHA-256 of its public key (ADR 0042).
+- `console_key_rotated`: The Console key was replaced, which ended every Console sign-in, with how many it ended.
 - `endpoint_authentication_failed`: A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`.
 - `exposed_daemon_set_up`: An Exposed Daemon's setup completed through its setup link (ADR 0049).
 - `lent_page_attached`: A page was lent to the program's own Playwright client (ADR 0089).
@@ -27,6 +28,8 @@ received (ADR 0079).
 - `security_switch_turned_off`: A security control was switched off for a run, once per run, with its setting and the layer that set it (ADR 0016).
 - `session_exported`: A Session was exported to an encrypted bundle.
 - `session_imported`: A Session was imported from an encrypted bundle.
+- `sign_in_revoked`: A Console sign-in was ended, by its person signing out or by `sign_in.revoke`, with its identifier.
+- `signed_in`: A person signed in to the Console, with the sign-in's identifier and how they proved who they are, such as the single-user link.
 - `tls_terminated_upstream`: An Exposed Daemon started with `daemon.tls.upstream`, TLS terminated in front of it (ADR 0049).
 """
 

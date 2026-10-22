@@ -30,6 +30,12 @@ const AUDIT_LOG_HEAD: &str = "audit-log-head.json";
 /// The known-certificates store, beside the Usage ledger (ADR 0042).
 const KNOWN_CERTIFICATES: &str = "known-certificates.sqlite";
 
+/// The per-major accounts store, beside the Operator policy (spec #592).
+const ACCOUNTS_STORE: &str = "accounts-store.sqlite";
+
+/// The Console key, outside the per-major folders (ADR 0098).
+const CONSOLE_KEY: &str = "console-key";
+
 /// One user's Goodfetch data folder, and the copy of the Browser cache
 /// `GOODFETCH_BROWSERS_PATH` names in place of its own, if any.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -114,6 +120,19 @@ impl Home {
     /// of both Products reads (ADR 0042).
     pub fn known_certificates(&self) -> PathBuf {
         self.root.join(KNOWN_CERTIFICATES)
+    }
+
+    /// The accounts store of the Product version `version`'s major, in its
+    /// per-major folder beside the Operator policy, which only that major's
+    /// Daemon opens (spec #592).
+    pub fn accounts_store(&self, version: &ProductVersion) -> PathBuf {
+        self.per_major(version).join(ACCOUNTS_STORE)
+    }
+
+    /// The per-user Console key, outside the per-major folders, which every
+    /// major shares (ADR 0098).
+    pub fn console_key(&self) -> PathBuf {
+        self.root.join(CONSOLE_KEY)
     }
 }
 

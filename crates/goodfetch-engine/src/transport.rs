@@ -504,6 +504,17 @@ impl ConsoleListener {
     }
 }
 
+impl ConsoleStream {
+    /// The address of the browser that opened it.
+    ///
+    /// # Errors
+    ///
+    /// When the OS cannot say.
+    pub(crate) fn peer_address(&self) -> io::Result<std::net::SocketAddr> {
+        self.0.peer_addr()
+    }
+}
+
 impl AsyncRead for ConsoleStream {
     fn poll_read(
         mut self: Pin<&mut Self>,

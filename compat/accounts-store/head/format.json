@@ -1,0 +1,54 @@
+{
+  "name": "accounts-store",
+  "schema": {
+    "$defs": {
+      "SignInRow": {
+        "description": "One sign-in as the accounts store keeps it: the schema of the\n`accounts-store` format. Never its cookie: the store keeps a verifier,\nan HMAC of the cookie under the Console key, so a stolen store signs\nnobody in and a rotated key ends every sign-in.",
+        "properties": {
+          "created": {
+            "arrived_in": "0.1",
+            "description": "When it was created, as RFC 3339.",
+            "type": "string"
+          },
+          "id": {
+            "arrived_in": "0.1",
+            "description": "Its identifier, the first part of its cookie.",
+            "type": "string"
+          },
+          "last_used": {
+            "arrived_in": "0.1",
+            "description": "When it was last used, as RFC 3339.",
+            "type": "string"
+          },
+          "person": {
+            "arrived_in": "0.1",
+            "description": "The person it signs in.",
+            "type": "string"
+          },
+          "verifier": {
+            "arrived_in": "0.1",
+            "description": "HMAC-SHA-256 of its cookie under the Console key, in hex.",
+            "type": "string"
+          },
+          "wrapping_key": {
+            "arrived_in": "0.1",
+            "description": "The key, in hex, that wraps the sign-in's offline cache key in the\nbrowser, which the Daemon unwraps only for its cookie (ADR 0031).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "verifier",
+          "person",
+          "created",
+          "last_used",
+          "wrapping_key"
+        ],
+        "type": "object"
+      }
+    },
+    "$ref": "#/$defs/SignInRow"
+  },
+  "storage": "sqlite",
+  "version": "0.1"
+}

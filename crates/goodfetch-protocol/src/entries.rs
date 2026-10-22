@@ -5,12 +5,12 @@
 use crate::catalog::{Entries, ErrorCodeDefinition, Operation, Product, SharedType};
 use crate::{
     audit, block, browser_cache, checkpoint, connection, console, daemon, dns, egress, engine,
-    events, executables, foxhound, key_value_store, log, ops, page, politeness, run, sample,
-    secrets, settings, tls, usage, versions,
+    events, executables, foxhound, key_value_store, log, ops, page, people, politeness, run,
+    sample, secrets, settings, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 33] = [
+pub const MODULES: [&Entries; 34] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &console::ENTRIES,
@@ -28,6 +28,7 @@ pub const MODULES: [&Entries; 33] = [
     &checkpoint::ENTRIES,
     &key_value_store::ENTRIES,
     &audit::ENTRIES,
+    &people::ENTRIES,
     &secrets::ENTRIES,
     &sample::ENTRIES,
     &settings::ENTRIES,
@@ -122,6 +123,9 @@ mod tests {
                 "key_value_store.delete",
                 "key_value_store.keys",
                 "audit.verify",
+                "sign_in.list",
+                "sign_in.revoke",
+                "console.rotate_key",
                 "sample.echo",
                 "config.explain",
                 "usage.list",
@@ -164,6 +168,9 @@ mod tests {
                 "key_value_store.delete",
                 "key_value_store.keys",
                 "audit.verify",
+                "sign_in.list",
+                "sign_in.revoke",
+                "console.rotate_key",
                 "sample.echo",
                 "config.explain",
                 "usage.list",

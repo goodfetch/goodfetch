@@ -69,7 +69,14 @@ impl ListenerKind {
                 protected_path: "/metrics",
             },
             Self::DaemonWebsocket => Transport::WebSocket,
-            Self::Console => Transport::SignedInWebSocket { path: "/protocol" },
+            Self::Console => Transport::SignedInWebSocket {
+                path: "/protocol",
+                sign_in: SignInRoutes {
+                    sign_in: "/sign-in",
+                    session: "/session",
+                    sign_out: "/sign-out",
+                },
+            },
         }
     }
 }
@@ -88,8 +95,23 @@ pub(super) enum Transport {
     WebSocket,
     /// JSON-RPC over a WebSocket at `path` whose handshake carries the
     /// token as a sign-in's cookie, and whose `hello` carries none (ADR
-    /// 0031): every token is refused at the handshake.
-    SignedInWebSocket { path: &'static str },
+    /// 0031): every token is refused at the handshake. Its sign-in routes
+    /// create, show and end sign-ins (spec #592).
+    SignedInWebSocket {
+        path: &'static str,
+        sign_in: SignInRoutes,
+    },
+}
+
+/// The HTTP routes of a listener whose sign-ins are cookies (spec #592).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct SignInRoutes {
+    /// `POST`: swaps the sign-in link's token, the body, for a cookie.
+    pub(super) sign_in: &'static str,
+    /// `GET`: the sign-in's CSRF token, as `{"csrf_token": "…"}`.
+    pub(super) session: &'static str,
+    /// `POST`, with the CSRF token: ends the sign-in.
+    pub(super) sign_out: &'static str,
 }
 
 /// A refusal rule: a row of the endpoint table, which the runner knows how
@@ -126,6 +148,14 @@ pub enum Rule {
     HelloNotFirst,
     /// The ops listener's probes answer with a status and no body.
     ProbesAnswerStatusOnly,
+    /// A signed-in `POST` carries no CSRF token.
+    CsrfTokenMissing,
+    /// The cookie is of a sign-in that has ended: signed out or revoked.
+    SignInRevoked,
+    /// The address tries to sign in more often than the listener's rate
+    /// allows: the eleventh attempt in a minute. Last in the table, since
+    /// the address's next attempts in that minute are refused too.
+    SignInRateExceeded,
 }
 
 impl Rule {
@@ -136,8 +166,10 @@ impl Rule {
             transport,
             Transport::WebSocket | Transport::SignedInWebSocket { .. }
         );
+        let sign_ins = matches!(transport, Transport::SignedInWebSocket { .. });
         match self {
             Self::TokenMissing | Self::TokenWrong | Self::TokenFromAnotherListener => true,
+            Self::CsrfTokenMissing | Self::SignInRevoked | Self::SignInRateExceeded => sign_ins,
             Self::TokenInQueryString | Self::HostForeign | Self::OriginForeign => http || websocket,
             Self::ProbesAnswerStatusOnly => http,
             Self::OriginMissing => websocket,

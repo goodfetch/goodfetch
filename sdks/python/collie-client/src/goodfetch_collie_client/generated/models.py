@@ -144,6 +144,24 @@ class ConsoleFailure(BaseModel):
     """What happened."""
 
 
+class ConsoleKeyRotated(BaseModel):
+    """What `console.rotate_key` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    signed_out: Annotated[int, Field(ge=0)]
+    """How many sign-ins it ended: every one."""
+
+
+class ConsoleRotateKeyParams(BaseModel):
+    """What `console.rotate_key` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
 class ConsoleState1(BaseModel):
     """The Console is served at this URL, such as `http://127.0.0.1:7801/`."""
 
@@ -1061,6 +1079,56 @@ class SettingsLayer(StrEnum):
     """
     The run: a program's settings, a call's argument, a CLI flag or an
     Integration's form.
+    """
+
+
+class SignInListParams(BaseModel):
+    """What `sign_in.list` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class SignInRevokeParams(BaseModel):
+    """What `sign_in.revoke` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    """The sign-in's identifier, as `sign_in.list` gives it."""
+
+
+class SignInRevoked(BaseModel):
+    """What `sign_in.revoke` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    revoked: bool
+    """
+    Whether a sign-in ended: `false` when none had that identifier, or
+    it had already ended.
+    """
+
+
+class SignInSummary(BaseModel):
+    """One sign-in, as `sign_in.list` shows it: never its cookie."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    created: PointInTime
+    """When it was created."""
+    id: str
+    """Its identifier, which `sign_in.revoke` takes."""
+    last_used: PointInTime
+    """When it was last used, from which its idle expiry counts."""
+    person: str
+    """
+    The person it signs in, by the name their account or OS user goes
+    by.
     """
 
 
@@ -2151,6 +2219,16 @@ class SettingsFile(BaseModel):
     """Its layer."""
     path: str
     """Its path."""
+
+
+class SignInList(BaseModel):
+    """What `sign_in.list` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    sign_ins: list[SignInSummary]
+    """Every sign-in that has not ended, oldest first."""
 
 
 class StopReason1(BaseModel):

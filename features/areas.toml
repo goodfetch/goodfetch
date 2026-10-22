@@ -764,16 +764,6 @@ prefix = "locator."
 [[area]]
 number = 11
 kind = "command"
-prefix = "route."
-
-[[area]]
-number = 11
-kind = "command"
-prefix = "session."
-
-[[area]]
-number = 11
-kind = "command"
 prefix = "key-value-store."
 
 # Area 8, Stealth and Challenge solving (specs #599 and #600): every Block

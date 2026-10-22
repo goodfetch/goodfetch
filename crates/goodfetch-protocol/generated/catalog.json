@@ -1637,7 +1637,7 @@
         "$ref": "#/$defs/PageRouteParams"
       },
       "product": "collie",
-      "reach": "all_surfaces",
+      "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/RouteEnded"
       },
@@ -1656,7 +1656,7 @@
         "$ref": "#/$defs/RouteAbortParams"
       },
       "product": "collie",
-      "reach": "all_surfaces",
+      "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/RouteAnswered"
       },
@@ -1675,7 +1675,7 @@
         "$ref": "#/$defs/RouteOverridesParams"
       },
       "product": "collie",
-      "reach": "all_surfaces",
+      "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/RouteAnswered"
       },
@@ -1694,7 +1694,7 @@
         "$ref": "#/$defs/RouteOverridesParams"
       },
       "product": "collie",
-      "reach": "all_surfaces",
+      "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/RouteAnswered"
       },
@@ -1713,7 +1713,7 @@
         "$ref": "#/$defs/RouteOverridesParams"
       },
       "product": "collie",
-      "reach": "all_surfaces",
+      "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/RouteFetched"
       },
@@ -1732,7 +1732,7 @@
         "$ref": "#/$defs/RouteFulfillParams"
       },
       "product": "collie",
-      "reach": "all_surfaces",
+      "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/RouteAnswered"
       },
@@ -2111,7 +2111,7 @@
         "$ref": "#/$defs/SessionRouteParams"
       },
       "product": "collie",
-      "reach": "all_surfaces",
+      "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/RouteEnded"
       },

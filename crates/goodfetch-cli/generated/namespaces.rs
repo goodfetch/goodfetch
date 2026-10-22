@@ -32,16 +32,6 @@
         about: "Calls the catalog's `locator` operations",
     },
     Namespace {
-        name: "session",
-        spelled: "session",
-        about: "Calls the catalog's `session` operations",
-    },
-    Namespace {
-        name: "route",
-        spelled: "route",
-        about: "Calls the catalog's `route` operations",
-    },
-    Namespace {
         name: "key_value_store",
         spelled: "key-value-store",
         about: "Calls the catalog's `key_value_store` operations",

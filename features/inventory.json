@@ -418,72 +418,6 @@
       ]
     },
     {
-      "id": "command:page.route",
-      "kind": "command",
-      "area": 11,
-      "milestone": null,
-      "status": "active",
-      "products": [
-        "collie",
-        "foxhound"
-      ]
-    },
-    {
-      "id": "command:route.abort",
-      "kind": "command",
-      "area": 11,
-      "milestone": null,
-      "status": "active",
-      "products": [
-        "collie",
-        "foxhound"
-      ]
-    },
-    {
-      "id": "command:route.continue",
-      "kind": "command",
-      "area": 11,
-      "milestone": null,
-      "status": "active",
-      "products": [
-        "collie",
-        "foxhound"
-      ]
-    },
-    {
-      "id": "command:route.fallback",
-      "kind": "command",
-      "area": 11,
-      "milestone": null,
-      "status": "active",
-      "products": [
-        "collie",
-        "foxhound"
-      ]
-    },
-    {
-      "id": "command:route.fetch",
-      "kind": "command",
-      "area": 11,
-      "milestone": null,
-      "status": "active",
-      "products": [
-        "collie",
-        "foxhound"
-      ]
-    },
-    {
-      "id": "command:route.fulfill",
-      "kind": "command",
-      "area": 11,
-      "milestone": null,
-      "status": "active",
-      "products": [
-        "collie",
-        "foxhound"
-      ]
-    },
-    {
       "id": "command:run.abort",
       "kind": "command",
       "area": 11,
@@ -606,17 +540,6 @@
     },
     {
       "id": "command:sample.echo",
-      "kind": "command",
-      "area": 11,
-      "milestone": null,
-      "status": "active",
-      "products": [
-        "collie",
-        "foxhound"
-      ]
-    },
-    {
-      "id": "command:session.route",
       "kind": "command",
       "area": 11,
       "milestone": null,

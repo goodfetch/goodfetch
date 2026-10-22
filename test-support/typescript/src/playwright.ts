@@ -12,6 +12,9 @@
 //   `document.cookie`.
 // - `failOnErrors`, on in every test: fails it when a page logged a
 //   `console` error, threw, broke the CSP or had a same-origin request fail.
+//   A test tool's known issue, which `known-issues.ts` tolerates around the
+//   one action that raises it, fails nothing and is attached as
+//   `known-issues`.
 // - `coversKnownFeatures`, on in every test: fails it when a `covers`
 //   annotation names a Feature the inventory does not list (ADR 0072).
 // - `translationEmulation`, an option off by default: adds the
@@ -84,9 +87,11 @@ export { reflow } from "./reflow.ts";
 export { emulateTranslation } from "./translation.ts";
 export {
   watchPageErrors,
+  type KnownIssue,
   type PageError,
   type PageErrorKind,
   type PageErrorWatch,
+  type ToleratedError,
 } from "./page-errors.ts";
 export { focusChecks, keyboardWalk, type FocusStop } from "./focus.ts";
 export {
@@ -222,10 +227,20 @@ export const test: TestType<
     await use(request);
   },
   failOnErrors: [
-    async ({ context }, use) => {
+    async ({ context }, use, testInfo) => {
       const watch = await watchPageErrors(context);
       await use(watch);
-      await watch.check();
+      try {
+        await watch.check();
+      } finally {
+        // A known issue's errors fail nothing, but stay in the report.
+        if (watch.tolerated.length > 0) {
+          await testInfo.attach("known-issues", {
+            body: JSON.stringify(watch.tolerated, null, 2),
+            contentType: "application/json",
+          });
+        }
+      }
     },
     { auto: true },
   ],

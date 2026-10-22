@@ -106,8 +106,7 @@ function exceptionAt(entry: unknown, position: number): AxeException {
 /** Whether `pattern` is a URL path pattern `URLPattern` reads. */
 function isPathPattern(pattern: string): boolean {
   try {
-    new URLPattern({ pathname: pattern });
-    return true;
+    return new URLPattern({ pathname: pattern }) instanceof URLPattern;
   } catch {
     return false;
   }

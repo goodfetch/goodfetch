@@ -15,10 +15,17 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tokio::sync::watch;
 
-use super::run::{call, index_row};
-use super::{Client, dependencies, engine};
-use crate::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Holds, Succession};
+use std::collections::BTreeMap;
+
+use goodfetch_protocol::run::{RunId, RunKind, Tags};
+use tokio_util::sync::CancellationToken;
+
+use super::run::{call, index_row, run_folder, run_row};
+use super::{Client, attached_on, dependencies, engine, engine_with};
+use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use crate::engine::Engine;
+use crate::runs::{EndedBy, Start, Started};
 use crate::transport::{self, InMemoryDialer, Network};
 
 const TOKEN: &str = "the-launch-token";
@@ -66,6 +73,7 @@ fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
             handovers: Arc::clone(handovers),
         }),
         console: DaemonConsole::Absent,
+        drain: None,
     }
 }
 
@@ -510,5 +518,161 @@ fn a_daemon_not_the_pick_hands_over_once_only_a_console_is_left() {
             matches!(end, DaemonEnd::HandedOver(_))
         ),
         (true, 1, true)
+    );
+}
+
+/// Starts a Run its driver ends, which reaches no safe point: its task
+/// never ends, even cancelled, as one whose last write outlasts the drain
+/// grace.
+const STUCK: goodfetch_protocol::catalog::Operation = goodfetch_protocol::catalog::Operation {
+    name: "test.stuck",
+    description: "Starts a Run that reaches no safe point.",
+    class: goodfetch_protocol::catalog::OperationClass::Effect,
+    kind: goodfetch_protocol::catalog::OperationKind::RoundTrip,
+    reach: goodfetch_protocol::catalog::Reach::AllSurfaces,
+    params: goodfetch_protocol::catalog::schema_of::<Value>,
+    result: goodfetch_protocol::catalog::schema_of::<Value>,
+    events: &[],
+    cancellable: false,
+    stability: goodfetch_protocol::catalog::Stability::Experimental,
+    deprecated: None,
+    arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
+fn stuck() -> Contribution {
+    Contribution::new("test-stuck").with_handler(Handler::new(
+        &STUCK,
+        |params: Value, context: CallContext| async move {
+            let started = context
+                .runs()
+                .start(Start {
+                    run_id: Some(RunId::parse(params["run_id"].as_str().unwrap()).unwrap()),
+                    tags: Tags::default(),
+                    kind: RunKind::Collie,
+                    needs: Product::Collie,
+                    inputs: BTreeMap::new(),
+                    ended_by: EndedBy::Driver,
+                    initialize: None,
+                    policy_version: None,
+                    weakened_by: Vec::new(),
+                    binding: None,
+                    clean_up_digest: None,
+                    checkpoint_interval: None,
+                    timeout: None,
+                    settings: None,
+                })
+                .await
+                .unwrap();
+            let Started::New(run) = started else {
+                panic!("the Run began before");
+            };
+            run.spawn(std::future::pending());
+            Ok::<Value, CallError>(json!({ "run_id": run.id().to_string() }))
+        },
+    ))
+}
+
+/// The pick, kept alive as `daemon run` is, draining once `asked` is
+/// cancelled, with the default drain grace.
+fn draining(asked: &CancellationToken) -> DaemonOptions {
+    DaemonOptions {
+        keep_alive: true,
+        drain: Some(Drain {
+            asked: asked.clone(),
+            grace: Duration::from_secs(110),
+        }),
+        ..the_pick()
+    }
+}
+
+/// `run.resume` of `run_id` on an Attached engine in `env`: how it
+/// started.
+fn resumed(engine: &Engine, env: &TestEnv, run_id: &str) -> Value {
+    attached_on(engine, env, |mut client| async move {
+        client.send(&[super::hello("collie", "0.1")]).await;
+        let _ = client.next().await;
+        let resumed = call(&mut client, 1, "run.resume", json!({ "run_id": run_id })).await;
+        resumed["result"]["started_as"].clone()
+    })
+}
+
+/// On `SIGTERM`, `daemon run` drains (ADR 0049): each live Run stops at its
+/// next safe point with a Checkpoint, `stopped` for the drain and
+/// resumable by its Run ID on the next start, and the Daemon ends.
+///
+/// Covers: story:3-99, operation:run.resume
+#[test]
+fn a_drained_daemon_stops_each_live_run_with_a_checkpoint_resumable_by_its_run_id() {
+    let env = TestEnv::new();
+    let engine = engine(Product::Collie);
+    let asked = CancellationToken::new();
+
+    let (end, closed) = daemon(&engine, &env, draining(&asked), |dialer| async move {
+        let mut client = opened(&dialer, cli_hello()).await;
+        call(&mut client, 1, "run.start", json!({ "run_id": "drained" })).await;
+        asked.cancel();
+        client.next().await.is_none()
+    });
+
+    let folder = run_folder(&env, "drained");
+    let stopped = run_row(&folder);
+    assert_eq!(
+        (
+            format!("{end:?}"),
+            closed,
+            stopped["lifecycle"].clone(),
+            stopped["stop_reason"].clone(),
+            folder.join("checkpoint.sqlite").is_file(),
+            resumed(&engine, &env, "drained"),
+        ),
+        (
+            "Drained".to_owned(),
+            true,
+            json!("stopped"),
+            json!({ "kind": "drain" }),
+            true,
+            json!("resumed"),
+        )
+    );
+}
+
+/// A draining Daemon takes no run, starting or resuming, and ends once its
+/// drain grace passes on its `Clock`; a Run that reached no safe point by
+/// then stays `running`, resumable from its run file (ADR 0049).
+///
+/// Covers: story:3-99, error:daemon_draining
+#[test]
+fn a_draining_daemon_refuses_runs_and_ends_at_its_grace_leaving_a_stuck_run_resumable() {
+    let env = TestEnv::new();
+    let engine = engine_with(Product::Collie, Some(stuck()));
+    let asked = CancellationToken::new();
+
+    let (end, refusals) = daemon(&engine, &env, draining(&asked), |dialer| async move {
+        let mut client = opened(&dialer, cli_hello()).await;
+        call(&mut client, 1, "test.stuck", json!({ "run_id": "stuck" })).await;
+        asked.cancel();
+        // The drain began, and waits for the stuck Run.
+        tokio::time::sleep(MINUTE).await;
+        let started = call(&mut client, 2, "run.start", json!({ "run_id": "late" })).await;
+        let resumed = call(&mut client, 3, "run.resume", json!({ "run_id": "stuck" })).await;
+        while client.next().await.is_some() {}
+        [started, resumed].map(|refused| refused["error"]["data"]["code"].clone())
+    });
+
+    assert_eq!(
+        (
+            format!("{end:?}"),
+            refusals,
+            run_row(&run_folder(&env, "stuck"))["lifecycle"].clone(),
+            run_folder(&env, "late").exists(),
+            resumed(&engine, &env, "stuck"),
+        ),
+        (
+            "Drained".to_owned(),
+            [json!("daemon_draining"), json!("daemon_draining")],
+            json!("running"),
+            false,
+            json!("resumed"),
+        )
     );
 }

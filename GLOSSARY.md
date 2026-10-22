@@ -146,6 +146,18 @@ _Avoid_: unstable, nursery
 Turning a page or a response into structured data or clean content.
 _Avoid_: scraping, scraper
 
+**Main content**:
+The part of a page's document a person reads it for, without its navigation, asides, banner and footer; a page with only those has none, a value and never an error.
+_Avoid_: article body, boilerplate-free text
+
+**Extractor**:
+What finds a document's Main content: dom-smoothie by default, trafilatura, or an Extractor Plugin; the step every page format reads the Main content through.
+_Avoid_: content extractor
+
+**Page formats**:
+What `page.formats` answers from one serialization of a page's document: each format the request names, such as its Main content as Markdown, and none it does not.
+_Avoid_: scrape formats, outputs
+
 **Crawl**:
 Discovering and visiting many pages from seeds, within a declared scope.
 _Avoid_: scraping, spidering, scraper
@@ -314,6 +326,10 @@ _Avoid_: rate limiting, throttling
 The optional store through which engines on several machines share Politeness.
 _Avoid_: rate limiter, Redis
 
+**Permit**:
+One request in flight under a Politeness key, such as a domain key, that an engine takes from the per-user Politeness file before the request starts and gives back once it ended, recording the run and run epoch that hold it, so the count in flight is every sharing run's together.
+_Avoid_: token, slot, lease (a Lease is a work item's)
+
 **Completeness**:
 A run's statement of whether its results cover everything in scope: complete, incomplete (ended early) or unverified (finished, but the engine cannot vouch that nothing was missed).
 _Avoid_: success, done, finished (for coverage)
@@ -417,6 +433,14 @@ _Avoid_: session recording, replay (for the recording), video
 **Gesture**:
 A call that sends input to a page or navigates it, such as a click, a key press or a navigation; the engine runs one page's gestures one at a time.
 _Avoid_: interaction, command (for a gesture)
+
+**Locator**:
+What a page action looks for on a page, such as a CSS selector, resolved again at each use and never a handle on an element; an action needs it to match exactly one element.
+_Avoid_: element handle, query, selector (for the value)
+
+**Guard**:
+The engine's check of each locator action: it waits until the target is unique and actionable (visible, enabled, stable and receiving the event, as the action needs), cancels a gesture that lands on another element and replays it, until the action's timeout.
+_Avoid_: actionability check, auto-wait
 
 **Page check**:
 A declaration by a run's code of what an expected page and a login page look like, against which every page fetched in a session is judged.

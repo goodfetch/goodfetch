@@ -203,10 +203,15 @@ impl RawClient {
     }
 
     /// The next message, or `None` once the Daemon closed the Connection.
-    fn next(&mut self) -> Option<Value> {
+    pub(crate) fn next(&mut self) -> Option<Value> {
         let mut line = String::new();
-        (self.reader.read_line(&mut line).unwrap() > 0)
-            .then(|| serde_json::from_str(&line).unwrap())
+        let read = self.reader.read_line(&mut line).unwrap_or(0);
+        (read > 0).then(|| serde_json::from_str(&line).unwrap())
+    }
+
+    /// Sends `message` unless the Daemon closed the Connection already.
+    pub(crate) fn try_send(&mut self, message: &Value) {
+        let _ = writeln!(self.writer, "{message}").and_then(|()| self.writer.flush());
     }
 
     pub(crate) fn call(&mut self, id: i64, method: &str, params: &Value) -> Value {

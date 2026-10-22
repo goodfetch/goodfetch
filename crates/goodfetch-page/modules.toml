@@ -2,16 +2,26 @@
 [modules]
 driver = ["errors", "launch", "trace"]
 errors = []
+guard = ["driver"]
 launch = []
-pages = ["driver"]
+pages = ["driver", "guard"]
 robots_txt = []
 trace = []
 url_pattern = []
 
 # Which of `driver`'s own modules may import which.
 [submodules.driver]
+identity = []
 navigation = []
+world = []
 
 # Which of `launch`'s own modules may import which.
 [submodules.launch]
+arguments = []
 pipe = []
+
+# Which of `guard`'s own modules may import which.
+[submodules.guard]
+check = []
+keys = []
+target = []

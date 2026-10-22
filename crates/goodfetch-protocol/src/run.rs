@@ -332,6 +332,10 @@ pub enum StopReason {
     /// Its `timeout.run` passed, and it stopped at its next safe point,
     /// resumable with a fresh clock (ADR 0080); no Error code of its own.
     Timeout,
+    /// Its foreground Daemon drained on `SIGTERM`: checkpointed and
+    /// stopped, to be resumed by its Run ID on the Daemon's next start
+    /// (ADR 0049).
+    Drain,
     /// It could not take another Slice of a Limit, and stopped at its next
     /// safe point, resumable once the period starts again or a person
     /// raises the Limit (ADR 0041).

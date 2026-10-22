@@ -436,6 +436,17 @@ impl Selection {
     pub(crate) fn job_ids(&self) -> impl Iterator<Item = &'static str> {
         self.jobs.iter().map(|job| job.id())
     }
+
+    /// What the local gate runs (ADR 0135): `quick` when the change selects
+    /// no job but the docs', so no test, benchmark, model, container or
+    /// Evaluation reads it, else `full`.
+    fn gate(&self) -> &'static str {
+        if self.jobs.iter().all(|job| *job == Job::Docs) {
+            "quick"
+        } else {
+            "full"
+        }
+    }
 }
 
 impl fmt::Display for Selection {
@@ -491,6 +502,7 @@ impl fmt::Display for Selection {
             formatter,
             "models={}",
             joined(self.models.iter().map(String::as_str))
-        )
+        )?;
+        writeln!(formatter, "gate={}", self.gate())
     }
 }

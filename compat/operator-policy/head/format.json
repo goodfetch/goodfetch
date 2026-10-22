@@ -107,10 +107,52 @@
           "daemon": {
             "additionalProperties": false,
             "properties": {
+              "drain_grace": {
+                "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "idle_timeout": {
                 "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                 "minimum": 0,
                 "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "politeness": {
+            "additionalProperties": false,
+            "properties": {
+              "domain": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1."
+                  },
+                  "delay": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                  }
+                },
+                "type": "object"
               }
             },
             "type": "object"
@@ -145,6 +187,11 @@
           "timeout": {
             "additionalProperties": false,
             "properties": {
+              "action": {
+                "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "first_byte": {
                 "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,
@@ -202,6 +249,16 @@
             },
             "type": "object"
           },
+          "browser": {
+            "additionalProperties": false,
+            "properties": {
+              "headless": {
+                "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
           "browser_cache": {
             "additionalProperties": false,
             "properties": {
@@ -310,6 +367,15 @@
           "daemon": {
             "additionalProperties": false,
             "properties": {
+              "address": {
+                "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                "type": "string"
+              },
+              "drain_grace": {
+                "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "idle_timeout": {
                 "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                 "minimum": 0,
@@ -411,6 +477,51 @@
             },
             "type": "object"
           },
+          "politeness": {
+            "additionalProperties": false,
+            "properties": {
+              "domain": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1."
+                  },
+                  "delay": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                  }
+                },
+                "type": "object"
+              },
+              "sharing": {
+                "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+                "enum": [
+                  "shared",
+                  "per_daemon",
+                  "run"
+                ]
+              }
+            },
+            "type": "object"
+          },
           "resolver": {
             "additionalProperties": false,
             "properties": {
@@ -485,6 +596,11 @@
           "timeout": {
             "additionalProperties": false,
             "properties": {
+              "action": {
+                "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "first_byte": {
                 "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,
@@ -542,6 +658,16 @@
                 },
                 "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
                 "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "version": {
+            "additionalProperties": false,
+            "properties": {
+              "age_notice": {
+                "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+                "type": "boolean"
               }
             },
             "type": "object"
@@ -586,6 +712,13 @@
         },
         "type": "object"
       },
+      "lowest_minor": {
+        "arrived_in": "0.1",
+        "description": "The lowest minor of its Product major that can use it (ADR 0098); 0 when absent. A project's configuration ignores it.",
+        "maximum": 65535,
+        "minimum": 0,
+        "type": "integer"
+      },
       "settings": {
         "additionalProperties": false,
         "arrived_in": "0.1",
@@ -605,6 +738,16 @@
                   }
                 ],
                 "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+              }
+            },
+            "type": "object"
+          },
+          "browser": {
+            "additionalProperties": false,
+            "properties": {
+              "headless": {
+                "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+                "type": "boolean"
               }
             },
             "type": "object"
@@ -717,6 +860,15 @@
           "daemon": {
             "additionalProperties": false,
             "properties": {
+              "address": {
+                "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                "type": "string"
+              },
+              "drain_grace": {
+                "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "idle_timeout": {
                 "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                 "minimum": 0,
@@ -818,6 +970,51 @@
             },
             "type": "object"
           },
+          "politeness": {
+            "additionalProperties": false,
+            "properties": {
+              "domain": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1."
+                  },
+                  "delay": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                  }
+                },
+                "type": "object"
+              },
+              "sharing": {
+                "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+                "enum": [
+                  "shared",
+                  "per_daemon",
+                  "run"
+                ]
+              }
+            },
+            "type": "object"
+          },
           "resolver": {
             "additionalProperties": false,
             "properties": {
@@ -892,6 +1089,11 @@
           "timeout": {
             "additionalProperties": false,
             "properties": {
+              "action": {
+                "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "first_byte": {
                 "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,
@@ -949,6 +1151,16 @@
                 },
                 "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
                 "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "version": {
+            "additionalProperties": false,
+            "properties": {
+              "age_notice": {
+                "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+                "type": "boolean"
               }
             },
             "type": "object"

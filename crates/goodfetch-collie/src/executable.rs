@@ -3,14 +3,19 @@
 //! codes, and one start, from the composition and Product its `main` passes.
 //! Today the command line holds `--version`, the hidden Attached-engine
 //! entry, which an SDK starts, `browsers install`, `browsers clean`,
-//! `config explain`, `daemon start|stop|restart|status|install|uninstall|rotate-token`,
+//! `config explain`, `daemon start|stop|restart|status|install|uninstall|rotate-token|run`,
 //! with the hidden `daemon launched` a start or the installed service
-//! runs, and `runs reindex`, beside the commands `goodfetch-cli` generates
+//! runs, `runs reindex` and `upgrade-files`, beside the commands `goodfetch-cli` generates
 //! from the catalog for every other namespace, such as `run start` and
 //! `engine info`, and the global `--color auto|always|never`; the CLI's
 //! other commands join with area 11. Every
 //! command but `daemon launched` first records the executable in the list
 //! of installed executables (ADR 0098).
+//!
+//! An executable more than three months past its release date prints the
+//! age notice on stderr before its command, once a day, unless
+//! `version.age_notice` is `false` (ADR 0030); a Daemon a start launched
+//! has no terminal and prints none.
 //!
 //! `main` reads the environment once and passes the map (ADR 0059); every
 //! `GOODFETCH_` variable in it must be a deployment variable, or the
@@ -19,7 +24,8 @@
 //!
 //! Logs go to stderr through the `tracing` subscriber, filtered by
 //! `GOODFETCH_LOG` in `EnvFilter`'s syntax (`info` when unset); stdout is
-//! the protocol's alone (STYLE.md). With `GOODFETCH_LOG_OUTPUT=file` they
+//! the protocol's alone (STYLE.md), but in `daemon run`, the foreground
+//! Daemon, whose logs are JSON lines on stdout (ADR 0049). With `GOODFETCH_LOG_OUTPUT=file` they
 //! also go, as JSON lines, to a file of its own in the Goodfetch home's log
 //! folder, which test support turns on for ADR 0072's exercise audit (ADR
 //! 0122). Both variables stand in for the `log.*` settings until the engine
@@ -38,8 +44,9 @@ use std::sync::Arc;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use goodfetch_cli::generated::{Call, Generated};
-use goodfetch_cli::output::{ColourChoice, Human};
+use goodfetch_cli::output::{self, ColourChoice, Human};
 use goodfetch_cli::settings_flags::SettingsFlags;
+use goodfetch_engine::age_notice::AgeNotice;
 use goodfetch_engine::browser_cache::BROWSERS_PATH_VARIABLE;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
@@ -60,6 +67,7 @@ mod config;
 mod daemon;
 mod runs;
 mod service;
+mod upgrade;
 
 /// The variable that filters the logs, in `EnvFilter`'s syntax.
 pub const LOG_VARIABLE: &str = "GOODFETCH_LOG";
@@ -119,6 +127,18 @@ enum Command {
     Runs {
         #[command(subcommand)]
         command: RunsCommand,
+    },
+    /// Gives this executable's major its own copy of an older major's
+    /// settings, Operator policy, Run index and runs in Goodfetch home,
+    /// never changing the older major's files.
+    UpgradeFiles {
+        /// The older major to upgrade from, such as `1` or `0.4`; the
+        /// newest older major Goodfetch home holds when not given.
+        #[arg(long, value_name = "MAJOR")]
+        from: Option<String>,
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -189,6 +209,16 @@ enum DaemonCommand {
         /// Prints the result as JSON.
         #[arg(long)]
         json: bool,
+    },
+    /// Runs the Daemon in the foreground, for Docker, Kubernetes and
+    /// systemd: as this executable's Product, listening on
+    /// `daemon.address`, with no runtime file and no idle stop, logging
+    /// JSON lines to stdout; on `SIGTERM` it takes no run, checkpoints each
+    /// run as resumable and exits within `daemon.drain_grace`.
+    Run {
+        /// Runs under the reaper of a `daemon run` on Linux, which started it.
+        #[arg(long, hide = true)]
+        reaped: bool,
     },
     /// Runs as the Daemon a start or the installed service launched, from a
     /// versioned copy.
@@ -264,6 +294,10 @@ pub struct Start {
     pub product: Product,
     /// Its Product version, its crate's `CARGO_PKG_VERSION`.
     pub version: &'static str,
+    /// Its release date, `YYYY-MM-DD`, which a release build records in
+    /// `GOODFETCH_RELEASE_DATE`; none for any other build, which then never
+    /// prints the age notice (ADR 0030).
+    pub release_date: Option<&'static str>,
     /// Builds its composition, which [`main`] calls only once a command
     /// starts the engine, so `--version` and the help never build it.
     pub composition: fn() -> Composition,
@@ -284,6 +318,7 @@ pub struct Start {
 /// let exit_code = main(&Start {
 ///     product: Product::Collie,
 ///     version: env!("CARGO_PKG_VERSION"),
+///     release_date: None,
 ///     composition: goodfetch_collie::composition,
 ///     arguments: vec!["goodfetch-collie".into(), "--version".into()],
 ///     environment: Default::default(),
@@ -321,18 +356,11 @@ pub fn main(start: &Start) -> ExitCode {
     let human = Human::new(colour, &environment);
     let home = home(&environment);
     let filter = environment.get(OsStr::new(LOG_VARIABLE));
-    // A Daemon a start launched has no terminal: it logs to its file
-    // (ADR 0122).
-    let launched = matches!(
-        parsed,
-        Parsed::HandWritten(Command::Daemon {
-            command: DaemonCommand::Launched { .. }
-        })
-    );
+    let (launched, to) = logs_of(&parsed);
     match log_file(&binary, &environment, home.as_ref(), launched) {
-        Ok(file) => install_logs(filter, file),
+        Ok(file) => install_logs(filter, file, to),
         Err(problem) => {
-            install_logs(filter, None);
+            install_logs(filter, None, to);
             tracing::error!(%problem, "the logs cannot go where {LOG_OUTPUT_VARIABLE} says");
             return ExitCode::FAILURE;
         }
@@ -370,6 +398,9 @@ pub fn main(start: &Start) -> ExitCode {
         tracing::error!("no Goodfetch home: set GOODFETCH_HOME, or a home folder the OS knows");
         return ExitCode::FAILURE;
     };
+    if !launched {
+        age_notice(start.release_date, &home, engine.identity());
+    }
     let entropy = match Entropy::from_os() {
         Ok(entropy) => entropy,
         Err(error) => {
@@ -384,6 +415,7 @@ pub fn main(start: &Start) -> ExitCode {
         blocking: BlockingPolicy::Threads,
         run_state_location: RunStateLocation::PerMajor,
         run_state: RunStateOptions::default(),
+        politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
     };
     run(
         parsed,
@@ -493,6 +525,7 @@ fn run(
             DaemonCommand::Install { json } => service::install(&machine, json),
             DaemonCommand::Uninstall { json } => service::uninstall(&machine, json),
             DaemonCommand::RotateToken { json } => service::rotate_token(&machine, json),
+            DaemonCommand::Run { reaped } => daemon::run(engine, dependencies, &machine, reaped),
             DaemonCommand::Launched {
                 copy,
                 keep_alive,
@@ -515,6 +548,9 @@ fn run(
                 return ExitCode::FAILURE;
             };
             runs::reindex(engine.identity(), &home, &folder, paths, json)
+        }
+        Command::UpgradeFiles { from, json } => {
+            upgrade::upgrade(engine.identity(), &home, from.as_deref(), json)
         }
     }
 }
@@ -551,6 +587,20 @@ fn config_explain(
         machine.home,
         &request,
     )
+}
+
+/// Prints the age notice on stderr when it is due for an executable
+/// released on `release_date` (ADR 0030).
+fn age_notice(release_date: Option<&str>, home: &Home, identity: &Identity) {
+    let Some(released) = release_date.and_then(|date| date.parse::<jiff::civil::Date>().ok())
+    else {
+        return;
+    };
+    match AgeNotice::new(home, identity.clone()).due(released, Clock::system().wall()) {
+        Ok(Some(line)) => output::note(&line),
+        Ok(None) => {}
+        Err(error) => tracing::debug!(%error, "the age notice was not recorded"),
+    }
 }
 
 /// The Goodfetch home: `GOODFETCH_HOME` when it is set, the `goodfetch`
@@ -662,18 +712,61 @@ fn log_file(
     }
 }
 
-/// Installs the `tracing` subscriber: text on stderr, and JSON lines in
-/// `file` when there is one, both filtered by `filter`.
-fn install_logs(filter: Option<&OsString>, file: Option<File>) {
+/// Where `parsed`'s logs go: whether to their file by default, as a Daemon
+/// a start launched does, which has no terminal (ADR 0122); and to stdout
+/// as JSON lines, as the foreground Daemon does, whose stdout no protocol
+/// uses (ADR 0049), or to stderr.
+fn logs_of(parsed: &Parsed) -> (bool, LogsTo) {
+    match parsed {
+        Parsed::HandWritten(Command::Daemon {
+            command: DaemonCommand::Launched { .. },
+        }) => (true, LogsTo::Stderr),
+        Parsed::HandWritten(Command::Daemon {
+            command: DaemonCommand::Run { .. },
+        }) => (false, LogsTo::StdoutAsJson),
+        _ => (false, LogsTo::Stderr),
+    }
+}
+
+/// Where the logs go besides their file.
+#[derive(Clone, Copy)]
+enum LogsTo {
+    /// Text on stderr: every command but `daemon run`.
+    Stderr,
+    /// JSON lines on stdout: `daemon run` (ADR 0049).
+    StdoutAsJson,
+}
+
+/// Installs the `tracing` subscriber: text on stderr, or JSON lines on
+/// stdout as `to` says, and JSON lines in `file` when there is one, all
+/// filtered by `filter`.
+fn install_logs(filter: Option<&OsString>, file: Option<File>, to: LogsTo) {
     let filter = filter
         .and_then(|filter| filter.to_str())
         .and_then(|filter| tracing_subscriber::EnvFilter::try_new(filter).ok())
         .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("info"));
     #[expect(
         clippy::disallowed_methods,
-        reason = "the tracing subscriber's writer is one of the three writers of stderr (STYLE.md)"
+        reason = "the tracing subscriber's writer is one of the three writers of stderr and, in `daemon run`, of stdout (STYLE.md)"
     )]
-    let writer = std::io::stderr;
+    let (text, json) = match to {
+        LogsTo::Stderr => (
+            Some(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(std::io::stderr)
+                    .with_ansi(false),
+            ),
+            None,
+        ),
+        LogsTo::StdoutAsJson => (
+            None,
+            Some(
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_writer(std::io::stdout),
+            ),
+        ),
+    };
     let file = file.map(|file| {
         tracing_subscriber::fmt::layer()
             .json()
@@ -681,11 +774,8 @@ fn install_logs(filter: Option<&OsString>, file: Option<File>) {
     });
     tracing_subscriber::registry()
         .with(filter)
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(writer)
-                .with_ansi(false),
-        )
+        .with(text)
+        .with(json)
         .with(file)
         .init();
 }

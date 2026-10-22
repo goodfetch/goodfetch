@@ -18,6 +18,9 @@ const RUN_INDEX: &str = "run-index.sqlite";
 /// The Usage ledger's file, outside the per-major folders (ADR 0041).
 const USAGE_LEDGER: &str = "usage-ledger.sqlite";
 
+/// The per-user Politeness file, outside the per-major folders.
+const POLITENESS_FILE: &str = "politeness.sqlite";
+
 /// One user's Goodfetch data folder, and the copy of the Browser cache
 /// `GOODFETCH_BROWSERS_PATH` names in place of its own, if any.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,6 +80,12 @@ impl Home {
     pub fn usage_ledger(&self) -> PathBuf {
         self.root.join(USAGE_LEDGER)
     }
+
+    /// The per-user Politeness file, outside the per-major folders, which
+    /// every major and both Products share (ADRs 0053 and 0098).
+    pub fn politeness_file(&self) -> PathBuf {
+        self.root.join(POLITENESS_FILE)
+    }
 }
 
 /// The name of a version's major, which names its per-major folder: `1`
@@ -89,6 +98,21 @@ pub fn major_name(version: &ProductVersion) -> String {
     match (major, numbers.next()) {
         ("0", Some(minor)) => format!("0.{minor}"),
         (major, _) => major.to_owned(),
+    }
+}
+
+/// The order of a per-major folder's name, `1` or `0.4`, by which majors
+/// compare: `None` for a name that is no major's.
+pub fn major_order(name: &str) -> Option<(u64, u64)> {
+    let canonical = |part: &str| {
+        !part.is_empty()
+            && part.bytes().all(|byte| byte.is_ascii_digit())
+            && (part == "0" || !part.starts_with('0'))
+    };
+    match name.split_once('.') {
+        Some(("0", minor)) if canonical(minor) => Some((0, minor.parse().ok()?)),
+        None if canonical(name) && name != "0" => Some((name.parse().ok()?, 0)),
+        Some(_) | None => None,
     }
 }
 

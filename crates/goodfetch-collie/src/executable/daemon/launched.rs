@@ -24,7 +24,7 @@ use goodfetch_engine::browser_cache::{self, MaxUnusedAge};
 use goodfetch_engine::daemon::files::{DaemonFiles, FileLock, new_token};
 use goodfetch_engine::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Holds, Succession};
 use goodfetch_engine::home::Home;
-use goodfetch_engine::installed::{InstalledList, Seen, pick};
+use goodfetch_engine::installed::{InstalledList, Seen, pick, stores_floor};
 use goodfetch_engine::transport::{DaemonListener, Network, listen_console};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
@@ -201,6 +201,7 @@ pub(in crate::executable) fn launched(
                 keeps_socket: activated,
             }),
             console,
+            drain: None,
         };
         Ok::<_, Failure>((
             engine.run_daemon(listener, dependencies, options).await,
@@ -332,7 +333,7 @@ fn finish(
             }
         }
         DaemonEnd::ListenerFailed => ExitCode::FAILURE,
-        DaemonEnd::Idle | DaemonEnd::Stopped => ExitCode::SUCCESS,
+        DaemonEnd::Idle | DaemonEnd::Stopped | DaemonEnd::Drained => ExitCode::SUCCESS,
     }
 }
 
@@ -356,7 +357,8 @@ impl Succession for OnTheMachine {
             .iter()
             .map(|entry| Seen::look(entry, &self.cache))
             .collect();
-        pick(&seen, &self.version, None, now(), self.max_unused_age).is_none_or(|picked| {
+        let floor = stores_floor(&self.home, &self.version);
+        pick(&seen, &self.version, floor, now(), self.max_unused_age).is_none_or(|picked| {
             picked.product == self.product && picked.product_version == self.version
         })
     }

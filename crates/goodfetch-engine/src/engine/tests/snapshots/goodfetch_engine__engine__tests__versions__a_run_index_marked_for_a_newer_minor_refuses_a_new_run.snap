@@ -1,0 +1,17 @@
+---
+source: crates/goodfetch-engine/src/engine/tests/versions.rs
+assertion_line: 62
+expression: "serde_json::to_string_pretty(&started[\"error\"]).unwrap()"
+---
+{
+  "code": -32006,
+  "data": {
+    "code": "format_version_unsupported",
+    "fix": "Install Goodfetch 1.5 or newer, then try again.",
+    "format": "run-index",
+    "found": "0.1",
+    "retryable": false,
+    "supported": "0.1"
+  },
+  "message": "The run-index (0.1) was last written by a newer engine and can be used from Goodfetch 1.5 on, newer than this engine; install Goodfetch 1.5 or newer to use it."
+}

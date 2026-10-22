@@ -97,7 +97,9 @@ pub enum RunStateError {
         /// The file's.
         found: u64,
     },
-    /// The file is of a format version this engine cannot read (ADR 0066).
+    /// The file is of a format version this engine cannot read (ADR 0066),
+    /// or a shared store's lowest minor is newer than this engine (ADR
+    /// 0098).
     #[error("the file is {format} {found}, which this engine cannot read")]
     Format {
         /// The format's name.
@@ -106,10 +108,25 @@ pub enum RunStateError {
         found: String,
         /// What this engine makes of it.
         compatibility: Compatibility,
+        /// The Product version to install, when a shared store's lowest
+        /// minor refused this engine.
+        install: Option<String>,
     },
     /// The writer has stopped.
     #[error("the run file's writer has stopped")]
     Closed,
+}
+
+impl RunStateError {
+    /// The error of a shared store's refusal (ADR 0098).
+    pub(crate) fn refused(refusal: crate::lowest_minor::Refusal) -> Self {
+        Self::Format {
+            format: refusal.format,
+            found: refusal.found.to_string(),
+            compatibility: refusal.compatibility,
+            install: refusal.install,
+        }
+    }
 }
 
 type Completion = Box<dyn FnOnce(Result<(), RunStateError>) + Send>;
@@ -271,6 +288,20 @@ pub(crate) fn next_epoch(
     Ok(u64::try_from(epoch).unwrap_or_default())
 }
 
+/// The run epoch the run file at `path` holds, read without its writer;
+/// `None` when it cannot be read. It blocks: run it under a blocking policy.
+pub(crate) fn epoch_of(path: &Path) -> Option<u64> {
+    let connection = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+    let epoch: i64 = connection
+        .query_row("SELECT epoch FROM run", [], |row| row.get(0))
+        .ok()?;
+    u64::try_from(epoch).ok()
+}
+
 fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
     RunStateError::Sqlite {
         path: path.to_owned(),
@@ -358,6 +389,7 @@ pub(crate) fn check_format(format: &Format, found: &str) -> Result<(), RunStateE
         format: format.name,
         found: found.to_owned(),
         compatibility,
+        install: None,
     };
     let version: ProtocolVersion = found
         .parse()

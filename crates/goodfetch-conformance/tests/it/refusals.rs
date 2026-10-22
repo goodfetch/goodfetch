@@ -15,9 +15,11 @@ use goodfetch_protocol::refusals::{RefusalCase, Reply};
 use goodfetch_test_support::{ATTACHED_SCRIPT, TestEnv, Tool, tools};
 use rstest::rstest;
 
-/// The generated case of a Client's `hello` of a newer minor.
-const CLIENT_NEWER_MINOR: &str =
-    include_str!("../../../goodfetch-protocol/generated/refusals/protocol/client-newer-minor.json");
+/// The generated case of a Client's `hello` of a newer preview, which counts as
+/// a newer major (ADR 0030).
+const CLIENT_NEWER_PREVIEW: &str = include_str!(
+    "../../../goodfetch-protocol/generated/refusals/protocol/client-newer-preview.json"
+);
 
 /// The Scripted engine's scripts these tests play.
 const SCRIPTS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/it/fixtures/refusals");
@@ -82,7 +84,7 @@ fn an_engine_that_refuses_but_keeps_answering_is_seen_not_to_close() {
         environment: env.env().clone(),
         folder: env.folder().to_path_buf(),
     };
-    let case: RefusalCase = serde_json::from_str(CLIENT_NEWER_MINOR).unwrap();
+    let case: RefusalCase = serde_json::from_str(CLIENT_NEWER_PREVIEW).unwrap();
 
     let outcome = send_fabricated_hello(&target, &case).unwrap();
 

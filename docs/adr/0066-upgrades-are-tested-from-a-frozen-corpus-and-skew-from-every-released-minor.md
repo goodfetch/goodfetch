@@ -67,6 +67,8 @@ Decided in [Upgrade and version-mismatch testing](https://github.com/goodfetch/g
   - a newer major is refused with a message to upgrade.
 - Before the first release the table is empty and only the refusals run.
 
+> Note (agent decision, accepted by the owner on 2026-10-21), 2026-10-21, [#226](https://github.com/goodfetch/goodfetch/issues/226): `upgrade-files [--from <major>] [--json]` takes the newest older major Goodfetch home holds when `--from` is not given, and copies its per-major folder (settings files, Run index, run folders; not its Daemon's runtime files) into the executable's major's folder, each file through a temporary file and a rename. A file the new major already holds is kept: one equal to the older major's is reported unchanged, so a second run changes nothing. A source not in the table names the major after it as the release to upgrade through, when that major is older than the executable's. Both refusals answer `upgrade_source_unsupported`. A format whose new major reads its older one differently converts its copy in the release that changes it. The shared stores' generated cases hold an engine of a fabricated Product version, 1.1, to a lowest minor it meets and to a newer one.
+
 ### Refusals, from fabricated versions
 
 Generated for each registered format, each with its Error code and message snapshotted:

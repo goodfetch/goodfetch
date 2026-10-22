@@ -1,0 +1,20 @@
+---
+source: crates/goodfetch-engine/src/engine/tests/refusals.rs
+assertion_line: 71
+expression: "pretty(&received[0])"
+---
+{
+  "error": {
+    "code": -32006,
+    "data": {
+      "client_protocol_version": "0.0",
+      "code": "protocol_version_unsupported",
+      "engine_protocol_version": "0.1",
+      "fix": "Upgrade the Browser host to one that speaks protocol 0.1.",
+      "retryable": false
+    },
+    "message": "This Browser host speaks protocol 0.0, and this engine speaks 0.1: it accepts 0.1."
+  },
+  "id": 0,
+  "jsonrpc": "2.0"
+}

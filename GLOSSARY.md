@@ -216,6 +216,14 @@ _Avoid_: shard
 The folder holding one user's Goodfetch data, caches and configuration on a machine, shared by both Products: the operating system's usual folders unless the user names another.
 _Avoid_: data dir, app folder, install folder
 
+**Resource governor**:
+The one part of each engine process that admits HTTP fetches, browser pages and model calls for all its runs, each kind between its floor and its ceiling, sized from the memory, CPU and Tokio saturation it measures and shared fairly between the runs.
+_Avoid_: autoscaled pool, concurrency manager
+
+**Memory allowance**:
+The most memory an engine and its children may use, the tightest of its own cgroup's limit, its Windows Job object's, `governor.memory_allowance` and half of physical memory, against which its Resource governor judges pressure.
+_Avoid_: memory budget, memory limit (alone)
+
 **Run report**:
 What a run states about itself when it ends: its Lifecycle, Verdict and Completeness, its Usage, every safeguard it ran without and, for a crawl, how its requests ended.
 _Avoid_: run result, summary, statistics, stats

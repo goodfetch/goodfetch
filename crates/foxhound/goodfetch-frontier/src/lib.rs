@@ -16,6 +16,7 @@ mod domain_key;
 mod identity;
 mod politeness;
 mod queues;
+mod scope;
 pub mod seeds;
 mod url;
 
@@ -29,6 +30,7 @@ pub use identity::{
     Declared, Hop, TABLES as VISITED_TABLES, fuzz_url_key, redirect_hop, redirect_reached, url_key,
 };
 pub use queues::DomainQueues;
+pub use scope::{Narrowing, Patterns, Scope, Strategy as ScopeStrategy, TABLES as SCOPE_TABLES};
 pub use url::document_base;
 
 /// A URL as the WHATWG URL Standard parsed it.
@@ -45,6 +47,7 @@ pub fn contribution() -> Contribution {
         .with_run_state_tables(queues::TABLES)
         .with_run_state_tables(seeds::TABLES)
         .with_run_state_tables(identity::TABLES)
+        .with_run_state_tables(scope::TABLES)
         .with_politeness_tables(politeness::TABLES)
         .with_admission_gates(Arc::new(queues::DomainGates))
 }

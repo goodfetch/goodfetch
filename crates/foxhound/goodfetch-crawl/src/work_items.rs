@@ -18,7 +18,7 @@
 
 use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::run_state::RunStateTables;
-use goodfetch_frontier::{Candidate, Declared, Url, admit};
+use goodfetch_frontier::{Candidate, Declared, Scope, Url, admit};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, PushedRecord, Seed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod};
@@ -151,6 +151,7 @@ pub(crate) struct Adding<'a> {
 /// when added, and answers each seed's answer, in order.
 pub(crate) fn admit_seeds(
     connection: &Connection,
+    scope: &Scope,
     seeds: &[Seed],
 ) -> rusqlite::Result<Vec<Enqueued>> {
     seeds
@@ -165,7 +166,7 @@ pub(crate) fn admit_seeds(
                 url: &seed.url,
                 declared,
             };
-            admit(connection, candidate, |url| {
+            admit(connection, scope, candidate, |url| {
                 add(
                     connection,
                     url,

@@ -98,6 +98,11 @@ handler_failed = true
 [settings.crawl.handler]
 concurrency = 4
 
+[settings.crawl.scope]
+strategy = "same_hostname"
+include = ["example"]
+exclude = ["example"]
+
 [settings.paid_fetch]
 domains = ["example"]
 max_price_per_page = "0.05 USD"

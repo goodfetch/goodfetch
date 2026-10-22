@@ -27,6 +27,7 @@ use tokio::runtime::Runtime;
 use url::Url;
 
 use crate::identity::{self, Declared, Hop};
+use crate::scope::{self, Scope};
 use crate::{Candidate, admit};
 
 /// The crawl's own table of the test: each request added, by its ID.
@@ -260,7 +261,7 @@ impl Subject {
         let state = self.runtime.block_on(RunState::open(
             path,
             &options,
-            vec![identity::TABLES, REQUESTS],
+            vec![identity::TABLES, scope::TABLES, REQUESTS],
             1,
             &self.owner,
         ));
@@ -301,7 +302,7 @@ fn admit_seed(connection: &Connection, asked: Asked) -> rusqlite::Result<Enqueue
             key: key.as_deref(),
         },
     };
-    admit(connection, candidate, |url| {
+    admit(connection, &Scope::read(connection)?, candidate, |url| {
         connection.query_row(
             "INSERT INTO requests (id, url)
              SELECT coalesce(max(id), 0) + 1, ?1 FROM requests RETURNING id",
@@ -413,6 +414,7 @@ impl StateMachineTest for Subject {
                         let crawl_request = from.to_string();
                         let hop = identity::redirect_hop(
                             connection,
+                            &Scope::read(connection)?,
                             &crawl_request,
                             &url,
                             &method,

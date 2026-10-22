@@ -64,6 +64,19 @@ CREATE TABLE run (
         progress_message TEXT
     ) STRICT;
 INSERT INTO "run" VALUES('paused','collie','collie','os_user',1,'{}','stopped','{"kind":"pause"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'[]',3,'{"kind":"browser_host","browser_host":"laptop"}','6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b',0,'Waiting for the next page');
+CREATE TABLE scope (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            strategy TEXT NOT NULL,
+            include TEXT NOT NULL,
+            exclude TEXT NOT NULL
+        ) STRICT;
+CREATE TABLE scope_seeds (
+            host TEXT NOT NULL,
+            port INTEGER NOT NULL,
+            scheme TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            PRIMARY KEY (host, port, scheme)
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
             answer TEXT NOT NULL
@@ -99,6 +112,7 @@ CREATE TABLE work_items (
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (position)
             WHERE retired_because IS NULL;
+CREATE INDEX scope_seeds_by_domain ON scope_seeds (domain);
 CREATE INDEX work_items_by_domain
             ON work_items (status, domain_key, forefront DESC, priority DESC, position);
 CREATE INDEX work_items_by_status ON work_items (status, position);

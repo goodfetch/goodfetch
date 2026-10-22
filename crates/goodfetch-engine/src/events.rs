@@ -25,6 +25,7 @@ use std::sync::Arc;
 use goodfetch_protocol::catalog::{Event, EventClass};
 use goodfetch_protocol::connection::EngineInstance;
 use goodfetch_protocol::events::{EventEnvelope, LastRead, Position, RESYNC, Resync};
+use goodfetch_protocol::governor::SYSTEM_INFO;
 use goodfetch_protocol::run::{RUN_AXES_CHANGED, RunAxes, RunId};
 use serde::Serialize;
 use serde_json::Value;
@@ -84,6 +85,7 @@ enum Command {
     Publish(Publish),
     Subscribe {
         after: Option<LastRead>,
+        system_info: bool,
         alive: oneshot::Receiver<()>,
         answer: oneshot::Sender<u64>,
     },
@@ -186,18 +188,24 @@ impl Events {
     }
 
     /// Opens a subscription that resumes after `after`, or starts with the
-    /// next event; `None` once the stream has stopped.
+    /// next event, taking `engine.system_info` too when `system_info`;
+    /// `None` once the stream has stopped.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future after it was sent opens a subscription the
     /// stream ends at its next event.
-    pub(crate) async fn subscribe(&self, after: Option<LastRead>) -> Option<Subscription> {
+    pub(crate) async fn subscribe(
+        &self,
+        after: Option<LastRead>,
+        system_info: bool,
+    ) -> Option<Subscription> {
         let (alive, watched) = oneshot::channel();
         let (answer, answered) = oneshot::channel();
         self.commands
             .send(Command::Subscribe {
                 after,
+                system_info,
                 alive: watched,
                 answer,
             })
@@ -292,6 +300,8 @@ struct Queue {
     telemetry: BTreeMap<(&'static str, Option<String>), EventEnvelope>,
     waiting: Option<(usize, oneshot::Sender<Vec<EventEnvelope>>)>,
     alive: oneshot::Receiver<()>,
+    /// Whether it takes `engine.system_info`.
+    system_info: bool,
 }
 
 impl Queue {
@@ -362,10 +372,11 @@ impl Stream {
                 Command::Publish(publish) => self.accept(publish),
                 Command::Subscribe {
                     after,
+                    system_info,
                     alive,
                     answer,
                 } => {
-                    let id = self.subscribe(after, alive);
+                    let id = self.subscribe(after, system_info, alive);
                     if answer.send(id).is_err() {
                         self.subscriptions.remove(&id);
                     }
@@ -396,6 +407,12 @@ impl Stream {
             axes,
             accepted,
         } = publish;
+        let opted_in = event.name == SYSTEM_INFO.name;
+        if opted_in && !self.subscriptions.values().any(|queue| queue.system_info) {
+            // Nobody takes it: it gets no position.
+            let _ = accepted.send(());
+            return;
+        }
         let envelope = EventEnvelope {
             position: next_position(&mut self.last),
             event: event.name.to_owned(),
@@ -432,7 +449,11 @@ impl Stream {
                 }
             }
             EventClass::Telemetry => {
-                for queue in self.subscriptions.values_mut() {
+                for queue in self
+                    .subscriptions
+                    .values_mut()
+                    .filter(|queue| !opted_in || queue.system_info)
+                {
                     let key = (event.name, scope.clone());
                     let dropped = queue
                         .telemetry
@@ -452,7 +473,12 @@ impl Stream {
         let _ = accepted.send(());
     }
 
-    fn subscribe(&mut self, after: Option<LastRead>, alive: oneshot::Receiver<()>) -> u64 {
+    fn subscribe(
+        &mut self,
+        after: Option<LastRead>,
+        system_info: bool,
+        alive: oneshot::Receiver<()>,
+    ) -> u64 {
         let id = self.next_subscription;
         self.next_subscription += 1;
         let mut queue = Queue {
@@ -461,6 +487,7 @@ impl Stream {
             telemetry: BTreeMap::new(),
             waiting: None,
             alive,
+            system_info,
         };
         match after {
             None => {}

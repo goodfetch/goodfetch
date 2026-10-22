@@ -21,6 +21,7 @@ use crate::catalog::{
     Stability, schema_of,
 };
 use crate::connection::EngineInstance;
+use crate::governor::SYSTEM_INFO;
 use crate::jsonrpc::RequestId;
 use crate::run::{RUN_AXES_CHANGED, RunAxes};
 
@@ -92,6 +93,12 @@ pub struct EventsSubscribeParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub after: Option<LastRead>,
+    /// Whether it also takes `engine.system_info`, the Resource governor's
+    /// periodic readings; false by default, so a subscription that reads
+    /// only what changes sees no periodic event.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub system_info: bool,
 }
 
 /// What `events.subscribe` answers when its subscription ends without the
@@ -164,13 +171,13 @@ pub const RESYNC: Event = Event {
 /// `events.subscribe`.
 pub const EVENTS_SUBSCRIBE: Operation = Operation {
     name: "events.subscribe",
-    description: "Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart.",
+    description: "Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart. Given `system_info`, it also takes the Resource governor's periodic `engine.system_info`.",
     class: OperationClass::Read,
     kind: OperationKind::Sequence,
     reach: Reach::AllSurfaces,
     params: schema_of::<EventsSubscribeParams>,
     result: schema_of::<SubscriptionEnded>,
-    events: &[&RESYNC, &RUN_AXES_CHANGED],
+    events: &[&RESYNC, &RUN_AXES_CHANGED, &SYSTEM_INFO],
     cancellable: true,
     stability: Stability::Experimental,
     deprecated: None,

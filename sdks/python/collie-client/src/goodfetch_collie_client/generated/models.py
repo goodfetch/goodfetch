@@ -66,6 +66,19 @@ class Acted(BaseModel):
     )
 
 
+class AllowanceSource(StrEnum):
+    """What set the Memory allowance: the tightest of them (ADR 0040)."""
+
+    cgroup = "cgroup"
+    """The process's own cgroup's memory limit, v1 or v2."""
+    job_object = "job_object"
+    """The Windows Job object the process runs in."""
+    setting = "setting"
+    """`governor.memory_allowance`."""
+    physical = "physical"
+    """Half of physical memory, when nothing tighter applies."""
+
+
 class ArtifactKind(StrEnum):
     """
     What a Pinned artifact is (ADR 0098: the clean-up's rule covers every
@@ -216,6 +229,26 @@ class ConsoleState(RootModel[ConsoleState1 | ConsoleState2 | Literal["absent"]])
     """
 
 
+class CpuReading(BaseModel):
+    """The engine's CPU and Tokio workers, as the governor read them."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    busy: Annotated[int, Field(ge=0)]
+    """
+    The engine's CPU time since the last sample, in percent of its
+    allowance.
+    """
+    parallelism: Annotated[int, Field(ge=0)]
+    """
+    How many threads the engine may run at once, its CPU allowance
+    (`available_parallelism`, which honours a cgroup's quota).
+    """
+    tokio_busy: Annotated[int, Field(ge=0)]
+    """The Tokio workers' busy time since the last sample, in percent."""
+
+
 class DaemonEndpoint1(BaseModel):
     """A Unix socket's path."""
 
@@ -342,6 +375,17 @@ class Form(StrEnum):
     """
 
 
+class GovernorLevel(StrEnum):
+    """How loaded the engine is, as its governor judges it."""
+
+    normal = "normal"
+    """Every reading has headroom: concurrency may rise."""
+    pressure = "pressure"
+    """A reading passed `governor.pressure`: concurrency drops."""
+    critical = "critical"
+    """Memory passed `governor.critical`, or the host's is critical."""
+
+
 class HttpBody(RootModel[str]):
     root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
     """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
@@ -391,6 +435,22 @@ class KeyValueStoreValue(BaseModel):
     )
     value: Any
     """The value, or null for an absent key."""
+
+
+class KindConcurrency(BaseModel):
+    """One kind's concurrency."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    ceiling: Annotated[int, Field(ge=0)]
+    """Its ceiling."""
+    floor: Annotated[int, Field(ge=0)]
+    """Its floor."""
+    in_use: Annotated[int, Field(ge=0)]
+    """How many are admitted now."""
+    target: Annotated[int, Field(ge=0)]
+    """How many the governor admits at once now."""
 
 
 class KindUsage(BaseModel):
@@ -524,6 +584,29 @@ class MarkdownOptions(BaseModel):
     )
     content: MarkdownContent
     """How much of the page it holds."""
+
+
+class MemoryReading(BaseModel):
+    """The engine's memory, as the governor read it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    allowance: Annotated[int, Field(ge=0)]
+    """The Memory allowance, in bytes."""
+    allowance_source: AllowanceSource
+    """What set it."""
+    host: GovernorLevel
+    """
+    The host's own memory pressure: PSI and `MemAvailable` on Linux,
+    the memory-pressure level on macOS, the low-memory notification on
+    Windows.
+    """
+    used: Annotated[int, Field(ge=0)]
+    """
+    What the engine and its children use, in bytes: PSS on Linux, so
+    pages its browsers share count once.
+    """
 
 
 class ModelUsage(BaseModel):
@@ -716,6 +799,19 @@ class PointInTime(RootModel[AwareDatetime]):
 class Position(RootModel[int]):
     root: Annotated[int, Field(ge=0)]
     """An event's position among every event of one engine, which only goes up."""
+
+
+class PressureSource(StrEnum):
+    """The reading that holds the engine above `normal`."""
+
+    memory = "memory"
+    """The engine and its children's memory, against the Memory allowance."""
+    host_memory = "host_memory"
+    """The host's own memory pressure, which counts as the engine's."""
+    cpu = "cpu"
+    """The engine's CPU time, against its CPU allowance."""
+    tokio = "tokio"
+    """The Tokio workers' busy time."""
 
 
 class PrivateEndpoint(BaseModel):
@@ -1472,6 +1568,11 @@ class Unready(StrEnum):
     """Its run state cannot be written."""
     browsers_missing = "browsers_missing"
     """A browser its configuration uses is not installed."""
+    governor_last_resort = "governor_last_resort"
+    """
+    Its Resource governor is at its last resort: memory stayed critical
+    at the floor past `governor.last_resort_after` (ADR 0040).
+    """
 
 
 class UrlMatcher1(BaseModel):
@@ -1646,6 +1747,20 @@ class Chunk(BaseModel):
     """The id of the `page.body` call."""
     offset: Annotated[int, Field(ge=0)]
     """Where its bytes start in the body."""
+
+
+class Concurrency(BaseModel):
+    """Every kind's concurrency."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    browser_page: KindConcurrency
+    """Open browser pages."""
+    http: KindConcurrency
+    """HTTP and discovered-API fetches."""
+    model_call: KindConcurrency
+    """Model calls."""
 
 
 class ConfigExplainParams(BaseModel):
@@ -2527,6 +2642,32 @@ class StopReason(
     """Why a Run stopped (ADRs 0029, 0080 and 0102)."""
 
 
+class SystemInfo(BaseModel):
+    """
+    What the governor read and decided at one sample: the payload of
+    `engine.system_info`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    concurrency: Concurrency
+    """Each kind's concurrency."""
+    cpu: CpuReading
+    """Its CPU and Tokio workers."""
+    last_resort: bool
+    """
+    Whether memory stayed critical at the floor past
+    `governor.last_resort_after`.
+    """
+    level: GovernorLevel
+    """How loaded the engine is."""
+    memory: MemoryReading
+    """Its memory."""
+    pressure_source: PressureSource | None = None
+    """The reading that holds it above `normal`; none at `normal`."""
+
+
 class UsageRaiseParams(BaseModel):
     """
     What `usage.raise` takes: a Limit a person sets, which replaces every
@@ -2651,6 +2792,12 @@ class EventsSubscribeParams(BaseModel):
     subscription resumes after it, or starts with `events.resync` when
     the engine no longer holds it or another engine instance gave it, as
     after a Daemon restart. Absent, it starts with the next event.
+    """
+    system_info: bool | None = None
+    """
+    Whether it also takes `engine.system_info`, the Resource governor's
+    periodic readings; false by default, so a subscription that reads
+    only what changes sees no periodic event.
     """
 
 

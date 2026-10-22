@@ -79,6 +79,31 @@
       "description": "What a locator action answers once its input landed on its target:\nnothing, since no operation returns a handle on an element (ADR 0085).",
       "type": "object"
     },
+    "AllowanceSource": {
+      "description": "What set the Memory allowance: the tightest of them (ADR 0040).",
+      "oneOf": [
+        {
+          "const": "cgroup",
+          "description": "The process's own cgroup's memory limit, v1 or v2.",
+          "type": "string"
+        },
+        {
+          "const": "job_object",
+          "description": "The Windows Job object the process runs in.",
+          "type": "string"
+        },
+        {
+          "const": "setting",
+          "description": "`governor.memory_allowance`.",
+          "type": "string"
+        },
+        {
+          "const": "physical",
+          "description": "Half of physical memory, when nothing tighter applies.",
+          "type": "string"
+        }
+      ]
+    },
     "AppliedLimit": {
       "description": "A Limit that applies to a Run (ADRs 0041 and 0101): its scope's kind and\nID, what it caps, its period, what it allows, what is left of it and who\nset it.",
       "properties": {
@@ -384,6 +409,32 @@
         }
       ]
     },
+    "Concurrency": {
+      "description": "Every kind's concurrency.",
+      "properties": {
+        "browser_page": {
+          "$ref": "#/$defs/KindConcurrency",
+          "arrived_in": "0.1",
+          "description": "Open browser pages."
+        },
+        "http": {
+          "$ref": "#/$defs/KindConcurrency",
+          "arrived_in": "0.1",
+          "description": "HTTP and discovered-API fetches."
+        },
+        "model_call": {
+          "$ref": "#/$defs/KindConcurrency",
+          "arrived_in": "0.1",
+          "description": "Model calls."
+        }
+      },
+      "required": [
+        "http",
+        "browser_page",
+        "model_call"
+      ],
+      "type": "object"
+    },
     "ConfigExplainParams": {
       "additionalProperties": false,
       "description": "What `config.explain` takes.",
@@ -523,6 +574,38 @@
           "type": "string"
         }
       ]
+    },
+    "CpuReading": {
+      "description": "The engine's CPU and Tokio workers, as the governor read them.",
+      "properties": {
+        "busy": {
+          "arrived_in": "0.1",
+          "description": "The engine's CPU time since the last sample, in percent of its\nallowance.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "parallelism": {
+          "arrived_in": "0.1",
+          "description": "How many threads the engine may run at once, its CPU allowance\n(`available_parallelism`, which honours a cgroup's quota).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokio_busy": {
+          "arrived_in": "0.1",
+          "description": "The Tokio workers' busy time since the last sample, in percent.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "parallelism",
+        "busy",
+        "tokio_busy"
+      ],
+      "type": "object"
     },
     "DaemonEndpoint": {
       "description": "Where a Daemon or an Attached engine's private endpoint listens (ADR\n0024): a `0600` Unix socket on macOS and Linux, loopback TCP on\nWindows.",
@@ -833,6 +916,11 @@
           ],
           "arrived_in": "0.1",
           "description": "The last event the Client read, `{engine_instance, position}`: the\nsubscription resumes after it, or starts with `events.resync` when\nthe engine no longer holds it or another engine instance gave it, as\nafter a Daemon restart. Absent, it starts with the next event."
+        },
+        "system_info": {
+          "arrived_in": "0.1",
+          "description": "Whether it also takes `engine.system_info`, the Resource governor's\nperiodic readings; false by default, so a subscription that reads\nonly what changes sees no periodic event.",
+          "type": "boolean"
         }
       },
       "type": "object"
@@ -1017,6 +1105,26 @@
       ],
       "type": "object"
     },
+    "GovernorLevel": {
+      "description": "How loaded the engine is, as its governor judges it.",
+      "oneOf": [
+        {
+          "const": "normal",
+          "description": "Every reading has headroom: concurrency may rise.",
+          "type": "string"
+        },
+        {
+          "const": "pressure",
+          "description": "A reading passed `governor.pressure`: concurrency drops.",
+          "type": "string"
+        },
+        {
+          "const": "critical",
+          "description": "Memory passed `governor.critical`, or the host's is critical.",
+          "type": "string"
+        }
+      ]
+    },
     "KeyValueStoreDeleted": {
       "description": "What `key_value_store.delete` answers once the key is gone.",
       "properties": {
@@ -1143,6 +1251,46 @@
       },
       "required": [
         "value"
+      ],
+      "type": "object"
+    },
+    "KindConcurrency": {
+      "description": "One kind's concurrency.",
+      "properties": {
+        "ceiling": {
+          "arrived_in": "0.1",
+          "description": "Its ceiling.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "floor": {
+          "arrived_in": "0.1",
+          "description": "Its floor.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "in_use": {
+          "arrived_in": "0.1",
+          "description": "How many are admitted now.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target": {
+          "arrived_in": "0.1",
+          "description": "How many the governor admits at once now.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "floor",
+        "ceiling",
+        "target",
+        "in_use"
       ],
       "type": "object"
     },
@@ -1529,6 +1677,42 @@
       },
       "required": [
         "content"
+      ],
+      "type": "object"
+    },
+    "MemoryReading": {
+      "description": "The engine's memory, as the governor read it.",
+      "properties": {
+        "allowance": {
+          "arrived_in": "0.1",
+          "description": "The Memory allowance, in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "allowance_source": {
+          "$ref": "#/$defs/AllowanceSource",
+          "arrived_in": "0.1",
+          "description": "What set it."
+        },
+        "host": {
+          "$ref": "#/$defs/GovernorLevel",
+          "arrived_in": "0.1",
+          "description": "The host's own memory pressure: PSI and `MemAvailable` on Linux,\nthe memory-pressure level on macOS, the low-memory notification on\nWindows."
+        },
+        "used": {
+          "arrived_in": "0.1",
+          "description": "What the engine and its children use, in bytes: PSS on Linux, so\npages its browsers share count once.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "allowance",
+        "allowance_source",
+        "used",
+        "host"
       ],
       "type": "object"
     },
@@ -2063,6 +2247,31 @@
         "key"
       ],
       "type": "object"
+    },
+    "PressureSource": {
+      "description": "The reading that holds the engine above `normal`.",
+      "oneOf": [
+        {
+          "const": "memory",
+          "description": "The engine and its children's memory, against the Memory allowance.",
+          "type": "string"
+        },
+        {
+          "const": "host_memory",
+          "description": "The host's own memory pressure, which counts as the engine's.",
+          "type": "string"
+        },
+        {
+          "const": "cpu",
+          "description": "The engine's CPU time, against its CPU allowance.",
+          "type": "string"
+        },
+        {
+          "const": "tokio",
+          "description": "The Tokio workers' busy time.",
+          "type": "string"
+        }
+      ]
     },
     "Product": {
       "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
@@ -3821,6 +4030,56 @@
       "description": "What `events.subscribe` answers when its subscription ends without the\nClient cancelling it: the engine stopped.",
       "type": "object"
     },
+    "SystemInfo": {
+      "description": "What the governor read and decided at one sample: the payload of\n`engine.system_info`.",
+      "properties": {
+        "concurrency": {
+          "$ref": "#/$defs/Concurrency",
+          "arrived_in": "0.1",
+          "description": "Each kind's concurrency."
+        },
+        "cpu": {
+          "$ref": "#/$defs/CpuReading",
+          "arrived_in": "0.1",
+          "description": "Its CPU and Tokio workers."
+        },
+        "last_resort": {
+          "arrived_in": "0.1",
+          "description": "Whether memory stayed critical at the floor past\n`governor.last_resort_after`.",
+          "type": "boolean"
+        },
+        "level": {
+          "$ref": "#/$defs/GovernorLevel",
+          "arrived_in": "0.1",
+          "description": "How loaded the engine is."
+        },
+        "memory": {
+          "$ref": "#/$defs/MemoryReading",
+          "arrived_in": "0.1",
+          "description": "Its memory."
+        },
+        "pressure_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PressureSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The reading that holds it above `normal`; none at `normal`."
+        }
+      },
+      "required": [
+        "level",
+        "last_resort",
+        "memory",
+        "cpu",
+        "concurrency"
+      ],
+      "type": "object"
+    },
     "Tag": {
       "description": "An opaque text a Run is tagged with (ADR 0036).",
       "maxLength": 64,
@@ -3931,6 +4190,11 @@
         {
           "const": "browsers_missing",
           "description": "A browser its configuration uses is not installed.",
+          "type": "string"
+        },
+        {
+          "const": "governor_last_resort",
+          "description": "Its Resource governor is at its last resort: memory stayed critical\nat the floor past `governor.last_resort_after` (ADR 0040).",
           "type": "string"
         }
       ]
@@ -4873,6 +5137,18 @@
     },
     {
       "arrived_in": "0.1",
+      "class": "telemetry",
+      "deprecated": null,
+      "description": "The engine's Resource governor sampled: its Memory allowance and what set it, the memory the engine and its children use, the host's pressure, CPU and Tokio saturation, its level and what holds it there, and each kind's concurrency. Telemetry: a newer sample replaces an unsent one.",
+      "name": "engine.system_info",
+      "payload": {
+        "$ref": "#/$defs/SystemInfo"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
       "description": "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, from which the stream continues.",
@@ -5194,13 +5470,52 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The share of the resource governor's concurrency target in use, from 0 to 1, on which the Helm chart's autoscaler scales the Daemons (ADRs 0040 and 0055). Reported once the governor runs.",
+      "description": "1 for the reading that holds the resource governor above normal, 0 for the others: all 0 at normal (ADR 0040).",
+      "instrument": "gauge",
+      "labels": [
+        {
+          "name": "source",
+          "values": [
+            "memory",
+            "host_memory",
+            "cpu",
+            "tokio"
+          ]
+        }
+      ],
+      "name": "goodfetch.governor.pressure_source",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "1"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The share of the resource governor's concurrency target in use, from 0 to 1, the highest of its kinds', on which the Helm chart's autoscaler scales the Daemons (ADRs 0040 and 0055).",
       "instrument": "gauge",
       "labels": [],
       "name": "goodfetch.governor.saturation",
       "product": "collie",
       "stability": "experimental",
       "unit": "1"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "How many of each kind of work the resource governor admits at once now, between its floor and its ceiling (ADR 0040).",
+      "instrument": "gauge",
+      "labels": [
+        {
+          "name": "kind",
+          "values": [
+            "http",
+            "browser_page",
+            "model_call"
+          ]
+        }
+      ],
+      "name": "goodfetch.governor.target",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{admission}"
     },
     {
       "arrived_in": "0.1",
@@ -5431,10 +5746,11 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart.",
+      "description": "Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart. Given `system_info`, it also takes the Resource governor's periodic `engine.system_info`.",
       "events": [
         "events.resync",
-        "run.axes_changed"
+        "run.axes_changed",
+        "engine.system_info"
       ],
       "kind": "sequence",
       "name": "events.subscribe",
@@ -6471,6 +6787,224 @@
           "type": "string"
         },
         "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 32,
+      "description": "The most browser pages the engine's Resource governor admits open at once, across its Runs: 32.",
+      "name": "governor.browser_page.ceiling",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 1,
+      "description": "The fewest browser pages the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.browser_page.ceiling`, it fixes the concurrency there.",
+      "name": "governor.browser_page.floor",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 95,
+      "description": "The share of the Memory allowance in use, in percent, from which the engine's memory is critical: 95.",
+      "name": "governor.critical",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 200,
+      "description": "The most HTTP and discovered-API fetches the engine's Resource governor admits at once, across its Runs: 200.",
+      "name": "governor.http.ceiling",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 1,
+      "description": "The fewest HTTP and discovered-API fetches the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.http.ceiling`, it fixes the concurrency there.",
+      "name": "governor.http.floor",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 60000,
+      "description": "How long the engine's memory may stay critical with its concurrency at the floor before the Resource governor reaches its last resort, when a Daemon's `/readyz` fails: 60 s.",
+      "name": "governor.last_resort_after",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "The most memory, in bytes, the engine and its children may use, as its Memory allowance when it is tighter than the process's own cgroup limit, its Windows Job object's limit or half of physical memory; unset by default. Read again at every sample.",
+      "name": "governor.memory_allowance",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 16,
+      "description": "The most model calls the engine's Resource governor admits at once, across its Runs: 16.",
+      "name": "governor.model_call.ceiling",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 1,
+      "description": "The fewest model calls the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.model_call.ceiling`, it fixes the concurrency there.",
+      "name": "governor.model_call.floor",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 85,
+      "description": "The share of the Memory allowance in use, in percent, from which the engine is under pressure and its Resource governor lowers its concurrency; also the CPU and Tokio workers' busy share from which they hold it: 85.",
+      "name": "governor.pressure",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 100,
+      "description": "The share, in percent, of each kind's concurrency one Run may hold at once, at least one: 100. An Operator policy cap bounds every Run's share.",
+      "name": "governor.run_share",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 1000,
+      "description": "How often the engine's Resource governor reads memory, CPU and Tokio saturation, sizes its concurrency and sends `engine.system_info`: every second.",
+      "name": "governor.sample_interval",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
       },
       "weakens": false
     },

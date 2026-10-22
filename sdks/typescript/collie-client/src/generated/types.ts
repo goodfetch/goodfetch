@@ -23,6 +23,13 @@ export type AbortReason =
   | "timedout"
   | "failed";
 /**
+ * What set the Memory allowance: the tightest of them (ADR 0040).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "AllowanceSource".
+ */
+export type AllowanceSource = "cgroup" | "job_object" | "setting" | "physical";
+/**
  * A point in time in UTC, as RFC 3339.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -98,7 +105,7 @@ export type DaemonEndpoint =
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "Unready".
  */
-export type Unready = "draining" | "run_state_not_writable" | "browsers_missing";
+export type Unready = "draining" | "run_state_not_writable" | "browsers_missing" | "governor_last_resort";
 /**
  * One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only.
  *
@@ -186,6 +193,13 @@ export type MarkdownFormat = true | MarkdownOptions;
  * via the `definition` "WaitUntil".
  */
 export type WaitUntil = "commit" | "domcontentloaded" | "load";
+/**
+ * How loaded the engine is, as its governor judges it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GovernorLevel".
+ */
+export type GovernorLevel = "normal" | "pressure" | "critical";
 /**
  * The level of the engine's log events a Connection receives: those at
  * it and above; `off`, the default, receives none.
@@ -308,6 +322,13 @@ export type PlanStatus = "unchanged" | "promoted" | "pending_review" | "frozen";
  * via the `definition` "Position".
  */
 export type Position = number;
+/**
+ * The reading that holds the engine above `normal`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PressureSource".
+ */
+export type PressureSource = "memory" | "host_memory" | "cpu" | "tokio";
 /**
  * A Product version, `major.minor.patch` with an optional pre-release (ADR 0090).
  *
@@ -736,6 +757,80 @@ export interface Locator {
   selector: string;
 }
 /**
+ * Every kind's concurrency.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Concurrency".
+ */
+export interface Concurrency {
+  browser_page: KindConcurrency;
+  http: KindConcurrency1;
+  model_call: KindConcurrency2;
+}
+/**
+ * Open browser pages.
+ */
+export interface KindConcurrency {
+  /**
+   * Its ceiling.
+   */
+  ceiling: number;
+  /**
+   * Its floor.
+   */
+  floor: number;
+  /**
+   * How many are admitted now.
+   */
+  in_use: number;
+  /**
+   * How many the governor admits at once now.
+   */
+  target: number;
+}
+/**
+ * HTTP and discovered-API fetches.
+ */
+export interface KindConcurrency1 {
+  /**
+   * Its ceiling.
+   */
+  ceiling: number;
+  /**
+   * Its floor.
+   */
+  floor: number;
+  /**
+   * How many are admitted now.
+   */
+  in_use: number;
+  /**
+   * How many the governor admits at once now.
+   */
+  target: number;
+}
+/**
+ * Model calls.
+ */
+export interface KindConcurrency2 {
+  /**
+   * Its ceiling.
+   */
+  ceiling: number;
+  /**
+   * Its floor.
+   */
+  floor: number;
+  /**
+   * How many are admitted now.
+   */
+  in_use: number;
+  /**
+   * How many the governor admits at once now.
+   */
+  target: number;
+}
+/**
  * What `config.explain` takes.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -840,6 +935,28 @@ export interface ConsoleFailure1 {
    * What happened.
    */
   message: string;
+}
+/**
+ * The engine's CPU and Tokio workers, as the governor read them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CpuReading".
+ */
+export interface CpuReading {
+  /**
+   * The engine's CPU time since the last sample, in percent of its
+   * allowance.
+   */
+  busy: number;
+  /**
+   * How many threads the engine may run at once, its CPU allowance
+   * (`available_parallelism`, which honours a cgroup's quota).
+   */
+  parallelism: number;
+  /**
+   * The Tokio workers' busy time since the last sample, in percent.
+   */
+  tokio_busy: number;
 }
 /**
  * What `$/credit` grants: more events, or chunks, for a streaming call;
@@ -1143,6 +1260,12 @@ export interface EventsSubscribeParams {
    * after a Daemon restart. Absent, it starts with the next event.
    */
   after?: LastRead | null;
+  /**
+   * Whether it also takes `engine.system_info`, the Resource governor's
+   * periodic readings; false by default, so a subscription that reads
+   * only what changes sees no periodic event.
+   */
+  system_info?: boolean;
 }
 /**
  * The last event a Client read: its position, and the engine instance
@@ -1525,6 +1648,30 @@ export interface KeyValueStoreValue {
   };
 }
 /**
+ * One kind's concurrency.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KindConcurrency".
+ */
+export interface KindConcurrency3 {
+  /**
+   * Its ceiling.
+   */
+  ceiling: number;
+  /**
+   * Its floor.
+   */
+  floor: number;
+  /**
+   * How many are admitted now.
+   */
+  in_use: number;
+  /**
+   * How many the governor admits at once now.
+   */
+  target: number;
+}
+/**
  * What a Run used of one Usage kind.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1761,6 +1908,33 @@ export interface MarkdownOptions1 {
    * How much of the page it holds.
    */
   content: "main";
+}
+/**
+ * The engine's memory, as the governor read it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MemoryReading".
+ */
+export interface MemoryReading {
+  /**
+   * The Memory allowance, in bytes.
+   */
+  allowance: number;
+  /**
+   * What set it.
+   */
+  allowance_source: "cgroup" | "job_object" | "setting" | "physical";
+  /**
+   * The host's own memory pressure: PSI and `MemAvailable` on Linux,
+   * the memory-pressure level on macOS, the low-memory notification on
+   * Windows.
+   */
+  host: "normal" | "pressure" | "critical";
+  /**
+   * What the engine and its children use, in bytes: PSS on Linux, so
+   * pages its browsers share count once.
+   */
+  used: number;
 }
 /**
  * A Run's model calls (ADR 0101).
@@ -3347,6 +3521,82 @@ export interface SignInRevoked {
  * via the `definition` "SubscriptionEnded".
  */
 export interface SubscriptionEnded {}
+/**
+ * What the governor read and decided at one sample: the payload of
+ * `engine.system_info`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SystemInfo".
+ */
+export interface SystemInfo {
+  concurrency: Concurrency1;
+  cpu: CpuReading1;
+  /**
+   * Whether memory stayed critical at the floor past
+   * `governor.last_resort_after`.
+   */
+  last_resort: boolean;
+  /**
+   * How loaded the engine is.
+   */
+  level: "normal" | "pressure" | "critical";
+  memory: MemoryReading1;
+  /**
+   * The reading that holds it above `normal`; none at `normal`.
+   */
+  pressure_source?: PressureSource | null;
+}
+/**
+ * Each kind's concurrency.
+ */
+export interface Concurrency1 {
+  browser_page: KindConcurrency;
+  http: KindConcurrency1;
+  model_call: KindConcurrency2;
+}
+/**
+ * Its CPU and Tokio workers.
+ */
+export interface CpuReading1 {
+  /**
+   * The engine's CPU time since the last sample, in percent of its
+   * allowance.
+   */
+  busy: number;
+  /**
+   * How many threads the engine may run at once, its CPU allowance
+   * (`available_parallelism`, which honours a cgroup's quota).
+   */
+  parallelism: number;
+  /**
+   * The Tokio workers' busy time since the last sample, in percent.
+   */
+  tokio_busy: number;
+}
+/**
+ * Its memory.
+ */
+export interface MemoryReading1 {
+  /**
+   * The Memory allowance, in bytes.
+   */
+  allowance: number;
+  /**
+   * What set it.
+   */
+  allowance_source: "cgroup" | "job_object" | "setting" | "physical";
+  /**
+   * The host's own memory pressure: PSI and `MemAvailable` on Linux,
+   * the memory-pressure level on macOS, the low-memory notification on
+   * Windows.
+   */
+  host: "normal" | "pressure" | "critical";
+  /**
+   * What the engine and its children use, in bytes: PSS on Linux, so
+   * pages its browsers share count once.
+   */
+  used: number;
+}
 /**
  * A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
  * and `tracestate`, which its runtime writes and never a program, with no

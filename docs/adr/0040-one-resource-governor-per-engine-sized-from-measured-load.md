@@ -35,12 +35,19 @@ Spider and Crawl4AI read only the host's memory ([detect_system.rs](https://gith
 - **Limits of the controller.** It never goes below a floor. ADR 0021's halving on 429 still acts per domain, below the governor.
 - **Defaults.** The default ceilings are set from ADR 0025's search for the highest concurrency where verified throughput still rises.
 - **Settings.** Every value is a setting (ADR 0028). Setting floor equal to ceiling gives the fixed behaviour of ADR 0004. Autoscaling costs nothing at run time, so it is not one of ADR 0023's marked controls.
+  > Note (agent decision, pending owner review; [#234](https://github.com/goodfetch/goodfetch/issues/234)): how the governor is built.
+  > - **Keys**, all under `governor.` (ADR 0083): `governor.<kind>.floor` and `.ceiling` for `http`, `browser_page` and `model_call`, `governor.memory_allowance` (bytes), `governor.pressure` and `governor.critical` (percent), `governor.sample_interval` (1 s) and `governor.last_resort_after` (60 s) are the machine's own (Operator policy and user configuration), read again at every sample, since one governor serves every run of the engine; `governor.run_share` (percent of each kind's target, at least one admission, 100 by default) is a run's, so Operator policy caps a run's share through it.
+  > - **Control.** A target starts at its ceiling, ADR 0004's fixed cap, halves at each sample under pressure, never below its floor, and with headroom rises by a twentieth of its ceiling, at least one, only while the kind's admissions fill it. Memory past `governor.pressure` of the allowance, host pressure, or CPU time (against `available_parallelism`) or Tokio workers' busy time past the same share put the engine under pressure; memory past `governor.critical`, or the host's critical pressure, is critical. The last resort is memory critical with every kind at its floor for `governor.last_resort_after`; a Daemon's `/readyz` then fails with `governor_last_resort`, and #236 stops the largest run there.
+  > - **Host pressure** on Linux: memory in use (all but `MemAvailable`) past the thresholds, or PSI's `some avg10` past 10 % (pressure) and `full avg10` past 10 % (critical); on Windows, the low-memory notification is critical and the memory load counts as on Linux.
+  > - **Fairness.** Each live Run joins the governor; while Runs wait for a kind, what is given back goes round-robin to the waiting Runs, never back to the one that gave it. Foxhound's crawl takes one `http` admission per attempt, beside `crawl.handler.concurrency` and the per-domain queues; browser pages and model calls take theirs once areas 5 and 10 open them.
+  > - **`engine.system_info`** carries each sample; a subscription takes it only when it asks (`events.subscribe`'s `system_info`), and it takes no position otherwise, so a stream of what changes sees no periodic event. Metrics: `goodfetch.governor.target{kind}`, `goodfetch.governor.pressure_source{source}` and `goodfetch.governor.saturation`, the highest share of a kind's target in use.
+  > - **Who samples.** Each Product's executable gives its engine the OS to read; an engine given none, such as one embedded through the Rust crate today, holds each kind at its default ceiling. A Browser host's reports set the targets its Session's work is admitted by (`HostGovernor`).
 
 **The allowance.**
 - **Memory.** The engine's memory allowance is the tightest of:
   - the process's own cgroup memory limit, v1 or v2, read from its own cgroup path rather than the root;
   - a Windows Job object limit;
-  - the `memory_allowance` setting;
+  - the `governor.memory_allowance` setting;
   - 50 % of physical memory when none of these applies, so a workstation stays usable.
 
   Limits are read again at every sample, so a limit raised by Kubernetes' in-place Pod resize, or by hand, is seen.

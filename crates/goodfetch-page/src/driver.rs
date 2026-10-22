@@ -6,12 +6,13 @@
 //! connection: a browser the engine launched fills it here, a Browser host
 //! later. `Runtime` is never enabled, and the guard's script lives in an
 //! isolated world no page script reaches (ADR 0019). A page's navigations
-//! each wait for their document's `load` event and answer its response; the
-//! back/forward cache is off at launch, so going back or forward always
-//! loads its document again (ADR 0121). Every page reports itself focused,
-//! so one behind another tab of its Session keeps its timers (ADR 0085's
-//! question), and a headless browser's pages show the identity it shows
-//! with a window (`identity`).
+//! each wait for their document's `load` event, or the state the call
+//! names, and answer its response with the encoding it was decoded with,
+//! read in the guard's world (ADR 0119); the back/forward cache is off at
+//! launch, so going back or forward always loads its document again (ADR
+//! 0121). Every page reports itself focused, so one behind another tab of
+//! its Session keeps its timers (ADR 0085's question), and a headless
+//! browser's pages show the identity it shows with a window (`identity`).
 
 mod identity;
 
@@ -30,12 +31,15 @@ use goodfetch_engine::browser_cache::Pins;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::{BrowserExit, PageResponse};
+use goodfetch_protocol::page::{BrowserExit, PageResponse, WaitUntil};
 use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
 
+pub(crate) use self::navigation::Arrived;
 use self::navigation::{Ended, Expected, Navigation};
-use crate::errors::{Call, call_error, interrupted, network_error, renderer_crashed};
+use crate::errors::{
+    Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects, truncated,
+};
 use crate::launch::launch;
 use crate::trace::CommandLog;
 use identity::Identity;
@@ -52,6 +56,51 @@ pub(crate) const GUARD_WORLD: &str = "goodfetch-guard";
 /// What the guard's world holds before the guard does: a marker, which no
 /// page script can read, as the Proving ground's CDP probe checks.
 const GUARD_MARKER: &str = "globalThis.__goodfetch_guard__ = true;";
+
+/// The expression that reads the encoding a document was decoded with.
+const DOCUMENT_ENCODING: &str = "document.characterSet";
+
+/// The command that makes, or finds by its name, the guard's isolated
+/// world in `frame`'s document.
+fn isolated_world(frame: page::FrameId) -> page::CreateIsolatedWorldParams {
+    page::CreateIsolatedWorldParams {
+        frame_id: frame,
+        world_name: Some(GUARD_WORLD.to_owned()),
+        grant_univeral_access: None,
+        content_security_policy: None,
+    }
+}
+
+/// The command that reads the document's encoding in the world whose
+/// context is `context`, never through `Runtime.enable` (ADR 0019).
+fn encoding_read(context: runtime::ExecutionContextId) -> runtime::EvaluateParams {
+    runtime::EvaluateParams {
+        expression: DOCUMENT_ENCODING.to_owned(),
+        object_group: None,
+        include_command_line_api: None,
+        silent: Some(true),
+        context_id: Some(context),
+        return_by_value: Some(true),
+        generate_preview: None,
+        user_gesture: None,
+        await_promise: None,
+        throw_on_side_effect: None,
+        timeout: None,
+        disable_breaks: None,
+        repl_mode: None,
+        allow_unsafe_eval_blocked_by_csp: None,
+        unique_context_id: None,
+        serialization_options: None,
+    }
+}
+
+/// The encoding an [`encoding_read`] answered, when it named one.
+fn encoding_of(evaluated: runtime::EvaluateReturns) -> Option<String> {
+    evaluated
+        .result
+        .value
+        .and_then(|value| value.as_str().map(str::to_owned))
+}
 
 /// A browser's CDP connection as the driver uses it.
 #[derive(Clone)]
@@ -348,20 +397,7 @@ impl Turn<'_> {
         function: &str,
         argument: serde_json::Value,
     ) -> Result<serde_json::Value, Unanswered> {
-        let context = if let Some(context) = *self.world {
-            context
-        } else {
-            let made = self
-                .send(&page::CreateIsolatedWorldParams {
-                    frame_id: self.page.frame.clone(),
-                    world_name: Some(GUARD_WORLD.to_owned()),
-                    grant_univeral_access: None,
-                    content_security_policy: None,
-                })
-                .await?;
-            *self.world = Some(made.execution_context_id);
-            made.execution_context_id
-        };
+        let context = self.world().await?;
         let called = self.send(&world::call(function, argument, context)).await?;
         if let Some(thrown) = called.exception_details {
             return Err(Unanswered::Failed(CallError::protocol(
@@ -442,6 +478,25 @@ impl Turn<'_> {
             .map(|_| ())
     }
 
+    /// The context of the guard's isolated world in the page's main frame,
+    /// made on first use in each document.
+    async fn world(&mut self) -> Result<runtime::ExecutionContextId, Unanswered> {
+        if let Some(context) = *self.world {
+            return Ok(context);
+        }
+        let made = self.send(&isolated_world(self.page.frame.clone())).await?;
+        *self.world = Some(made.execution_context_id);
+        Ok(made.execution_context_id)
+    }
+
+    /// The encoding the main frame's document was decoded with, read in
+    /// the guard's world.
+    async fn document_encoding(&mut self) -> Result<Option<String>, Unanswered> {
+        let context = self.world().await?;
+        let evaluated = self.send(&encoding_read(context)).await?;
+        Ok(encoding_of(evaluated))
+    }
+
     /// Sends a command of the guard's world, a lost document being
     /// [`Unanswered::WorldGone`].
     async fn send<C: Command>(&mut self, params: &C) -> Result<C::Returns, Unanswered> {
@@ -504,10 +559,12 @@ impl PageDriver {
         }
     }
 
-    /// Navigates the page to `destination` and waits for its document's
-    /// `load` event, answering the document's response: none for a
-    /// navigation within the document, to a URL no server answers, or to a
-    /// history entry the page does not have.
+    /// Navigates the page to `destination` and waits until its document
+    /// reaches the state `wait_until` names, answering where it arrived:
+    /// the document's response, with the encoding it was decoded with once
+    /// it was; none for a navigation within the document, to a URL no
+    /// server answers, or to a history entry the page does not have; or the
+    /// file the browser downloads instead.
     ///
     /// A navigation takes no turn among the locator actions, so that a
     /// later one supersedes it; a guard's world it leaves behind is made
@@ -519,9 +576,10 @@ impl PageDriver {
     pub(crate) async fn navigate(
         &self,
         destination: Destination<'_>,
-    ) -> Result<Option<PageResponse>, CallError> {
+        wait_until: WaitUntil,
+    ) -> Result<Arrived, CallError> {
         let Some((url, step)) = self.step_to(destination).await? else {
-            return Ok(None);
+            return Ok(Arrived::Document(None));
         };
         let call = Call::Navigation { url: url.clone() };
         let mut events = self.browser.connection.subscribe(Some(&self.session)).await;
@@ -549,7 +607,13 @@ impl PageDriver {
                         )
                         .await?;
                     match (navigated.error_text, navigated.loader_id) {
-                        (Some(error), _) => Err(navigation::refused(&error, superseded())),
+                        (Some(error), loader) => navigation::refused(
+                            &error,
+                            loader,
+                            navigated.is_download == Some(true),
+                            superseded(),
+                        )
+                        .map(Some),
                         (None, Some(loader)) => Ok(Some(Expected::Loader(loader))),
                         // Within the document: no document loads.
                         (None, None) => Ok(None),
@@ -575,13 +639,23 @@ impl PageDriver {
         };
         let followed = tokio::time::timeout(
             self.navigation_timeout,
-            self.follow(command, &mut events, &call, superseded),
+            self.follow(command, &mut events, &call, wait_until, superseded),
         )
         .await;
         match followed {
-            Ok(Ok(Ok(response))) => Ok(response),
+            Ok(Ok(Ok(Arrived::Document(Some(response))))) if wait_until != WaitUntil::Commit => {
+                Ok(Arrived::Document(Some(PageResponse {
+                    encoding: self.document_encoding(&call).await?,
+                    ..response
+                })))
+            }
+            Ok(Ok(Ok(arrived))) => Ok(arrived),
             Ok(Ok(Err(Ended::Failed(error)))) => Err(network_error(&url, &error)),
             Ok(Ok(Err(Ended::Interrupted))) => Err(interrupted(&url)),
+            Ok(Ok(Err(Ended::TooManyRedirects(chain)))) => Err(too_many_redirects(&url, chain)),
+            Ok(Ok(Err(Ended::Truncated { received, expected }))) => {
+                Err(truncated(&url, received, expected))
+            }
             Ok(Ok(Err(Ended::Crashed))) => Err(renderer_crashed()),
             Ok(Err(failed)) => Err(failed),
             Err(_) => Err(network_error(
@@ -589,6 +663,47 @@ impl PageDriver {
                 &format!("no load event within `{}`", TIMEOUT_NAVIGATION.name),
             )),
         }
+    }
+
+    /// The encoding the main frame's document was decoded with, read in
+    /// the guard's world; none when the frame holds no document that names
+    /// one. The world is the one the page's turn keeps when no gesture
+    /// holds the turn, so that the next gesture finds it made; otherwise
+    /// the browser gives the read the same world by its name.
+    async fn document_encoding(&self, call: &Call) -> Result<Option<String>, CallError> {
+        let Ok(world) = self.turn.try_lock() else {
+            let made = self
+                .browser
+                .send(
+                    Some(&self.session),
+                    &isolated_world(self.frame.clone()),
+                    call,
+                )
+                .await?;
+            let evaluated = self
+                .browser
+                .send(
+                    Some(&self.session),
+                    &encoding_read(made.execution_context_id),
+                    call,
+                )
+                .await?;
+            return Ok(encoding_of(evaluated));
+        };
+        let mut turn = Turn {
+            page: self,
+            world,
+            call: call.clone(),
+        };
+        // A world kept from the document before is gone: made again once.
+        for _ in 0..2 {
+            match turn.document_encoding().await {
+                Ok(encoding) => return Ok(encoding),
+                Err(Unanswered::WorldGone) => {}
+                Err(Unanswered::Failed(error)) => return Err(error),
+            }
+        }
+        Ok(None)
     }
 
     /// The URL `destination` names and the command that goes there; none
@@ -626,27 +741,29 @@ impl PageDriver {
     }
 
     /// Follows the navigation `command` starts through the page's `events`,
-    /// read while the command runs too, until it ends.
+    /// read while the command runs too, until it ends or reaches the state
+    /// `wait_until` names.
     async fn follow(
         &self,
         command: impl Future<Output = Result<Result<Option<Expected>, Ended>, CallError>>,
         events: &mut Subscription,
         call: &Call,
+        wait_until: WaitUntil,
         superseded: impl Fn() -> bool,
-    ) -> Result<Result<Option<PageResponse>, Ended>, CallError> {
+    ) -> Result<Result<Arrived, Ended>, CallError> {
         let mut navigation = Navigation::of(self.frame.clone());
         let mut command = std::pin::pin!(command);
         let mut expected = None;
         loop {
             if let Some(expected) = &expected
-                && let Some(outcome) = navigation.outcome(expected, superseded())
+                && let Some(outcome) = navigation.outcome(expected, wait_until, superseded())
             {
                 return Ok(outcome);
             }
             tokio::select! {
                 answered = &mut command, if expected.is_none() => match answered? {
                     Ok(Some(answered)) => expected = Some(answered),
-                    Ok(None) => return Ok(Ok(None)),
+                    Ok(None) => return Ok(Ok(Arrived::Document(None))),
                     Err(ended) => return Ok(Err(ended)),
                 },
                 event = events.next() => match event {

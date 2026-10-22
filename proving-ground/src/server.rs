@@ -262,16 +262,24 @@ impl Connection {
                 .await;
                 return;
             }
-            let Some(stream) = first_head(&heads, Tap::new(stream, observed)).await else {
+            let Some((stream, _)) = first_head(&heads, Tap::new(stream, observed)).await else {
                 return;
             };
             let _ = builder
                 .serve_connection_with_upgrades(TokioIo::new(stream), service)
                 .await;
         } else {
-            let Some(stream) = first_head(&heads, Tap::new(wire, observed)).await else {
+            let Some((stream, host)) =
+                first_head(&heads, Tap::new(wire, Arc::clone(&observed))).await
+            else {
                 return;
             };
+            // A raw host's pages over plain HTTP/1.1, for a client that
+            // cannot trust the Proving ground's authority.
+            if host.is_some_and(|host| raw_site::serves(&observation::host_name(&host))) {
+                Box::pin(raw::serve(stream, false, None, observed, &*self.raw_site)).await;
+                return;
+            }
             let _ = builder
                 .serve_connection_with_upgrades(TokioIo::new(stream), service)
                 .await;
@@ -282,13 +290,14 @@ impl Connection {
 /// Reads a connection's first request head before hyper does. When the
 /// site answers it with a whole response of its own bytes, writes them and
 /// closes the connection, returning `None`; otherwise returns the stream,
-/// which gives hyper what was read first. Only a first request is answered
+/// which gives what was read first to hyper or the raw server, and the
+/// head's `Host`, which tells them apart. Only a first request is answered
 /// so: a page whose head hyper cannot write is on its own host name, which
 /// a client reaches on a new connection.
 async fn first_head<S: AsyncRead + AsyncWrite + Unpin>(
     site: &Site,
     mut stream: S,
-) -> Option<Rewind<S>> {
+) -> Option<(Rewind<S>, Option<String>)> {
     let mut read = Vec::new();
     let mut chunk = [0; 4096];
     while read.len() < FIRST_HEAD_LIMIT && !read.windows(4).any(|end| end == b"\r\n\r\n") {
@@ -305,16 +314,26 @@ async fn first_head<S: AsyncRead + AsyncWrite + Unpin>(
         }
         return None;
     }
-    Some(Rewind {
-        read,
-        at: 0,
-        inner: stream,
-    })
+    let host = head(&read).map(|(host, _)| host);
+    Some((
+        Rewind {
+            read,
+            at: 0,
+            inner: stream,
+        },
+        host,
+    ))
 }
 
 /// The site's own bytes for the request head `read` begins with, if it
 /// answers it so.
 fn raw_response(site: &Site, read: &[u8]) -> Option<Vec<u8>> {
+    let (host, path) = head(read)?;
+    site.raw_response(&host, &path)
+}
+
+/// The `Host` and the path of the whole request head `read` begins with.
+fn head(read: &[u8]) -> Option<(String, String)> {
     let mut fields = [httparse::EMPTY_HEADER; FIRST_HEAD_FIELDS];
     let mut request = httparse::Request::new(&mut fields);
     if !request.parse(read).ok()?.is_complete() {
@@ -327,7 +346,7 @@ fn raw_response(site: &Site, read: &[u8]) -> Option<Vec<u8>> {
         .and_then(|field| std::str::from_utf8(field.value).ok())?;
     let target = request.path?;
     let path = target.split_once('?').map_or(target, |(path, _)| path);
-    site.raw_response(host, path)
+    Some((host.to_owned(), path.to_owned()))
 }
 
 /// A stream that gives back the bytes read from it first, then reads on.

@@ -4,6 +4,7 @@
 //! cases are `delivery`'s, and a page's formats cases `formats`'s.
 
 mod delivery;
+mod fetch_edge;
 mod formats;
 mod guard;
 mod launch;
@@ -52,6 +53,8 @@ pub(crate) enum Case {
     BackLoadsTheDocumentAgain,
     UnresolvedNameFailsTheNavigation,
     SupersededNavigationIsInterrupted,
+    /// A fetch edge or response decoding case, Collie's lines.
+    FetchEdge(fetch_edge::Case),
     MarkdownMatchesTheOracle,
     FormatNotNamedIsLeftOut,
     NoMainContentIsNone,
@@ -113,6 +116,9 @@ impl Site {
                 resolve.insert(host.to_owned(), json!([ip]));
             }
         }
+        for host in NAMED_HOSTS {
+            resolve.insert(host.to_owned(), json!([ip]));
+        }
         // The access family's secure host, which no task names: a browser
         // would resolve it to every loopback address, the Proving ground's
         // among them, and this keeps it on that one.
@@ -135,7 +141,18 @@ impl Site {
     fn start_url(&self, id: &str) -> Option<&str> {
         self.start_urls.get(id).map(String::as_str)
     }
+
+    /// The plain HTTP URL of `path` on `host`, one of the Proving ground's
+    /// host names that belong to no task, on its port.
+    fn named_url(&self, host: &str, path: &str) -> Option<String> {
+        let (_, port) = self.proving_ground.address().rsplit_once(':')?;
+        Some(format!("http://{host}:{port}{path}"))
+    }
 }
+
+/// The Proving ground's host names that belong to no task and that a case
+/// reaches, which `resolve` maps too: the fetch edge's (ADR 0118).
+const NAMED_HOSTS: [&str; 1] = ["fetch-edge.test"];
 
 /// The host name of an `http` URL.
 fn host_of(url: &str) -> Option<&str> {
@@ -217,7 +234,7 @@ impl Case {
             "a-target-never-actionable-raises-deadline-exceeded-naming-the-step" => {
                 Self::NeverActionable
             }
-            _ => return None,
+            _ => return fetch_edge::Case::from_id(id).map(Self::FetchEdge),
         })
     }
 
@@ -276,6 +293,7 @@ impl Case {
             Self::SupersededNavigationIsInterrupted => {
                 navigation::superseded(connection, site, checks)
             }
+            Self::FetchEdge(case) => case.run(connection, site, checks),
             Self::MarkdownMatchesTheOracle => {
                 formats::markdown_matches_the_oracle(connection, site, checks)
             }

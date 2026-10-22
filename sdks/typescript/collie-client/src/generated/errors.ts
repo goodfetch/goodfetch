@@ -339,11 +339,29 @@ export class PatternUnsupportedError extends ProgramError {
 }
 
 /**
+ * Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.
+ */
+export class PersonRequiredError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "person_required", group: "refused", retryable: false });
+  }
+}
+
+/**
  * The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.
  */
 export class ProtocolVersionUnsupportedError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "protocol_version_unsupported", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.
+ */
+export class ResponseTruncatedError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "response_truncated", group: "page", retryable: true });
   }
 }
 
@@ -474,6 +492,15 @@ export class TargetNotUniqueError extends PageError {
 }
 
 /**
+ * The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain.
+ */
+export class TooManyRedirectsError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "too_many_redirects", group: "page", retryable: false });
+  }
+}
+
+/**
  * `upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.
  */
 export class UpgradeSourceUnsupportedError extends RefusedError {
@@ -519,7 +546,9 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   not_in_product: NotInProductError,
   page_crashed: PageCrashedError,
   pattern_unsupported: PatternUnsupportedError,
+  person_required: PersonRequiredError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
+  response_truncated: ResponseTruncatedError,
   run_busy: RunBusyError,
   run_conflict: RunConflictError,
   run_id_invalid: RunIdInvalidError,
@@ -534,6 +563,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   setting_not_applicable: SettingNotApplicableError,
   setting_unknown: SettingUnknownError,
   target_not_unique: TargetNotUniqueError,
+  too_many_redirects: TooManyRedirectsError,
   upgrade_source_unsupported: UpgradeSourceUnsupportedError,
   value_invalid: ValueInvalidError,
 };

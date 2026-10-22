@@ -12,6 +12,7 @@ Commands:
   config           Shows the settings and where each value comes from
   daemon           Starts, stops and shows the Daemon of this executable's major, which both Products share
   runs             Works on the runs of this executable's major, of both Products
+  usage            Shows, sets and raises the Limits of the user's Usage ledger, which hold every engine of the user
   upgrade-files    Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
   engine           Calls the catalog's `engine` operations
   events           Calls the catalog's `events` operations
@@ -21,7 +22,6 @@ Commands:
   key-value-store  Calls the catalog's `key_value_store` operations
   audit            Calls the catalog's `audit` operations
   sample           Calls the catalog's `sample` operations
-  usage            Calls the catalog's `usage` operations
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -302,7 +302,7 @@ Usage: goodfetch-collie run [OPTIONS] <COMMAND>
 Commands:
   new-page    Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call
   start       Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise
-  finish      Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait
+  finish      Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait
   abort       Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
   checkpoint  Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file
   pause       Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint
@@ -342,7 +342,7 @@ Options:
   -h, --help               Print help
 
 $ goodfetch-collie run finish --help
-Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait
+Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait
 
 Usage: goodfetch-collie run finish [OPTIONS] <RUN_ID>
 
@@ -432,7 +432,7 @@ Calls the catalog's `page` operations
 Usage: goodfetch-collie page [OPTIONS] <COMMAND>
 
 Commands:
-  goto        Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`
+  goto        Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`
   reload      Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`
   go-back     Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121)
   go-forward  Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121)
@@ -444,7 +444,7 @@ Options:
   -h, --help          Print help
 
 $ goodfetch-collie page goto --help
-Navigates the page to a URL and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`
+Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`
 
 Usage: goodfetch-collie page goto [OPTIONS] --url <URL> <PAGE_ID>
 
@@ -452,10 +452,11 @@ Arguments:
   <PAGE_ID>  The page
 
 Options:
-      --url <URL>     The URL
-      --json          Prints the result as JSON
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
+      --url <URL>                The URL
+      --wait-until <WAIT_UNTIL>  When the navigation answers; `load` when absent
+      --json                     Prints the result as JSON
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                     Print help
 
 $ goodfetch-collie page reload --help
 Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`
@@ -685,13 +686,14 @@ Options:
 Deprecated since protocol 0.1, and removed no earlier than the next major: A sample entry, which the real catalog replaces.
 
 $ goodfetch-collie usage --help
-Calls the catalog's `usage` operations
+Shows, sets and raises the Limits of the user's Usage ledger, which hold every engine of the user
 
 Usage: goodfetch-collie usage [OPTIONS] <COMMAND>
 
 Commands:
-  list  Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left
-  set   Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage
+  list   Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left
+  set    Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage
+  raise  Raises a Limit, in place of the ones of its scope, Usage kind, currency and period but a managed Operator policy's: a person's answer, asked at the terminal, and refused with `person_required` when stdin is no terminal
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -721,4 +723,19 @@ Options:
       --usage-kind <USAGE_KIND>  The Usage kind it caps
       --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
       --json                     Prints the result as JSON
+  -h, --help                     Print help
+
+$ goodfetch-collie usage raise --help
+Raises a Limit, in place of the ones of its scope, Usage kind, currency and period but a managed Operator policy's: a person's answer, asked at the terminal, and refused with `person_required` when stdin is no terminal
+
+Usage: goodfetch-collie usage raise [OPTIONS] --scope <SCOPE> --usage-kind <USAGE_KIND> --amount <AMOUNT>
+
+Options:
+      --scope <SCOPE>            The scope's kind
+      --scope-id <SCOPE_ID>      Which one of its kind; the person's own when absent
+      --usage-kind <USAGE_KIND>  The Usage kind it caps
+      --currency <CURRENCY>      The currency it caps the price in, an ISO 4217 code
+      --period <PERIOD>          The period it counts over, as JSON such as `{"every":"month","time_zone":"UTC"}`; none for a Limit that never starts again
+      --amount <AMOUNT>          How much it allows per period from now on: a count of the Usage kind, or millionths of the currency
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                     Print help

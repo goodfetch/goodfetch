@@ -104,6 +104,7 @@ impl TakeOver {
             ended_at: Some(report.ended_at.clone()),
             owner: None,
             presence: Presence::Present,
+            progress_message: recorded.progress_message.clone(),
         };
         let index = self.index.clone();
         let version = self.version.clone();
@@ -227,6 +228,7 @@ impl TakeOver {
             policy_version: recorded.policy_version.clone(),
             weakened_by: recorded.weakened_by.clone(),
             checkpoint: None,
+            uncapped: recorded.uncapped,
         };
         let written = report.clone();
         let ended = state

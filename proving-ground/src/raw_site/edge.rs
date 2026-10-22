@@ -261,17 +261,30 @@ fn cut(rest: &str, path: &str) -> Answer {
             cut: Cut::Stream,
         },
         "gzip" => {
-            let mut encoder =
-                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-            let _ = std::io::Write::write_all(&mut encoder, &whole.body);
-            let mut body = encoder
-                .finish()
-                .expect("invariant: writing to a Vec succeeds");
+            let mut body = gzip(&whole.body);
             body.truncate(body.len() / 2);
             Answer::Page(Page::html(200, body).with("content-encoding", "gzip"))
         }
+        "gzip-content-length" => {
+            let body = gzip(&whole.body);
+            let sent = body.len() / 2;
+            Answer::Cut {
+                page: Page::html(200, body).with("content-encoding", "gzip"),
+                sent,
+                cut: Cut::Connection,
+            }
+        }
         _ => not_found(),
     }
+}
+
+/// `body` compressed whole with gzip.
+fn gzip(body: &[u8]) -> Vec<u8> {
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    let _ = std::io::Write::write_all(&mut encoder, body);
+    encoder
+        .finish()
+        .expect("invariant: writing to a Vec succeeds")
 }
 
 /// The three HTTP-date formats of RFC 9110, section 5.6.7.

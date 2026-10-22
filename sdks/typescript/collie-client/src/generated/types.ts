@@ -93,6 +93,14 @@ export type Product = "collie" | "foxhound";
  */
 export type MarkdownFormat = true | MarkdownOptions;
 /**
+ * When a navigation answers, by the state its document reached
+ * (Playwright's `waitUntil`).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WaitUntil".
+ */
+export type WaitUntil = "commit" | "domcontentloaded" | "load";
+/**
  * Where a Run is (ADR 0029).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -156,6 +164,13 @@ export type PeriodLength = "day" | "week" | "month";
  */
 export type ProductVersion = string;
 /**
+ * A program's own status line about its Run (RT-15).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProgressMessage".
+ */
+export type ProgressMessage = string;
+/**
  * A version `major.minor` (ADR 0030).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -210,7 +225,8 @@ export type StopReason =
   | {
       kind: "drain";
     }
-  | ReachedLimit1;
+  | ReachedLimit1
+  | NotUnderstoodLimit1;
 /**
  * An opaque text a Run is tagged with (ADR 0036).
  *
@@ -855,7 +871,8 @@ export interface FormatsRequest1 {
   markdown?: MarkdownFormat | null;
 }
 /**
- * What `page.goto` takes: the page, and the URL it goes to.
+ * What `page.goto` takes: the page, the URL it goes to, and when it
+ * answers.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "GotoParams".
@@ -869,6 +886,10 @@ export interface GotoParams {
    * The URL.
    */
   url: string;
+  /**
+   * When the navigation answers; `load` when absent.
+   */
+  wait_until?: WaitUntil | null;
 }
 /**
  * What a `hello` says.
@@ -1184,6 +1205,11 @@ export interface LimitUsage {
   left: number;
   limit: Limit1;
   /**
+   * The major of the managed Operator policy whose row it is; none for
+   * a row no managed policy wrote.
+   */
+  managed_major?: string | null;
+  /**
    * When the current period started; none for a Limit without one.
    */
   period_started_at?: PointInTime | null;
@@ -1263,8 +1289,9 @@ export interface MarkdownOptions1 {
 /**
  * What a navigation answers: the document's response, or none for a
  * navigation within the same document, to a URL no server answers, such as
- * `about:blank`, or back or forward from the last entry of the page's
- * history. A 404 or a 500 is a response, a value.
+ * `about:blank`, to a file the browser downloads instead of showing, which
+ * `page.download` reports, or back or forward from the last entry of the
+ * page's history. A 404 or a 500 is a response, a value.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "Navigated".
@@ -1282,6 +1309,13 @@ export interface Navigated {
  * via the `definition` "PageResponse".
  */
 export interface PageResponse {
+  /**
+   * For a navigation's document, the encoding the browser decoded it
+   * with, as `document.characterSet` names it, such as `Shift_JIS` (ADR
+   * 0119); none for another response, and for a navigation that answered
+   * at `commit`, before its document was decoded.
+   */
+  encoding?: string | null;
   /**
    * Its headers, their names lower-cased, as the browser received them.
    */
@@ -1314,6 +1348,44 @@ export interface NewPageParams {
   run_id: string;
 }
 /**
+ * A Limit flagged *must understand* that a Run's engine cannot evaluate,
+ * as the Run stopped for it names it (ADR 0041): its scope, Usage kind,
+ * currency and period as the ledger holds them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotUnderstoodLimit".
+ */
+export interface NotUnderstoodLimit {
+  /**
+   * The currency it caps a price in, for a price Limit.
+   */
+  currency?: string | null;
+  /**
+   * Its period; none for a Limit that never starts again.
+   */
+  period?: Period | null;
+  scope: LimitScope2;
+  /**
+   * The Usage kind it caps.
+   */
+  usage_kind: string;
+}
+/**
+ * The Limit's scope.
+ */
+export interface LimitScope2 {
+  /**
+   * Which one of its kind: the major's name for a Daemon, the person's
+   * name, the token's name or the Client connection's ID; empty for the
+   * install.
+   */
+  id: string;
+  /**
+   * The scope's kind.
+   */
+  kind: string;
+}
+/**
  * What `page.body` takes: the body to read.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1340,6 +1412,27 @@ export interface PageBodyRead {
    * The body's size in bytes.
    */
   size: number;
+}
+/**
+ * What `page.download` reports: a navigation of a page that the browser
+ * turned into a download.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageDownload".
+ */
+export interface PageDownload {
+  /**
+   * The page whose navigation it was.
+   */
+  page_id: string;
+  /**
+   * The file name the browser suggests for it.
+   */
+  suggested_filename: string;
+  /**
+   * The file's URL.
+   */
+  url: string;
 }
 /**
  * What `page.formats` answers: the formats the request asked for, and
@@ -1445,7 +1538,7 @@ export interface ReachedLimit {
    * When its period starts again; none for a Limit without one.
    */
   resets_at?: PointInTime | null;
-  scope: LimitScope2;
+  scope: LimitScope3;
   /**
    * The Usage kind it caps.
    */
@@ -1454,7 +1547,7 @@ export interface ReachedLimit {
 /**
  * The Limit's scope.
  */
-export interface LimitScope2 {
+export interface LimitScope3 {
   /**
    * Which one of its kind: the major's name for a Daemon, the person's
    * name, the token's name or the Client connection's ID; empty for the
@@ -1596,6 +1689,26 @@ export interface RunParams {
   run_id: string;
 }
 /**
+ * A Run's progress as it is now (ADR 0102): what `run.progress` reports.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunProgress".
+ */
+export interface RunProgress {
+  /**
+   * Where it is.
+   */
+  lifecycle: "running" | "stopped" | "finished" | "failed";
+  /**
+   * The program's own status line, once it set one.
+   */
+  message?: ProgressMessage | null;
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
+}
+/**
  * What a Run states about itself when it ends (ADR 0102): its three axes
  * (ADR 0029) and when it ran.
  *
@@ -1639,6 +1752,11 @@ export interface RunReport {
    */
   stop_reason?: StopReason | null;
   /**
+   * Whether it spent, or reserved, money in a currency no Limit holding
+   * it caps (ADR 0041): *uncapped*.
+   */
+  uncapped?: boolean;
+  /**
    * Whether a Run's own checks prove what it committed (ADR 0029).
    */
   verdict: "verified" | "rejected" | "needs_review";
@@ -1655,6 +1773,15 @@ export interface RunReport {
  */
 export interface ReachedLimit1 {
   kind: "limit";
+}
+/**
+ * A Limit flagged *must understand* that its engine cannot evaluate
+ * came to cover it when it charged, and it stopped at its next safe
+ * point, resumable by an engine that can (ADR 0041): the stop of the
+ * Error code `limit_not_understood`.
+ */
+export interface NotUnderstoodLimit1 {
+  kind: "limit_not_understood";
 }
 /**
  * A setting that decided an outcome: its key, its value and the layer that
@@ -1707,6 +1834,22 @@ export interface RunResumeParams {
   settings?: {
     [k: string]: unknown;
   };
+}
+/**
+ * What `run.set_progress_message` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunSetProgressMessageParams".
+ */
+export interface RunSetProgressMessageParams {
+  /**
+   * A program's own status line about its Run (RT-15).
+   */
+  message: string;
+  /**
+   * The Run's ID.
+   */
+  run_id: string;
 }
 /**
  * What `run.start` takes.
@@ -1789,7 +1932,8 @@ export interface RunStopping {
     | {
         kind: "drain";
       }
-    | ReachedLimit1;
+    | ReachedLimit1
+    | NotUnderstoodLimit1;
   /**
    * The Run's ID.
    */
@@ -1929,6 +2073,42 @@ export interface UsageListResult {
    * Every Limit of the Usage ledger, by scope, with its Usage.
    */
   limits: LimitUsage[];
+}
+/**
+ * What `usage.raise` takes: a Limit a person sets, which replaces every
+ * Limit of its scope, Usage kind, currency and period that is not a
+ * managed Operator policy's, keeping the Usage counted against them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UsageRaiseParams".
+ */
+export interface UsageRaiseParams {
+  /**
+   * How much it allows per period from now on: a count of the Usage
+   * kind, or millionths of the currency.
+   */
+  amount: number;
+  /**
+   * The currency it caps the price in, an ISO 4217 code.
+   */
+  currency?: string | null;
+  /**
+   * The period it counts over; none for a Limit that never starts again.
+   */
+  period?: Period | null;
+  /**
+   * The scope's kind.
+   */
+  scope: string;
+  /**
+   * Which one of its kind; the person's own when absent (their Client
+   * connection, their person, the engine's Daemon, the install).
+   */
+  scope_id?: string | null;
+  /**
+   * The Usage kind it caps.
+   */
+  usage_kind: string;
 }
 /**
  * What `usage.set` takes: a Limit of the caller's own, which holds beside

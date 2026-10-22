@@ -266,12 +266,28 @@ class PatternUnsupportedError(ProgramError):
         super().__init__(message, code="pattern_unsupported", group="program", retryable=False)
 
 
+class PersonRequiredError(RefusedError):
+    """Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="person_required", group="refused", retryable=False)
+
+
 class ProtocolVersionUnsupportedError(UnavailableError):
     """The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="protocol_version_unsupported", group="unavailable", retryable=False)
+
+
+class ResponseTruncatedError(PageError):
+    """The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="response_truncated", group="page", retryable=True)
 
 
 class RunBusyError(RefusedError):
@@ -386,6 +402,14 @@ class TargetNotUniqueError(PageError):
         super().__init__(message, code="target_not_unique", group="page", retryable=False)
 
 
+class TooManyRedirectsError(PageError):
+    """The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="too_many_redirects", group="page", retryable=False)
+
+
 class UpgradeSourceUnsupportedError(RefusedError):
     """`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed."""
 
@@ -429,7 +453,9 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "not_in_product": NotInProductError,
     "page_crashed": PageCrashedError,
     "pattern_unsupported": PatternUnsupportedError,
+    "person_required": PersonRequiredError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
+    "response_truncated": ResponseTruncatedError,
     "run_busy": RunBusyError,
     "run_conflict": RunConflictError,
     "run_id_invalid": RunIdInvalidError,
@@ -444,6 +470,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "setting_not_applicable": SettingNotApplicableError,
     "setting_unknown": SettingUnknownError,
     "target_not_unique": TargetNotUniqueError,
+    "too_many_redirects": TooManyRedirectsError,
     "upgrade_source_unsupported": UpgradeSourceUnsupportedError,
     "value_invalid": ValueInvalidError,
 }

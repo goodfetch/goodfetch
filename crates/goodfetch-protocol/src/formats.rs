@@ -401,7 +401,7 @@ fn configuration_schema(generator: &mut SchemaGenerator) -> Schema {
 }
 
 fn operator_policy_schema(generator: &mut SchemaGenerator) -> Schema {
-    settings_file_schema(
+    let mut schema = settings_file_schema(
         generator,
         &[
             Table {
@@ -420,7 +420,16 @@ fn operator_policy_schema(generator: &mut SchemaGenerator) -> Schema {
                 holds: bounded_key,
             },
         ],
-    )
+    );
+    let managed = json!({
+        "allOf": [generator.subschema_for::<crate::usage::Managed>()],
+        "description": "Marks the policy managed, deployed by MDM or Ansible (ADR 0031), with the install Limits each engine of its major writes to the Usage ledger when it starts (ADR 0041).",
+        "arrived_in": "0.1",
+    });
+    if let Some(properties) = schema.get_mut("properties").and_then(Value::as_object_mut) {
+        properties.insert("managed".to_owned(), managed);
+    }
+    schema
 }
 
 fn any_key(_: &Setting) -> bool {

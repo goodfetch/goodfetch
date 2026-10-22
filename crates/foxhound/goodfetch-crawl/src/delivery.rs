@@ -5,7 +5,9 @@
 //! each Connection serving the crawl (the one that started it, and each `workers=N` handler process
 //! that joined it with `crawl.serve`), at most `crawl.handler.concurrency`
 //! at once on each, each lease committed in run state
-//! before its `crawl_request.handle` request is sent; commits an answered
+//! before its `crawl_request.handle` request is sent, served by a Session
+//! the crawl's Session pool draws, which the attempt's ending then scores
+//! (ADRs 0006 and 0021); commits an answered
 //! attempt's Records once, through its lease, while the lease holds; and
 //! ends an attempt whose handler failed, or that got no answer before its
 //! lease ended, with nothing committed, its work item retried under the
@@ -23,7 +25,9 @@
 //! failing with `blocked` for a `rate_limit` (a 429) halves its concurrency,
 //! for every sharing run (ADR 0053). A domain the Politeness holds for want
 //! of room waits for the wake of a Permit given back. Once every work item
-//! is done, it finishes the Run. When the Run is asked to stop at its next safe point,
+//! is done, it finishes the Run; with `crawl.keep_alive` (RT-12) it waits
+//! for new work instead until `run.finish` lets the Run finish, so its idle
+//! time counts toward its `timeout.run`. When the Run is asked to stop at its next safe point,
 //! such as once its `timeout.run` passed, it admits nothing new, lets each
 //! attempt in flight commit or be abandoned under its lease, and then stops
 //! the Run. When the Run stops at once, by an abort, the attempts in flight
@@ -38,16 +42,18 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
-use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::foxhound::crawl::{
-    CLIENT_GONE, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
-    HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
+    CLIENT_GONE, CRAWL_KEEP_ALIVE, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams,
+    CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
 };
+use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::run::StopReason;
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_protocol::usage::REQUESTS;
+use goodfetch_session_pool::{Effect, PoolSettings, SessionPool};
 use serde_json::{Map, Value};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -62,6 +68,10 @@ use crate::work_items::{self, Failure, Leased, Unsuccessful};
 /// with the Block cause in its details (ADRs 0035 and 0079); declared with
 /// the page's errors (#711).
 const BLOCKED: &str = "blocked";
+
+/// The Error code of a page that failed its Page check (ADR 0006), which
+/// scores its Session down; declared with the Page check (area 5).
+const PAGE_CHECK_FAILED: &str = "page_check_failed";
 
 /// How an attempt ended, before its outcome is committed.
 enum Answer {
@@ -84,6 +94,8 @@ struct Attempt {
     /// The server, by its place in the delivery's list, its request went to.
     server: usize,
     leased: Leased,
+    /// The Session of the crawl's Session pool that served it.
+    session: ServingSession,
     lease: WorkItemLease,
     answer: Answer,
 }
@@ -154,13 +166,8 @@ async fn deliver(
     settings: &RunSettings,
 ) {
     let run_leases = Leases::new(run.clock(), run.id().as_str(), run.state().epoch());
-    let mut admission = match open(run, settings).await {
-        Ok(admission) => admission,
-        Err(error) => {
-            tracing::error!(%error, run_id = %run.id(), "the crawl's admission could not open");
-            run.end(Ending::Failed).await;
-            return;
-        }
+    let Some((mut admission, mut pool)) = opened(run, settings).await else {
+        return;
     };
     let mut wakes = admission.wakes();
     let mut attempts: JoinSet<Attempt> = JoinSet::new();
@@ -174,6 +181,10 @@ async fn deliver(
                 run,
                 &run_leases,
                 policy,
+                Pooled {
+                    pool: &mut pool,
+                    settings: PoolSettings::of(&resolved),
+                },
                 &mut admission,
                 servers,
                 &mut attempts,
@@ -190,29 +201,23 @@ async fn deliver(
                 return;
             }
             if !servers.iter_mut().any(Serving::serves) {
-                tokio::select! {
-                    biased;
-                    () = run.cancellation().cancelled() => {
-                        admission.close().await;
-                        release(run).await;
-                        return;
-                    }
-                    reason = run.stopping() => {
-                        stop = Some(reason);
-                        continue;
-                    }
-                    Some(server) = joined.recv() => {
-                        servers.push(Serving::joined(server));
-                        continue;
-                    }
+                match waited(run, &mut admission, servers, joined, false).await {
+                    Waited::Ended => return,
+                    Waited::Stop(reason) => stop = Some(reason),
+                    Waited::Again => {}
                 }
+                continue;
             }
             match when_idle(run, &mut admission).await {
                 Ok(Idle::Admit) => continue,
                 Ok(Idle::Wait) => {}
                 Ok(Idle::Done) => {
-                    end(run, &mut admission, Ending::Finished).await;
-                    return;
+                    match drained(run, &resolved, &mut admission, servers, joined).await {
+                        Waited::Ended => return,
+                        Waited::Stop(reason) => stop = Some(reason),
+                        Waited::Again => {}
+                    }
+                    continue;
                 }
                 Err(error) => {
                     tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
@@ -244,7 +249,7 @@ async fn deliver(
             }
             Some(ended) = attempts.join_next() => {
                 if let Ok(attempt) = ended {
-                    settled(run, settings, &mut admission, servers, attempt).await;
+                    settled(run, settings, &mut admission, &mut pool, servers, attempt).await;
                 }
             }
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
@@ -295,12 +300,21 @@ pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings, craw
     drive(run, client, joined, crawls, settings).await;
 }
 
-/// Admits work items up to each serving Connection's room and starts an
-/// attempt for each on that Connection.
+/// The crawl's Session pool under the Run's settings now.
+struct Pooled<'a> {
+    pool: &'a mut SessionPool,
+    settings: PoolSettings,
+}
+
+/// Admits work items up to each serving Connection's room, draws the
+/// Session of the pool that serves each, written in run state before any
+/// handler request is sent, and starts an attempt for each on that
+/// Connection.
 async fn lease_to_servers(
     run: &Run,
     run_leases: &Leases,
     policy: CrawlPolicy,
+    pooled: Pooled<'_>,
     admission: &mut Admission,
     servers: &mut [Serving],
     attempts: &mut JoinSet<Attempt>,
@@ -310,7 +324,24 @@ async fn lease_to_servers(
             continue;
         }
         let room = policy.handler_concurrency - server.in_flight;
-        for leased in admit(run, admission, room).await? {
+        let served: Vec<(Leased, ServingSession)> = admit(run, admission, room)
+            .await?
+            .into_iter()
+            .map(|leased| {
+                let session =
+                    pooled
+                        .pool
+                        .draw(&leased.waiting.key, &pooled.settings, run.clock().wall());
+                (leased, session)
+            })
+            .collect();
+        let changes = pooled.pool.changes();
+        if !changes.is_empty() {
+            run.state()
+                .write(move |connection| changes.write(connection))
+                .await?;
+        }
+        for (leased, session) in served {
             let lease = run_leases.grant(
                 &leased.crawl_request.id,
                 leased.lease_epoch,
@@ -321,7 +352,7 @@ async fn lease_to_servers(
                 run.clone(),
                 place,
                 server.client.clone(),
-                leased,
+                (leased, session),
                 lease,
             ));
         }
@@ -353,6 +384,64 @@ fn domain_ending(answer: &Answer) -> Ended {
         Ended::BackOff
     } else {
         Ended::Done
+    }
+}
+
+/// What a crawl with nothing to deliver now does next.
+enum Waited {
+    /// It ended the Run, or the Run stopped at once.
+    Ended,
+    /// The Run is asked to stop at its next safe point.
+    Stop(StopReason),
+    /// `run.finish` let it finish, or a Connection joined to serve it:
+    /// look for work once more.
+    Again,
+}
+
+/// Finishes a crawl with no work item left, unless `crawl.keep_alive`,
+/// read at each admission point as its policy is, holds it until
+/// `run.finish` lets it finish: until then it waits for new work, as the
+/// Run's own timeout and a stop still end it (RT-12).
+async fn drained(
+    run: &Run,
+    resolved: &Resolved,
+    admission: &mut Admission,
+    servers: &mut Vec<Serving>,
+    joined: &mut mpsc::UnboundedReceiver<Server>,
+) -> Waited {
+    let keeps_alive = resolved
+        .boolean(CRAWL_KEEP_ALIVE.name)
+        .expect("invariant: `crawl.keep_alive` resolves to a boolean");
+    if !keeps_alive || run.is_let_finish() {
+        end(run, admission, Ending::Finished).await;
+        return Waited::Ended;
+    }
+    waited(run, admission, servers, joined, true).await
+}
+
+/// Waits, with nothing to deliver now, until the Run stops at once, is
+/// asked to stop at its next safe point, a Connection joins to serve it
+/// or, `until_finish`, `run.finish` lets it finish.
+async fn waited(
+    run: &Run,
+    admission: &mut Admission,
+    servers: &mut Vec<Serving>,
+    joined: &mut mpsc::UnboundedReceiver<Server>,
+    until_finish: bool,
+) -> Waited {
+    tokio::select! {
+        biased;
+        () = run.cancellation().cancelled() => {
+            admission.close().await;
+            release(run).await;
+            Waited::Ended
+        }
+        reason = run.stopping() => Waited::Stop(reason),
+        () = run.let_finish(), if until_finish => Waited::Again,
+        Some(server) = joined.recv() => {
+            servers.push(Serving::joined(server));
+            Waited::Again
+        }
     }
 }
 
@@ -391,6 +480,7 @@ async fn settled(
     run: &Run,
     settings: &RunSettings,
     admission: &mut Admission,
+    pool: &mut SessionPool,
     servers: &mut [Serving],
     attempt: Attempt,
 ) {
@@ -401,8 +491,23 @@ async fn settled(
     }
     let waiting = attempt.leased.waiting.clone();
     let domain = domain_ending(&attempt.answer);
-    let policy = CrawlPolicy::of(&settings.at_admission().await);
-    let retried = settle(run, policy, attempt).await;
+    let resolved = settings.at_admission().await;
+    pool.settle(
+        &attempt.session,
+        &waiting.key,
+        effect(&attempt.answer),
+        &PoolSettings::of(&resolved),
+    );
+    let changes = pool.changes();
+    if !changes.is_empty()
+        && let Err(error) = run
+            .state()
+            .write(move |connection| changes.write(connection))
+            .await
+    {
+        tracing::warn!(%error, run_id = %run.id(), "the crawl's Session pool was not written");
+    }
+    let retried = settle(run, CrawlPolicy::of(&resolved), attempt).await;
     admission
         .ended(&waiting.id, &waiting.key, run.clock().now(), domain)
         .await;
@@ -415,9 +520,23 @@ async fn settled(
     journal(run, admission).await;
 }
 
+/// Opens the Run's admission and Session pool, or ends the Run as failed
+/// when they could not open.
+async fn opened(run: &Run, settings: &RunSettings) -> Option<(Admission, SessionPool)> {
+    match open(run, settings).await {
+        Ok(opened) => Some(opened),
+        Err(error) => {
+            tracing::error!(%error, run_id = %run.id(), "the crawl's admission could not open");
+            run.end(Ending::Failed).await;
+            None
+        }
+    }
+}
+
 /// Opens the Run's admission, the gate Foxhound's composition passes in,
-/// keys the work items not keyed yet and fills each domain's queue.
-async fn open(run: &Run, settings: &RunSettings) -> Result<Admission, String> {
+/// keys the work items not keyed yet and fills each domain's queue; and
+/// opens its Session pool from its run state, on an `Entropy` of its own.
+async fn open(run: &Run, settings: &RunSettings) -> Result<(Admission, SessionPool), String> {
     let resolved = settings.at_admission().await;
     let mut admission = run
         .admission(&resolved)
@@ -430,7 +549,13 @@ async fn open(run: &Run, settings: &RunSettings) -> Result<Admission, String> {
     fill(run, &mut admission, None)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(admission)
+    let entropy = run.fork_entropy().await;
+    let pool = run
+        .state()
+        .read(move |connection| SessionPool::open(connection, entropy))
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok((admission, pool))
 }
 
 /// Keys each work item not keyed yet, the seeds at the start and those a
@@ -483,8 +608,8 @@ async fn fill(
 /// Admits up to `room` work items ready now and leases them, then fills
 /// again each domain's queue that drained. Each one first charges the
 /// request it is against the Limits that hold the Run (ADR 0041): once one
-/// has nothing left, the Run is asked to stop at its next safe point and
-/// nothing more is admitted.
+/// has nothing left, or one the engine cannot evaluate covers it, the Run
+/// is asked to stop at its next safe point and nothing more is admitted.
 async fn admit(
     run: &Run,
     admission: &mut Admission,
@@ -499,7 +624,7 @@ async fn admit(
         };
         match run.charge(REQUESTS, 1).await {
             Ok(()) => {}
-            Err(ChargeError::Refused(Refusal::Reached(_))) => break,
+            Err(ChargeError::Refused(Refusal::Reached(_) | Refusal::NotUnderstood(_))) => break,
             Err(error) => return Err(error),
         }
         if admitted.drained {
@@ -546,7 +671,7 @@ async fn attempt(
     run: Run,
     server: usize,
     client: Client,
-    leased: Leased,
+    (leased, session): (Leased, ServingSession),
     lease: WorkItemLease,
 ) -> Attempt {
     let params = CrawlRequestHandleParams {
@@ -554,6 +679,7 @@ async fn attempt(
         crawl_request: leased.crawl_request.clone(),
         attempt: leased.attempt,
         lease_epoch: leased.lease_epoch,
+        session: session.clone(),
     };
     let answer = match client
         .send::<CrawlRequestHandled>(&CRAWL_REQUEST_HANDLE, &params)
@@ -585,6 +711,7 @@ async fn attempt(
     Attempt {
         server,
         leased,
+        session,
         lease,
         answer,
     }
@@ -707,6 +834,26 @@ async fn settle(run: &Run, policy: CrawlPolicy, attempt: Attempt) -> bool {
             tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
             false
         }
+    }
+}
+
+/// What an attempt's answer says of the Session that served it: a
+/// committed answer is a success, a block or a failed Page check scores it
+/// down, and any other ending, a skip or the handler's own failure, says
+/// nothing of it.
+fn effect(answer: &Answer) -> Effect {
+    match answer {
+        Answer::Handled(CrawlRequestHandled { skipped: None, .. }) => Effect::Success,
+        Answer::Failed { code, details, .. } => match block_cause(code, details) {
+            Some(cause) => Effect::Blocked(cause),
+            None if code == PAGE_CHECK_FAILED => Effect::PageCheckFailed,
+            None => Effect::Neutral,
+        },
+        Answer::Handled(CrawlRequestHandled {
+            skipped: Some(_), ..
+        })
+        | Answer::LeaseEnded
+        | Answer::ClientGone => Effect::Neutral,
     }
 }
 

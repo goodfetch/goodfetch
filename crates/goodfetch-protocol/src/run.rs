@@ -209,6 +209,53 @@ impl JsonSchema for Tags {
     }
 }
 
+/// The most characters a Run's progress message holds (spec #213, RT-15).
+pub const MAX_PROGRESS_MESSAGE_CHARACTERS: usize = 512;
+
+/// A program's own status line about its Run (RT-15, ADR 0102), kept in run
+/// state, carried on its progress and in its Run index row, at most
+/// [`MAX_PROGRESS_MESSAGE_CHARACTERS`] characters.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct ProgressMessage(String);
+
+impl ProgressMessage {
+    /// Reads `text` as a progress message, `None` when it is too long.
+    pub fn parse(text: &str) -> Option<Self> {
+        (text.chars().count() <= MAX_PROGRESS_MESSAGE_CHARACTERS).then(|| Self(text.to_owned()))
+    }
+
+    /// The message as written.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for ProgressMessage {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = Cow::<str>::deserialize(deserializer)?;
+        Self::parse(&text).ok_or_else(|| {
+            serde::de::Error::custom(format!(
+                "a progress message holds at most {MAX_PROGRESS_MESSAGE_CHARACTERS} characters"
+            ))
+        })
+    }
+}
+
+impl JsonSchema for ProgressMessage {
+    fn schema_name() -> Cow<'static, str> {
+        "ProgressMessage".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "A program's own status line about its Run (RT-15).",
+            "type": "string",
+            "maxLength": MAX_PROGRESS_MESSAGE_CHARACTERS,
+        })
+    }
+}
+
 /// A point in time, in UTC, written as RFC 3339 (ADR 0092).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -344,6 +391,32 @@ pub enum StopReason {
     /// safe point, resumable once the period starts again or a person
     /// raises the Limit (ADR 0041).
     Limit(ReachedLimit),
+    /// A Limit flagged *must understand* that its engine cannot evaluate
+    /// came to cover it when it charged, and it stopped at its next safe
+    /// point, resumable by an engine that can (ADR 0041): the stop of the
+    /// Error code `limit_not_understood`.
+    LimitNotUnderstood(NotUnderstoodLimit),
+}
+
+/// A Limit flagged *must understand* that a Run's engine cannot evaluate,
+/// as the Run stopped for it names it (ADR 0041): its scope, Usage kind,
+/// currency and period as the ledger holds them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NotUnderstoodLimit {
+    /// The Limit's scope.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub scope: LimitScope,
+    /// The Usage kind it caps.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub usage_kind: String,
+    /// The currency it caps a price in, for a price Limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub currency: Option<String>,
+    /// Its period; none for a Limit that never starts again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub period: Option<Period>,
 }
 
 /// What a Limit is on: a scope kind, a value of a type both Products share
@@ -568,6 +641,11 @@ pub struct RunReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub checkpoint: Option<Checkpoint>,
+    /// Whether it spent, or reserved, money in a currency no Limit holding
+    /// it caps (ADR 0041): *uncapped*.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub uncapped: bool,
 }
 
 /// A Checkpoint as the engine reports it (ADRs 0002, 0102 and 0116): a
@@ -632,6 +710,60 @@ pub const RUN_AXES_CHANGED: Event = Event {
     arrived_in: ARRIVED_IN,
 };
 
+/// A Run's progress as it is now (ADR 0102): what `run.progress` reports.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunProgress {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// Where it is.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lifecycle: Lifecycle,
+    /// The program's own status line, once it set one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub message: Option<ProgressMessage>,
+}
+
+/// What `run.set_progress_message` takes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunSetProgressMessageParams {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The program's status line, which replaces the one before.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub message: ProgressMessage,
+}
+
+/// A Run's progress changed (ADR 0102).
+pub const RUN_PROGRESS: Event = Event {
+    name: "run.progress",
+    description: "A Run's progress changed, such as the program's own status line. Telemetry: a newer value of the same Run replaces an unsent one.",
+    class: EventClass::Telemetry,
+    payload: schema_of::<RunProgress>,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `run.set_progress_message`.
+pub const RUN_SET_PROGRESS_MESSAGE: Operation = Operation {
+    name: "run.set_progress_message",
+    description: "Sets the program's own status line about a live Run, at most 512 characters, which replaces the one before: kept in the Run's state, so a resume keeps it, shown in its Run index row and carried on its progress, `run.progress`. Answers the Run's progress. A Run this engine does not run fails with `run_not_found`.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::SdkOnly,
+    params: schema_of::<RunSetProgressMessageParams>,
+    result: schema_of::<RunProgress>,
+    events: &[&RUN_PROGRESS],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `run.start`.
 pub const RUN_START: Operation = Operation {
     name: "run.start",
@@ -651,7 +783,7 @@ pub const RUN_START: Operation = Operation {
 /// `run.finish`.
 pub const RUN_FINISH: Operation = Operation {
     name: "run.finish",
-    description: "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done. Cancelling the call ends only the wait.",
+    description: "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -906,6 +1038,8 @@ pub struct RunStateRow {
     /// The digest of the Clean-up rules the Run holds to, which a resume
     /// keeps (ADR 0047), or none.
     pub clean_up_digest: Option<String>,
+    /// The program's own status line, once it set one (RT-15).
+    pub progress_message: Option<String>,
 }
 
 /// Whether the state a Run index row points at is there (ADRs 0031 and
@@ -965,6 +1099,8 @@ pub struct RunIndexRow {
     pub owner: Option<RunOwner>,
     /// Whether its state is at its location.
     pub presence: Presence,
+    /// The program's own status line, once it set one (RT-15).
+    pub progress_message: Option<String>,
 }
 
 /// Where the engine that owns a live Run is reached (ADR 0031).
@@ -1010,8 +1146,8 @@ pub struct RunsReindexOutput {
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[RUN_START, RUN_FINISH, RUN_ABORT],
-    events: &[RUN_AXES_CHANGED],
+    operations: &[RUN_START, RUN_FINISH, RUN_ABORT, RUN_SET_PROGRESS_MESSAGE],
+    events: &[RUN_AXES_CHANGED, RUN_PROGRESS],
     handler_requests: &[],
     error_codes: &[
         RUN_ID_INVALID,

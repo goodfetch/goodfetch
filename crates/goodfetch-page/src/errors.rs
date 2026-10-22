@@ -15,7 +15,8 @@ use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{
     BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails, NAVIGATION_FAILED,
     NAVIGATION_INTERRUPTED, NavigationFailedDetails, NavigationInterruptedDetails, PAGE_CRASHED,
-    PageCrashedDetails,
+    PageCrashedDetails, RESPONSE_TRUNCATED, RedirectLimit, ResponseTruncatedDetails,
+    TOO_MANY_REDIRECTS, TooManyRedirectsDetails,
 };
 
 /// The call a failure met.
@@ -120,6 +121,49 @@ pub(crate) fn interrupted(url: &str) -> CallError {
         format!("the navigation to {url} was superseded by another before it committed"),
         &NavigationInterruptedDetails {
             url: url.to_owned(),
+        },
+    )
+}
+
+/// The browser's redirect count (Chromium's `kMaxRedirects`, ADR 0118): a
+/// navigation's chain holds at most this many requests, its first
+/// included, so the pinned Chromium follows 19 redirects and fails the
+/// navigation at the next.
+const BROWSER_REDIRECTS: u32 = 20;
+
+/// `too_many_redirects` for the navigation to `url`, whose request went to
+/// each URL of `chain` in turn, the first included.
+pub(crate) fn too_many_redirects(url: &str, chain: Vec<String>) -> CallError {
+    let mut chain = chain.into_iter();
+    let first = chain.next().unwrap_or_else(|| url.to_owned());
+    let hops: Vec<String> = chain.collect();
+    CallError::new(
+        &TOO_MANY_REDIRECTS,
+        format!(
+            "the navigation to {first} was redirected again after {} redirects, past the browser's count of {BROWSER_REDIRECTS}",
+            hops.len()
+        ),
+        &TooManyRedirectsDetails {
+            url: first.clone(),
+            hops,
+            limit: RedirectLimit::Browser {
+                count: BROWSER_REDIRECTS,
+            },
+        },
+    )
+}
+
+/// `response_truncated` for the document of the navigation to `url`, whose
+/// body broke off after `received` bytes of the `expected`.
+pub(crate) fn truncated(url: &str, received: u64, expected: Option<u64>) -> CallError {
+    let of = expected.map_or_else(String::new, |expected| format!(" of {expected}"));
+    CallError::new(
+        &RESPONSE_TRUNCATED,
+        format!("the document of {url} broke off after {received} bytes{of}"),
+        &ResponseTruncatedDetails {
+            url: url.to_owned(),
+            received,
+            expected,
         },
     )
 }

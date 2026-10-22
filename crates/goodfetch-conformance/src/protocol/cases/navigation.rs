@@ -28,7 +28,7 @@ const SUPERSEDING_DELAY: Duration = Duration::from_millis(300);
 const UNRESOLVED_URL: &str = "http://nowhere.invalid/";
 
 /// The answer to `method` on `page_id` with `params` added.
-fn call(
+pub(super) fn call(
     connection: &mut Connection,
     method: &str,
     page_id: &Value,
@@ -41,7 +41,7 @@ fn call(
 }
 
 /// The document's response a navigation's answer holds, checked to be one.
-fn response(answer: &Value, what: &str, checks: &mut Checks) -> Option<PageResponse> {
+pub(super) fn response(answer: &Value, what: &str, checks: &mut Checks) -> Option<PageResponse> {
     let navigated = answer
         .get("result")
         .and_then(|result| serde_json::from_value::<Navigated>(result.clone()).ok());
@@ -58,7 +58,7 @@ fn response(answer: &Value, what: &str, checks: &mut Checks) -> Option<PageRespo
 }
 
 /// Checks that a navigation's answer is the response of `url` with `status`.
-fn answered(answer: &Value, what: &str, url: &str, status: u16, checks: &mut Checks) {
+pub(super) fn answered(answer: &Value, what: &str, url: &str, status: u16, checks: &mut Checks) {
     if let Some(response) = response(answer, what, checks) {
         checks.check(
             format!("{what}: its status is {status}"),
@@ -69,7 +69,7 @@ fn answered(answer: &Value, what: &str, url: &str, status: u16, checks: &mut Che
 }
 
 /// The URL of `path` on the host of the task `id`'s start URL.
-fn url_on(site: &Site, id: &str, path: &str) -> Option<String> {
+pub(super) fn url_on(site: &Site, id: &str, path: &str) -> Option<String> {
     let start = site.start_url(id)?;
     let origin_end = start
         .find("://")
@@ -80,7 +80,7 @@ fn url_on(site: &Site, id: &str, path: &str) -> Option<String> {
 
 /// Opens a page of a new Run `run_id`, checking that the Proving ground
 /// serves `urls`; `None` when it does not or the page did not open.
-fn open(
+pub(super) fn open(
     connection: &mut Connection,
     site: &Site,
     run_id: &str,
@@ -230,7 +230,7 @@ pub(super) fn back_loads_again(
 
 /// Checks that `answer` fails with `navigation_failed`, retryable, naming
 /// the browser's network error `error`.
-fn failed_with(answer: &Value, what: &str, error: &str, checks: &mut Checks) {
+pub(super) fn failed_with(answer: &Value, what: &str, error: &str, checks: &mut Checks) {
     let data = &answer["error"]["data"];
     checks.check(
         format!("{what} fails with `{}`", NAVIGATION_FAILED.name),

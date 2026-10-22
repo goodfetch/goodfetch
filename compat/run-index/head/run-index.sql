@@ -18,9 +18,10 @@ CREATE TABLE runs (
         started_at TEXT NOT NULL,
         ended_at TEXT,
         owner TEXT,
-        presence TEXT NOT NULL
+        presence TEXT NOT NULL,
+        progress_message TEXT
     ) STRICT;
-INSERT INTO "runs" VALUES('finished-run','runs/finished-run','collie','collie','["schedule:nightly","team:shop"]','finished','verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'present');
-INSERT INTO "runs" VALUES('aborted-run','runs/aborted-run','collie','collie','["manual"]','stopped','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'present');
-INSERT INTO "runs" VALUES('live-run','runs/live-run','collie','collie','["daemon"]','running',NULL,NULL,'2026-01-05T09:00:00Z',NULL,'{"daemon":{"unix":"daemon.sock"}}','present');
+INSERT INTO "runs" VALUES('finished-run','runs/finished-run','collie','collie','["schedule:nightly","team:shop"]','finished','verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'present','Read 3 of 3 pages');
+INSERT INTO "runs" VALUES('aborted-run','runs/aborted-run','collie','collie','["manual"]','stopped','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'present',NULL);
+INSERT INTO "runs" VALUES('live-run','runs/live-run','collie','collie','["daemon"]','running',NULL,NULL,'2026-01-05T09:00:00Z',NULL,'{"daemon":{"unix":"daemon.sock"}}','present',NULL);
 COMMIT;

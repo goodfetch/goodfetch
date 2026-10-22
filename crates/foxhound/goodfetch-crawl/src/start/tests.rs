@@ -16,6 +16,7 @@
 )]
 
 mod admission;
+mod keep_alive;
 mod limits;
 mod model;
 mod resume;
@@ -231,7 +232,7 @@ pub(crate) fn default_dependencies(env: &TestEnv, run_state: RunStateOptions) ->
 }
 
 /// A Foxhound engine composed of the engine's operations, the Frontier's
-/// per-domain queues and the crawl's.
+/// per-domain queues, the Session pool's tables and the crawl's.
 pub(crate) fn engine() -> Engine {
     let identity = Identity {
         product: Product::Foxhound,
@@ -241,6 +242,7 @@ pub(crate) fn engine() -> Engine {
     let composition = Composition::default()
         .with(goodfetch_engine::contribution())
         .with(goodfetch_frontier::contribution())
+        .with(goodfetch_session_pool::contribution())
         .with(super::contribution());
     Engine::new(identity, &composition).unwrap()
 }

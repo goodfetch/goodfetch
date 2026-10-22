@@ -176,7 +176,7 @@ pub(super) fn read_report(file: &Path, vfs: Option<&str>) -> rusqlite::Result<Op
 fn report(connection: &Connection) -> rusqlite::Result<Option<RunReport>> {
     connection
         .query_row(
-            "SELECT run_id, lifecycle, stop_reason, verdict, completeness, started_at, ended_at, policy_version, weakened_by FROM run
+            "SELECT run_id, lifecycle, stop_reason, verdict, completeness, started_at, ended_at, policy_version, weakened_by, uncapped FROM run
              WHERE ended_at IS NOT NULL",
             [],
             |row| {
@@ -200,6 +200,7 @@ fn report(connection: &Connection) -> rusqlite::Result<Option<RunReport>> {
                         |error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)),
                     )?,
                     checkpoint: None,
+                    uncapped: row.get(9)?,
                 })
             },
         )
@@ -220,6 +221,10 @@ pub(super) struct Recorded {
     pub(super) inputs: String,
     /// Its report, once it ended.
     pub(super) report: Option<RunReport>,
+    /// Whether it spent money no Limit caps (ADR 0041).
+    pub(super) uncapped: bool,
+    /// The program's own status line, once it set one.
+    pub(super) progress_message: Option<String>,
 }
 
 /// What the Run's state at `file` records of the Run, or `None` when there
@@ -230,7 +235,7 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
     };
     let found = connection
         .query_row(
-            "SELECT run_id, kind, needs, lifecycle, started_at, policy_version, weakened_by, inputs FROM run",
+            "SELECT run_id, kind, needs, lifecycle, started_at, policy_version, weakened_by, inputs, progress_message FROM run",
             [],
             |row| {
                 Ok((
@@ -243,12 +248,19 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
                     PointInTime::from_rfc3339(row.get(4)?),
                     row.get::<_, Option<String>>(5)?,
                     (row.get::<_, String>(6)?, row.get::<_, String>(7)?),
+                    row.get::<_, Option<String>>(8)?,
                 ))
             },
         )
         .optional()?;
-    let Some((run_id, (kind, needs, lifecycle), started_at, policy_version, (weakened_by, inputs))) =
-        found
+    let Some((
+        run_id,
+        (kind, needs, lifecycle),
+        started_at,
+        policy_version,
+        (weakened_by, inputs),
+        progress_message,
+    )) = found
     else {
         return Ok(None);
     };
@@ -256,6 +268,7 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
     let tags: Vec<String> = statement
         .query_map([], |row| row.get(0))?
         .collect::<rusqlite::Result<_>>()?;
+    let uncapped: bool = connection.query_row("SELECT uncapped FROM run", [], |row| row.get(0))?;
     let decode =
         |error: serde_json::Error| rusqlite::Error::ToSqlConversionFailure(Box::new(error));
     Ok(Some(Recorded {
@@ -269,6 +282,8 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
         weakened_by: serde_json::from_str(&weakened_by).map_err(decode)?,
         inputs,
         report: report(&connection)?,
+        uncapped,
+        progress_message,
     }))
 }
 
@@ -310,7 +325,7 @@ pub(super) fn machine_identity(path: &Path, drawn: &str) -> io::Result<String> {
 /// Writes the Run's end, as `report` states it, into its own row.
 pub(super) fn write_end(connection: &Connection, report: &RunReport) -> rusqlite::Result<()> {
     connection.execute(
-        "UPDATE run SET lifecycle = ?1, stop_reason = ?2, verdict = ?3, completeness = ?4, ended_at = ?5",
+        "UPDATE run SET lifecycle = ?1, stop_reason = ?2, verdict = ?3, completeness = ?4, ended_at = ?5, uncapped = ?6",
         (
             report.lifecycle.as_str(),
             report.stop_reason.as_ref().map(|reason| {
@@ -319,6 +334,7 @@ pub(super) fn write_end(connection: &Connection, report: &RunReport) -> rusqlite
             report.verdict.as_str(),
             report.completeness.as_str(),
             report.ended_at.as_str(),
+            report.uncapped,
         ),
     )?;
     Ok(())

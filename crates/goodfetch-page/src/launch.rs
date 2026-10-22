@@ -44,6 +44,14 @@ const CLOSE_DEADLINE: Duration = Duration::from_secs(5);
 /// The folder of the Run's browser profiles, in its folder.
 const PROFILES: &str = "browser-profiles";
 
+/// The folder of a Chromium profile's default user, in its data directory.
+const DEFAULT_PROFILE: &str = "Default";
+
+/// The preferences every launch starts its profile with: a PDF is
+/// downloaded, never shown in the browser's viewer, so a navigation to one
+/// is a download (ADR 0119).
+const PREFERENCES: &str = r#"{"plugins":{"always_open_pdf_externally":true}}"#;
+
 /// A launched browser: its connection, how its process ended once it did,
 /// and its executable.
 pub(crate) struct Launched {
@@ -202,14 +210,15 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 pub(crate) async fn launch(run: &Run, home: &Home, pins: &Pins) -> Result<Launched, CallError> {
     let (executable, held) = executable(run, home, pins).await?;
     let profile = run.folder().join(PROFILES).join("default");
-    let created = profile.clone();
+    let created = profile.join(DEFAULT_PROFILE);
     run.owner()
         .blocking(move || {
             #[expect(
                 clippy::disallowed_methods,
                 reason = "it runs on the tasks module's blocking policy"
             )]
-            std::fs::create_dir_all(created)
+            std::fs::create_dir_all(&created)
+                .and_then(|()| std::fs::write(created.join("Preferences"), PREFERENCES))
         })
         .await
         .map_err(|error| launch_failed(&executable, None, &error.to_string()))?;

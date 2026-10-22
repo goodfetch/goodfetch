@@ -67,6 +67,46 @@
         ],
         "type": "object"
       },
+      "NotUnderstoodLimit": {
+        "description": "A Limit flagged *must understand* that a Run's engine cannot evaluate,\nas the Run stopped for it names it (ADR 0041): its scope, Usage kind,\ncurrency and period as the ledger holds them.",
+        "properties": {
+          "currency": {
+            "arrived_in": "0.1",
+            "description": "The currency it caps a price in, for a price Limit.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Period"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "Its period; none for a Limit that never starts again."
+          },
+          "scope": {
+            "$ref": "#/$defs/LimitScope",
+            "arrived_in": "0.1",
+            "description": "The Limit's scope."
+          },
+          "usage_kind": {
+            "arrived_in": "0.1",
+            "description": "The Usage kind it caps.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "usage_kind"
+        ],
+        "type": "object"
+      },
       "Period": {
         "description": "The period a Limit counts over, in an explicit IANA time zone, so that\nit never depends on the host's (ADR 0041).",
         "properties": {
@@ -277,6 +317,13 @@
               "null"
             ]
           },
+          "progress_message": {
+            "description": "The program's own status line, once it set one (RT-15).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "run_id": {
             "$ref": "#/$defs/RunId",
             "description": "The Run's ID."
@@ -406,6 +453,20 @@
             "properties": {
               "kind": {
                 "const": "limit",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "$ref": "#/$defs/NotUnderstoodLimit",
+            "description": "A Limit flagged *must understand* that its engine cannot evaluate\ncame to cover it when it charged, and it stopped at its next safe\npoint, resumable by an engine that can (ADR 0041): the stop of the\nError code `limit_not_understood`.",
+            "properties": {
+              "kind": {
+                "const": "limit_not_understood",
                 "type": "string"
               }
             },

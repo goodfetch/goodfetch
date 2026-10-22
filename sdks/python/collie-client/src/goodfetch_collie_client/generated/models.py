@@ -381,6 +381,13 @@ class PageResponse(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    encoding: str | None = None
+    """
+    For a navigation's document, the encoding the browser decoded it
+    with, as `document.characterSet` names it, such as `Shift_JIS` (ADR
+    0119); none for another response, and for a navigation that answered
+    at `commit`, before its document was decoded.
+    """
     headers: dict[str, str]
     """Its headers, their names lower-cased, as the browser received them."""
     status: Annotated[int, Field(ge=0, le=65535)]
@@ -451,6 +458,11 @@ class ProductVersion(RootModel[str]):
     """A Product version, `major.minor.patch` with an optional pre-release (ADR 0090)."""
 
 
+class ProgressMessage(RootModel[str]):
+    root: Annotated[str, Field(max_length=512)]
+    """A program's own status line about its Run (RT-15)."""
+
+
 class ProjectSettings(BaseModel):
     """
     A project configuration's values, which a Client reads where it runs and
@@ -514,6 +526,20 @@ class RunParams(BaseModel):
     """The Run's ID."""
 
 
+class RunProgress(BaseModel):
+    """A Run's progress as it is now (ADR 0102): what `run.progress` reports."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    lifecycle: Lifecycle
+    """Where it is."""
+    message: ProgressMessage | None = None
+    """The program's own status line, once it set one."""
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RunResumeParams(BaseModel):
     """What `run.resume` takes."""
 
@@ -535,6 +561,18 @@ class RunResumeParams(BaseModel):
     The Run's settings from the resume on, nested by key: the run layer
     (ADRs 0083 and 0102).
     """
+
+
+class RunSetProgressMessageParams(BaseModel):
+    """What `run.set_progress_message` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    message: ProgressMessage
+    """The program's status line, which replaces the one before."""
+    run_id: RunId
+    """The Run's ID."""
 
 
 class SampleEchoParams(BaseModel):
@@ -760,6 +798,23 @@ class Verdict(StrEnum):
     """A declared Success check failed."""
     needs_review = "needs_review"
     """Everything else: a person reviews it."""
+
+
+class WaitUntil(StrEnum):
+    """
+    When a navigation answers, by the state its document reached
+    (Playwright's `waitUntil`).
+    """
+
+    commit = "commit"
+    """
+    Once the browser committed the document, its response received: a
+    body cut after that is left to the body's read.
+    """
+    domcontentloaded = "domcontentloaded"
+    """Once the document fired `DOMContentLoaded`."""
+    load = "load"
+    """Once the document fired `load`."""
 
 
 class ArtifactId(BaseModel):
@@ -1004,7 +1059,10 @@ class ExplainedSetting(BaseModel):
 
 
 class GotoParams(BaseModel):
-    """What `page.goto` takes: the page, and the URL it goes to."""
+    """
+    What `page.goto` takes: the page, the URL it goes to, and when it
+    answers.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
@@ -1013,6 +1071,8 @@ class GotoParams(BaseModel):
     """The page."""
     url: str
     """The URL."""
+    wait_until: WaitUntil | None = None
+    """When the navigation answers; `load` when absent."""
 
 
 class HelloParams(BaseModel):
@@ -1140,8 +1200,9 @@ class Navigated(BaseModel):
     """
     What a navigation answers: the document's response, or none for a
     navigation within the same document, to a URL no server answers, such as
-    `about:blank`, or back or forward from the last entry of the page's
-    history. A 404 or a 500 is a response, a value.
+    `about:blank`, to a file the browser downloads instead of showing, which
+    `page.download` reports, or back or forward from the last entry of the
+    page's history. A 404 or a 500 is a response, a value.
     """
 
     model_config = ConfigDict(
@@ -1171,6 +1232,23 @@ class PageBodyParams(BaseModel):
     """Its ID."""
     run_id: RunId
     """The Run whose folder holds it."""
+
+
+class PageDownload(BaseModel):
+    """
+    What `page.download` reports: a navigation of a page that the browser
+    turned into a download.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    page_id: PageId
+    """The page whose navigation it was."""
+    suggested_filename: str
+    """The file name the browser suggests for it."""
+    url: str
+    """The file's URL."""
 
 
 class PageOpened(BaseModel):
@@ -1425,6 +1503,28 @@ class StopReason6(BaseModel):
     kind: Literal["limit"]
 
 
+class StopReason7(BaseModel):
+    """
+    A Limit flagged *must understand* that its engine cannot evaluate
+    came to cover it when it charged, and it stopped at its next safe
+    point, resumable by an engine that can (ADR 0041): the stop of the
+    Error code `limit_not_understood`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    currency: str | None = None
+    """The currency it caps a price in, for a price Limit."""
+    period: Period | None = None
+    """Its period; none for a Limit that never starts again."""
+    scope: LimitScope
+    """The Limit's scope."""
+    usage_kind: str
+    """The Usage kind it caps."""
+    kind: Literal["limit_not_understood"]
+
+
 class StopReason(
     RootModel[
         StopReason1
@@ -1433,6 +1533,7 @@ class StopReason(
         | StopReason4
         | StopReason5
         | StopReason6
+        | StopReason7
     ]
 ):
     root: (
@@ -1442,11 +1543,42 @@ class StopReason(
         | StopReason4
         | StopReason5
         | StopReason6
+        | StopReason7
     )
     """
     Why a Run stopped (ADR 0102); the other causes join with the tickets that
     stop Runs for them.
     """
+
+
+class UsageRaiseParams(BaseModel):
+    """
+    What `usage.raise` takes: a Limit a person sets, which replaces every
+    Limit of its scope, Usage kind, currency and period that is not a
+    managed Operator policy's, keeping the Usage counted against them.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    amount: Annotated[int, Field(ge=0)]
+    """
+    How much it allows per period from now on: a count of the Usage
+    kind, or millionths of the currency.
+    """
+    currency: str | None = None
+    """The currency it caps the price in, an ISO 4217 code."""
+    period: Period | None = None
+    """The period it counts over; none for a Limit that never starts again."""
+    scope: str
+    """The scope's kind."""
+    scope_id: str | None = None
+    """
+    Which one of its kind; the person's own when absent (their Client
+    connection, their person, the engine's Daemon, the install).
+    """
+    usage_kind: str
+    """The Usage kind it caps."""
 
 
 class UsageSetParams(BaseModel):
@@ -1587,12 +1719,37 @@ class LimitUsage(BaseModel):
     """What is left of the amount in the current period."""
     limit: Limit
     """The Limit."""
+    managed_major: str | None = None
+    """
+    The major of the managed Operator policy whose row it is; none for
+    a row no managed policy wrote.
+    """
     period_started_at: PointInTime | None = None
     """When the current period started; none for a Limit without one."""
     resets_at: PointInTime | None = None
     """When the next period starts; none for a Limit without one."""
     standing: LimitStanding
     """What the engine that read it makes of it."""
+
+
+class NotUnderstoodLimit(BaseModel):
+    """
+    A Limit flagged *must understand* that a Run's engine cannot evaluate,
+    as the Run stopped for it names it (ADR 0041): its scope, Usage kind,
+    currency and period as the ledger holds them.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    currency: str | None = None
+    """The currency it caps a price in, for a price Limit."""
+    period: Period | None = None
+    """Its period; none for a Limit that never starts again."""
+    scope: LimitScope
+    """The Limit's scope."""
+    usage_kind: str
+    """The Usage kind it caps."""
 
 
 class Resync(BaseModel):
@@ -1639,6 +1796,11 @@ class RunReport(BaseModel):
     """When it started."""
     stop_reason: StopReason | None = None
     """Why it stopped, when it did."""
+    uncapped: bool | None = None
+    """
+    Whether it spent, or reserved, money in a currency no Limit holding
+    it caps (ADR 0041): *uncapped*.
+    """
     verdict: Verdict
     """Whether its own checks prove what it committed."""
     weakened_by: list[SettingLimit] | None = None

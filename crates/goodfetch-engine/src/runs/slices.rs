@@ -109,12 +109,17 @@ impl Limits {
     }
 }
 
-/// Records, under `epoch`, what the run has now used of each Slice.
+/// Records, under `epoch`, what the run has now used of each Slice, and
+/// that it is *uncapped* once it is.
 pub(super) fn journal(
     connection: &Connection,
     epoch: u64,
     used: &[(SliceId, u64)],
+    uncapped: bool,
 ) -> rusqlite::Result<()> {
+    if uncapped {
+        connection.execute("UPDATE run SET uncapped = 1", [])?;
+    }
     for (slice, used) in used {
         connection.execute(
             "INSERT INTO usage (slice_id, epoch, used) VALUES (?1, ?2, ?3)

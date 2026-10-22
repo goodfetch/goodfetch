@@ -68,6 +68,7 @@ mod daemon;
 mod runs;
 mod service;
 mod upgrade;
+mod usage;
 
 /// The variable that filters the logs, in `EnvFilter`'s syntax.
 pub const LOG_VARIABLE: &str = "GOODFETCH_LOG";
@@ -139,6 +140,14 @@ enum Command {
         #[command(flatten)]
         _colour: ColourFlag,
     },
+    /// Shows, sets and raises the Limits of the user's Usage ledger, which
+    /// hold every engine of the user.
+    Usage {
+        #[command(subcommand)]
+        command: UsageCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
     /// Gives this executable's major its own copy of an older major's
     /// settings, Operator policy, Run index and runs in Goodfetch home,
     /// never changing the older major's files.
@@ -152,6 +161,37 @@ enum Command {
         json: bool,
         #[command(flatten)]
         _colour: ColourFlag,
+    },
+}
+
+#[derive(Subcommand)]
+enum UsageCommand {
+    /// Raises a Limit, in place of the ones of its scope, Usage kind,
+    /// currency and period but a managed Operator policy's: a person's
+    /// answer, asked at the terminal, and refused with `person_required`
+    /// when stdin is no terminal.
+    Raise {
+        /// The scope's kind.
+        #[arg(long)]
+        scope: String,
+        /// Which one of its kind; the person's own when absent.
+        #[arg(long)]
+        scope_id: Option<String>,
+        /// The Usage kind it caps.
+        #[arg(long)]
+        usage_kind: String,
+        /// The currency it caps the price in, an ISO 4217 code.
+        #[arg(long)]
+        currency: Option<String>,
+        /// The period it counts over, as JSON such as
+        /// `{"every":"month","time_zone":"UTC"}`; none for a Limit that
+        /// never starts again.
+        #[arg(long, value_parser = usage::period)]
+        period: Option<goodfetch_protocol::run::Period>,
+        /// How much it allows per period from now on: a count of the
+        /// Usage kind, or millionths of the currency.
+        #[arg(long)]
+        amount: u64,
     },
 }
 
@@ -501,7 +541,12 @@ fn run(
         machine.record();
     }
     let command = match parsed {
-        Parsed::Generated(call) => return call.run(engine, dependencies, human),
+        Parsed::Generated(call) => {
+            if call.operation().name.starts_with("usage.") {
+                warn_of_a_temporary_ledger(&home, human);
+            }
+            return call.run(engine, dependencies, human);
+        }
         Parsed::HandWritten(command) => command,
     };
     match command {
@@ -568,9 +613,52 @@ fn run(
             };
             runs::reindex(engine.identity(), &home, &folder, paths, json)
         }
+        Command::Usage { command, .. } => {
+            warn_of_a_temporary_ledger(&home, human);
+            usage_command(command, engine, dependencies, human)
+        }
         Command::UpgradeFiles { from, json, .. } => {
             upgrade::upgrade(engine.identity(), &home, from.as_deref(), json)
         }
+    }
+}
+
+/// Runs the hand-written `usage` command `command`.
+fn usage_command(
+    command: UsageCommand,
+    engine: &Engine,
+    dependencies: Dependencies,
+    human: &Human,
+) -> ExitCode {
+    let UsageCommand::Raise {
+        scope,
+        scope_id,
+        usage_kind,
+        currency,
+        period,
+        amount,
+    } = command;
+    let params = goodfetch_protocol::usage::UsageRaiseParams {
+        scope,
+        scope_id,
+        usage_kind,
+        currency,
+        period,
+        amount,
+    };
+    usage::raise(engine, dependencies, &params, human)
+}
+
+/// Warns when the Usage ledger sits on a temporary filesystem, where it is
+/// lost on each restart and period Limits start again silently, as in a
+/// container without a persistent volume (ADR 0041).
+fn warn_of_a_temporary_ledger(home: &Home, human: &Human) {
+    let ledger = home.usage_ledger();
+    if let Some(kind) = goodfetch_engine::ledger::temporary_filesystem(&ledger) {
+        human.warning(&format!(
+            "the Usage ledger `{}` is on a temporary filesystem ({kind}): it is lost when the machine or container restarts, and period Limits start again; keep Goodfetch home on a persistent volume, or set GOODFETCH_HOME to one",
+            ledger.display()
+        ));
     }
 }
 

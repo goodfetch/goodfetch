@@ -166,6 +166,47 @@ class EngineInfoParams(BaseModel):
     )
 
 
+class KeyValueStoreDeleted(BaseModel):
+    """What `key_value_store.delete` answers once the key is gone."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    existed: bool
+    """Whether the key existed."""
+
+
+class KeyValueStoreKeysEnded(BaseModel):
+    """What `key_value_store.keys` answers once it sent its last key."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """How many keys it sent."""
+
+
+class KeyValueStoreSet(BaseModel):
+    """What `key_value_store.set` answers once the value is committed."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class KeyValueStoreValue(BaseModel):
+    """
+    What `key_value_store.get` answers: the key's committed value, or null
+    when the key is absent.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    value: Any
+    """The value, or null for an absent key."""
+
+
 class Lifecycle(StrEnum):
     """Where a Run is (ADR 0029)."""
 
@@ -986,6 +1027,65 @@ class HelloResult(BaseModel):
     """The protocol version the engine speaks."""
 
 
+class KeyValueStoreKey(BaseModel):
+    """What `$/key` carries: the next key of the store a call lists."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: RequestId
+    """The id of the `key_value_store.keys` call."""
+    key: str
+    """The key."""
+
+
+class KeyValueStoreKeyParams(BaseModel):
+    """
+    What `key_value_store.get` and `key_value_store.delete` take: the Run
+    and the key.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """The key."""
+    run_id: RunId
+    """The Run whose store it is."""
+
+
+class KeyValueStoreKeysParams(BaseModel):
+    """
+    What `key_value_store.keys` takes: the Run, and the prefix every key it
+    sends starts with.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    prefix: str | None = None
+    """The prefix of the keys it sends; every key when left out."""
+    run_id: RunId
+    """The Run whose store it is."""
+
+
+class KeyValueStoreSetParams(BaseModel):
+    """What `key_value_store.set` takes: the Run, the key and its value."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """The key."""
+    run_id: RunId
+    """The Run whose store it is."""
+    value: Any
+    """
+    The value: any JSON but a top-level null, which `value_invalid`
+    refuses; a nested null is kept.
+    """
+
+
 class Locator(BaseModel):
     """
     A locator (ADR 0085): what an action looks for on a page, resolved
@@ -1296,6 +1396,28 @@ class StopReason6(BaseModel):
     kind: Literal["limit"]
 
 
+class StopReason7(BaseModel):
+    """
+    A Limit flagged *must understand* that its engine cannot evaluate
+    came to cover it when it charged, and it stopped at its next safe
+    point, resumable by an engine that can (ADR 0041): the stop of the
+    Error code `limit_not_understood`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    currency: str | None = None
+    """The currency it caps a price in, for a price Limit."""
+    period: Period | None = None
+    """Its period; none for a Limit that never starts again."""
+    scope: LimitScope
+    """The Limit's scope."""
+    usage_kind: str
+    """The Usage kind it caps."""
+    kind: Literal["limit_not_understood"]
+
+
 class StopReason(
     RootModel[
         StopReason1
@@ -1304,6 +1426,7 @@ class StopReason(
         | StopReason4
         | StopReason5
         | StopReason6
+        | StopReason7
     ]
 ):
     root: (
@@ -1313,11 +1436,42 @@ class StopReason(
         | StopReason4
         | StopReason5
         | StopReason6
+        | StopReason7
     )
     """
     Why a Run stopped (ADR 0102); the other causes join with the tickets that
     stop Runs for them.
     """
+
+
+class UsageRaiseParams(BaseModel):
+    """
+    What `usage.raise` takes: a Limit a person sets, which replaces every
+    Limit of its scope, Usage kind, currency and period that is not a
+    managed Operator policy's, keeping the Usage counted against them.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    amount: Annotated[int, Field(ge=0)]
+    """
+    How much it allows per period from now on: a count of the Usage
+    kind, or millionths of the currency.
+    """
+    currency: str | None = None
+    """The currency it caps the price in, an ISO 4217 code."""
+    period: Period | None = None
+    """The period it counts over; none for a Limit that never starts again."""
+    scope: str
+    """The scope's kind."""
+    scope_id: str | None = None
+    """
+    Which one of its kind; the person's own when absent (their Client
+    connection, their person, the engine's Daemon, the install).
+    """
+    usage_kind: str
+    """The Usage kind it caps."""
 
 
 class UsageSetParams(BaseModel):
@@ -1458,12 +1612,37 @@ class LimitUsage(BaseModel):
     """What is left of the amount in the current period."""
     limit: Limit
     """The Limit."""
+    managed_major: str | None = None
+    """
+    The major of the managed Operator policy whose row it is; none for
+    a row no managed policy wrote.
+    """
     period_started_at: PointInTime | None = None
     """When the current period started; none for a Limit without one."""
     resets_at: PointInTime | None = None
     """When the next period starts; none for a Limit without one."""
     standing: LimitStanding
     """What the engine that read it makes of it."""
+
+
+class NotUnderstoodLimit(BaseModel):
+    """
+    A Limit flagged *must understand* that a Run's engine cannot evaluate,
+    as the Run stopped for it names it (ADR 0041): its scope, Usage kind,
+    currency and period as the ledger holds them.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    currency: str | None = None
+    """The currency it caps a price in, for a price Limit."""
+    period: Period | None = None
+    """Its period; none for a Limit that never starts again."""
+    scope: LimitScope
+    """The Limit's scope."""
+    usage_kind: str
+    """The Usage kind it caps."""
 
 
 class Resync(BaseModel):
@@ -1510,6 +1689,11 @@ class RunReport(BaseModel):
     """When it started."""
     stop_reason: StopReason | None = None
     """Why it stopped, when it did."""
+    uncapped: bool | None = None
+    """
+    Whether it spent, or reserved, money in a currency no Limit holding
+    it caps (ADR 0041): *uncapped*.
+    """
     verdict: Verdict
     """Whether its own checks prove what it committed."""
     weakened_by: list[SettingLimit] | None = None

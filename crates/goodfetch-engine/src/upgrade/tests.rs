@@ -16,6 +16,7 @@ use goodfetch_test_support::TestEnv;
 
 use super::{UpgradeError, UpgradePaths, Upgraded, upgrade_files};
 use crate::home::Home;
+use crate::ledger::Ledger;
 
 fn version(text: &str) -> ProductVersion {
     ProductVersion::parse(text).unwrap()
@@ -241,4 +242,40 @@ fn each_preview_minor_upgrades_from_the_previous_preview() {
             }
         )
     );
+}
+
+/// `upgrade-files` replaces older majors' managed rows of the Usage ledger
+/// with the new major's, and drops those of majors it no longer supports,
+/// so that an uninstalled major's cap does not linger (ADR 0041).
+///
+/// Covers: story:3-77, command:upgrade-files
+#[test]
+fn the_new_major_takes_over_the_older_majors_managed_limits() {
+    let env = TestEnv::new();
+    let home = home_of_major_2(&env);
+    let ledger = Ledger::at(home.usage_ledger(), None);
+    let now = jiff::Timestamp::UNIX_EPOCH;
+    let install_limit = |amount| goodfetch_protocol::usage::ManagedLimit {
+        usage_kind: "requests".to_owned(),
+        currency: None,
+        period: None,
+        amount,
+    };
+    ledger
+        .write_managed("1", &[install_limit(10).limit()], now)
+        .unwrap();
+    ledger
+        .write_managed("2", &[install_limit(100).limit()], now)
+        .unwrap();
+    let paths = UpgradePaths::parse("[[source]]\nmajor = \"2\"\n").unwrap();
+
+    upgrade_files(&home, &version("3.0.0"), None, &paths).unwrap();
+
+    let rows: Vec<(Option<String>, u64)> = ledger
+        .usage(goodfetch_protocol::catalog::Product::Collie, now)
+        .unwrap()
+        .into_iter()
+        .map(|usage| (usage.managed_major, usage.limit.amount))
+        .collect();
+    assert_eq!(rows, [(Some("3".to_owned()), 100)]);
 }

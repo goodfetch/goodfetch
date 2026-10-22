@@ -4,12 +4,12 @@
 //! enqueue added or not added with its reason; each seed's answer, which
 //! `run.seeds` reads; the domain key of each crawl request; the bounded
 //! per-domain queues that fill the engine's gate in admission, served
-//! round-robin, one request per domain per turn, priority ordering requests
-//! within a domain only; and the per-domain Politeness their keys follow in
-//! the per-user Politeness file, shared by every run of the user (the
-//! per-domain cap, delay, backoff, `Retry-After` and 429 halving). Its own
-//! crate under `crates/foxhound/`, since only Foxhound links it (STYLE.md,
-//! reason 2).
+//! round-robin, one request per domain per turn, priority and `forefront`
+//! ordering requests within a domain only; and the per-domain Politeness
+//! their keys follow in the per-user Politeness file, shared by every run of
+//! the user (the per-domain cap, delay, backoff, `Retry-After` and 429
+//! halving). Its own crate under `crates/foxhound/`, since only Foxhound
+//! links it (STYLE.md, reason 2).
 
 mod admit;
 mod domain_key;

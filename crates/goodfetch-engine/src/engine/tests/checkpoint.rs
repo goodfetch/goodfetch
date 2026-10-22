@@ -158,7 +158,7 @@ fn engine() -> Engine {
 
 /// A Connection's messages as the tests read them: each call's reply, and
 /// the events of its subscription, call 1, on the way.
-struct Talk {
+pub(super) struct Talk {
     client: Client,
     events: Vec<Value>,
 }
@@ -184,7 +184,7 @@ impl Talk {
 
     /// Sends the call `id` and answers its reply, keeping the events read
     /// on the way.
-    async fn call(&mut self, id: i64, method: &str, params: Value) -> Value {
+    pub(super) async fn call(&mut self, id: i64, method: &str, params: Value) -> Value {
         self.client
             .send(&[json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })])
             .await;
@@ -204,7 +204,7 @@ impl Talk {
     }
 
     /// The result of the call `id`, which must succeed.
-    async fn ok(&mut self, id: i64, method: &str, params: Value) -> Value {
+    pub(super) async fn ok(&mut self, id: i64, method: &str, params: Value) -> Value {
         let reply = self.call(id, method, params).await;
         assert!(reply.get("result").is_some(), "{method}: {reply}");
         reply["result"].clone()
@@ -288,7 +288,7 @@ fn another_machine(env: &TestEnv) -> crate::engine::Dependencies {
 
 /// Runs `engine` on two Goodfetch homes at once, standing for two
 /// machines, while `talk` talks to both.
-fn two_machines<F, Fut, T>(first: &TestEnv, second: &TestEnv, talk: F) -> T
+pub(super) fn two_machines<F, Fut, T>(first: &TestEnv, second: &TestEnv, talk: F) -> T
 where
     F: FnOnce(Talk, Talk) -> Fut,
     Fut: Future<Output = T>,

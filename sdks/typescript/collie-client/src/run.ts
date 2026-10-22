@@ -4,6 +4,7 @@
 // ID. Any other call on a closed Run fails with `closed`.
 import { ClosedError, type RunReport, type RunStarted, type StartedAs } from "./generated/index.ts";
 import type { CallOptions } from "./generated/index.ts";
+import { KeyValueStore, type KeyValueStoreHost } from "./key-value-store.ts";
 import { holdInRealm } from "./realm.ts";
 
 /** What a Run reaches its engine through: its Connection. */
@@ -16,6 +17,8 @@ export interface RunHost {
   reachable(): boolean;
   /** Forgets a closed Run. */
   forget(run: Run): void;
+  /** Its Key-value store's calls. */
+  readonly keyValueStore: KeyValueStoreHost;
 }
 
 type RunState = "running" | "ended" | "closed";
@@ -27,6 +30,8 @@ export class Run implements AsyncDisposable {
   readonly #startedAs: StartedAs;
   #state: RunState;
   #closing: Promise<void> | undefined;
+  /** The Run's Key-value store (ADR 0103), kept in its run state across a resume. */
+  readonly keyValueStore: KeyValueStore;
 
   /** @internal The Connection's start opens a Run; a program never constructs one. */
   constructor(host: RunHost, started: RunStarted) {
@@ -34,6 +39,9 @@ export class Run implements AsyncDisposable {
     this.#id = started.run_id;
     this.#startedAs = started.started_as;
     this.#state = started.lifecycle === "running" ? "running" : "ended";
+    this.keyValueStore = new KeyValueStore(host.keyValueStore, this.#id, (operation) =>
+      this.#ensureOpen(operation),
+    );
     holdInRealm(this);
   }
 
@@ -53,14 +61,7 @@ export class Run implements AsyncDisposable {
    * only the wait. Fails with `closed` once the Run is closed.
    */
   async finish(options: CallOptions = {}): Promise<RunReport> {
-    if (this.#state === "closed") {
-      throw new ClosedError(
-        `run.finish: the Run ${this.#id} is closed; start it again by its Run ID`,
-        {
-          fix: "Start the Run again by its Run ID to reach it.",
-        },
-      );
-    }
+    this.#ensureOpen("run.finish");
     const report = await this.#host.finish(this.#id, options);
     if (this.#state === "running" && report.lifecycle !== "running") {
       this.#state = "ended";
@@ -80,6 +81,17 @@ export class Run implements AsyncDisposable {
 
   async [Symbol.asyncDispose](): Promise<void> {
     await this.close();
+  }
+
+  #ensureOpen(operation: string): void {
+    if (this.#state === "closed") {
+      throw new ClosedError(
+        `${operation}: the Run ${this.#id} is closed; start it again by its Run ID`,
+        {
+          fix: "Start the Run again by its Run ID to reach it.",
+        },
+      );
+    }
   }
 
   async #close(): Promise<void> {

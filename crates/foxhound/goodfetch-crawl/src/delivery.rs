@@ -483,8 +483,8 @@ async fn fill(
 /// Admits up to `room` work items ready now and leases them, then fills
 /// again each domain's queue that drained. Each one first charges the
 /// request it is against the Limits that hold the Run (ADR 0041): once one
-/// has nothing left, the Run is asked to stop at its next safe point and
-/// nothing more is admitted.
+/// has nothing left, or one the engine cannot evaluate covers it, the Run
+/// is asked to stop at its next safe point and nothing more is admitted.
 async fn admit(
     run: &Run,
     admission: &mut Admission,
@@ -499,7 +499,7 @@ async fn admit(
         };
         match run.charge(REQUESTS, 1).await {
             Ok(()) => {}
-            Err(ChargeError::Refused(Refusal::Reached(_))) => break,
+            Err(ChargeError::Refused(Refusal::Reached(_) | Refusal::NotUnderstood(_))) => break,
             Err(error) => return Err(error),
         }
         if admitted.drained {

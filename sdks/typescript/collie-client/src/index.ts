@@ -14,6 +14,7 @@ export type { Connection } from "./connection.ts";
 export type { EngineInfo, StartOptions } from "./client-connection.ts";
 export type { Logger } from "./logger.ts";
 export { Run } from "./run.ts";
+export { KeyValueStore, type JsonValue, type StoredValue } from "./key-value-store.ts";
 export * from "./generated/errors.ts";
 export type {
   BlockCause,

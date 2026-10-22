@@ -14,6 +14,7 @@ CREATE TABLE domains (
         ) STRICT;
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('run-state','0.1');
+CREATE TABLE key_values (key TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL) STRICT;
 CREATE TABLE outcomes (
             position INTEGER NOT NULL PRIMARY KEY,
             work_item TEXT NOT NULL,
@@ -46,9 +47,10 @@ CREATE TABLE run (
         weakened_by TEXT NOT NULL DEFAULT '[]',
         journal_position INTEGER NOT NULL DEFAULT 0,
         binding TEXT,
-        clean_up_digest TEXT
+        clean_up_digest TEXT,
+        uncapped INTEGER NOT NULL DEFAULT 0
     ) STRICT;
-INSERT INTO "run" VALUES('paused','collie','collie','os_user',1,'{}','stopped','{"kind":"pause"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'[]',2,'{"kind":"browser_host","browser_host":"laptop"}','6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b');
+INSERT INTO "run" VALUES('paused','collie','collie','os_user',1,'{}','stopped','{"kind":"pause"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'[]',2,'{"kind":"browser_host","browser_host":"laptop"}','6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b',0);
 CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
             answer TEXT NOT NULL
@@ -78,11 +80,12 @@ CREATE TABLE work_items (
             lease_epoch INTEGER NOT NULL,
             error_code TEXT,
             domain_key TEXT,
-            priority INTEGER NOT NULL
+            priority INTEGER NOT NULL,
+            forefront INTEGER
         ) STRICT;
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX work_items_by_domain
-            ON work_items (status, domain_key, priority DESC, position);
+            ON work_items (status, domain_key, forefront DESC, priority DESC, position);
 CREATE INDEX work_items_by_status ON work_items (status, position);
 CREATE INDEX work_items_unkeyed ON work_items (position)
             WHERE domain_key IS NULL;

@@ -33,6 +33,7 @@ pub mod home;
 pub mod http_client;
 mod info;
 pub mod installed;
+pub mod key_value_store;
 pub mod lease;
 pub mod ledger;
 pub mod lowest_minor;

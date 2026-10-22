@@ -986,6 +986,12 @@
           "arrived_in": "0.1",
           "description": "The document the handler read, whose base URL a relative `url`\nresolves against; absent, the crawl request's own URL is the base."
         },
+        "forefront": {
+          "arrived_in": "0.1",
+          "default": false,
+          "description": "Whether it goes ahead of every request its domain holds pending,\nwhatever their priority, as Crawlee's `forefront` (ADR 0005): of two\nsuch requests, the later goes first. A priority or `forefront` never\norders requests of different domains (ADR 0004); `false` by default.",
+          "type": "boolean"
+        },
         "key": {
           "arrived_in": "0.1",
           "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
@@ -2759,6 +2765,144 @@
       "const": "2.0",
       "description": "JSON-RPC's version, always \"2.0\"."
     },
+    "KeyValueStoreDeleted": {
+      "description": "What `key_value_store.delete` answers once the key is gone.",
+      "properties": {
+        "existed": {
+          "arrived_in": "0.1",
+          "description": "Whether the key existed.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "existed"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreKey": {
+      "additionalProperties": false,
+      "description": "What `$/key` carries: the next key of the store a call lists.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the `key_value_store.keys` call."
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "key"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreKeyParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.get` and `key_value_store.delete` take: the Run\nand the key.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        }
+      },
+      "required": [
+        "run_id",
+        "key"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreKeysEnded": {
+      "description": "What `key_value_store.keys` answers once it sent its last key.",
+      "properties": {
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many keys it sent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreKeysParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.keys` takes: the Run, and the prefix every key it\nsends starts with.",
+      "properties": {
+        "prefix": {
+          "arrived_in": "0.1",
+          "description": "The prefix of the keys it sends; every key when left out.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreSet": {
+      "description": "What `key_value_store.set` answers once the value is committed.",
+      "type": "object"
+    },
+    "KeyValueStoreSetParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.set` takes: the Run, the key and its value.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The value: any JSON but a top-level null, which `value_invalid`\nrefuses; a nested null is kept."
+        }
+      },
+      "required": [
+        "run_id",
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreValue": {
+      "description": "What `key_value_store.get` answers: the key's committed value, or null\nwhen the key is absent.",
+      "properties": {
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The value, or null for an absent key."
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "type": "object"
+    },
     "Lifecycle": {
       "description": "Where a Run is (ADR 0029).",
       "oneOf": [
@@ -2933,6 +3077,14 @@
           "arrived_in": "0.1",
           "description": "The Limit."
         },
+        "managed_major": {
+          "arrived_in": "0.1",
+          "description": "The major of the managed Operator policy whose row it is; none for\na row no managed policy wrote.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "period_started_at": {
           "anyOf": [
             {
@@ -3007,6 +3159,64 @@
           "type": "string"
         }
       ]
+    },
+    "Managed": {
+      "additionalProperties": false,
+      "description": "What an Operator policy's `[managed]` table holds, which marks the\npolicy *managed*: deployed by MDM or Ansible, read-only in the Console\n(ADR 0031).",
+      "properties": {
+        "install_limits": {
+          "arrived_in": "0.1",
+          "description": "The install Limits it names (ADR 0041).",
+          "items": {
+            "$ref": "#/$defs/ManagedLimit"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ManagedLimit": {
+      "additionalProperties": false,
+      "description": "An install Limit a managed Operator policy names (ADRs 0031 and 0041):\neach engine of the policy's major writes it to the Usage ledger when it\nstarts, as a row of its own keyed by that major and set by\n[`LimitSetter::ManagedPolicy`], which only the policy and\n`upgrade-files` change.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period: a count of the Usage kind, or\nmillionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the price in, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "usage_kind",
+        "amount"
+      ],
+      "type": "object"
     },
     "MarkdownContent": {
       "description": "How much of the page a Markdown format holds.",
@@ -3189,6 +3399,46 @@
           "type": "string"
         }
       ]
+    },
+    "NotUnderstoodLimit": {
+      "description": "A Limit flagged *must understand* that a Run's engine cannot evaluate,\nas the Run stopped for it names it (ADR 0041): its scope, Usage kind,\ncurrency and period as the ledger holds them.",
+      "properties": {
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps a price in, for a price Limit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its period; none for a Limit that never starts again."
+        },
+        "scope": {
+          "$ref": "#/$defs/LimitScope",
+          "arrived_in": "0.1",
+          "description": "The Limit's scope."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind"
+      ],
+      "type": "object"
     },
     "NothingCommitted": {
       "description": "Why a succeeded request committed no Record (ADR 0103).",
@@ -4573,6 +4823,11 @@
           "arrived_in": "0.1",
           "description": "Why it stopped, when it did."
         },
+        "uncapped": {
+          "arrived_in": "0.1",
+          "description": "Whether it spent, or reserved, money in a currency no Limit holding\nit caps (ADR 0041): *uncapped*.",
+          "type": "boolean"
+        },
         "verdict": {
           "$ref": "#/$defs/Verdict",
           "arrived_in": "0.1",
@@ -5538,6 +5793,20 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "$ref": "#/$defs/NotUnderstoodLimit",
+          "description": "A Limit flagged *must understand* that its engine cannot evaluate\ncame to cover it when it charged, and it stopped at its next safe\npoint, resumable by an engine that can (ADR 0041): the stop of the\nError code `limit_not_understood`.",
+          "properties": {
+            "kind": {
+              "const": "limit_not_understood",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -5846,6 +6115,63 @@
       ],
       "type": "object"
     },
+    "UsageRaiseParams": {
+      "additionalProperties": false,
+      "description": "What `usage.raise` takes: a Limit a person sets, which replaces every\nLimit of its scope, Usage kind, currency and period that is not a\nmanaged Operator policy's, keeping the Usage counted against them.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period from now on: a count of the Usage\nkind, or millionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the price in, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again."
+        },
+        "scope": {
+          "arrived_in": "0.1",
+          "description": "The scope's kind.",
+          "type": "string"
+        },
+        "scope_id": {
+          "arrived_in": "0.1",
+          "description": "Which one of its kind; the person's own when absent (their Client\nconnection, their person, the engine's Daemon, the install).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind",
+        "amount"
+      ],
+      "type": "object"
+    },
     "UsageSetParams": {
       "additionalProperties": false,
       "description": "What `usage.set` takes: a Limit of the caller's own, which holds beside\nthe others, so the tightest one holds.",
@@ -5955,6 +6281,11 @@
       },
       "result": {
         "$ref": "#/$defs/HelloResult"
+      }
+    },
+    "key": {
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreKey"
       }
     }
   },
@@ -6780,6 +7111,15 @@
             "maximum": 65535,
             "minimum": 0,
             "type": "integer"
+          },
+          "managed": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/Managed"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "Marks the policy managed, deployed by MDM or Ansible (ADR 0031), with the install Limits each engine of its major writes to the Usage ledger when it starts (ADR 0041)."
           },
           "settings": {
             "additionalProperties": false,

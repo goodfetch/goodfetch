@@ -5,11 +5,13 @@
 //! install Limit, whose Slices its run state journals, a tagged crawl of
 //! four seeds, one with a Payload, one the Frontier answers `duplicate`
 //! and one sent as a `POST` with a body under a declared key, whose
-//! handler pushes Records for the first and the last and fails on the
-//! second, whose first byte never came, so its
+//! handler enqueues a `forefront` request on another domain from the
+//! first, pushes Records for the first, the last and that request and
+//! fails on the second, whose first byte never came, so its
 //! domain still backs off when `run.finish` ends it; and a Run its
 //! program drives, under an Operator policy and with a setting that
-//! weakens a guarantee, which `run.abort` stops; and a Run bound to a
+//! weakens a guarantee, whose Key-value store keeps a cursor, which
+//! `run.abort` stops; and a Run bound to a
 //! Browser host and holding to a Clean-up rules digest, started through a
 //! contribution of the writer's own since no Client sets those yet, which
 //! `run.checkpoint` checkpoints and `run.pause` pauses with a Checkpoint.
@@ -84,6 +86,11 @@ fn scenario() -> Vec<Value> {
                 "settings": { "tls": { "accept_invalid_certs": { "intranet.test": null } } },
             }),
         ),
+        call(
+            11,
+            "key_value_store.set",
+            json!({ "run_id": "aborted", "key": "cursor", "value": { "page": 2, "seen": [1, null] } }),
+        ),
         call(4, "run.abort", json!({ "run_id": "aborted" })),
         call(5, "compat.bound", json!({})),
         call(6, "run.checkpoint", json!({ "run_id": "paused" })),
@@ -140,6 +147,25 @@ fn bound() -> Contribution {
             Ok::<Value, CallError>(json!({ "run_id": "paused" }))
         },
     ))
+}
+
+/// The handler's enqueue, from the home page's attempt, of a request that
+/// goes ahead of its domain's pending ones, on a domain of its own so the
+/// home page's domain still waits when `run.finish` ends the crawl.
+fn enqueue(request: &Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": "enqueue",
+        "method": "crawl_request.enqueue",
+        "params": {
+            "run_id": request["params"]["run_id"],
+            "crawl_request_id": request["params"]["crawl_request"]["id"],
+            "lease_epoch": request["params"]["lease_epoch"],
+            "url": "https://outlet.test/sale",
+            "label": "home",
+            "forefront": true,
+        },
+    })
 }
 
 /// The handler's answer to one handler request.
@@ -220,6 +246,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (reader, mut writer) = dialer.connect().await?.split();
             let mut messages = BufReader::new(reader).lines();
             let mut last = Value::Null;
+            let mut enqueuing = None;
             for message in scenario() {
                 writer.write_all(&line(&message)?).await?;
                 loop {
@@ -230,7 +257,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .ok_or("the engine closed early")?,
                     )?;
                     if received["method"] == "crawl_request.handle" {
-                        writer.write_all(&line(&handle(&received))?).await?;
+                        if received["params"]["crawl_request"]["url"] == "https://shop.test/" {
+                            writer.write_all(&line(&enqueue(&received))?).await?;
+                            enqueuing = Some(received);
+                        } else {
+                            writer.write_all(&line(&handle(&received))?).await?;
+                        }
+                    } else if received["id"] == "enqueue"
+                        && let Some(request) = enqueuing.take()
+                    {
+                        if received["result"]["kind"] != "added" {
+                            return Err(format!("the enqueue failed: {received}").into());
+                        }
+                        writer.write_all(&line(&handle(&request))?).await?;
                     } else if received["id"] == message["id"] {
                         if received.get("error").is_some() {
                             return Err(format!("the scenario failed: {received}").into());

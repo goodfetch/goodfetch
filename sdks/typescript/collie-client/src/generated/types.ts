@@ -210,7 +210,8 @@ export type StopReason =
   | {
       kind: "drain";
     }
-  | ReachedLimit1;
+  | ReachedLimit1
+  | NotUnderstoodLimit1;
 /**
  * An opaque text a Run is tagged with (ADR 0036).
  *
@@ -922,6 +923,125 @@ export interface PrivateEndpoint {
   token_file: string;
 }
 /**
+ * What `key_value_store.delete` answers once the key is gone.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreDeleted".
+ */
+export interface KeyValueStoreDeleted {
+  /**
+   * Whether the key existed.
+   */
+  existed: boolean;
+}
+/**
+ * What `$/key` carries: the next key of the store a call lists.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreKey".
+ */
+export interface KeyValueStoreKey {
+  /**
+   * The id of the `key_value_store.keys` call.
+   */
+  id: number | string;
+  /**
+   * The key.
+   */
+  key: string;
+}
+/**
+ * What `key_value_store.get` and `key_value_store.delete` take: the Run
+ * and the key.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreKeyParams".
+ */
+export interface KeyValueStoreKeyParams {
+  /**
+   * The key.
+   */
+  key: string;
+  /**
+   * The Run whose store it is.
+   */
+  run_id: string;
+}
+/**
+ * What `key_value_store.keys` answers once it sent its last key.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreKeysEnded".
+ */
+export interface KeyValueStoreKeysEnded {
+  /**
+   * How many keys it sent.
+   */
+  count: number;
+}
+/**
+ * What `key_value_store.keys` takes: the Run, and the prefix every key it
+ * sends starts with.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreKeysParams".
+ */
+export interface KeyValueStoreKeysParams {
+  /**
+   * The prefix of the keys it sends; every key when left out.
+   */
+  prefix?: string | null;
+  /**
+   * The Run whose store it is.
+   */
+  run_id: string;
+}
+/**
+ * What `key_value_store.set` answers once the value is committed.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreSet".
+ */
+export interface KeyValueStoreSet {}
+/**
+ * What `key_value_store.set` takes: the Run, the key and its value.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreSetParams".
+ */
+export interface KeyValueStoreSetParams {
+  /**
+   * The key.
+   */
+  key: string;
+  /**
+   * The Run whose store it is.
+   */
+  run_id: string;
+  /**
+   * The value: any JSON but a top-level null, which `value_invalid`
+   * refuses; a nested null is kept.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * What `key_value_store.get` answers: the key's committed value, or null
+ * when the key is absent.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreValue".
+ */
+export interface KeyValueStoreValue {
+  /**
+   * The value, or null for an absent key.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+}
+/**
  * One Limit of the Usage ledger: a generic row, which a newer engine may
  * write with a scope kind, a Usage kind, a currency or a period this one
  * does not know (ADR 0041).
@@ -1034,6 +1154,11 @@ export interface LimitUsage {
    */
   left: number;
   limit: Limit1;
+  /**
+   * The major of the managed Operator policy whose row it is; none for
+   * a row no managed policy wrote.
+   */
+  managed_major?: string | null;
   /**
    * When the current period started; none for a Limit without one.
    */
@@ -1163,6 +1288,44 @@ export interface NewPageParams {
    * The Run.
    */
   run_id: string;
+}
+/**
+ * A Limit flagged *must understand* that a Run's engine cannot evaluate,
+ * as the Run stopped for it names it (ADR 0041): its scope, Usage kind,
+ * currency and period as the ledger holds them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotUnderstoodLimit".
+ */
+export interface NotUnderstoodLimit {
+  /**
+   * The currency it caps a price in, for a price Limit.
+   */
+  currency?: string | null;
+  /**
+   * Its period; none for a Limit that never starts again.
+   */
+  period?: Period | null;
+  scope: LimitScope2;
+  /**
+   * The Usage kind it caps.
+   */
+  usage_kind: string;
+}
+/**
+ * The Limit's scope.
+ */
+export interface LimitScope2 {
+  /**
+   * Which one of its kind: the major's name for a Daemon, the person's
+   * name, the token's name or the Client connection's ID; empty for the
+   * install.
+   */
+  id: string;
+  /**
+   * The scope's kind.
+   */
+  kind: string;
 }
 /**
  * What `page.body` takes: the body to read.
@@ -1296,7 +1459,7 @@ export interface ReachedLimit {
    * When its period starts again; none for a Limit without one.
    */
   resets_at?: PointInTime | null;
-  scope: LimitScope2;
+  scope: LimitScope3;
   /**
    * The Usage kind it caps.
    */
@@ -1305,7 +1468,7 @@ export interface ReachedLimit {
 /**
  * The Limit's scope.
  */
-export interface LimitScope2 {
+export interface LimitScope3 {
   /**
    * Which one of its kind: the major's name for a Daemon, the person's
    * name, the token's name or the Client connection's ID; empty for the
@@ -1490,6 +1653,11 @@ export interface RunReport {
    */
   stop_reason?: StopReason | null;
   /**
+   * Whether it spent, or reserved, money in a currency no Limit holding
+   * it caps (ADR 0041): *uncapped*.
+   */
+  uncapped?: boolean;
+  /**
    * Whether a Run's own checks prove what it committed (ADR 0029).
    */
   verdict: "verified" | "rejected" | "needs_review";
@@ -1506,6 +1674,15 @@ export interface RunReport {
  */
 export interface ReachedLimit1 {
   kind: "limit";
+}
+/**
+ * A Limit flagged *must understand* that its engine cannot evaluate
+ * came to cover it when it charged, and it stopped at its next safe
+ * point, resumable by an engine that can (ADR 0041): the stop of the
+ * Error code `limit_not_understood`.
+ */
+export interface NotUnderstoodLimit1 {
+  kind: "limit_not_understood";
 }
 /**
  * A setting that decided an outcome: its key, its value and the layer that
@@ -1640,7 +1817,8 @@ export interface RunStopping {
     | {
         kind: "drain";
       }
-    | ReachedLimit1;
+    | ReachedLimit1
+    | NotUnderstoodLimit1;
   /**
    * The Run's ID.
    */
@@ -1780,6 +1958,42 @@ export interface UsageListResult {
    * Every Limit of the Usage ledger, by scope, with its Usage.
    */
   limits: LimitUsage[];
+}
+/**
+ * What `usage.raise` takes: a Limit a person sets, which replaces every
+ * Limit of its scope, Usage kind, currency and period that is not a
+ * managed Operator policy's, keeping the Usage counted against them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UsageRaiseParams".
+ */
+export interface UsageRaiseParams {
+  /**
+   * How much it allows per period from now on: a count of the Usage
+   * kind, or millionths of the currency.
+   */
+  amount: number;
+  /**
+   * The currency it caps the price in, an ISO 4217 code.
+   */
+  currency?: string | null;
+  /**
+   * The period it counts over; none for a Limit that never starts again.
+   */
+  period?: Period | null;
+  /**
+   * The scope's kind.
+   */
+  scope: string;
+  /**
+   * Which one of its kind; the person's own when absent (their Client
+   * connection, their person, the engine's Daemon, the install).
+   */
+  scope_id?: string | null;
+  /**
+   * The Usage kind it caps.
+   */
+  usage_kind: string;
 }
 /**
  * What `usage.set` takes: a Limit of the caller's own, which holds beside

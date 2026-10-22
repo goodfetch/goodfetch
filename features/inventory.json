@@ -1348,7 +1348,7 @@
     {
       "id": "operation:connection.set_log_level",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3830,7 +3830,7 @@
     {
       "id": "setting:log.format",
       "kind": "setting",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3852,7 +3852,7 @@
     {
       "id": "setting:otlp.traces_endpoint",
       "kind": "setting",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

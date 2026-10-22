@@ -65,6 +65,9 @@ export class Channel {
     }
     const id = this.#nextId;
     this.#nextId += 1;
+    // Encoded before the call waits, so params that cannot be encoded, such
+    // as a BigInt, fail this call alone and leave no waiter behind.
+    const request = encodeMessage({ id, method, params });
     const answer = new Promise<unknown>((resolve, reject) => {
       this.#waiting.set(id, { resolve, reject });
     });
@@ -78,7 +81,7 @@ export class Channel {
     };
     signal?.addEventListener("abort", abort, { once: true });
     try {
-      this.#send({ id, method, params });
+      this.#write(request);
       return await answer;
     } finally {
       signal?.removeEventListener("abort", abort);
@@ -104,9 +107,13 @@ export class Channel {
   }
 
   #send(message: Readonly<Record<string, unknown>>): void {
+    this.#write(encodeMessage(message));
+  }
+
+  #write(bytes: Uint8Array): void {
     // A write fails only once the engine's side has gone, which `ended`
     // reports to every waiting call; the rejection itself carries nothing more.
-    this.#writer.write(encodeMessage(message)).catch(() => {});
+    this.#writer.write(bytes).catch(() => {});
   }
 
   async #read(readable: ReadableStream<Uint8Array>): Promise<void> {

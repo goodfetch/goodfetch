@@ -52,6 +52,7 @@ use std::time::Duration;
 use goodfetch_engine::admission::{Admission, Waiting, Wakes};
 use goodfetch_engine::client::Client;
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::governor::Permit;
 use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, CompletenessReason, Ending, Run};
@@ -62,6 +63,7 @@ use goodfetch_protocol::foxhound::crawl::{
     RESPONSE_UNAVAILABLE, WORK_ITEM_RETRIED,
 };
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
+use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::run::{
     AxisReason, EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, StopReason,
 };
@@ -180,6 +182,7 @@ async fn deliver(
             end(run, &mut admission, failed(run, &error)).await;
             return;
         }
+        let starved = run.governor().waits(WorkKind::Http);
         if attempts.is_empty() {
             if let Some(reason) = stop {
                 end(run, &mut admission, Ending::Stopped(reason)).await;
@@ -194,8 +197,8 @@ async fn deliver(
                 continue;
             }
             match when_idle(run, &mut admission).await {
-                Ok(Idle::Admit) => continue,
-                Ok(Idle::Wait) => {}
+                Ok(Idle::Admit) if !starved => continue,
+                Ok(Idle::Admit | Idle::Wait) => {}
                 Ok(Idle::Done) => {
                     match drained(run, &resolved, &mut admission, servers, arrivals).await {
                         Waited::Ended => return,
@@ -215,7 +218,7 @@ async fn deliver(
             && servers
                 .iter_mut()
                 .any(|server| server.serves() && server.in_flight < policy.handler_concurrency);
-        let wake = free
+        let wake = (free && !starved)
             .then(|| admission.ready_at(run.clock().now()))
             .flatten();
         tokio::select! {
@@ -243,6 +246,7 @@ async fn deliver(
                 }
             }
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
+            () = run.governor().turn(WorkKind::Http), if free && starved => {}
             key = next_wake(wakes.as_mut()) => admission.wake(key.as_deref()),
         }
     }
@@ -325,10 +329,12 @@ struct Pooled<'a> {
     settings: PoolSettings,
 }
 
-/// Admits work items up to each serving Connection's room, draws the
+/// Admits work items up to each serving Connection's room and the HTTP
+/// admissions the engine's Resource governor gives the Run now, draws the
 /// Session of the pool that serves each, written in run state before any
 /// handler request is sent, and starts an attempt for each on that
-/// Connection.
+/// Connection, which holds its admission until it ends (ADR 0040). A Run
+/// the governor gave none waits for its turn.
 async fn lease_to_servers(
     run: &Run,
     run_leases: &Leases,
@@ -342,8 +348,14 @@ async fn lease_to_servers(
         if !server.serves() || server.in_flight >= policy.handler_concurrency {
             continue;
         }
-        let room = policy.handler_concurrency - server.in_flight;
-        let served: Vec<(Leased, ServingSession)> = admit(run, admission, room)
+        let mut permits: Vec<Permit> =
+            std::iter::from_fn(|| run.governor().try_admit(WorkKind::Http))
+                .take(policy.handler_concurrency - server.in_flight)
+                .collect();
+        if permits.is_empty() {
+            return Ok(());
+        }
+        let served: Vec<(Leased, ServingSession)> = admit(run, admission, permits.len())
             .await?
             .into_iter()
             .map(|leased| {
@@ -367,16 +379,29 @@ async fn lease_to_servers(
                 policy.lease_length(),
             );
             server.in_flight += 1;
-            attempts.spawn(attempt(
-                run.clone(),
-                place,
-                server.client.clone(),
-                (leased, session, leased_count(run)),
-                lease,
+            let permit = permits
+                .pop()
+                .expect("invariant: one admission per work item admitted");
+            attempts.spawn(holding(
+                permit,
+                attempt(
+                    run.clone(),
+                    place,
+                    server.client.clone(),
+                    (leased, session, leased_count(run)),
+                    lease,
+                ),
             ));
         }
     }
     Ok(())
+}
+
+/// Runs `attempt`, holding `permit` until it ends.
+async fn holding(permit: Permit, attempt: impl Future<Output = Attempt>) -> Attempt {
+    let ended = attempt.await;
+    drop(permit);
+    ended
 }
 
 /// What a crawl with nothing to deliver now does next.

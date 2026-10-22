@@ -253,6 +253,18 @@ impl RunShare {
             })
     }
 
+    /// Whether the Run waits for its turn for `kind`: a try found none, and
+    /// none was set aside for it since.
+    pub fn waits(&self, kind: WorkKind) -> bool {
+        let state = self.shares.state();
+        let index = index(kind);
+        state.kinds[index].waiting.contains(&self.run)
+            && state
+                .runs
+                .get(&self.run)
+                .is_some_and(|member| member.reserved[index] == 0)
+    }
+
     /// Answers once an admission of `kind` was set aside for the Run, after
     /// a [`RunShare::try_admit`] that found none.
     ///

@@ -190,3 +190,17 @@ async fn admit_waits() {
     assert_eq!((waited, shares.in_use()), (true, [1, 0, 0]));
     drop(admitted);
 }
+
+#[test]
+fn a_run_waits_from_a_refused_try_until_its_turn_comes() {
+    let shares = Shares::new([1, 1, 1]);
+    let (first, second) = (shares.join(100), shares.join(100));
+    let held = first.try_admit(Http).unwrap();
+    let before = second.waits(Http);
+    assert!(second.try_admit(Http).is_none());
+    let refused = second.waits(Http);
+
+    drop(held);
+
+    assert_eq!((before, refused, second.waits(Http)), (false, true, false));
+}

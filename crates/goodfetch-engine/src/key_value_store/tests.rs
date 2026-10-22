@@ -3,10 +3,6 @@
 //! once each, in the order of their Unicode scalar values, only those with
 //! the prefix; a key of the store's shape is accepted; a value comes back
 //! as it was set, nested nulls included.
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
 
 use std::collections::BTreeSet;
 

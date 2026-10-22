@@ -201,6 +201,23 @@ fn dispatched(home: &Path, method: &str) -> bool {
     })
 }
 
+#[test]
+fn a_command_prints_the_same_bytes_in_each_mode() {
+    let env = unrecorded();
+    let printed = |mode| {
+        cli(&env, collie())
+            .args(["config", "explain", "timeout.navigation", "--json"])
+            .mode(mode)
+            .json("SettingsExplanation")
+            .unwrap()
+            .printed
+    };
+
+    let (attached, daemon) = (printed(Mode::Attached), printed(Mode::Daemon));
+
+    assert_eq!(attached, daemon);
+}
+
 #[rstest]
 #[case::attached(Mode::Attached)]
 #[case::daemon(Mode::Daemon)]

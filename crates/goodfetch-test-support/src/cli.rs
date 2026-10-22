@@ -439,6 +439,11 @@ pub struct CliJson {
     pub output: CliOutput,
     /// The documents stdout held: the one document, or each line's.
     pub documents: Vec<Value>,
+    /// Stdout as the command printed it. The snapshot's pretty-printed
+    /// documents leave out its layout, key order and number spelling, so a
+    /// test that runs one command in several modes compares these bytes
+    /// across them.
+    pub printed: String,
 }
 
 impl CliJson {
@@ -448,6 +453,7 @@ impl CliJson {
             .flat_map(|document| [format!("{document:#}"), "\n".to_owned()])
             .collect();
         Self {
+            printed: output.stdout.clone(),
             output: CliOutput { stdout, ..output },
             documents,
         }

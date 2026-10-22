@@ -5,10 +5,10 @@
 //! Daemon joins here with the choice between the two.
 //!
 //! A followed call is granted credits as what it sends is printed (ADR
-//! 0024). An interrupt (`SIGINT`, Ctrl-C) sends a cancellable call's
-//! `$/cancel` and waits for the engine to stop its work; a second
-//! interrupt, or one during a call that cannot be cancelled, ends the
-//! command at once (ADRs 0069 and 0080).
+//! 0024). An interrupt (`SIGINT`, Ctrl-C, or `CTRL_BREAK_EVENT` on Windows)
+//! or `SIGTERM` sends a cancellable call's `$/cancel` and waits for the
+//! engine to stop its work; a second one, or one during a call that cannot
+//! be cancelled, ends the command at once (ADRs 0069, 0080 and 0093).
 #![expect(
     clippy::disallowed_methods,
     reason = "the CLI builds its runtime before and outside any async worker, as main does (ADR 0060)"
@@ -25,6 +25,8 @@ use goodfetch_protocol::jsonrpc::{
 use serde::Serialize;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
+
+use crate::exit_codes;
 
 /// The id of `hello`.
 const HELLO_ID: i64 = 0;
@@ -60,9 +62,29 @@ pub enum Answer {
     /// No answer: the engine could not be reached, or the Connection ended
     /// first.
     Unanswered(String),
-    /// The command was interrupted, and its call cancelled when it could
-    /// be.
+    /// The command was interrupted, or sent `SIGTERM`, and its call
+    /// cancelled when it could be.
+    Interrupted(Interrupt),
+}
+
+/// What stopped a command before its call was answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Interrupt {
+    /// `SIGINT` (Ctrl-C), or `CTRL_BREAK_EVENT` on Windows.
     Interrupted,
+    /// `SIGTERM`, as a service manager or `kill` sends.
+    Terminated,
+}
+
+impl Interrupt {
+    /// Its row of the exit-code table: `130` or `143`, the shell's `128`
+    /// plus the signal's number.
+    pub fn exit_code(self) -> u8 {
+        match self {
+            Self::Interrupted => exit_codes::INTERRUPTED,
+            Self::Terminated => exit_codes::TERMINATED,
+        }
+    }
 }
 
 /// Calls `call` on an Attached engine in this process, `engine` on
@@ -140,7 +162,7 @@ impl Link {
         }
         loop {
             tokio::select! {
-                () = &mut interrupt => return Answer::Interrupted,
+                interrupt = &mut interrupt => return Answer::Interrupted(interrupt),
                 message = self.next() => match message {
                     None => return closed(HELLO),
                     Some(Message::Response(response)) if response.id == RequestId::Number(HELLO_ID) => break,
@@ -161,27 +183,27 @@ impl Link {
         if call.follower.is_some() && !self.credit(CREDITS).await {
             return closed(call.method);
         }
-        let mut cancelled = false;
+        let mut cancelled = None;
         loop {
             tokio::select! {
-                () = &mut interrupt => {
-                    if !call.cancellable || cancelled {
-                        return Answer::Interrupted;
+                interrupt_now = &mut interrupt => {
+                    if !call.cancellable || cancelled.is_some() {
+                        return Answer::Interrupted(interrupt_now);
                     }
                     let cancel = notification(CANCEL, &CancelParams { id: RequestId::Number(CALL_ID) });
                     if !self.send(&cancel).await {
-                        return Answer::Interrupted;
+                        return Answer::Interrupted(interrupt_now);
                     }
-                    cancelled = true;
+                    cancelled = Some(interrupt_now);
                     interrupt.set(interrupted());
                 }
                 message = self.next() => match message {
                     None => return closed(call.method),
                     Some(Message::Response(response)) if response.id == RequestId::Number(CALL_ID) => {
-                        return if cancelled { Answer::Interrupted } else { Answer::Result(response.result) };
+                        return cancelled.map_or(Answer::Result(response.result), Answer::Interrupted);
                     }
                     Some(Message::Error(failure)) if failure.id == Some(RequestId::Number(CALL_ID)) => {
-                        return if cancelled { Answer::Interrupted } else { Answer::Error(failure.error) };
+                        return cancelled.map_or(Answer::Error(failure.error), Answer::Interrupted);
                     }
                     Some(Message::Notification(sent)) => {
                         let Some(follower) = call.follower.as_mut() else { continue };
@@ -226,10 +248,45 @@ impl Link {
     }
 }
 
-/// Resolves when the command is interrupted; never, when the CLI cannot
-/// listen for interrupts.
-async fn interrupted() {
-    if tokio::signal::ctrl_c().await.is_err() {
+/// Resolves when the command is interrupted (`SIGINT`, or Ctrl-C and
+/// `CTRL_BREAK_EVENT` on Windows) or sent `SIGTERM`; never for a signal the
+/// CLI cannot listen for.
+async fn interrupted() -> Interrupt {
+    tokio::select! {
+        () = signalled(tokio::signal::ctrl_c()) => Interrupt::Interrupted,
+        interrupt = other_signals() => interrupt,
+    }
+}
+
+/// `SIGTERM`, the other signal that ends a command on Unix.
+#[cfg(unix)]
+async fn other_signals() -> Interrupt {
+    use tokio::signal::unix::{SignalKind, signal};
+    match signal(SignalKind::terminate()) {
+        Ok(mut terminate) => {
+            terminate.recv().await;
+            Interrupt::Terminated
+        }
+        Err(_) => std::future::pending().await,
+    }
+}
+
+/// `CTRL_BREAK_EVENT`, which a process group gets where Unix sends
+/// `SIGINT` (ADR 0093).
+#[cfg(windows)]
+async fn other_signals() -> Interrupt {
+    match tokio::signal::windows::ctrl_break() {
+        Ok(mut ctrl_break) => {
+            ctrl_break.recv().await;
+            Interrupt::Interrupted
+        }
+        Err(_) => std::future::pending().await,
+    }
+}
+
+/// Resolves once `signal` arrives; never when it cannot be listened for.
+async fn signalled(signal: impl Future<Output = std::io::Result<()>>) {
+    if signal.await.is_err() {
         std::future::pending::<()>().await;
     }
 }

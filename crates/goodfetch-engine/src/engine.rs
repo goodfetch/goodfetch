@@ -126,7 +126,8 @@ impl Engine {
     }
 
     /// Serves `connection` until it ends, its tasks those of `owner`, its
-    /// calls reaching the Runs of `runs` and the event stream `events`.
+    /// calls reaching the Runs of `runs` and the event stream `events`, on
+    /// `clock`.
     ///
     /// # Cancel safety
     ///
@@ -137,6 +138,7 @@ impl Engine {
         owner: &TaskOwner,
         runs: Runs,
         events: Events,
+        clock: Clock,
     ) {
         rpc::serve(
             Arc::clone(&self.dispatch),
@@ -145,6 +147,7 @@ impl Engine {
             runs,
             events,
             Access::Attached(None),
+            clock,
         )
         .await;
     }
@@ -318,6 +321,7 @@ impl Engine {
         let parent = on_the_os.then(ParentWatch::start);
         let connection = network.attached_connection().await?;
         let owner = TaskOwner::root(dependencies.blocking);
+        let clock = dependencies.clock;
         let private = if on_the_os {
             private_endpoint(network, &owner).await
         } else {
@@ -340,6 +344,7 @@ impl Engine {
             runs.clone(),
             events.clone(),
             Access::Attached(reported),
+            clock,
         );
         let gone = async {
             match parent {
@@ -357,6 +362,7 @@ impl Engine {
                 accepting.child(),
                 runs.clone(),
                 events,
+                clock,
             ));
             private_files = Some(files);
         }
@@ -420,6 +426,7 @@ async fn serve_private_endpoint(
     owner: TaskOwner,
     runs: Runs,
     events: Events,
+    clock: Clock,
 ) {
     loop {
         let connection = tokio::select! {
@@ -443,7 +450,7 @@ async fn serve_private_endpoint(
         owner.spawn(async move {
             tokio::select! {
                 () = its_owner.token().cancelled() => {}
-                () = rpc::serve(dispatch, connection, &its_owner, runs, events, Access::PrivateEndpoint(token)) => {}
+                () = rpc::serve(dispatch, connection, &its_owner, runs, events, Access::PrivateEndpoint(token), clock) => {}
             }
             its_owner.stop().await;
         });

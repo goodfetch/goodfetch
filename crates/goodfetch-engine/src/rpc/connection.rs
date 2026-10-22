@@ -5,7 +5,11 @@
 //! every line whole. A refused `hello` is answered before any other message
 //! and the Connection then closes (ADR 0066). At the end of input, calls in
 //! flight are cancelled at their next cancellation point, answered, and the
-//! Connection closes once they all are.
+//! Connection closes once they all are. A Connection the engine closes
+//! while its Client still sends, such as a refused one, ends its sending
+//! side first and drops what still comes until the Client closes too, for a
+//! short while at most, so a Client that wrote behind its `hello` reads the
+//! refusal and the end rather than a failed write or a reset.
 //!
 //! The engine also sends the Client handler requests, such as a crawl's
 //! `crawl_request.handle`, each under an id of its own, and routes each
@@ -25,6 +29,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use goodfetch_protocol::catalog::{Product, Reach};
 use goodfetch_protocol::connection::{
@@ -50,6 +55,7 @@ use super::{
     success_line,
 };
 use crate::client::{Client, Outgoing};
+use crate::clock::Clock;
 use crate::composition::{
     CallContext, CallError, CallStream, ConnectionContext, DaemonSide, Handler,
 };
@@ -72,6 +78,10 @@ const MAX_IN_FLIGHT: usize = 256;
 
 /// How many lines wait for the writer before their senders wait.
 const OUTGOING_LINES: usize = 64;
+
+/// How long a Connection the engine closed still reads what its Client
+/// sends, waiting for the Client to close too.
+const LINGER: Duration = Duration::from_secs(2);
 
 /// What a dispatch record names a method no catalog holds.
 const UNKNOWN_METHOD: &str = "(unknown)";
@@ -233,7 +243,8 @@ async fn carriage(
     }
 }
 
-/// Serves `connection` until it ends, its tasks those of `owner`.
+/// Serves `connection` until it ends, its tasks those of `owner`, lingering
+/// on `clock` after the engine closes it.
 ///
 /// # Cancel safety
 ///
@@ -246,6 +257,7 @@ pub(crate) async fn serve(
     runs: Runs,
     events: Events,
     access: Access,
+    clock: Clock,
 ) {
     let Some((mut reading, writing, listener)) = carriage(connection, &access).await else {
         return;
@@ -294,11 +306,37 @@ pub(crate) async fn serve(
         access,
         listener,
     };
-    session.run(&mut reading).await;
+    let ended = session.run(&mut reading).await;
     logging.cancel();
     session.cancel_in_flight();
     drop(session);
     owner.wait().await;
+    if !ended {
+        linger(&mut reading, clock).await;
+    }
+}
+
+/// Once the engine closed a Connection whose Client still sends, such as
+/// one whose `hello` it refused, reads and drops what comes until the
+/// Client closes too, for at most [`LINGER`]. A Client that wrote behind
+/// its last message then reads the engine's last message and the end, and
+/// never meets a Connection already gone: its write never fails, and no
+/// reset of unread bytes destroys what the engine sent (ADR 0066).
+///
+/// # Cancel safety
+///
+/// Dropping the future closes the Connection at once.
+async fn linger(reading: &mut Reading, clock: Clock) {
+    let drained = async {
+        let mut dropped = Vec::new();
+        while reading.read(&mut dropped).await {
+            dropped.clear();
+        }
+    };
+    tokio::select! {
+        () = drained => {}
+        () = clock.sleep(LINGER) => {}
+    }
 }
 
 /// Writes each line whole, or as one WebSocket message, flushing once no
@@ -408,14 +446,17 @@ struct Pending {
 }
 
 impl Session<'_> {
-    async fn run(&mut self, reading: &mut Reading) {
+    /// Serves the Connection until the Client's input ended and every call
+    /// was answered, or the engine closed it; answers whether the input
+    /// ended.
+    async fn run(&mut self, reading: &mut Reading) -> bool {
         let mut pending = Vec::new();
         let mut ended = false;
         let mut lost = false;
         loop {
             for frame in std::mem::take(&mut pending) {
                 if let Flow::Close = self.handle(frame).await {
-                    return;
+                    return ended;
                 }
             }
             if ended {
@@ -432,7 +473,7 @@ impl Session<'_> {
                         ) => {}
                         Err(refused) => {
                             let _ = refused.logged();
-                            return;
+                            return true;
                         }
                     }
                 }
@@ -440,7 +481,7 @@ impl Session<'_> {
                     if let Err(refused) = self.transition(ConnectionEvent::CallsEnded) {
                         let _ = refused.logged();
                     }
-                    return;
+                    return true;
                 }
             }
             let open = !ended && self.in_flight.len() < MAX_IN_FLIGHT;
@@ -452,7 +493,7 @@ impl Session<'_> {
                 }
                 Some(request) = self.requests.recv(), if sending => {
                     if let Flow::Close = self.send_request(request).await {
-                        return;
+                        return ended;
                     }
                 }
                 more = reading.read(&mut pending), if open => {

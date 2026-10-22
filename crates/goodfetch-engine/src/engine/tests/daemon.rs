@@ -500,6 +500,67 @@ fn refusal(refused: Value, pick: bool, busy: bool) -> (Value, bool, u32) {
     )
 }
 
+/// A Daemon that refuses a `hello` keeps reading what the Client still
+/// sends until the Client closes, so a call written behind the `hello`
+/// after the refusal meets an open Connection, never a closed one: the
+/// Client reads the refusal and then the end (ADR 0066).
+///
+/// Covers: story:3-132, error:protocol_version_unsupported
+#[test]
+fn a_call_written_after_a_refused_hello_meets_an_open_connection() {
+    let (_, (code, ended, written)) = daemon(
+        &engine(Product::Collie),
+        &TestEnv::new(),
+        the_pick(),
+        |dialer| async move {
+            let mut client = connect(&dialer).await;
+            client
+                .send(&[hello_with("collie", "1.0", "sdk_typescript", Some(TOKEN))])
+                .await;
+            let refusal = client.next().await.unwrap();
+            let ended = client.next().await.is_none();
+            // On the paused clock, the sleep ends once the Daemon has done
+            // all it does without the Client.
+            tokio::time::sleep(Duration::from_millis(1)).await;
+            let written = client.try_send(&[super::request(1, "engine.info")]).await;
+            client.close().await;
+            (refusal["error"]["data"]["code"].clone(), ended, written)
+        },
+    );
+
+    assert_eq!(
+        (code, ended, written.map_err(|error| error.kind())),
+        (json!("protocol_version_unsupported"), true, Ok(()))
+    );
+}
+
+/// A refused Client that never closes is closed all the same: the Daemon
+/// stops reading what it sends.
+///
+/// Covers: story:3-132
+#[test]
+fn a_refused_client_that_never_closes_is_closed() {
+    let (_, written) = daemon(
+        &engine(Product::Collie),
+        &TestEnv::new(),
+        the_pick(),
+        |dialer| async move {
+            let mut client = connect(&dialer).await;
+            client
+                .send(&[hello_with("collie", "1.0", "sdk_typescript", Some(TOKEN))])
+                .await;
+            client.next().await.unwrap();
+            tokio::time::sleep(MINUTE).await;
+            client.try_send(&[super::request(1, "engine.info")]).await
+        },
+    );
+
+    assert_eq!(
+        written.map_err(|error| error.kind()),
+        Err(std::io::ErrorKind::BrokenPipe)
+    );
+}
+
 /// A Daemon that is not its major's pick hands over once no Client but a
 /// Console is left and no Run is live (ADR 0098).
 ///

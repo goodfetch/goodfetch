@@ -521,10 +521,11 @@ fn serve_connection(
         shared: Arc::clone(shared),
         connection: id,
     });
-    let (dispatch, runs, events) = (
+    let (dispatch, runs, events, clock) = (
         Arc::clone(&serving.dispatch),
         serving.runs.on_connection(id),
         serving.events.clone(),
+        serving.clock,
     );
     let access = match &shared.websocket {
         Some(authorities) => rpc::Access::Exposed(side, Arc::clone(authorities)),
@@ -536,7 +537,7 @@ fn serve_connection(
         tokio::select! {
             biased;
             () = cancelled.cancelled() => {}
-            () = rpc::serve(dispatch, connection, &its_owner, runs.clone(), events, access) => {}
+            () = rpc::serve(dispatch, connection, &its_owner, runs.clone(), events, access, clock) => {}
         }
         its_owner.stop().await;
         runs.stop_connection(id).await;

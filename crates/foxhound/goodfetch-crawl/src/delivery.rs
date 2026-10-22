@@ -50,7 +50,9 @@ use goodfetch_protocol::foxhound::crawl::{
     CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
 };
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
-use goodfetch_protocol::run::{EndingError, RUN_STATE_UNAVAILABLE, RunDetails, StopReason};
+use goodfetch_protocol::run::{
+    EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, StopReason,
+};
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_protocol::usage::REQUESTS;
 use goodfetch_session_pool::{Effect, PoolSettings, SessionPool};
@@ -302,16 +304,25 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
 pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings, crawls: Crawls) {
     let policy = CrawlPolicy::of(&settings.at_admission().await);
     let retry_max = policy.retry_max;
-    if let Err(error) = run
+    let left = run
         .state()
         .write(move |connection| {
-            work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)
+            work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)?;
+            work_items::left(connection)
         })
-        .await
-    {
-        tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
-        run.end(failed(&run, &error)).await;
-        return;
+        .await;
+    match left {
+        Err(error) => {
+            tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
+            run.end(failed(&run, &error)).await;
+            return;
+        }
+        Ok(0) => {
+            if let Err(error) = run.nothing_done(NothingDone::NothingPending).await {
+                tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's `nothingDone` was not kept");
+            }
+        }
+        Ok(_) => {}
     }
     let joined = crawls.open(&run).await;
     drive(run, client, joined, crawls, settings).await;

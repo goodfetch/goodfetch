@@ -50,6 +50,7 @@ pub fn contribution() -> Contribution {
         .with_handler(read_outcomes)
         .with_handler(read_failed_requests)
         .with_run_state_tables(work_items::TABLES)
+        .with_report_part(Arc::new(crate::report::CrawlParts))
         .with_driver(
             RunKind::Crawl,
             Arc::new(move |run, client, settings| {

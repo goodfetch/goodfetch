@@ -578,6 +578,18 @@ pub(crate) fn release_leases(connection: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// How many work items are left to deliver: pending, or leased to an
+/// attempt.
+pub(crate) fn left(connection: &Connection) -> rusqlite::Result<u64> {
+    connection
+        .query_row(
+            "SELECT COUNT(*) FROM work_items WHERE status IN (?1, ?2)",
+            [PENDING, LEASED],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|left| u64::try_from(left).unwrap_or(0))
+}
+
 /// Settles every work item still leased when its engine stopped without
 /// settling it, on a resume: its attempt counted, with the Error code
 /// `error_code`, it returns to pending while it has retries left of

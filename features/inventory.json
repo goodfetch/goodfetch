@@ -1379,6 +1379,17 @@
       ]
     },
     {
+      "id": "operation:connection.set_log_level",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:crawl.serve",
       "kind": "operation",
       "area": 3,
@@ -3880,7 +3891,29 @@
       ]
     },
     {
+      "id": "setting:log.format",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:network.resolve",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:otlp.traces_endpoint",
       "kind": "setting",
       "area": 3,
       "milestone": null,

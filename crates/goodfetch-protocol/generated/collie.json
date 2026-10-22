@@ -1077,6 +1077,46 @@
       ],
       "type": "object"
     },
+    "LogLevel": {
+      "description": "The level of the engine's log events a Connection receives: those at\nit and above; `off`, the default, receives none.",
+      "oneOf": [
+        {
+          "const": "off",
+          "description": "No log event.",
+          "type": "string"
+        },
+        {
+          "const": "error",
+          "description": "Errors only.",
+          "type": "string"
+        },
+        {
+          "const": "warn",
+          "description": "Warnings and errors.",
+          "type": "string"
+        },
+        {
+          "const": "info",
+          "description": "State changes, warnings and errors: what `info` logs.",
+          "type": "string"
+        },
+        {
+          "const": "debug",
+          "description": "Also a line per request, fetch or command.",
+          "type": "string"
+        },
+        {
+          "const": "trace",
+          "description": "Everything the engine logs.",
+          "type": "string"
+        }
+      ]
+    },
+    "LogLevelSet": {
+      "additionalProperties": false,
+      "description": "What `connection.set_log_level` answers: nothing more.",
+      "type": "object"
+    },
     "MainContent": {
       "description": "Whether the extractor found the document's main content.",
       "oneOf": [
@@ -2112,6 +2152,21 @@
     "SessionId": {
       "description": "A Session of a Run, named by the engine when it opens it.",
       "type": "string"
+    },
+    "SetLogLevelParams": {
+      "additionalProperties": false,
+      "description": "What `connection.set_log_level` takes.",
+      "properties": {
+        "log_level": {
+          "$ref": "#/$defs/LogLevel",
+          "arrived_in": "0.1",
+          "description": "The Connection's new level."
+        }
+      },
+      "required": [
+        "log_level"
+      ],
+      "type": "object"
     },
     "SettingLimit": {
       "description": "A setting that decided an outcome: its key, its value and the layer that\nset it (ADRs 0028 and 0079).",
@@ -3261,6 +3316,25 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Sets the level of the engine's log events this Connection receives as `$/log` notifications, from the next one on: `off`, `error`, `warn`, `info`, `debug` or `trace`, as `hello`'s `log_level` set it first. Each Connection has its own. Log events are telemetry: one the Connection is too slow to receive is dropped, and the next counts it in `dropped`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "connection.set_log_level",
+      "params": {
+        "$ref": "#/$defs/SetLogLevelParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/LogLevelSet"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "read",
       "deprecated": null,
       "description": "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle.",
@@ -4077,6 +4151,26 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only.",
+      "name": "log.format",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "text",
+          "json"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": {},
@@ -4096,6 +4190,23 @@
           "type": "array"
         },
         "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only.",
+      "name": "otlp.traces_endpoint",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
       },
       "weakens": false
     },

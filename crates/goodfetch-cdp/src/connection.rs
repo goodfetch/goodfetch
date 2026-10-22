@@ -159,6 +159,7 @@ impl Connection {
     /// # Cancel safety
     ///
     /// As [`Connection::send`].
+    #[tracing::instrument(name = "cdp_command", level = "trace", skip_all, fields(cdp.method = method))]
     pub async fn send_raw(
         &self,
         method: &'static str,

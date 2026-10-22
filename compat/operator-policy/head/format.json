@@ -584,6 +584,26 @@
             },
             "type": "object"
           },
+          "log": {
+            "additionalProperties": false,
+            "properties": {
+              "format": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "text",
+                      "json"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
           "network": {
             "additionalProperties": false,
             "properties": {
@@ -597,6 +617,23 @@
                 },
                 "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                 "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "otlp": {
+            "additionalProperties": false,
+            "properties": {
+              "traces_endpoint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only."
               }
             },
             "type": "object"
@@ -1159,6 +1196,26 @@
             },
             "type": "object"
           },
+          "log": {
+            "additionalProperties": false,
+            "properties": {
+              "format": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "text",
+                      "json"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
           "network": {
             "additionalProperties": false,
             "properties": {
@@ -1172,6 +1229,23 @@
                 },
                 "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                 "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "otlp": {
+            "additionalProperties": false,
+            "properties": {
+              "traces_endpoint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only."
               }
             },
             "type": "object"

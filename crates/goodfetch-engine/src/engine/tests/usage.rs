@@ -546,13 +546,8 @@ fn a_live_run_meeting_a_limit_it_cannot_evaluate_stops_at_its_next_safe_point() 
             &json!("incomplete"),
             &json!({
                 "kind": "limit_not_understood",
-                "limit": {
-                    "scope": { "kind": "galaxy", "id": "milky-way" },
-                    "usage_kind": "requests",
-                    "amount": 10,
-                    "must_understand": true,
-                    "set_by": "person",
-                },
+                "scope": { "kind": "galaxy", "id": "milky-way" },
+                "usage_kind": "requests",
             }),
         )
     );
@@ -669,7 +664,7 @@ fn a_client_sets_limits_only_on_its_own_work() {
 
 /// Covers: story:3-77
 #[test]
-fn an_engine_writes_its_managed_operator_policys_install_limit_when_it_starts() {
+fn an_engine_writes_the_install_limit_of_its_managed_operator_policy_when_it_starts() {
     let env = TestEnv::new();
     let folder = env.home().join("1");
     std::fs::create_dir_all(&folder).unwrap();

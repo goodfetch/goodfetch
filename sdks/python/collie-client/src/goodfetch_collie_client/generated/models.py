@@ -1296,6 +1296,54 @@ class StopReason6(BaseModel):
     kind: Literal["limit"]
 
 
+class StopReason7(BaseModel):
+    """
+    A Limit flagged *must understand* that its engine cannot evaluate
+    came to cover it when it charged, and it stopped at its next safe
+    point, resumable by an engine that can (ADR 0041): the stop of the
+    Error code `limit_not_understood`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    currency: str | None = None
+    """The currency it caps a price in, for a price Limit."""
+    period: Period | None = None
+    """Its period; none for a Limit that never starts again."""
+    scope: LimitScope
+    """The Limit's scope."""
+    usage_kind: str
+    """The Usage kind it caps."""
+    kind: Literal["limit_not_understood"]
+
+
+class StopReason(
+    RootModel[
+        StopReason1
+        | StopReason2
+        | StopReason3
+        | StopReason4
+        | StopReason5
+        | StopReason6
+        | StopReason7
+    ]
+):
+    root: (
+        StopReason1
+        | StopReason2
+        | StopReason3
+        | StopReason4
+        | StopReason5
+        | StopReason6
+        | StopReason7
+    )
+    """
+    Why a Run stopped (ADR 0102); the other causes join with the tickets that
+    stop Runs for them.
+    """
+
+
 class UsageRaiseParams(BaseModel):
     """
     What `usage.raise` takes: a Limit a person sets, which replaces every
@@ -1477,6 +1525,26 @@ class LimitUsage(BaseModel):
     """What the engine that read it makes of it."""
 
 
+class NotUnderstoodLimit(BaseModel):
+    """
+    A Limit flagged *must understand* that a Run's engine cannot evaluate,
+    as the Run stopped for it names it (ADR 0041): its scope, Usage kind,
+    currency and period as the ledger holds them.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    currency: str | None = None
+    """The currency it caps a price in, for a price Limit."""
+    period: Period | None = None
+    """Its period; none for a Limit that never starts again."""
+    scope: LimitScope
+    """The Limit's scope."""
+    usage_kind: str
+    """The Usage kind it caps."""
+
+
 class Resync(BaseModel):
     """
     What `events.resync` gives: the current state, from which the stream
@@ -1488,92 +1556,6 @@ class Resync(BaseModel):
     )
     runs: list[RunAxes]
     """The axes of each Run the engine knows, live or ended."""
-
-
-class SettingsExplanation(BaseModel):
-    """
-    What `config.explain` answers and `config explain --json` prints:
-    every setting's effective value, the layer that set it and the layer
-    that locked it (ADR 0028), and the files read.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    files: list[SettingsFile]
-    """The files of the configuration layers, lowest first."""
-    policy_version: str | None = None
-    """
-    The Operator policy's version, `sha256:` and the first 16 hex digits
-    of its file's digest, which the run report names; `None` without a
-    policy.
-    """
-    settings: list[ExplainedSetting]
-    """Each setting, by key."""
-
-
-class StopReason7(BaseModel):
-    """
-    A Limit flagged *must understand* that its engine cannot evaluate
-    came to cover it when it charged, and it stopped at its next safe
-    point, resumable by an engine that can (ADR 0041): the stop of the
-    Error code `limit_not_understood`.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    kind: Literal["limit_not_understood"]
-    limit: Limit
-    """The Limit."""
-
-
-class StopReason(
-    RootModel[
-        StopReason1
-        | StopReason2
-        | StopReason3
-        | StopReason4
-        | StopReason5
-        | StopReason6
-        | StopReason7
-    ]
-):
-    root: (
-        StopReason1
-        | StopReason2
-        | StopReason3
-        | StopReason4
-        | StopReason5
-        | StopReason6
-        | StopReason7
-    )
-    """
-    Why a Run stopped (ADR 0102); the other causes join with the tickets that
-    stop Runs for them.
-    """
-
-
-class UsageListResult(BaseModel):
-    """What `usage.list` answers, and what `usage --json` prints."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    limits: list[LimitUsage]
-    """Every Limit of the Usage ledger, by scope, with its Usage."""
-
-
-class FormatsParams(BaseModel):
-    """What `page.formats` takes: the page, and the formats it asks for."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    formats: FormatsRequest
-    """The formats."""
-    page_id: PageId
-    """The page."""
 
 
 class RunReport(BaseModel):
@@ -1631,3 +1613,47 @@ class RunStopping(BaseModel):
     """Why it stops."""
     run_id: RunId
     """The Run's ID."""
+
+
+class SettingsExplanation(BaseModel):
+    """
+    What `config.explain` answers and `config explain --json` prints:
+    every setting's effective value, the layer that set it and the layer
+    that locked it (ADR 0028), and the files read.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    files: list[SettingsFile]
+    """The files of the configuration layers, lowest first."""
+    policy_version: str | None = None
+    """
+    The Operator policy's version, `sha256:` and the first 16 hex digits
+    of its file's digest, which the run report names; `None` without a
+    policy.
+    """
+    settings: list[ExplainedSetting]
+    """Each setting, by key."""
+
+
+class UsageListResult(BaseModel):
+    """What `usage.list` answers, and what `usage --json` prints."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    limits: list[LimitUsage]
+    """Every Limit of the Usage ledger, by scope, with its Usage."""
+
+
+class FormatsParams(BaseModel):
+    """What `page.formats` takes: the page, and the formats it asks for."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    formats: FormatsRequest
+    """The formats."""
+    page_id: PageId
+    """The page."""

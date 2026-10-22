@@ -25,7 +25,7 @@ fn solves(currency: &str, set_by: LimitSetter, amount: u64) -> Limit {
 #[case::no_limit(&[], None)]
 #[case::a_clients_own(&[(LimitSetter::Client, 5)], None)]
 #[case::a_persons(&[(LimitSetter::Person, 10)], Some(LimitSetter::Person))]
-#[case::a_managed_policys(&[(LimitSetter::ManagedPolicy, 10)], Some(LimitSetter::ManagedPolicy))]
+#[case::a_managed_policy(&[(LimitSetter::ManagedPolicy, 10)], Some(LimitSetter::ManagedPolicy))]
 #[case::a_persons_a_client_lowered(
     &[(LimitSetter::Person, 10), (LimitSetter::Client, 4)],
     Some(LimitSetter::Person),

@@ -49,7 +49,7 @@ fn managed(major: &str, amount: u64, charged: u64) -> (LimitSetter, Option<Strin
 }
 
 #[test]
-fn an_engine_writes_its_policys_install_limit_as_a_managed_row_of_its_major() {
+fn an_engine_writes_the_install_limit_of_its_policy_as_a_managed_row_of_its_major() {
     let env = TestEnv::new();
     let ledger = ledger(&env);
 

@@ -211,10 +211,7 @@ export type StopReason =
       kind: "drain";
     }
   | ReachedLimit1
-  | {
-      kind: "limit_not_understood";
-      limit: Limit2;
-    };
+  | NotUnderstoodLimit1;
 /**
  * An opaque text a Run is tagged with (ADR 0036).
  *
@@ -1174,6 +1171,44 @@ export interface NewPageParams {
   run_id: string;
 }
 /**
+ * A Limit flagged *must understand* that a Run's engine cannot evaluate,
+ * as the Run stopped for it names it (ADR 0041): its scope, Usage kind,
+ * currency and period as the ledger holds them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotUnderstoodLimit".
+ */
+export interface NotUnderstoodLimit {
+  /**
+   * The currency it caps a price in, for a price Limit.
+   */
+  currency?: string | null;
+  /**
+   * Its period; none for a Limit that never starts again.
+   */
+  period?: Period | null;
+  scope: LimitScope2;
+  /**
+   * The Usage kind it caps.
+   */
+  usage_kind: string;
+}
+/**
+ * The Limit's scope.
+ */
+export interface LimitScope2 {
+  /**
+   * Which one of its kind: the major's name for a Daemon, the person's
+   * name, the token's name or the Client connection's ID; empty for the
+   * install.
+   */
+  id: string;
+  /**
+   * The scope's kind.
+   */
+  kind: string;
+}
+/**
  * What `page.body` takes: the body to read.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1305,7 +1340,7 @@ export interface ReachedLimit {
    * When its period starts again; none for a Limit without one.
    */
   resets_at?: PointInTime | null;
-  scope: LimitScope2;
+  scope: LimitScope3;
   /**
    * The Usage kind it caps.
    */
@@ -1314,7 +1349,7 @@ export interface ReachedLimit {
 /**
  * The Limit's scope.
  */
-export interface LimitScope2 {
+export interface LimitScope3 {
   /**
    * Which one of its kind: the major's name for a Daemon, the person's
    * name, the token's name or the Client connection's ID; empty for the
@@ -1522,38 +1557,13 @@ export interface ReachedLimit1 {
   kind: "limit";
 }
 /**
- * The Limit.
+ * A Limit flagged *must understand* that its engine cannot evaluate
+ * came to cover it when it charged, and it stopped at its next safe
+ * point, resumable by an engine that can (ADR 0041): the stop of the
+ * Error code `limit_not_understood`.
  */
-export interface Limit2 {
-  /**
-   * How much it allows per period: a count of the Usage kind, or
-   * millionths of the currency.
-   */
-  amount: number;
-  /**
-   * The currency it caps the Usage kind's price in, an ISO 4217 code;
-   * none for a Limit on the Usage itself.
-   */
-  currency?: string | null;
-  /**
-   * Whether an engine that cannot evaluate it must refuse the runs it
-   * cannot place outside it, with `limit_not_understood`.
-   */
-  must_understand: boolean;
-  /**
-   * The period it counts over; none for a Limit that never starts again,
-   * such as a Client connection's.
-   */
-  period?: Period | null;
-  scope: LimitScope;
-  /**
-   * Who set it.
-   */
-  set_by: "person" | "managed_policy" | "client";
-  /**
-   * The Usage kind it caps, a value of a type both Products share.
-   */
-  usage_kind: string;
+export interface NotUnderstoodLimit1 {
+  kind: "limit_not_understood";
 }
 /**
  * A setting that decided an outcome: its key, its value and the layer that
@@ -1689,10 +1699,7 @@ export interface RunStopping {
         kind: "drain";
       }
     | ReachedLimit1
-    | {
-        kind: "limit_not_understood";
-        limit: Limit2;
-      };
+    | NotUnderstoodLimit1;
   /**
    * The Run's ID.
    */

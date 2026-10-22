@@ -52,9 +52,9 @@ use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
-    Checkpoint, Completeness, Lifecycle, PointInTime, Presence, RUN_STATE_DURABILITY, ReachedLimit,
-    RunAxes, RunId, RunIndexRow, RunKind, RunOwner, RunReport, RunStarted, StartInput, StartedAs,
-    StopReason, Tags, Verdict,
+    Checkpoint, Completeness, Lifecycle, NotUnderstoodLimit, PointInTime, Presence,
+    RUN_STATE_DURABILITY, ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunOwner, RunReport,
+    RunStarted, StartInput, StartedAs, StopReason, Tags, Verdict,
 };
 use goodfetch_protocol::settings::SettingLimit;
 use goodfetch_protocol::usage::Limit;
@@ -957,9 +957,12 @@ impl Run {
                 Err(Refusal::Reached(reached).into())
             }
             Err(Refusal::NotUnderstood(limit)) => {
-                self.stop_at_safe_point(StopReason::LimitNotUnderstood {
-                    limit: Limit::clone(&limit),
-                });
+                self.stop_at_safe_point(StopReason::LimitNotUnderstood(NotUnderstoodLimit {
+                    scope: limit.scope.clone(),
+                    usage_kind: limit.usage_kind.clone(),
+                    currency: limit.currency.clone(),
+                    period: limit.period.clone(),
+                }));
                 Err(Refusal::NotUnderstood(limit).into())
             }
             Err(refusal) => Err(refusal.into()),

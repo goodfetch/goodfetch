@@ -15,6 +15,10 @@
     reason = "the test's handler fetches the Proving ground's pages from outside the engine (ADR 0060)"
 )]
 #![expect(
+    clippy::disallowed_methods,
+    reason = "the test's handler takes its time on its own thread, as a slow handler does (ADR 0060)"
+)]
+#![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
@@ -67,14 +71,14 @@ fn handle(proving_ground: &ProvingGround, params: &Value) -> Value {
     stream.read_to_string(&mut response).unwrap();
     let (head, _) = response.split_once("\r\n\r\n").unwrap();
     match block_cause(head) {
-        Some(cause) => failure("blocked", json!({ "cause": cause })),
+        Some(cause) => failure("blocked", &json!({ "cause": cause })),
         None => {
             json!({ "result": { "records": [{ "dataset": "pages", "data": { "url": url } }] } })
         }
     }
 }
 
-fn failure(code: &str, details: Value) -> Value {
+fn failure(code: &str, details: &Value) -> Value {
     let mut data = json!({ "code": code, "retryable": false });
     data.as_object_mut()
         .unwrap()
@@ -184,7 +188,7 @@ fn the_pools_settings_retire_a_session_by_its_uses_its_age_and_its_error_score(
         &seeds(&proving_ground, paths),
         &settings(&pool),
         &mut |served, params| match first {
-            First::Fails(code) if served == 0 => failure(code, json!({})),
+            First::Fails(code) if served == 0 => failure(code, &json!({})),
             First::Lasts(pause) if served == 0 => {
                 std::thread::sleep(pause);
                 handle(&proving_ground, params)

@@ -1668,20 +1668,7 @@ impl Registry {
                     let _ = self.end_or_report(&run_id, end).await;
                 }
                 Command::Uses(run_id, product) => self.uses(&run_id, product).await,
-                Command::Ended(run_id, report) => {
-                    if let Some(live) = self.live.remove(&run_id) {
-                        // The lock goes before the report, so whoever the
-                        // report wakes finds the Run's writer gone.
-                        let Live {
-                            report: waiters,
-                            lock,
-                            ..
-                        } = live;
-                        drop(lock);
-                        waiters.send_replace(Some(RunReport::clone(&report)));
-                    }
-                    self.ended.insert(run_id, *report);
-                }
+                Command::Ended(run_id, report) => self.ended(run_id, *report),
                 Command::StopAll(answer) => {
                     let ids: Vec<RunId> = self.live.keys().cloned().collect();
                     let _ = answer.send(self.stop_by_client(ids).await);
@@ -1692,12 +1679,7 @@ impl Registry {
                     let _ = answer.send(Vec::new());
                 }
                 Command::StopConnection(connection, answer) => {
-                    let ids: Vec<RunId> = self
-                        .live
-                        .values()
-                        .filter(|live| live.connection == Some(connection))
-                        .map(|live| live.id.clone())
-                        .collect();
+                    let ids = self.runs_of(connection);
                     let _ = answer.send(self.stop_by_client(ids).await);
                 }
                 Command::LiveCount(answer) => {
@@ -1707,12 +1689,7 @@ impl Registry {
                     let _ = answer.send(self.folder(&run_id));
                 }
                 Command::Live(run_id, answer) => {
-                    let live = self
-                        .live
-                        .get(&run_id)
-                        .and_then(|live| live.run.clone())
-                        .ok_or(RunError::NotFound(run_id));
-                    let _ = answer.send(live);
+                    let _ = answer.send(self.live_run(run_id));
                 }
                 Command::Checkpoint(run_id, location, answer) => {
                     self.checkpoint(run_id, location, answer).await;
@@ -1815,6 +1792,40 @@ impl Registry {
         if let Err(error) = reclaimed {
             tracing::warn!(%error, "the Usage ledger could not be opened to reclaim the Slices of dead runs");
         }
+    }
+
+    /// Records that the Run `run_id` ended with `report`, and wakes the
+    /// waits for its report.
+    fn ended(&mut self, run_id: RunId, report: RunReport) {
+        if let Some(live) = self.live.remove(&run_id) {
+            // The lock goes before the report, so whoever the report wakes
+            // finds the Run's writer gone.
+            let Live {
+                report: waiters,
+                lock,
+                ..
+            } = live;
+            drop(lock);
+            waiters.send_replace(Some(report.clone()));
+        }
+        self.ended.insert(run_id, report);
+    }
+
+    /// The live Runs that the Client of `connection` started or resumed.
+    fn runs_of(&self, connection: ConnectionId) -> Vec<RunId> {
+        self.live
+            .values()
+            .filter(|live| live.connection == Some(connection))
+            .map(|live| live.id.clone())
+            .collect()
+    }
+
+    /// The live Run `run_id`, once it has one.
+    fn live_run(&self, run_id: RunId) -> Result<Run, RunError> {
+        self.live
+            .get(&run_id)
+            .and_then(|live| live.run.clone())
+            .ok_or(RunError::NotFound(run_id))
     }
 
     fn reader(&self, run_id: &RunId) -> RunReader {
@@ -2593,17 +2604,7 @@ impl Registry {
         let (lock, writer, state) = self
             .reopen(&run_id, held.lifecycle, checkpoint, &options)
             .await?;
-        let (read, vfs) = (folder.join(RUN_FILE), self.setup.run_state.vfs.clone());
-        let recorded = self
-            .owner
-            .blocking(move || folder::read_recorded(&read, vfs.as_deref()))
-            .await
-            .map_err(|error| RunError::Unavailable {
-                run_id: run_id.clone(),
-                folder: folder.clone(),
-                error: error.to_string(),
-            })?
-            .ok_or_else(|| RunError::NotFound(run_id.clone()))?;
+        let recorded = self.recorded(&run_id, &folder).await?;
         self.ended.remove(&run_id);
         let live = Live {
             id: run_id.clone(),
@@ -2654,6 +2655,20 @@ impl Registry {
             kind,
             needs,
         })
+    }
+
+    /// What the run file of `run_id` in `folder` records of the Run.
+    async fn recorded(&self, run_id: &RunId, folder: &Path) -> Result<folder::Recorded, RunError> {
+        let (read, vfs) = (folder.join(RUN_FILE), self.setup.run_state.vfs.clone());
+        self.owner
+            .blocking(move || folder::read_recorded(&read, vfs.as_deref()))
+            .await
+            .map_err(|error| RunError::Unavailable {
+                run_id: run_id.clone(),
+                folder: folder.to_owned(),
+                error: error.to_string(),
+            })?
+            .ok_or_else(|| RunError::NotFound(run_id.clone()))
     }
 
     /// What the Checkpoint `checkpoint`, or else the run file of `run_id`

@@ -4,7 +4,8 @@
 //! domain and nowhere else, and a certificate that fails verification ends
 //! the request with `certificate_invalid` before anything is sent. The
 //! `resolve` setting maps every host name to the Proving ground's loopback
-//! address: no test reaches the internet.
+//! address, which the Session's private ranges list: no test reaches the
+//! internet.
 
 use std::net::IpAddr;
 
@@ -43,7 +44,10 @@ fn traffic(proving_ground: &ProvingGround, domains: &[&str]) -> PageTraffic {
                 .unwrap()
         });
     PageTraffic {
-        egress: Policy::new(&["*"], &[] as &[&str]).unwrap(),
+        egress: Policy::new(&["*"], &[] as &[&str])
+            .unwrap()
+            .with_private_ranges(&[proving_ground.address().ip().to_string()])
+            .unwrap(),
         resolve,
         trust,
         clock: Clock::system(),

@@ -16,9 +16,11 @@
 //!
 //! A request of the run, an address a page can reach, goes through
 //! [`PageTraffic`], which the Session's egress policy judges before any
-//! lookup or connection (ADRs 0014 and 0017): a refusal ends the call that
-//! waited for it with `egress_refused`, or, when no call waits, is a
-//! `page.request_failed` event in the Run trace.
+//! lookup or connection (ADRs 0014 and 0017), and whose host's every
+//! address it judges again before connecting, so the connection tries only
+//! addresses the resolved-address check let through: a refusal ends the
+//! call that waited for it with `egress_refused`, or, when no call waits,
+//! is a `page.request_failed` event in the Run trace.
 //!
 //! ADR 0043 allows only two kinds of caller beside a run's own requests:
 //! `pinned_download`, the one path for every connection nobody configured,
@@ -253,9 +255,13 @@ pub enum FetchError {
 
 impl PageTraffic {
     /// Sends a GET for `url` once the egress policy allows it, and answers
-    /// its head; its body arrives through [`Response::chunk`]. A refusal
-    /// opens no connection and makes no lookup; when nobody waits for the
-    /// request, it is also recorded in the Run trace.
+    /// its head; its body arrives through [`Response::chunk`]. The policy
+    /// judges the request before any lookup, then every address its host
+    /// stands for (the `resolve` mapping's, its literal address or the
+    /// resolver's answers) before any connection, which tries only those
+    /// addresses (ADR 0017's resolved-address check). A refusal opens no
+    /// connection; when nobody waits for the request, it is also recorded
+    /// in the Run trace.
     ///
     /// # Errors
     ///
@@ -268,6 +274,7 @@ impl PageTraffic {
     ///
     /// Dropping the future closes any connection it opened.
     pub async fn get(&self, url: &str, waiter: Waiter<'_>) -> Result<Response, FetchError> {
+        let requested = url;
         let request = egress::Request {
             url,
             kind: egress::RequestKind::Fetch,
@@ -317,7 +324,16 @@ impl PageTraffic {
             port,
             plain,
         };
-        send(&server, request, &network)
+        let found = addresses(&server, &self.resolve)
+            .await
+            .map_err(FetchError::Failed)?;
+        if let Err(refused) = egress::judge_addresses(requested, &found, &self.egress) {
+            if let Waiter::Nobody(log) = waiter {
+                record_unwaited(log, &refused).await;
+            }
+            return Err(FetchError::Refused(refused));
+        }
+        send_to(&server, &found, request, &network)
             .await
             .map_err(FetchError::Failed)
     }
@@ -429,8 +445,24 @@ pub(crate) async fn send(
     request: Request<Empty<Bytes>>,
     network: &Network<'_>,
 ) -> Result<Response, Failure> {
+    let found = addresses(server, network.resolve).await?;
+    send_to(server, &found, request, network).await
+}
+
+/// Sends `request` to `server` at one of `found`, its addresses, over
+/// HTTPS unless the server is plain, and answers its head.
+///
+/// # Cancel safety
+///
+/// Dropping the future closes any connection it opened.
+async fn send_to(
+    server: &Server<'_>,
+    found: &[SocketAddr],
+    request: Request<Empty<Bytes>>,
+    network: &Network<'_>,
+) -> Result<Response, Failure> {
     let (mut sender, mut connection) = if server.plain {
-        let tcp = race_to(server, network).await?;
+        let tcp = race_to(server, found, network).await?;
         let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tcp))
             .await
             .map_err(|_| Failure::Network)?;
@@ -438,7 +470,7 @@ pub(crate) async fn send(
     } else {
         let server_name =
             ServerName::try_from(server.host.to_owned()).map_err(|_| Failure::ServerName)?;
-        let tcp = race_to(server, network).await?;
+        let tcp = race_to(server, found, network).await?;
         let tls = tokio_rustls::TlsConnector::from(Arc::new(network.trust.client_config()))
             .connect(server_name, tcp)
             .await
@@ -481,14 +513,17 @@ pub(crate) async fn send(
     })
 }
 
-/// Connects to `server`'s addresses, both families answered at once,
-/// raced under RFC 8305.
-async fn race_to(server: &Server<'_>, network: &Network<'_>) -> Result<TcpStream, Failure> {
-    let found = addresses(server, network.resolve).await?;
+/// Connects to one of `found`, `server`'s addresses, both families
+/// answered at once, raced under RFC 8305: it tries no other address.
+async fn race_to(
+    server: &Server<'_>,
+    found: &[SocketAddr],
+    network: &Network<'_>,
+) -> Result<TcpStream, Failure> {
     let of = |family: IpFamily| -> Result<Vec<IpAddr>, LookupError> {
         Ok(found
             .iter()
-            .copied()
+            .map(SocketAddr::ip)
             .filter(|address| family_of(*address) == family)
             .collect())
     };
@@ -527,19 +562,20 @@ async fn attempt(address: SocketAddr, local: Option<IpAddr>) -> io::Result<TcpSt
     socket.connect(address).await
 }
 
-/// `server`'s addresses: the `resolve` mapping's, its literal address, or
-/// the system resolver's.
-async fn addresses(server: &Server<'_>, resolve: &Resolve) -> Result<Vec<IpAddr>, Failure> {
+/// `server`'s addresses on its port: the `resolve` mapping's, its literal
+/// address, or the system resolver's, each as the resolver gives it, its
+/// zone ID included.
+async fn addresses(server: &Server<'_>, resolve: &Resolve) -> Result<Vec<SocketAddr>, Failure> {
+    let on_port = |address: &IpAddr| SocketAddr::new(*address, server.port);
     if let Some(mapped) = resolve.addresses(server.host) {
-        return Ok(mapped.to_vec());
+        return Ok(mapped.iter().map(on_port).collect());
     }
     if let Ok(address) = server.host.parse::<IpAddr>() {
-        return Ok(vec![address]);
+        return Ok(vec![on_port(&address)]);
     }
-    let found: Vec<IpAddr> = tokio::net::lookup_host((server.host, server.port))
+    let found: Vec<SocketAddr> = tokio::net::lookup_host((server.host, server.port))
         .await
         .map_err(|_| Failure::Network)?
-        .map(|address| address.ip())
         .collect();
     if found.is_empty() {
         return Err(Failure::Network);

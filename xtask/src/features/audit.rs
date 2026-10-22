@@ -18,6 +18,10 @@
 //!   `exit_codes` table names; or, for arguments that name no `command:`
 //!   Feature, `unmatched`, the arguments joined by spaces.
 //!
+//! Only Rust tests' declarations are audited: a conformance case's or a
+//! Journey's `covers` list leaves no exercise record of its own, and counts
+//! as its kept result document gives it (ADR 0072's note).
+//!
 //! A command run with arguments that match no `command:` Feature is
 //! reported, since no declaration can claim it. A declaring test with no
 //! record is reported, never passed. Over the tests that ran, a declaring

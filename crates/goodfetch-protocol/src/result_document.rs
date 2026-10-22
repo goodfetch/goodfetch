@@ -29,6 +29,10 @@
 //! The oracle's answers and the server-side observations are the Proving
 //! ground's own JSON (it depends on no Goodfetch crate); this module reads
 //! only an answer's task and outcome and keeps the rest as it came.
+//!
+//! Size: one contract, the result document's shape with the rules that
+//! derive its outcomes and the reader that refuses a stored document breaking
+//! them, kept whole so every rule sits beside the types it constrains.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};

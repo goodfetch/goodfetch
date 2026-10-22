@@ -26,10 +26,10 @@ use crate::daemon::{self, DaemonConsole, DaemonEnd, DaemonOptions};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
-use crate::home::{Home, RunStateLocation};
+use crate::home::{Home, RunStateLocation, major_name};
 use crate::log::LogEvents;
 use crate::metrics::Metrics;
-use crate::people::{SignInDriver, SingleUserLink};
+use crate::people::{AccountsStore, ConsoleKey, SignInDriver, SignIns, SingleUserLink, os_user};
 use crate::politeness::{PolitenessOptions, PolitenessTables};
 use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
@@ -182,6 +182,8 @@ impl Engine {
     ) -> DaemonEnd {
         let owner = TaskOwner::root(dependencies.blocking);
         let clock = dependencies.clock;
+        let home = dependencies.home.clone();
+        let person = os_user(&dependencies.environment);
         let console_url = match (&self.console, &options.console) {
             (Some(_), DaemonConsole::Listening { url, .. }) => Some(url.clone()),
             _ => None,
@@ -194,26 +196,46 @@ impl Engine {
             console_url,
         );
         let (opened_sockets, console_sockets) = tokio::sync::mpsc::channel(CONSOLE_SOCKETS);
-        let console = match (
+        let (console, sign_ins) = match (
             self.console,
             std::mem::replace(&mut options.console, DaemonConsole::Absent),
         ) {
-            (Some(build), DaemonConsole::Listening { listener, url }) => {
-                let sign_ins = SignInDriver::new(SingleUserLink::new(options.token.clone()));
+            (
+                Some(build),
+                DaemonConsole::Listening {
+                    listener,
+                    url,
+                    sign_in,
+                },
+            ) => {
+                let sign_ins = SignInDriver::new(SignIns {
+                    link: SingleUserLink::new(options.token.clone()),
+                    person,
+                    store: AccountsStore::at(home.accounts_store(&self.identity().product_version)),
+                    key: ConsoleKey::at(home.console_key()),
+                    audit: runs.audit().clone(),
+                    policy: sign_in,
+                    clock,
+                    owner: Arc::new(owner.child()),
+                });
                 owner.spawn(console::serve(
                     console::Served {
                         build,
                         listener,
-                        sign_ins,
+                        sign_ins: sign_ins.clone(),
+                        cookie: format!(
+                            "goodfetch_console_{}",
+                            major_name(&self.identity().product_version)
+                        ),
                         sockets: opened_sockets,
                     },
                     owner.child(),
                 ));
-                ConsoleState::Serving(url)
+                (ConsoleState::Serving(url), Some(sign_ins))
             }
-            (_, DaemonConsole::Failed(failure)) => ConsoleState::Failed(failure),
+            (_, DaemonConsole::Failed(failure)) => (ConsoleState::Failed(failure), None),
             (None, DaemonConsole::Listening { .. }) | (_, DaemonConsole::Absent) => {
-                ConsoleState::Absent
+                (ConsoleState::Absent, None)
             }
         };
         let ended = daemon::serve(
@@ -225,6 +247,7 @@ impl Engine {
                 console,
                 console_sockets,
                 metrics: self.metrics.clone(),
+                sign_ins,
             },
             listener,
             options,

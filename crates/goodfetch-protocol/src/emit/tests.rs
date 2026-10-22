@@ -86,6 +86,14 @@ fn file_formats() -> serde_json::Value {
             "hello_from": [],
             "schema": { "$ref": "#/$defs/AuditEntry" },
         },
+        {
+            "name": "accounts-store",
+            "version": "0.1",
+            "storage": "sqlite",
+            "rule": "default",
+            "hello_from": [],
+            "schema": { "$ref": "#/$defs/SignInRow" },
+        },
     ])
 }
 

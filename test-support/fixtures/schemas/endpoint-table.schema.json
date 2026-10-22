@@ -173,6 +173,21 @@
           "const": "probes_answer_status_only",
           "description": "The ops listener's probes answer with a status and no body.",
           "type": "string"
+        },
+        {
+          "const": "csrf_token_missing",
+          "description": "A signed-in `POST` carries no CSRF token.",
+          "type": "string"
+        },
+        {
+          "const": "sign_in_revoked",
+          "description": "The cookie is of a sign-in that has ended: signed out or revoked.",
+          "type": "string"
+        },
+        {
+          "const": "sign_in_rate_exceeded",
+          "description": "The address tries to sign in more often than the listener's rate\nallows: the eleventh attempt in a minute. Last in the table, since\nthe address's next attempts in that minute are refused too.",
+          "type": "string"
         }
       ]
     }

@@ -17,6 +17,7 @@ use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, Setting, Value
 use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
+use crate::people::SignInRow;
 use crate::politeness::PermitRow;
 use crate::run::{RunIndexRow, RunStateRow};
 use crate::usage::Limit;
@@ -331,6 +332,20 @@ pub const AUDIT_LOG: Format = Format {
     schema: schema_of::<AuditEntry>,
 };
 
+/// The per-major accounts store in Goodfetch home (spec #592), beside the
+/// Operator policy: the Console's sign-ins and their wrapping keys, and
+/// later its accounts, passkeys and named tokens. Only the Daemon of its
+/// major opens it, so it keeps the default version rule; its schema is one
+/// sign-in's.
+pub const ACCOUNTS_STORE: Format = Format {
+    name: "accounts-store",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Sqlite,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<SignInRow>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -341,6 +356,7 @@ pub const FORMATS: &[&Format] = &[
     &USAGE_LEDGER,
     &POLITENESS_FILE,
     &AUDIT_LOG,
+    &ACCOUNTS_STORE,
     &OPERATOR_POLICY,
     &USER_CONFIGURATION,
 ];

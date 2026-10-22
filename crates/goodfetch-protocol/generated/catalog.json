@@ -1188,6 +1188,25 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Replaces the Console key, which every major of the user shares, so every Console sign-in ends and everyone signs in again. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "console.rotate_key",
+      "params": {
+        "$ref": "#/$defs/ConsoleRotateKeyParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/ConsoleKeyRotated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
@@ -1955,6 +1974,44 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
+      "description": "Lists the Console's sign-ins that have not ended, each with its person, when it was created and when it was last used, never its cookie. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "query",
+      "name": "sign_in.list",
+      "params": {
+        "$ref": "#/$defs/SignInListParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/SignInList"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Ends one Console sign-in, so its cookie signs nobody in, such as a lost laptop's. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "sign_in.revoke",
+      "params": {
+        "$ref": "#/$defs/SignInRevokeParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/SignInRevoked"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
       "description": "Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.",
       "events": [],
       "kind": "query",
@@ -2157,6 +2214,43 @@
       ],
       "value": {
         "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "operator_policy",
+      "clearable": false,
+      "default": 2592000000,
+      "description": "How long a Console sign-in lasts without being used, in milliseconds: 30 days. Each use starts it again; a sign-in unused for longer ends, and its person signs in again. Set in an Operator policy only.",
+      "name": "console.sign_in.idle_expiry",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "operator_policy",
+      "clearable": false,
+      "default": 10,
+      "description": "How many times one address may try to sign in to the Console in a minute: 10. A further attempt in that minute is refused, whatever its credential. Set in an Operator policy only.",
+      "name": "console.sign_in.rate",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
       },
       "weakens": false
     },
@@ -3487,6 +3581,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Console key was replaced, which ended every Console sign-in, with how many it ended.",
+      "name": "console_key_rotated",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The host throttled the engine's CPU.",
       "name": "cpu_throttled",
       "product": "collie",
@@ -3755,6 +3856,20 @@
       "arrived_in": "0.1",
       "description": "A Session was imported from an encrypted bundle.",
       "name": "session_imported",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Console sign-in was ended, by its person signing out or by `sign_in.revoke`, with its identifier.",
+      "name": "sign_in_revoked",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person signed in to the Console, with the sign-in's identifier and how they proved who they are, such as the single-user link.",
+      "name": "signed_in",
       "product": "collie",
       "type": "audit_kind"
     },

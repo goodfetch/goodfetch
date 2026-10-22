@@ -51,7 +51,10 @@ impl AuditLog {
             Rule::OriginForeign => Reason::ForeignOrigin,
             Rule::OriginMissing => Reason::MissingOrigin,
             Rule::HelloNotFirst => Reason::NotHello,
-            Rule::ProbesAnswerStatusOnly => return false,
+            Rule::ProbesAnswerStatusOnly
+            | Rule::CsrfTokenMissing
+            | Rule::SignInRevoked
+            | Rule::SignInRateExceeded => return false,
         };
         self.0.recv_timeout(Duration::from_secs(5)) == Ok(expected)
     }

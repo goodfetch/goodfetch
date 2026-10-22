@@ -62,7 +62,10 @@ fn reason(rule: Rule) -> Option<&'static str> {
         Rule::OriginForeign => "origin_foreign",
         Rule::OriginMissing => "origin_missing",
         Rule::HelloNotFirst => "hello_not_first",
-        Rule::ProbesAnswerStatusOnly => return None,
+        Rule::ProbesAnswerStatusOnly
+        | Rule::CsrfTokenMissing
+        | Rule::SignInRevoked
+        | Rule::SignInRateExceeded => return None,
     })
 }
 

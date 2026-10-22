@@ -118,6 +118,9 @@ pub(crate) struct RunsSetup {
     pub(crate) location: RunStateLocation,
     /// How run files open.
     pub(crate) run_state: RunStateOptions,
+    /// The VFS the Usage ledger opens through: the run state's own, never
+    /// the install database's, which serves only the run folders.
+    pub(crate) ledger_vfs: Option<String>,
     /// The install database `run_state`'s VFS serves the run files from,
     /// in the per-install layout, kept open while the registry lives.
     #[expect(
@@ -890,7 +893,7 @@ impl Runs {
         let limits = Limits {
             home: setup.home.clone(),
             owner: Arc::clone(&readers),
-            ledger: Ledger::at(setup.home.usage_ledger(), setup.run_state.vfs.clone()),
+            ledger: Ledger::at(setup.home.usage_ledger(), setup.ledger_vfs.clone()),
             clock: setup.clock,
             product: setup.product,
             instance: format!("{:016x}", setup.entropy.next_u64()),

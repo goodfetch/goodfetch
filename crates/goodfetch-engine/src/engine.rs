@@ -217,6 +217,7 @@ impl Engine {
                 home: dependencies.home,
                 version: self.identity().product_version.clone(),
                 location: dependencies.run_state_location,
+                ledger_vfs: dependencies.run_state.vfs.clone(),
                 run_state: match &install {
                     Some(install) => RunStateOptions {
                         vfs: Some(install.vfs().to_owned()),

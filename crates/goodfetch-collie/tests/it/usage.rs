@@ -88,3 +88,36 @@ fn a_flag_naming_paid_fetch_is_refused_by_collie() {
         (&json!("not_in_product"), Some(10))
     );
 }
+
+/// A ledger on a temporary filesystem is lost on each restart, as in a
+/// container without a persistent volume, so `usage` warns (ADR 0041).
+/// `/dev/shm` is a tmpfs on every Linux.
+///
+/// Covers: story:3-78
+#[cfg(target_os = "linux")]
+#[test]
+fn usage_warns_when_the_ledger_sits_on_a_temporary_filesystem() {
+    let env = TestEnv::new();
+    let home = tempfile::Builder::new()
+        .prefix("goodfetch home é ")
+        .tempdir_in("/dev/shm")
+        .unwrap();
+
+    let listed = cli(&env, COLLIE)
+        .env("GOODFETCH_HOME", home.path())
+        .args(["usage", "list", "--json"])
+        .run()
+        .unwrap();
+
+    assert_eq!(
+        (
+            listed.exit,
+            listed.stderr.contains(&format!(
+                "warning: the Usage ledger `{}` is on a temporary filesystem (tmpfs)",
+                home.path().join("usage-ledger.sqlite").display()
+            )),
+        ),
+        (Some(0), true),
+        "{listed}"
+    );
+}

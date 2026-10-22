@@ -496,6 +496,11 @@ pub struct Call {
 }
 
 impl Call {
+    /// The operation it calls.
+    pub fn operation(&self) -> &'static Operation {
+        self.operation
+    }
+
     /// The call of `operation` that its command's parse `matches` gives.
     fn of(operation: &'static Operation, matches: &ArgMatches) -> Self {
         let params = parameters(operation)

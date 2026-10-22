@@ -501,7 +501,12 @@ fn run(
         machine.record();
     }
     let command = match parsed {
-        Parsed::Generated(call) => return call.run(engine, dependencies, human),
+        Parsed::Generated(call) => {
+            if call.operation().name.starts_with("usage.") {
+                warn_of_a_temporary_ledger(&home, human);
+            }
+            return call.run(engine, dependencies, human);
+        }
         Parsed::HandWritten(command) => command,
     };
     match command {
@@ -571,6 +576,19 @@ fn run(
         Command::UpgradeFiles { from, json, .. } => {
             upgrade::upgrade(engine.identity(), &home, from.as_deref(), json)
         }
+    }
+}
+
+/// Warns when the Usage ledger sits on a temporary filesystem, where it is
+/// lost on each restart and period Limits start again silently, as in a
+/// container without a persistent volume (ADR 0041).
+fn warn_of_a_temporary_ledger(home: &Home, human: &Human) {
+    let ledger = home.usage_ledger();
+    if let Some(kind) = goodfetch_engine::ledger::temporary_filesystem(&ledger) {
+        human.warning(&format!(
+            "the Usage ledger `{}` is on a temporary filesystem ({kind}): it is lost when the machine or container restarts, and period Limits start again; keep Goodfetch home on a persistent volume, or set GOODFETCH_HOME to one",
+            ledger.display()
+        ));
     }
 }
 

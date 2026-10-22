@@ -34,6 +34,7 @@ pub use self::charging::{Charged, Charging, Refusal, Reservation};
 pub use self::period::{PeriodBounds, bounds};
 pub use self::sizing::{SliceSizing, slice_size};
 pub use self::standing::{Placement, standing};
+pub use self::temporary::{temporary_filesystem, temporary_in};
 
 /// The target of the `tracing` events that name the slices and reclaim
 /// model's transitions (`test-support/models/slices/`), each with its
@@ -889,6 +890,7 @@ mod charging;
 mod period;
 mod sizing;
 mod standing;
+mod temporary;
 
 #[cfg(test)]
 mod tests;

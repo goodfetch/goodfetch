@@ -311,7 +311,11 @@ jobs:
         run: ci/vm/start.sh read-only
       - name: Set up the OS services the tests use
         run: ci/vm/exec.sh ci/os-services.sh setup
+      # The tools are a release asset of this repository, read with the
+      # job's token while the repository is private (ADR 0060).
       - name: Fetch the pinned TLA+ tools
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ci/vm/exec.sh just tlc-fetch
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny

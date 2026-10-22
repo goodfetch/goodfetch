@@ -18,6 +18,7 @@ use serde::Deserialize;
 
 use crate::check;
 use crate::environment::Environment;
+use crate::github;
 use crate::output;
 use crate::pinned::{self, Pin};
 
@@ -63,6 +64,10 @@ pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCo
             &pins,
             SOURCES_FILE,
             MAXIMUM_DOWNLOAD,
+            github::Api {
+                url: github::API_URL,
+                token: environment.token(),
+            },
         )?)),
         Command::Build => {
             if let Err(findings) = pinned::kept(&sources, &pins, "just lazyfs-fetch")? {

@@ -1,5 +1,6 @@
 //! A local stand-in for GitHub's REST interface: it answers fixed JSON bodies
-//! by request path, whatever the method, and 404 to anything else, and it
+//! by request path, whatever the method, a redirect to the paths it is given
+//! one for, and 404 to anything else, and it
 //! records every request so a test can assert what was written (TESTING.md,
 //! true externals).
 #![expect(
@@ -18,6 +19,10 @@ pub(crate) struct Request {
     pub(crate) method: String,
     pub(crate) path: String,
     pub(crate) body: String,
+    /// The `Authorization` header, when the request carried one.
+    pub(crate) authorization: Option<String>,
+    /// The `Accept` header, when the request carried one.
+    pub(crate) accept: Option<String>,
 }
 
 pub(crate) struct GitHub {
@@ -30,11 +35,25 @@ impl GitHub {
     /// and a route written `<METHOD> <path>` answers that method only, before
     /// a route of the bare path.
     pub(crate) fn serving(routes: &[(&str, &str)]) -> Self {
+        Self::serving_with_redirects(routes, &[])
+    }
+
+    /// As [`GitHub::serving`], and answers each `(path, target)` of
+    /// `redirects` with a `302 Found` to `target` on the stand-in, as
+    /// GitHub's API sends a release asset's download to its storage.
+    pub(crate) fn serving_with_redirects(
+        routes: &[(&str, &str)],
+        redirects: &[(&str, &str)],
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         let routes: BTreeMap<String, String> = routes
             .iter()
             .map(|(path, body)| ((*path).to_owned(), (*body).to_owned()))
+            .collect();
+        let redirects: BTreeMap<String, String> = redirects
+            .iter()
+            .map(|(path, target)| ((*path).to_owned(), format!("{address}{target}")))
             .collect();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&requests);
@@ -46,7 +65,7 @@ impl GitHub {
         )]
         std::thread::spawn(move || {
             for stream in listener.incoming() {
-                answer(stream.unwrap(), &routes, &recorded);
+                answer(stream.unwrap(), &routes, &redirects, &recorded);
             }
         });
         Self { address, requests }
@@ -78,22 +97,30 @@ impl GitHub {
 fn answer(
     mut stream: TcpStream,
     routes: &BTreeMap<String, String>,
+    redirects: &BTreeMap<String, String>,
     recorded: &Mutex<Vec<Request>>,
 ) {
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut request_line = String::new();
     reader.read_line(&mut request_line).unwrap();
     let mut length = 0;
+    let mut authorization = None;
+    let mut accept = None;
     loop {
         let mut header = String::new();
         reader.read_line(&mut header).unwrap();
         if header == "\r\n" || header.is_empty() {
             break;
         }
-        if let Some((name, value)) = header.split_once(':')
-            && name.eq_ignore_ascii_case("content-length")
-        {
-            length = value.trim().parse().unwrap();
+        if let Some((name, value)) = header.split_once(':') {
+            let value = value.trim();
+            if name.eq_ignore_ascii_case("content-length") {
+                length = value.parse().unwrap();
+            } else if name.eq_ignore_ascii_case("authorization") {
+                authorization = Some(value.to_owned());
+            } else if name.eq_ignore_ascii_case("accept") {
+                accept = Some(value.to_owned());
+            }
         }
     }
     let mut body = vec![0; length];
@@ -104,18 +131,21 @@ fn answer(
     let matching = routes
         .get(&format!("{method} {path}"))
         .or_else(|| routes.get(&path));
-    let (status, answer) = match matching {
-        Some(body) => ("200 OK", body.as_str()),
-        None => ("404 Not Found", r#"{"message":"Not Found"}"#),
+    let (status, location, answer) = match (redirects.get(&path), matching) {
+        (Some(target), _) => ("302 Found", format!("location: {target}\r\n"), ""),
+        (None, Some(body)) => ("200 OK", String::new(), body.as_str()),
+        (None, None) => ("404 Not Found", String::new(), r#"{"message":"Not Found"}"#),
     };
     recorded.lock().unwrap().push(Request {
         method,
         path,
         body: String::from_utf8(body).unwrap(),
+        authorization,
+        accept,
     });
     write!(
         stream,
-        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
+        "HTTP/1.1 {status}\r\n{location}content-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
         answer.len()
     )
     .unwrap();

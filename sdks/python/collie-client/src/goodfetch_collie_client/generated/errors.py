@@ -378,6 +378,30 @@ class SampleRefusedError(RefusedError):
         super().__init__(message, code="sample_refused", group="refused", retryable=False)
 
 
+class SecretDomainNotAllowedError(RefusedError):
+    """A Secret placeholder's value would go to a domain outside its binding's `domains`: the field's frame or the request's URL. The details name the placeholder, the reference and the domain, never a value."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="secret_domain_not_allowed", group="refused", retryable=False)
+
+
+class SecretUnavailableError(UnavailableError):
+    """A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="secret_unavailable", group="unavailable", retryable=False)
+
+
+class SecretUnboundError(ProgramError):
+    """No scope binds the Secret placeholder a call names. `bound` lists the placeholders bound, never a value."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="secret_unbound", group="program", retryable=False)
+
+
 class SessionBoundToMachineError(RefusedError):
     """The Run is bound to the machine its Session source is on, and this is another machine: its login would reach sites from a new IP under the same cookies. Resume it on its own machine, or serve its Session source through a Browser host."""
 
@@ -491,6 +515,9 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "run_not_owned": RunNotOwnedError,
     "run_state_unavailable": RunStateUnavailableError,
     "sample_refused": SampleRefusedError,
+    "secret_domain_not_allowed": SecretDomainNotAllowedError,
+    "secret_unavailable": SecretUnavailableError,
+    "secret_unbound": SecretUnboundError,
     "session_bound_to_machine": SessionBoundToMachineError,
     "setting_invalid": SettingInvalidError,
     "setting_locked": SettingLockedError,

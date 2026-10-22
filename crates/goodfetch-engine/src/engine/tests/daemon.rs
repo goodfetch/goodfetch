@@ -39,9 +39,9 @@ struct Fixed {
 }
 
 /// How many handovers began.
-type Handovers = Arc<watch::Sender<u32>>;
+pub(super) type Handovers = Arc<watch::Sender<u32>>;
 
-fn no_handover() -> Handovers {
+pub(super) fn no_handover() -> Handovers {
     Arc::new(watch::Sender::new(0))
 }
 
@@ -60,7 +60,7 @@ impl Succession for Fixed {
     }
 }
 
-fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
+pub(super) fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
     DaemonOptions {
         token: TOKEN.to_owned(),
         endpoint: DaemonEndpoint::Unix("daemon.sock".into()),
@@ -75,6 +75,7 @@ fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
         console: DaemonConsole::Absent,
         drain: None,
         install: None,
+        websocket: None,
     }
 }
 

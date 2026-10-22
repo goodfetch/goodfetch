@@ -464,6 +464,12 @@ export interface Seed {
    */
   body?: HttpBody | null;
   /**
+   * Whether it goes ahead of every request its domain holds pending,
+   * whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+   * such requests, the later goes first; `false` by default.
+   */
+  forefront?: boolean;
+  /**
    * Its identity in the Frontier, declared by the program in place of
    * its method, its URL's key and its body's hash: a canonicalization
    * of the program's own, which always wins (ADR 0005).
@@ -531,6 +537,101 @@ export interface OutcomeRequest1 {
   url: string;
 }
 /**
+ * What `run.add_seed` takes: one seed for a running crawl.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RunAddSeedParams".
+ */
+export interface RunAddSeedParams {
+  /**
+   * The attempt that adds it, when a handler adds it through its
+   * context's `run`; absent, the program adds it from outside any
+   * attempt.
+   */
+  attempt?: SeedAttempt | null;
+  /**
+   * The crawl's Run.
+   */
+  run_id: RunId;
+  seed: Seed1;
+}
+/**
+ * The attempt a seed is added from: a handler's `ctx.run`, which is bound
+ * to its attempt (ADR 0093).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SeedAttempt".
+ */
+export interface SeedAttempt {
+  /**
+   * The ID of the crawl request whose attempt adds the seed.
+   */
+  crawl_request_id: string;
+  /**
+   * The attempt's lease epoch, as `crawl_request.handle` gave it.
+   */
+  lease_epoch: number;
+}
+/**
+ * One request a crawl starts from (ADR 0093): a URL, the Label that picks
+ * its handler and its Payload, and how it is sent and identified.
+ */
+export interface Seed1 {
+  /**
+   * The body it is sent with, if any.
+   */
+  body?: HttpBody | null;
+  /**
+   * Whether it goes ahead of every request its domain holds pending,
+   * whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+   * such requests, the later goes first; `false` by default.
+   */
+  forefront?: boolean;
+  /**
+   * Its identity in the Frontier, declared by the program in place of
+   * its method, its URL's key and its body's hash: a canonicalization
+   * of the program's own, which always wins (ADR 0005).
+   */
+  key?: string | null;
+  /**
+   * Its Label.
+   */
+  label: string;
+  /**
+   * The method it is sent with: `GET` by default.
+   */
+  method?: string;
+  /**
+   * The data the program attaches for its handler.
+   */
+  payload?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Its priority among the requests of its domain: higher goes first,
+   * and a priority never orders requests of different domains (ADR
+   * 0004); 0 by default.
+   */
+  priority?: number;
+  /**
+   * Its URL.
+   */
+  url: string;
+}
+/**
+ * What `run.add_seeds` takes: the running crawl its Client streams seeds
+ * to.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RunAddSeedsParams".
+ */
+export interface RunAddSeedsParams {
+  /**
+   * The crawl's Run.
+   */
+  run_id: RunId;
+}
+/**
  * What `run.failed_requests` takes.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -583,6 +684,23 @@ export interface RunSeeds {
    * a Run that is no crawl.
    */
   seeds: Enqueued[];
+}
+/**
+ * What `run.add_seeds` answers once its stream ended: how many of the
+ * seeds it took were added, and how many were not.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RunSeedsAdded".
+ */
+export interface RunSeedsAdded {
+  /**
+   * The seeds added.
+   */
+  added: number;
+  /**
+   * The seeds not added, each with its reason in its answer.
+   */
+  not_added: number;
 }
 /**
  * What `run.seeds` takes.

@@ -425,6 +425,13 @@ number = 4
 kind = "setting"
 prefix = "secrets."
 
+# Area 4's Secret references (#615): the Error codes a resolution fails
+# with.
+[[area]]
+number = 4
+kind = "error"
+prefix = "secret_"
+
 # Area 4's Audit log (#612): `audit.verify`, Collie's `audit verify` and the
 # log's format.
 [[area]]
@@ -717,6 +724,11 @@ prefix = "crawl_request."
 number = 6
 kind = "operation"
 prefix = "run.seeds"
+
+[[area]]
+number = 6
+kind = "operation"
+prefix = "run.add_seed"
 
 [[area]]
 number = 6

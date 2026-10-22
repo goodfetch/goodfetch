@@ -209,6 +209,7 @@ pub(in crate::executable) fn launched(
             console,
             drain: None,
             install,
+            websocket: None,
         };
         Ok::<_, Failure>((
             engine.run_daemon(listener, dependencies, options).await,

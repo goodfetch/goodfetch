@@ -36,20 +36,34 @@ pub enum ListenerKind {
     PrivateEndpoint,
     /// The Daemon's ops listener: its probes and `/metrics` (ADR 0050).
     OpsListener,
+    /// The Daemon's WebSocket: the protocol over WebSocket, its handshake
+    /// held to the Daemon's `Host` and `Origin` (ADRs 0049 and 0067).
+    DaemonWebsocket,
+    /// An Exposed Daemon's address, reached with newline-delimited
+    /// JSON-RPC over TCP (ADR 0049).
+    ExposedDaemon,
 }
 
 impl ListenerKind {
     /// Every listener, each of which must have a row.
-    pub(super) const ALL: [Self; 3] =
-        [Self::DaemonSocket, Self::PrivateEndpoint, Self::OpsListener];
+    pub(super) const ALL: [Self; 5] = [
+        Self::DaemonSocket,
+        Self::PrivateEndpoint,
+        Self::OpsListener,
+        Self::DaemonWebsocket,
+        Self::ExposedDaemon,
+    ];
 
     /// How the runner reaches this listener.
     pub(super) fn transport(self) -> Transport {
         match self {
-            Self::DaemonSocket | Self::PrivateEndpoint => Transport::JsonRpcStream,
+            Self::DaemonSocket | Self::PrivateEndpoint | Self::ExposedDaemon => {
+                Transport::JsonRpcStream
+            }
             Self::OpsListener => Transport::Http {
                 protected_path: "/metrics",
             },
+            Self::DaemonWebsocket => Transport::WebSocket,
         }
     }
 }
@@ -62,6 +76,10 @@ pub(super) enum Transport {
     JsonRpcStream,
     /// HTTP/1.1, with the token as a bearer token on `protected_path`.
     Http { protected_path: &'static str },
+    /// JSON-RPC over WebSocket, one message per WebSocket message, that
+    /// opens with a `hello` carrying the token once its handshake is
+    /// accepted (ADR 0049).
+    WebSocket,
 }
 
 /// A refusal rule: a row of the endpoint table, which the runner knows how
@@ -92,6 +110,8 @@ pub enum Rule {
     HostForeign,
     /// The request carries a foreign `Origin`.
     OriginForeign,
+    /// The WebSocket handshake carries no `Origin`.
+    OriginMissing,
     /// The connection's first message is not a `hello`.
     HelloNotFirst,
     /// The ops listener's probes answer with a status and no body.
@@ -101,14 +121,25 @@ pub enum Rule {
 impl Rule {
     /// Whether the runner can try this rule over `transport`.
     fn tried_over(self, transport: Transport) -> bool {
+        let http = matches!(transport, Transport::Http { .. });
+        let websocket = transport == Transport::WebSocket;
         match self {
             Self::TokenMissing | Self::TokenWrong | Self::TokenFromAnotherListener => true,
-            Self::TokenInQueryString
-            | Self::HostForeign
-            | Self::OriginForeign
-            | Self::ProbesAnswerStatusOnly => matches!(transport, Transport::Http { .. }),
-            Self::HelloNotFirst => transport == Transport::JsonRpcStream,
+            Self::TokenInQueryString | Self::HostForeign | Self::OriginForeign => http || websocket,
+            Self::ProbesAnswerStatusOnly => http,
+            Self::OriginMissing => websocket,
+            Self::HelloNotFirst => !http,
         }
+    }
+
+    /// Whether a WebSocket listener refuses this rule's attempt at its
+    /// handshake, with a status, rather than by closing after the first
+    /// message.
+    fn at_the_handshake(self) -> bool {
+        matches!(
+            self,
+            Self::HostForeign | Self::OriginForeign | Self::OriginMissing
+        )
     }
 }
 
@@ -118,9 +149,11 @@ impl Rule {
 )]
 #[serde(tag = "expect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Expected {
-    /// A JSON-RPC stream listener closes the connection without answering.
+    /// A JSON-RPC stream or WebSocket listener closes the connection
+    /// without answering.
     Closed,
-    /// An HTTP listener refuses the request with this status.
+    /// An HTTP listener refuses the request, or a WebSocket listener its
+    /// handshake, with this status.
     Status {
         /// A 4xx status.
         #[schemars(range(min = 400, max = 499))]
@@ -144,11 +177,16 @@ impl Expected {
     /// `rule`'s attempt.
     fn fits(self, rule: Rule, transport: Transport) -> bool {
         let http = matches!(transport, Transport::Http { .. });
+        let websocket = transport == Transport::WebSocket;
         rule.tried_over(transport)
             && match self {
-                Self::Closed => transport == Transport::JsonRpcStream,
+                Self::Closed => {
+                    transport == Transport::JsonRpcStream || (websocket && !rule.at_the_handshake())
+                }
                 Self::Status { status } => {
-                    http && (400..=499).contains(&status) && rule != Rule::ProbesAnswerStatusOnly
+                    (http || (websocket && rule.at_the_handshake()))
+                        && (400..=499).contains(&status)
+                        && rule != Rule::ProbesAnswerStatusOnly
                 }
                 Self::StatusOnly => http && rule == Rule::ProbesAnswerStatusOnly,
             }

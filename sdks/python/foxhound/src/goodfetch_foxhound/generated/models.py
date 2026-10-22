@@ -220,6 +220,20 @@ class OutcomesAfter(RootModel[OutcomesAfter1 | Now]):
     """Where `run.outcomes` starts: after a position, or from the next commit."""
 
 
+class RunAddSeedsParams(BaseModel):
+    """
+    What `run.add_seeds` takes: the running crawl its Client streams seeds
+    to.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    run_id: RunId
+    """The crawl's Run."""
+
+
 class RunFailedRequestsParams(BaseModel):
     """What `run.failed_requests` takes."""
 
@@ -251,6 +265,21 @@ class RunOutcomesParams(BaseModel):
     """Only outcomes of requests of these Labels; absent, every Label."""
     run_id: RunId
     """The crawl's Run."""
+
+
+class RunSeedsAdded(BaseModel):
+    """
+    What `run.add_seeds` answers once its stream ended: how many of the
+    seeds it took were added, and how many were not.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    added: Annotated[int, Field(ge=0)]
+    """The seeds added."""
+    not_added: Annotated[int, Field(ge=0)]
+    """The seeds not added, each with its reason in its answer."""
 
 
 class RunSeedsParams(BaseModel):
@@ -328,6 +357,12 @@ class Seed(BaseModel):
     )
     body: HttpBody | None = None
     """The body it is sent with, if any."""
+    forefront: bool | None = None
+    """
+    Whether it goes ahead of every request its domain holds pending,
+    whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+    such requests, the later goes first; `false` by default.
+    """
     key: str | None = None
     """
     Its identity in the Frontier, declared by the program in place of
@@ -348,6 +383,21 @@ class Seed(BaseModel):
     """
     url: str
     """Its URL."""
+
+
+class SeedAttempt(BaseModel):
+    """
+    The attempt a seed is added from: a handler's `ctx.run`, which is bound
+    to its attempt (ADR 0093).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt adds the seed."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
 
 
 class Seeds(RootModel[list[Seed]]):
@@ -631,6 +681,25 @@ class FailedRequests(BaseModel):
     )
     requests: list[CrawlRequestOutcome]
     """The latest outcome of each such request, in commit order."""
+
+
+class RunAddSeedParams(BaseModel):
+    """What `run.add_seed` takes: one seed for a running crawl."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    attempt: SeedAttempt | None = None
+    """
+    The attempt that adds it, when a handler adds it through its
+    context's `run`; absent, the program adds it from outside any
+    attempt.
+    """
+    run_id: RunId
+    """The crawl's Run."""
+    seed: Seed
+    """The seed."""
 
 
 class RunSeeds(BaseModel):

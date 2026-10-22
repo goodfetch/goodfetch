@@ -965,7 +965,7 @@
     {
       "id": "error:response_unavailable",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1063,6 +1063,39 @@
       "id": "error:sample_refused",
       "kind": "error",
       "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:secret_domain_not_allowed",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:secret_unavailable",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:secret_unbound",
+      "kind": "error",
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1877,6 +1910,26 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.add_seed",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.add_seeds",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -4331,6 +4384,17 @@
       ]
     },
     {
+      "id": "setting:run_state.key_reference",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:run_state.layout",
       "kind": "setting",
       "area": 3,
@@ -4470,6 +4534,17 @@
     },
     {
       "id": "setting:timeout.run",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:timeout.secret",
       "kind": "setting",
       "area": 3,
       "milestone": null,
@@ -15062,10 +15137,43 @@
       ]
     },
     {
+      "id": "story:6-208",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-209",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-21",
       "kind": "story",
       "area": 6,
       "milestone": "M3 Browser automation",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-210",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
       "status": "active",
       "products": [
         "collie",

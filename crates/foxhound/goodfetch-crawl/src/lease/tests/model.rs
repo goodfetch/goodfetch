@@ -303,6 +303,7 @@ impl StateMachineTest for Subject {
                 label: "page".to_owned(),
                 payload: None,
                 priority: 0,
+                forefront: false,
                 method: HttpMethod::get(),
                 body: None,
                 key: None,

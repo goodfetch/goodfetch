@@ -146,6 +146,18 @@ _Avoid_: unstable, nursery
 Turning a page or a response into structured data or clean content.
 _Avoid_: scraping, scraper
 
+**Main content**:
+The part of a page's document a person reads it for, without its navigation, asides, banner and footer; a page with only those has none, a value and never an error.
+_Avoid_: article body, boilerplate-free text
+
+**Extractor**:
+What finds a document's Main content: dom-smoothie by default, trafilatura, or an Extractor Plugin; the step every page format reads the Main content through.
+_Avoid_: content extractor
+
+**Page formats**:
+What `page.formats` answers from one serialization of a page's document: each format the request names, such as its Main content as Markdown, and none it does not.
+_Avoid_: scrape formats, outputs
+
 **Crawl**:
 Discovering and visiting many pages from seeds, within a declared scope.
 _Avoid_: scraping, spidering, scraper

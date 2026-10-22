@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Checkpoint, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, GotoParams, LimitUsage, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageOpened, PageParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
+from .models import Checkpoint, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FormatsParams, GotoParams, LimitUsage, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, RunAbortParams, RunCheckpointParams, RunParams, RunReport, RunResumeParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
 
 
 class AsyncCaller(Protocol):
@@ -70,6 +70,13 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageBodyRead.model_construct(**_fields(await self._caller.call("page.body", params)))
+
+    async def page_formats(self, params: FormatsParams) -> PageFormats:
+        """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageFormats.model_construct(**_fields(await self._caller.call("page.formats", params)))
 
     async def page_go_back(self, params: PageParams) -> Navigated:
         """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
@@ -216,6 +223,13 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageBodyRead.model_construct(**_fields(self._caller.call("page.body", params)))
+
+    def page_formats(self, params: FormatsParams) -> PageFormats:
+        """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageFormats.model_construct(**_fields(self._caller.call("page.formats", params)))
 
     def page_go_back(self, params: PageParams) -> Navigated:
         """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).

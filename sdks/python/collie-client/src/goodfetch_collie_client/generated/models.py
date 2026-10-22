@@ -40,6 +40,11 @@ class ArtifactKind(StrEnum):
     """Recorded mouse movements (ADR 0035)."""
 
 
+class Asked(RootModel[Literal[True]]):
+    root: Literal[True]
+    """The format, with its default options."""
+
+
 class Completeness(StrEnum):
     """
     Whether a Run's results cover everything in its scope (ADRs 0005 and
@@ -212,6 +217,35 @@ class LimitStanding(StrEnum):
     """It cannot evaluate it: a newer engine wrote it."""
 
 
+class MainContent(StrEnum):
+    """Whether the extractor found the document's main content."""
+
+    found = "found"
+    """It found it."""
+    none = "none"
+    """
+    The document has none: the formats read from it are empty, a value
+    and never the whole page in its place.
+    """
+
+
+class MarkdownContent(StrEnum):
+    """How much of the page a Markdown format holds."""
+
+    main = "main"
+    """The main content the extractor finds, the default."""
+
+
+class MarkdownOptions(BaseModel):
+    """The options of the `markdown` format."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: MarkdownContent
+    """How much of the page it holds."""
+
+
 class PageBodyRead(BaseModel):
     """What `page.body` answers once it sent the last chunk."""
 
@@ -220,6 +254,29 @@ class PageBodyRead(BaseModel):
     )
     size: Annotated[int, Field(ge=0)]
     """The body's size in bytes."""
+
+
+class PageFormats(BaseModel):
+    """
+    What `page.formats` answers: the formats the request asked for, and
+    none it did not, with the document's URL, its base URL and whether it
+    has main content. Text is as the document holds it, never repaired.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    base_url: str
+    """
+    The URL its relative URLs resolve against: its first `<base href>`,
+    else its URL.
+    """
+    main_content: MainContent
+    """Whether it has main content."""
+    markdown: str | None = None
+    """Its content as Markdown, when the request asked for it."""
+    url: str
+    """The document's URL, after redirects."""
 
 
 class PageId(RootModel[str]):
@@ -905,6 +962,11 @@ class HelloResult(BaseModel):
     """The protocol version the engine speaks."""
 
 
+class MarkdownFormat(RootModel[Asked | MarkdownOptions]):
+    root: Asked | MarkdownOptions
+    """The `markdown` format of a request: `true`, or its options."""
+
+
 class Navigated(BaseModel):
     """
     What a navigation answers: the document's response, or none for a
@@ -1230,6 +1292,20 @@ class EventBatch(BaseModel):
     """The id of the subscription's `events.subscribe` call."""
 
 
+class FormatsRequest(BaseModel):
+    """
+    The formats a `page.formats` call asks for, each `true` or its options:
+    one value, which a Record can carry and a Dataset's schema can be
+    generated from (ADR 0103). A format left out is left out of the result.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    markdown: MarkdownFormat | None = None
+    """The page's content as Markdown, with GFM's tables."""
+
+
 class Limit(BaseModel):
     """
     One Limit of the Usage ledger: a generic row, which a newer engine may
@@ -1388,3 +1464,15 @@ class UsageListResult(BaseModel):
     )
     limits: list[LimitUsage]
     """Every Limit of the Usage ledger, by scope, with its Usage."""
+
+
+class FormatsParams(BaseModel):
+    """What `page.formats` takes: the page, and the formats it asks for."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    formats: FormatsRequest
+    """The formats."""
+    page_id: PageId
+    """The page."""

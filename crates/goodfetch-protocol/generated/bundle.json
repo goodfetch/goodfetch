@@ -90,6 +90,10 @@
         }
       ]
     },
+    "Asked": {
+      "const": true,
+      "description": "The format, with its default options."
+    },
     "AttemptError": {
       "description": "The error an attempt failed with.",
       "properties": {
@@ -2097,6 +2101,46 @@
       "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$",
       "type": "string"
     },
+    "FormatsParams": {
+      "additionalProperties": false,
+      "description": "What `page.formats` takes: the page, and the formats it asks for.",
+      "properties": {
+        "formats": {
+          "$ref": "#/$defs/FormatsRequest",
+          "arrived_in": "0.1",
+          "description": "The formats."
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id",
+        "formats"
+      ],
+      "type": "object"
+    },
+    "FormatsRequest": {
+      "additionalProperties": false,
+      "description": "The formats a `page.formats` call asks for, each `true` or its options:\none value, which a Record can carry and a Dataset's schema can be\ngenerated from (ADR 0103). A format left out is left out of the result.",
+      "properties": {
+        "markdown": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MarkdownFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page's content as Markdown, with GFM's tables."
+        }
+      },
+      "type": "object"
+    },
     "GotoParams": {
       "additionalProperties": false,
       "description": "What `page.goto` takes: the page, and the URL it goes to.",
@@ -2835,6 +2879,59 @@
       ],
       "type": "object"
     },
+    "MainContent": {
+      "description": "Whether the extractor found the document's main content.",
+      "oneOf": [
+        {
+          "const": "found",
+          "description": "It found it.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "The document has none: the formats read from it are empty, a value\nand never the whole page in its place.",
+          "type": "string"
+        }
+      ]
+    },
+    "MarkdownContent": {
+      "description": "How much of the page a Markdown format holds.",
+      "oneOf": [
+        {
+          "const": "main",
+          "description": "The main content the extractor finds, the default.",
+          "type": "string"
+        }
+      ]
+    },
+    "MarkdownFormat": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Asked",
+          "description": "With its default options."
+        },
+        {
+          "$ref": "#/$defs/MarkdownOptions",
+          "description": "With these options."
+        }
+      ],
+      "description": "The `markdown` format of a request: `true`, or its options."
+    },
+    "MarkdownOptions": {
+      "additionalProperties": false,
+      "description": "The options of the `markdown` format.",
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/MarkdownContent",
+          "arrived_in": "0.1",
+          "description": "How much of the page it holds."
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
+    },
     "Message": {
       "anyOf": [
         {
@@ -3199,6 +3296,37 @@
       },
       "required": [
         "size"
+      ],
+      "type": "object"
+    },
+    "PageFormats": {
+      "description": "What `page.formats` answers: the formats the request asked for, and\nnone it did not, with the document's URL, its base URL and whether it\nhas main content. Text is as the document holds it, never repaired.",
+      "properties": {
+        "base_url": {
+          "arrived_in": "0.1",
+          "description": "The URL its relative URLs resolve against: its first `<base href>`,\nelse its URL.",
+          "type": "string"
+        },
+        "main_content": {
+          "$ref": "#/$defs/MainContent",
+          "arrived_in": "0.1",
+          "description": "Whether it has main content."
+        },
+        "markdown": {
+          "arrived_in": "0.1",
+          "description": "Its content as Markdown, when the request asked for it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The document's URL, after redirects.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "base_url",
+        "main_content"
       ],
       "type": "object"
     },

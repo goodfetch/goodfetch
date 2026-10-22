@@ -602,6 +602,14 @@
       "start_url": "http://6.extraction.test/us/products/X-0100"
     },
     {
+      "description": "Crawl every page the index links and return one Record per page with the fields `id` (the page's path) and `markdown`, the page's main content as Markdown: empty for a page with no main content. Markdown is judged by its structure (headings, paragraphs, list items, table cells, code blocks and links), whatever syntax writes it.",
+      "digest": "9ad16785de649702242958f0e844d16a27d7c59965e0268ede6655f5b953f64e",
+      "family": "extraction",
+      "id": "extraction/7",
+      "kind": "crawl",
+      "start_url": "http://7.extraction.test/markdown"
+    },
+    {
       "description": "Crawl every page the index links and return one Record per page, with the fields `id` (the last segment of its path), `title` and `text`, the text each page shows, in UTF-8.",
       "digest": "4de63eb1dfa7b10c6b76173b501af2c05c9b105916b854cbeb49a1bbe76e62c0",
       "family": "encodings",

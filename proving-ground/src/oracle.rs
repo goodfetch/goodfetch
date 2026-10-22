@@ -24,9 +24,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use url::Url;
 
 use crate::clock::Stopwatch;
 use crate::digest;
+use crate::markdown;
 use crate::observation::Seen;
 use crate::robots;
 use crate::task::{self, Effect, Expected, ExpectedError, Naming, Record};
@@ -600,7 +602,8 @@ fn is_safe_file_name(name: &str) -> bool {
 
 /// Judges the submitted Records: each expected one once, a tolerated one at
 /// most once, each with its expected fields.
-fn judge_records(expected: &Expected, submitted: Vec<Value>) -> Records {
+fn judge_records(expected_task: &Expected, submitted: Vec<Value>) -> Records {
+    let expected = expected_task;
     let by_id: BTreeMap<&str, &Record> = expected
         .records
         .iter()
@@ -624,7 +627,15 @@ fn judge_records(expected: &Expected, submitted: Vec<Value>) -> Records {
         quality.count("id", true);
         for (field, value) in expected.iter().filter(|(field, _)| **field != "id") {
             let submitted = record.get(*field);
-            let correct = same_value(value, submitted);
+            let markdown_site = expected_task
+                .markdown_site
+                .filter(|_| *field == MARKDOWN_FIELD);
+            let correct = match markdown_site {
+                Some(site) => submitted
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| same_markdown_on(site, id, value, text)),
+                None => same_value(value, submitted),
+            };
             quality.count(field, correct);
             if !correct {
                 wrong.push(Wrong {
@@ -634,6 +645,7 @@ fn judge_records(expected: &Expected, submitted: Vec<Value>) -> Records {
                     submitted: submitted.cloned().unwrap_or(Value::Null),
                     difference: submitted
                         .and_then(Value::as_str)
+                        .filter(|_| markdown_site.is_none())
                         .map(|text| Difference::between(value, text)),
                 });
             }
@@ -744,6 +756,17 @@ fn from_hex(text: &str) -> Option<Vec<u8>> {
                 .collect()
         })
         .flatten()
+}
+
+/// The field a task with a Markdown site judges as Markdown.
+const MARKDOWN_FIELD: &str = "markdown";
+
+/// Whether `submitted` is the Markdown `expected` is, for the page `id` (its
+/// path) on `site`.
+fn same_markdown_on(site: &str, id: &str, expected: &str, submitted: &str) -> bool {
+    Url::parse(&format!("http://{site}"))
+        .and_then(|origin| origin.join(id))
+        .is_ok_and(|page| markdown::same_markdown(expected, submitted, &page, site))
 }
 
 /// Whether a submitted value is the expected one: the same text, or a number

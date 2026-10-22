@@ -230,7 +230,7 @@ struct OpenPage {
 }
 
 impl Pages {
-    #[tracing::instrument(name = "page", skip_all, fields(run_id = %params.run_id, page_id = tracing::field::Empty, session_id = tracing::field::Empty))]
+    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(run_id = %params.run_id, page_id = tracing::field::Empty, session_id = tracing::field::Empty))]
     async fn new_page(
         &self,
         params: NewPageParams,
@@ -321,7 +321,7 @@ impl Pages {
     /// Navigates the page `page_id` to `destination`, answering once its
     /// document reached the state `wait_until` names; a download it turns
     /// into is published on `events`.
-    #[tracing::instrument(name = "page", skip_all, fields(page_id = %page_id.0, operation = destination.operation(), run_id = tracing::field::Empty, url.origin = tracing::field::Empty))]
+    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %page_id.0, operation = destination.operation(), run_id = tracing::field::Empty, url.origin = tracing::field::Empty))]
     async fn navigate(
         &self,
         page_id: &PageId,
@@ -359,7 +359,7 @@ impl Pages {
 
     /// Performs `action` on the element `locator` matches, through the
     /// guard; `action` is the params' own failure when they name none.
-    #[tracing::instrument(name = "page", skip_all, fields(page_id = %locator.page_id.0, operation, run_id = tracing::field::Empty))]
+    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %locator.page_id.0, operation = operation, run_id = tracing::field::Empty))]
     async fn act(
         &self,
         operation: &'static str,
@@ -401,7 +401,7 @@ impl Pages {
 
     /// The formats the request names, read from one serialization of the
     /// page's document on a blocking thread of its Run's.
-    #[tracing::instrument(name = "page", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_FORMATS.name, run_id = tracing::field::Empty))]
+    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_FORMATS.name, run_id = tracing::field::Empty))]
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
         let page = self.open(&params.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());

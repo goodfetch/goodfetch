@@ -24,4 +24,5 @@ mod happy_eyeballs;
 mod held_clock;
 mod name_server;
 mod nothing_leaves;
+mod resolved_address;
 mod resolver_cache;

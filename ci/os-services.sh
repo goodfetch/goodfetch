@@ -32,6 +32,13 @@
 #   - Linux also: Xvfb installed, which Collie's `virtual_display` tests
 #     start for a headful browser on a display of their own.
 #   - Windows and Linux: 127.0.0.0/8 answers already; the check confirms it.
+#   - Linux also: user namespaces for Collie's PID 1 test, through a
+#     root-owned copy of util-linux's `unshare` at $TEST_UNSHARE. Where
+#     AppArmor restricts unprivileged user namespaces (Ubuntu 23.10 and
+#     later), ci/apparmor/goodfetch-test-unshare gives them to that copy
+#     only, as Chromium's docs do for Chrome (ADR 0049): no sysctl changes,
+#     and /usr/bin/unshare stays restricted. The setup fails unless the copy
+#     maps this user to root in a user namespace of its own.
 #   - Linux also: systemd's user manager, which `daemon install`'s tests
 #     register services with for real in the Pre-merge suite (spec #213). A
 #     host booted with systemd keeps the user's manager running through
@@ -64,6 +71,29 @@ as_root() {
   if [[ "$(id -u)" -eq 0 ]]; then "$@"; else sudo -n "$@"; fi
 }
 
+# The tests' copy of `unshare`; the AppArmor profile and Collie's PID 1 test
+# name the same path.
+TEST_UNSHARE=/usr/local/libexec/goodfetch-test-tools/unshare
+
+# Installs the tests' `unshare`, with its AppArmor profile where AppArmor
+# restricts unprivileged user namespaces, and checks that it maps this user
+# to root in a user namespace of its own.
+setup_user_namespaces() {
+  local parser restricted=/proc/sys/kernel/apparmor_restrict_unprivileged_userns refused
+  as_root install -d -m 0755 "$(dirname "$TEST_UNSHARE")"
+  as_root install -m 0755 "$(command -v unshare)" "$TEST_UNSHARE"
+  parser=$(PATH="$PATH:/usr/sbin:/sbin" command -v apparmor_parser || true)
+  if [[ "$(cat "$restricted" 2>/dev/null)" == 1 && -n "$parser" ]]; then
+    as_root install -m 0644 "$root/ci/apparmor/goodfetch-test-unshare" /etc/apparmor.d/goodfetch-test-unshare
+    as_root "$parser" --replace /etc/apparmor.d/goodfetch-test-unshare
+  fi
+  if ! refused=$("$TEST_UNSHARE" --user --map-root-user true 2>&1); then
+    echo "error: $TEST_UNSHARE cannot map $(id -un) to root in a user namespace ($refused); where AppArmor restricts unprivileged user namespaces, ci/apparmor/goodfetch-test-unshare gives them to it, which needs apparmor_parser" >&2
+    exit 1
+  fi
+  echo "$TEST_UNSHARE makes user namespaces."
+}
+
 setup_linux() {
   local missing=()
   command -v dbus-daemon >/dev/null || missing+=(dbus-daemon)
@@ -83,6 +113,7 @@ setup_linux() {
   if [[ "$(id -u)" -ne 0 ]]; then
     as_root setcap cap_net_admin+ep "$(PATH="$PATH:/usr/sbin:/sbin" command -v tc)"
   fi
+  setup_user_namespaces
 
   rm -rf "$RUNTIME"
   mkdir -p "$RUNTIME"

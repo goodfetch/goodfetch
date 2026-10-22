@@ -282,9 +282,7 @@ impl Ledger {
         connection
             .busy_timeout(BUSY_TIMEOUT)
             .map_err(|error| failed(&error))?;
-        connection
-            .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
-            .map_err(|error| failed(&error))?;
+        wal(&connection).map_err(|error| failed(&error))?;
         connection
             .pragma_update(None, "synchronous", "FULL")
             .map_err(|error| failed(&error))?;
@@ -729,6 +727,29 @@ impl Ledger {
             }
         }
         Ok(reclaimed)
+    }
+}
+
+/// Puts the ledger `connection` opened in WAL mode. Switching a new file
+/// to WAL takes its exclusive lock without waiting on the busy timeout, so
+/// engines opening a new ledger at once retry it until the timeout ends.
+fn wal(connection: &Connection) -> rusqlite::Result<()> {
+    const PAUSE: Duration = Duration::from_millis(5);
+    let mut waited = Duration::ZERO;
+    loop {
+        match connection.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(())) {
+            Err(rusqlite::Error::SqliteFailure(error, _))
+                if error.code == rusqlite::ErrorCode::DatabaseBusy && waited < BUSY_TIMEOUT =>
+            {
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "the ledger's calls run under their caller's blocking policy"
+                )]
+                std::thread::sleep(PAUSE);
+                waited += PAUSE;
+            }
+            other => return other,
+        }
     }
 }
 

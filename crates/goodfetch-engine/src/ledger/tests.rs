@@ -413,3 +413,37 @@ fn a_ledger_keeps_the_columns_a_newer_minor_added() {
 
     assert_eq!(note, "kept");
 }
+
+/// Engines that open a new ledger at once, such as an engine and its
+/// `usage` call at its start, each open it: switching the new file to WAL
+/// waits for the others as every transaction does.
+///
+/// Covers: story:3-67
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test opens the ledger from threads of its own, as engines in their processes do"
+)]
+fn engines_opening_a_new_ledger_at_once_each_open_it() {
+    let env = TestEnv::new();
+    let mut failures = Vec::new();
+    for round in 0..40 {
+        let path = env.home().join(format!("ledger-{round}.sqlite"));
+        let opening: Vec<_> = (0..3)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    Ledger::at(path, None)
+                        .add_limit(&limit(install(), "requests", 1), now())
+                        .map(drop)
+                })
+            })
+            .collect();
+        failures.extend(
+            opening
+                .into_iter()
+                .filter_map(|opening| opening.join().unwrap().err()),
+        );
+    }
+    assert_eq!(failures, []);
+}

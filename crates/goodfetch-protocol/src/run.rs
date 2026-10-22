@@ -390,12 +390,12 @@ pub enum StopReason {
     /// It could not take another Slice of a Limit, and stopped at its next
     /// safe point, resumable once the period starts again or a person
     /// raises the Limit (ADR 0041).
-    Limit(ReachedLimit),
+    Limit(Box<ReachedLimit>),
     /// A Limit flagged *must understand* that its engine cannot evaluate
     /// came to cover it when it charged, and it stopped at its next safe
     /// point, resumable by an engine that can (ADR 0041): the stop of the
     /// Error code `limit_not_understood`.
-    LimitNotUnderstood(NotUnderstoodLimit),
+    LimitNotUnderstood(Box<NotUnderstoodLimit>),
 }
 
 /// A Limit flagged *must understand* that a Run's engine cannot evaluate,

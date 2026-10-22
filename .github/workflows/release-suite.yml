@@ -172,6 +172,8 @@ jobs:
       # not depend on the target. The runner's own Java runs it.
       - name: Fetch the pinned TLA+ tools
         if: matrix.cell == 'linux-x64-gnu'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: just tlc-fetch
       # ADR 0067's Release-suite security jobs, on Linux x64 glibc: the
       # AddressSanitizer run of every crate that opts into `unsafe`, on the

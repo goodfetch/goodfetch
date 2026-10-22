@@ -501,6 +501,34 @@ fn new_benchmark_spreading_0_6_percent_over_20_runs_fails_its_admission() {
 }
 
 #[test]
+fn new_benchmark_measuring_0_on_all_20_runs_is_admitted() {
+    let workspace = Workspace::from_fixture("empty");
+    write_admission(&workspace, 20, 0, 0);
+
+    let outcome = compare(&workspace, &ADMISSION);
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+#[test]
+fn new_benchmark_measuring_0_on_some_runs_only_fails_its_admission() {
+    let workspace = Workspace::from_fixture("empty");
+    write_admission(&workspace, 20, 0, 1);
+
+    let outcome = compare(&workspace, &ADMISSION);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "admission-spread",
+            &format!("{BENCHMARK} instructions")
+        )]
+    );
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+}
+
+#[test]
 fn new_benchmark_with_fewer_than_20_admission_runs_fails_its_admission() {
     let workspace = Workspace::from_fixture("empty");
     write_admission(&workspace, 19, 1_000_000, 1_000_000);

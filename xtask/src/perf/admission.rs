@@ -28,12 +28,14 @@ pub(crate) struct Admission {
 }
 
 impl Admission {
-    /// The spread in hundredths of a percent, rounded up.
+    /// The spread in hundredths of a percent, rounded up: none when every
+    /// run measured the same, even 0 (a body holding nothing at the
+    /// process's heap peak), and without bound when only some measured 0.
     fn spread(&self) -> Option<u64> {
         let lowest = *self.values.iter().min()?;
         let highest = *self.values.iter().max()?;
         if lowest == 0 {
-            return (highest > 0).then_some(u64::MAX);
+            return Some(if highest == 0 { 0 } else { u64::MAX });
         }
         let spread = u128::from(highest - lowest) * 10_000;
         u64::try_from(spread.div_ceil(u128::from(lowest))).ok()

@@ -7,21 +7,63 @@
 # that differs.
 #
 # The pair is TLA+ 1.8.0 (TLC2 Version 2026.10.15.145915, rev 932d35e) with
-# CommunityModules 202610131629, checked on 2026-10-19 to run etcd's style of
-# NDJSON trace validation (`ndJsonDeserialize`, `IOEnv`, `TLCGet("queue")`,
-# `-lncheck final`): a matching trace passes and a diverging one fails.
-# Stable 1.7.4 cannot pair with any CommunityModules release since 2024-09:
-# its overrides fail to load (NoClassDefFoundError for KSubsetValue).
-# 1.8.0 is a prerelease whose `tla2tools.jar` asset GitHub replaces at each
-# new build, so a fresh download fails its pin once upstream rebuilds: move
-# both pins together, after checking the new pair, in one pull request.
+# CommunityModules 202610131629, checked on 2026-10-21: every model passes
+# (`small` and `large`, and the self-test variants fail as expected), and
+# `trace-probe/`, etcd's style of NDJSON trace validation (`ndJsonDeserialize`,
+# `IOEnv`, `TLCGet("queue")`, `-lncheck final`), passes its matching trace and
+# fails its diverging one. Stable 1.7.4 cannot pair with any CommunityModules
+# release since 2024-09: its overrides fail to load (NoClassDefFoundError for
+# KSubsetValue).
+#
+# Both files are kept as assets of this repository's release
+# `tla-tools-2026.10.15.145915` (owner decision of 2026-10-21), read through
+# GitHub's API with GITHUB_TOKEN, or `gh auth token` locally, while the
+# repository is private. Upstream has no immutable copy: 1.8.0 is a
+# prerelease whose `tla2tools.jar` TLA+'s build replaces at every commit to
+# master, on GitHub and on the nightly site alike; its per-build git tags
+# carry no files; Maven Central has only `1.8.0-SNAPSHOT`, whose timestamped
+# builds Sonatype deletes after 90 days and whose jar lacks Gson and JavaMail;
+# and the nightly site's one per-commit file, `tla2tools-1a92ec7.jar`, is a
+# hand-placed build of 2023-09 that predates three years of TLC fixes.
+#
+# To move the pair, in one pull request, from the repository root:
+# 1. Download the current pair into an empty folder, `$new`:
+#      curl -fsSL -o "$new/tla2tools.jar" \
+#        https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+#      tag=$(gh release view --repo tlaplus/CommunityModules --json tagName --jq .tagName)
+#      curl -fsSL -o "$new/CommunityModules-deps.jar" \
+#        "https://github.com/tlaplus/CommunityModules/releases/download/$tag/CommunityModules-deps-$tag.jar"
+# 2. Read their digests and TLC's build:
+#      shasum -a 256 "$new"/*.jar
+#      java -cp "$new/tla2tools.jar" tlc2.TLC 2>&1 | head -1
+# 3. Write their digests below (the `release` lines still name the old
+#    release), copy them into `target/tla-tools/` under the pinned names, and
+#    check every model; `just tlc` downloads nothing while each kept file has
+#    its pinned digest:
+#      cp "$new"/*.jar target/tla-tools/
+#      just tlc --all && just tlc --all --config large && just tlc-self-test
+#      just tlc run-fencing --config zombie --expect invariant-violated
+# 4. Run the trace-validation probe; the first exits 0, the second 12:
+#      cd test-support/models/trace-probe
+#      tools=../../../target/tla-tools/tla2tools.jar:../../../target/tla-tools/CommunityModules-deps.jar
+#      JSON=match.ndjson java -Dtlc2.tool.queue.IStateQueue=StateDeque -cp "$tools" \
+#        tlc2.TLC -lncheck final -noGenerateSpecTE -cleanup -metadir ../../../target/tlc/trace-probe/match \
+#        -config TraceProbe.cfg TraceProbe.tla
+#      JSON=diverge.ndjson java -Dtlc2.tool.queue.IStateQueue=StateDeque -cp "$tools" \
+#        tlc2.TLC -lncheck final -noGenerateSpecTE -cleanup -metadir ../../../target/tlc/trace-probe/diverge \
+#        -config TraceProbe.cfg TraceProbe.tla
+# 5. Create a new prerelease of this repository, tagged
+#    `tla-tools-<TLC's build>`, with the two files as assets named
+#    `tla2tools-<TLC's build>.jar` and `CommunityModules-deps-<tag>.jar`;
+#    point both pins below at it, update the build and date above and ADR
+#    0060's note, and check a fresh fetch: `rm -rf target/tla-tools && just tlc-fetch`.
 
 [[tool]]
 name = "tla2tools.jar"
-url = "https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar"
+release = { repository = "goodfetch/goodfetch", tag = "tla-tools-2026.10.15.145915", asset = "tla2tools-2026.10.15.145915.jar" }
 sha256 = "15d103b7e5617780bcc904c0af12f1ad242e2b345c0301136c5be4588f17edac"
 
 [[tool]]
 name = "CommunityModules-deps.jar"
-url = "https://github.com/tlaplus/CommunityModules/releases/download/202610131629/CommunityModules-deps-202610131629.jar"
+release = { repository = "goodfetch/goodfetch", tag = "tla-tools-2026.10.15.145915", asset = "CommunityModules-deps-202610131629.jar" }
 sha256 = "36f1431d58b24a9e98614d2e56eed9b4cfd3a089c3f2b986f78572632ed2831d"

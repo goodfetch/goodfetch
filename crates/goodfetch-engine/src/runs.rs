@@ -1066,16 +1066,18 @@ impl Run {
                 Ok(Some(value))
             }
             Err(Refusal::Reached(reached)) => {
-                self.stop_at_safe_point(StopReason::Limit(ReachedLimit::clone(&reached)));
+                self.stop_at_safe_point(StopReason::Limit(Box::new(ReachedLimit::clone(&reached))));
                 Err(Refusal::Reached(reached).into())
             }
             Err(Refusal::NotUnderstood(limit)) => {
-                self.stop_at_safe_point(StopReason::LimitNotUnderstood(NotUnderstoodLimit {
-                    scope: limit.scope.clone(),
-                    usage_kind: limit.usage_kind.clone(),
-                    currency: limit.currency.clone(),
-                    period: limit.period.clone(),
-                }));
+                self.stop_at_safe_point(StopReason::LimitNotUnderstood(Box::new(
+                    NotUnderstoodLimit {
+                        scope: limit.scope.clone(),
+                        usage_kind: limit.usage_kind.clone(),
+                        currency: limit.currency.clone(),
+                        period: limit.period.clone(),
+                    },
+                )));
                 Err(Refusal::NotUnderstood(limit).into())
             }
             Err(refusal) => Err(refusal.into()),

@@ -9,11 +9,27 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 from goodfetch_collie_client.generated.models import (
+    AxisReason,
+    Checkpoint,
+    Completeness,
+    EndingError,
+    ExplainedSetting,
+    Lifecycle,
+    NothingDone,
+    PlanReport,
+    PluginRun,
     PointInTime,
     ProjectSettings,
+    RecordingReport,
     RunId,
+    RunUsage,
+    RunWarning,
     SampleEchoed,
+    StopReason,
     Tags,
+    UncertainEffect,
+    Verdict,
+    WeakenedSetting,
 )
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
@@ -36,6 +52,12 @@ class AttemptError(BaseModel):
     """Which attempt it was, from 1."""
     code: str
     """Its Error code."""
+    details: dict[str, Any] | None = None
+    """
+    The error's own details, as its Error code defines them, such as the
+    time a site's `Retry-After` asked for and a `fix`; left out when it
+    has none.
+    """
     message: str
     """What it said."""
 
@@ -60,6 +82,18 @@ class BlockCause(StrEnum):
     """The site asked to be paid for the page (ADR 0045)."""
     consent_required = "consent_required"
     """A wall that asks for consent before it shows the page (ADR 0048)."""
+
+
+class CountOf(BaseModel):
+    """How many requests ended for one reason, code or cause."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """How many."""
+    name: str
+    """The reason, code or cause."""
 
 
 class DatasetRecords(BaseModel):
@@ -117,6 +151,20 @@ class HttpBody(RootModel[str]):
 class HttpMethod(RootModel[str]):
     root: Annotated[str, Field(pattern="^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")]
     """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
+
+
+class LearnedRule(BaseModel):
+    """A URL rule the Frontier learned (ADR 0005)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    evidence: str
+    """Its evidence."""
+    merged: Annotated[int, Field(ge=0)]
+    """How many URLs it merged."""
+    rule: str
+    """The rule."""
 
 
 class NotAddedReason(StrEnum):
@@ -212,6 +260,30 @@ class OutcomesAfter1(RootModel[int]):
 class OutcomesAfter(RootModel[OutcomesAfter1 | Now]):
     root: OutcomesAfter1 | Now
     """Where `run.outcomes` starts: after a position, or from the next commit."""
+
+
+class RequestCounts(BaseModel):
+    """How a crawl's requests ended (ADR 0079)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    blocked: Annotated[int, Field(ge=0)]
+    """How many a site blocked."""
+    by_block_cause: list[CountOf] | None = None
+    """The blocked ones, by Block cause."""
+    by_error_code: list[CountOf] | None = None
+    """The failed ones, by Error code."""
+    by_skip_reason: list[CountOf] | None = None
+    """The skipped ones, by skip reason."""
+    failed: Annotated[int, Field(ge=0)]
+    """How many failed."""
+    pending: Annotated[int, Field(ge=0)]
+    """How many were left pending."""
+    skipped: Annotated[int, Field(ge=0)]
+    """How many were skipped."""
+    succeeded: Annotated[int, Field(ge=0)]
+    """How many succeeded."""
 
 
 class RunAddSeedsParams(BaseModel):
@@ -403,6 +475,35 @@ class Seeds(RootModel[list[Seed]]):
 
     root: Annotated[list[Seed], Field(min_length=1)]
     """A crawl's seeds, at least one."""
+
+
+class SinkStatus(StrEnum):
+    """A Sink's delivery status (ADRs 0026 and 0103)."""
+
+    complete = "complete"
+    """Everything was delivered."""
+    complete_with_rejections = "complete_with_rejections"
+    """Everything was delivered, some of it rejected."""
+    behind = "behind"
+    """It is still delivering."""
+    failed = "failed"
+    """It failed."""
+    inactive = "inactive"
+    """It names none of the crawl's Datasets and delivers nothing."""
+
+
+class SitemapReport(BaseModel):
+    """A sitemap a crawl read (ADR 0102)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    added: Annotated[int, Field(ge=0)]
+    """How many of its entries were added."""
+    not_added: Annotated[int, Field(ge=0)]
+    """How many of its entries were not."""
+    url: str
+    """Its URL."""
 
 
 class SkipReason(StrEnum):
@@ -711,3 +812,116 @@ class RunSeeds(BaseModel):
     Each seed's answer, in the order the start gave the seeds; none for
     a Run that is no crawl.
     """
+
+
+class SinkReport(BaseModel):
+    """A Sink that applies to a crawl's Run (ADRs 0026 and 0103)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    dead_letters: Annotated[int, Field(ge=0)]
+    """How many deliveries are dead letters."""
+    guarantee_class: str
+    """Its Guarantee class."""
+    name: str
+    """Its name."""
+    outside_dedup_window: Annotated[int, Field(ge=0)]
+    """
+    How many deliveries fell outside the destination's deduplication
+    window, and so were at least once.
+    """
+    status: SinkStatus
+    """Its delivery status."""
+    undeclared_datasets: list[str] | None = None
+    """
+    For an inactive Sink, the Dataset names it gave that the crawl does
+    not declare.
+    """
+
+
+class CrawlRunReport(BaseModel):
+    """
+    A crawl's Run report (ADR 0102): what a crawl adds to every Run's
+    report, a part no area supplied being absent. On the wire, a crawl's
+    parts sit beside every Run's, which a reader of [`RunReport`] keeps among
+    its `kind_parts`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    checkpoint: Checkpoint | None = None
+    """The last Checkpoint written of it in this engine, when one was."""
+    completeness: Completeness
+    """Whether its results cover its scope."""
+    completeness_reasons: list[AxisReason] | None = None
+    """Why it is not `complete`, when it is not."""
+    console_url: str | None = None
+    """
+    Its page in the Console, where its Run trace replays, when the
+    engine knows a Console address (ADR 0031).
+    """
+    ended_at: PointInTime
+    """When it ended."""
+    error: EndingError | None = None
+    """
+    The error the call that ends it raises: the one that failed a
+    `failed` Run, or a write at its end that failed, such as its Plan
+    file's (ADR 0116).
+    """
+    learned_rules: list[LearnedRule] | None = None
+    """Its Frontier's learned URL rules (ADR 0005)."""
+    lifecycle: Lifecycle
+    """Where it ended."""
+    nothing_done: NothingDone | None = None
+    """Why the call that answered it did nothing, when it did nothing."""
+    plan: PlanReport | None = None
+    """What it did with its Plan file (ADR 0091)."""
+    plugins: list[PluginRun] | None = None
+    """Each Plugin that ran (ADRs 0016 and 0033)."""
+    policy_version: str | None = None
+    """
+    The version of the Operator policy it ran under, when one applied
+    (ADR 0031).
+    """
+    recording: RecordingReport | None = None
+    """What it did with the Response recording its start named (ADR 0105)."""
+    records: list[DatasetRecords] | None = None
+    """Its Records, per Dataset (ADR 0103)."""
+    requests: RequestCounts | None = None
+    """How its requests ended."""
+    run_id: RunId
+    """The Run's ID."""
+    settings: list[ExplainedSetting] | None = None
+    """
+    Each effective value it ran with, the layer that set it and the one
+    that locked it, as `config.explain` gives them (ADR 0028).
+    """
+    sinks: list[SinkReport] | None = None
+    """Each Sink that applies to it (ADRs 0026 and 0103)."""
+    sitemaps: list[SitemapReport] | None = None
+    """Its sitemaps, as its progress gives them."""
+    started_at: PointInTime
+    """When it started."""
+    stop_reason: StopReason | None = None
+    """Why it stopped, when it did."""
+    uncertain_effects: list[UncertainEffect] | None = None
+    """
+    Each Effect it left uncertain, until a person reconciles it (ADR
+    0106).
+    """
+    usage: RunUsage
+    """
+    What it used, as the Usage ledger charged it, with the Limits that
+    apply to it (ADR 0101).
+    """
+    verdict: Verdict
+    """Whether its own checks prove what it committed."""
+    verdict_reasons: list[AxisReason] | None = None
+    """Why it is not `verified`, when it is not."""
+    warnings: list[RunWarning] | None = None
+    """What the areas warn of, each with a code and a message."""
+    weakened: list[WeakenedSetting] | None = None
+    """Every setting that weakened a safeguard for it (ADR 0028)."""

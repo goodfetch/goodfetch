@@ -8,7 +8,7 @@
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::settings::{
-    Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsLayer,
+    Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsLayer, WeakenedSetting,
 };
 use proptest::prelude::*;
 use rstest::rstest;
@@ -709,11 +709,12 @@ fn a_setting_that_weakens_a_guarantee_is_marked_on_the_results() {
     ));
 
     assert_eq!(
-        effective.weakened_by(),
-        [SettingLimit {
+        effective.weakened(),
+        [WeakenedSetting {
             key: "tls.accept_invalid_certs".to_owned(),
             value: json!({ "intranet.example": null }),
             layer: SettingsLayer::Run,
+            origin: None,
         }]
     );
 }
@@ -799,6 +800,27 @@ fn a_foxhound_key_given_explicitly_to_a_collie_engine_is_not_in_product(
         read,
         Err(SettingsError::NotInProduct {
             key: "crawl.retry.max".to_owned(),
+            needs: Product::Foxhound,
+        })
+    );
+}
+
+/// A `Retry-After`'s bound is a crawl's key (ADR 0118), which a Collie
+/// engine refuses.
+///
+/// Covers: story:3-160, setting:politeness.retry_after.max, error:not_in_product
+#[test]
+fn the_bound_on_a_sites_retry_after_is_not_in_product_on_a_collie_engine() {
+    let read = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "politeness": { "retry_after": { "max": 60_000 } } })),
+        Product::Collie,
+    );
+
+    assert_eq!(
+        read,
+        Err(SettingsError::NotInProduct {
+            key: "politeness.retry_after.max".to_owned(),
             needs: Product::Foxhound,
         })
     );

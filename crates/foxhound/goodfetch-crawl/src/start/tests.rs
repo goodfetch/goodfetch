@@ -20,6 +20,7 @@ mod keep_alive;
 mod limits;
 mod metrics;
 mod model;
+mod report;
 mod resume;
 mod safe_point;
 

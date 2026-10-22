@@ -12,7 +12,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::{
     Lifecycle, PointInTime, RunId, RunKind, RunReport, StartInput, Tags,
 };
-use goodfetch_protocol::settings::SettingLimit;
+use goodfetch_protocol::settings::WeakenedSetting;
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
 use serde_json::{Map, Value};
 
@@ -28,7 +28,7 @@ pub(super) struct RunRow {
     pub(super) inputs: String,
     pub(super) started_at: PointInTime,
     pub(super) policy_version: Option<String>,
-    pub(super) weakened_by: Vec<SettingLimit>,
+    pub(super) weakened: Vec<WeakenedSetting>,
     /// What binds it, as JSON.
     pub(super) binding: Option<String>,
     pub(super) clean_up_digest: Option<String>,
@@ -37,7 +37,7 @@ pub(super) struct RunRow {
 impl RunRow {
     pub(super) fn insert(&self, connection: &Connection) -> rusqlite::Result<()> {
         connection.execute(
-            "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at, policy_version, weakened_by, binding, clean_up_digest)
+            "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at, policy_version, weakened, binding, clean_up_digest)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             (
                 self.run_id.as_str(),
@@ -49,7 +49,7 @@ impl RunRow {
                 Lifecycle::Running.as_str(),
                 self.started_at.as_str(),
                 self.policy_version.as_deref(),
-                serde_json::to_string(&self.weakened_by)
+                serde_json::to_string(&self.weakened)
                     .expect("invariant: setting limits encode"),
                 self.binding.as_deref(),
                 self.clean_up_digest.as_deref(),
@@ -172,39 +172,22 @@ pub(super) fn read_report(file: &Path, vfs: Option<&str>) -> rusqlite::Result<Op
     report(&connection)
 }
 
-/// The Run's report, once it ended.
+/// The Run's report, once it ended: the one its end wrote.
 fn report(connection: &Connection) -> rusqlite::Result<Option<RunReport>> {
-    connection
+    let report: Option<String> = connection
         .query_row(
-            "SELECT run_id, lifecycle, stop_reason, verdict, completeness, started_at, ended_at, policy_version, weakened_by, uncapped FROM run
-             WHERE ended_at IS NOT NULL",
+            "SELECT report FROM run WHERE ended_at IS NOT NULL",
             [],
-            |row| {
-                let stop_reason: Option<String> = row.get(2)?;
-                Ok(RunReport {
-                    run_id: parsed(&row.get::<_, String>(0)?)?,
-                    lifecycle: parsed(&row.get::<_, String>(1)?)?,
-                    stop_reason: stop_reason
-                        .map(|reason| {
-                            serde_json::from_str(&reason).map_err(|error| {
-                                rusqlite::Error::ToSqlConversionFailure(Box::new(error))
-                            })
-                        })
-                        .transpose()?,
-                    verdict: parsed(&row.get::<_, String>(3)?)?,
-                    completeness: parsed(&row.get::<_, String>(4)?)?,
-                    started_at: PointInTime::from_rfc3339(row.get(5)?),
-                    ended_at: PointInTime::from_rfc3339(row.get(6)?),
-                    policy_version: row.get(7)?,
-                    weakened_by: serde_json::from_str(&row.get::<_, String>(8)?).map_err(
-                        |error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)),
-                    )?,
-                    checkpoint: None,
-                    uncapped: row.get(9)?,
-                })
-            },
+            |row| row.get(0),
         )
-        .optional()
+        .optional()?
+        .flatten();
+    report
+        .map(|report| {
+            serde_json::from_str(&report)
+                .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
+        })
+        .transpose()
 }
 
 /// What a Run's state records of the Run, as a reader finds it.
@@ -216,13 +199,11 @@ pub(super) struct Recorded {
     pub(super) lifecycle: Lifecycle,
     pub(super) started_at: PointInTime,
     pub(super) policy_version: Option<String>,
-    pub(super) weakened_by: Vec<SettingLimit>,
+    pub(super) weakened: Vec<WeakenedSetting>,
     /// Its start's inputs, as canonical JSON.
     pub(super) inputs: String,
     /// Its report, once it ended.
     pub(super) report: Option<RunReport>,
-    /// Whether it spent money no Limit caps (ADR 0041).
-    pub(super) uncapped: bool,
     /// The program's own status line, once it set one.
     pub(super) progress_message: Option<String>,
 }
@@ -235,7 +216,7 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
     };
     let found = connection
         .query_row(
-            "SELECT run_id, kind, needs, lifecycle, started_at, policy_version, weakened_by, inputs, progress_message FROM run",
+            "SELECT run_id, kind, needs, lifecycle, started_at, policy_version, weakened, inputs, progress_message FROM run",
             [],
             |row| {
                 Ok((
@@ -258,7 +239,7 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
         (kind, needs, lifecycle),
         started_at,
         policy_version,
-        (weakened_by, inputs),
+        (weakened, inputs),
         progress_message,
     )) = found
     else {
@@ -268,7 +249,6 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
     let tags: Vec<String> = statement
         .query_map([], |row| row.get(0))?
         .collect::<rusqlite::Result<_>>()?;
-    let uncapped: bool = connection.query_row("SELECT uncapped FROM run", [], |row| row.get(0))?;
     let decode =
         |error: serde_json::Error| rusqlite::Error::ToSqlConversionFailure(Box::new(error));
     Ok(Some(Recorded {
@@ -279,10 +259,9 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
         lifecycle,
         started_at,
         policy_version,
-        weakened_by: serde_json::from_str(&weakened_by).map_err(decode)?,
+        weakened: serde_json::from_str(&weakened).map_err(decode)?,
         inputs,
         report: report(&connection)?,
-        uncapped,
         progress_message,
     }))
 }
@@ -322,10 +301,18 @@ pub(super) fn machine_identity(path: &Path, drawn: &str) -> io::Result<String> {
     }
 }
 
-/// Writes the Run's end, as `report` states it, into its own row.
+/// Writes the Run's end, as `report` states it, into its own row, the
+/// report itself with it, but for its `settings`: a value such as
+/// `session.source` may hold a Secret, which never reaches a run file or a
+/// Checkpoint (ADR 0067), so a report read back from run state goes without
+/// them, as it goes without the stop's Checkpoint.
 pub(super) fn write_end(connection: &Connection, report: &RunReport) -> rusqlite::Result<()> {
+    let kept = RunReport {
+        settings: None,
+        ..report.clone()
+    };
     connection.execute(
-        "UPDATE run SET lifecycle = ?1, stop_reason = ?2, verdict = ?3, completeness = ?4, ended_at = ?5, uncapped = ?6",
+        "UPDATE run SET lifecycle = ?1, stop_reason = ?2, verdict = ?3, completeness = ?4, ended_at = ?5, report = ?6",
         (
             report.lifecycle.as_str(),
             report.stop_reason.as_ref().map(|reason| {
@@ -334,7 +321,7 @@ pub(super) fn write_end(connection: &Connection, report: &RunReport) -> rusqlite
             report.verdict.as_str(),
             report.completeness.as_str(),
             report.ended_at.as_str(),
-            report.uncapped,
+            serde_json::to_string(&kept).expect("invariant: a Run report encodes"),
         ),
     )?;
     Ok(())

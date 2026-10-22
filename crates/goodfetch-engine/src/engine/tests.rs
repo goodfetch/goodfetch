@@ -22,6 +22,7 @@ mod log;
 mod ops;
 mod progress;
 mod refusals;
+mod report;
 mod run;
 mod settings;
 mod takeover;

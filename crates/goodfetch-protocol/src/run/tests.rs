@@ -63,3 +63,120 @@ fn tags_hold_at_most_sixteen_of_sixty_four_characters(
 ) {
     assert_eq!(serde_json::from_value::<Tags>(tags).is_ok(), read);
 }
+
+/// The ticket's warning table (#1543): every code an area hands over to a
+/// Run's report, Foxhound's `trap_links_off` included.
+const TICKET_WARNING_CODES: [&str; 21] = [
+    "fingerprint_none",
+    "fingerprint_js_injection",
+    "fingerprint_basic",
+    "fingerprint_basic_fallback",
+    "browser_build_outdated",
+    "browser_build_third_party",
+    "browser_build_firefox",
+    "browser_build_plugin",
+    "human_input_fallback",
+    "proxy_exit_may_change",
+    "filter_vendor_flagged",
+    "trap_links_off",
+    "cpu_throttled",
+    "storage_low",
+    "politeness_store_degraded",
+    "clean_up_rules_stale",
+    "path_not_writable",
+    "file_write_failed",
+    "baseline_unavailable",
+    "plugin_quantity_above_maximum",
+    "plugin_figures",
+];
+
+/// Covers: story:3-155
+#[test]
+fn the_warning_table_lists_every_code_the_areas_hand_over() {
+    let mut table: Vec<&str> = crate::entries::MODULES
+        .into_iter()
+        .flat_map(|entries| entries.shared_type_values)
+        .filter(|value| value.shared_type == crate::catalog::SharedType::RunWarningCode)
+        .map(|value| value.name)
+        .collect();
+    table.sort_unstable();
+    let mut expected = TICKET_WARNING_CODES.to_vec();
+    expected.sort_unstable();
+
+    assert_eq!(table, expected);
+}
+
+/// Covers: story:3-155
+#[test]
+fn trap_links_off_is_foxhounds_and_every_other_code_both_products() {
+    use crate::catalog::{Product, SharedType};
+    for code in TICKET_WARNING_CODES {
+        let carried_by = crate::entries::product_of_value(SharedType::RunWarningCode, code);
+        let expected = if code == "trap_links_off" {
+            Product::Foxhound
+        } else {
+            Product::Collie
+        };
+        assert_eq!(carried_by, Some(expected), "{code}");
+    }
+}
+
+/// A report as a newer Foxhound engine sends it: a warning code this reader
+/// does not know, a crawl's parts and a Foxhound Limit scope and Usage kind.
+fn newer_foxhound_report() -> serde_json::Value {
+    serde_json::json!({
+        "run_id": "books",
+        "lifecycle": "finished",
+        "verdict": "verified",
+        "completeness": "complete",
+        "started_at": "2026-10-22T08:00:00Z",
+        "ended_at": "2026-10-22T08:05:00Z",
+        "usage": {
+            "model": { "calls": 0, "tokens": 0 },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 3,
+            "paid_fetches": [{ "currency": "USD", "amount": 20000 }],
+            "other": [{ "usage_kind": "a_newer_kind", "amount": 7 }],
+            "limits": [{
+                "scope": { "kind": "partitioned_crawl", "id": "books" },
+                "usage_kind": "paid_fetch",
+                "currency": "USD",
+                "amount": 1_000_000,
+                "left": 980_000,
+                "set_by": "person"
+            }]
+        },
+        "warnings": [
+            { "code": "a_code_from_a_newer_engine", "message": "Something new.", "sessions": ["s1"] },
+            { "code": "trap_links_off", "message": "Trap links were followed." }
+        ],
+        "requests": { "succeeded": 3, "failed": 0, "skipped": 0, "blocked": 0, "pending": 0 },
+        "records": [{ "dataset": "books", "committed": 3, "dropped": 0, "rejected": 0 }]
+    })
+}
+
+/// Covers: story:3-155, story:3-157
+#[test]
+fn a_collie_reader_keeps_what_it_does_not_know_of_a_report() {
+    let sent = newer_foxhound_report();
+
+    let read: super::RunReport = serde_json::from_value(sent.clone()).unwrap();
+
+    assert_eq!(read.warnings[0].code, "a_code_from_a_newer_engine");
+    assert_eq!(read.usage.limits[0].scope.kind, "partitioned_crawl");
+    assert_eq!(serde_json::to_value(&read).unwrap(), sent);
+}
+
+/// Covers: story:3-154
+#[test]
+fn a_crawls_report_reads_what_every_report_holds_and_what_a_crawl_adds() {
+    let sent = newer_foxhound_report();
+
+    let read: crate::foxhound::report::CrawlRunReport =
+        serde_json::from_value(sent.clone()).unwrap();
+
+    assert_eq!(read.requests.as_ref().unwrap().succeeded, 3);
+    assert!(read.report.kind_parts.is_empty());
+    assert_eq!(serde_json::to_value(&read).unwrap(), sent);
+}

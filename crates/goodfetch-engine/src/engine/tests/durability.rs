@@ -88,7 +88,7 @@ fn a_run_in_fast_durability_commits_with_normal_synchronous_and_its_report_says_
     );
 
     assert_eq!(
-        (&synchronous["result"], &finished["result"]["weakened_by"]),
+        (&synchronous["result"], &finished["result"]["weakened"]),
         (
             &json!(1),
             &json!([{
@@ -126,7 +126,7 @@ fn a_run_in_default_durability_commits_with_full_synchronous() {
     );
 
     assert_eq!(
-        (&synchronous["result"], &finished["result"]["weakened_by"]),
+        (&synchronous["result"], &finished["result"]["weakened"]),
         (&json!(2), &Value::Null)
     );
 }

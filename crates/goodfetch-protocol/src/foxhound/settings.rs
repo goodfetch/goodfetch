@@ -27,6 +27,38 @@ fn yes() -> Value {
     Value::Bool(true)
 }
 
+fn two_seconds() -> Value {
+    json!(2_000)
+}
+
+fn a_minute() -> Value {
+    json!(60_000)
+}
+
+fn fifteen_minutes() -> Value {
+    json!(900_000)
+}
+
+/// A value below `default` milliseconds, which waits less than the built-in
+/// default and so presses a site harder (ADR 0086).
+fn shorter_than(value: &Value, default: u64) -> bool {
+    value
+        .as_u64()
+        .is_some_and(|milliseconds| milliseconds < default)
+}
+
+fn switched_off(value: &Value) -> bool {
+    value == &Value::Bool(false)
+}
+
+fn initial_shortened(value: &Value) -> bool {
+    shorter_than(value, 2_000)
+}
+
+fn max_shortened(value: &Value) -> bool {
+    shorter_than(value, 60_000)
+}
+
 /// `paid_fetch.domains` (ADR 0045).
 pub const PAID_FETCH_DOMAINS: Setting = Setting {
     name: "paid_fetch.domains",
@@ -123,6 +155,54 @@ pub const POLITENESS_DOMAIN_DELAY: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `politeness.backoff.enabled` (ADRs 0021, 0023 and 0086).
+pub const POLITENESS_BACKOFF_ENABLED: Setting = Setting {
+    name: "politeness.backoff.enabled",
+    description: "Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: Some(switched_off),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `politeness.backoff.initial` (ADRs 0021, 0086 and 0118).
+pub const POLITENESS_BACKOFF_INITIAL: Setting = Setting {
+    name: "politeness.backoff.initial",
+    description: "The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result.",
+    kind: ValueKind::Duration,
+    default: two_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: Some(initial_shortened),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `politeness.backoff.max` (ADRs 0021, 0086 and 0118).
+pub const POLITENESS_BACKOFF_MAX: Setting = Setting {
+    name: "politeness.backoff.max",
+    description: "The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result.",
+    kind: ValueKind::Duration,
+    default: a_minute,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: Some(max_shortened),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `politeness.retry_after.max` (ADR 0118).
+pub const POLITENESS_RETRY_AFTER_MAX: Setting = Setting {
+    name: "politeness.retry_after.max",
+    description: "The longest a crawl waits for the time a site's `Retry-After` asks, past `politeness.backoff.max`: 15 minutes. When the site asks for longer, nothing is sent to its domain before that time and nothing waits for it: the request whose response asked, and each request admitted to the domain meanwhile, ends `failed` with `response_unavailable`, and `run.retry_failed` re-admits them once the site is back. Whatever its value, nothing is sent sooner than the site asked.",
+    kind: ValueKind::Duration,
+    default: fifteen_minutes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -141,6 +221,10 @@ pub const ENTRIES: Entries = Entries {
         DELIVERY_REPORT_GUARANTEE_CLASS,
         POLITENESS_DOMAIN_CONCURRENCY,
         POLITENESS_DOMAIN_DELAY,
+        POLITENESS_BACKOFF_ENABLED,
+        POLITENESS_BACKOFF_INITIAL,
+        POLITENESS_BACKOFF_MAX,
+        POLITENESS_RETRY_AFTER_MAX,
     ],
     hook_stages: &[],
     shared_type_values: &[],

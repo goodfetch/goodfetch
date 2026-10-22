@@ -15,10 +15,11 @@ use goodfetch_protocol::catalog::{Product, SharedType};
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::entries::product_of_value;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{LimitScope, Period};
 use goodfetch_protocol::usage::{
-    CONNECTION, DAEMON, INSTALL, Limit, LimitSetter, LimitUsage, PERSON, USAGE_LIST, USAGE_RAISE,
-    USAGE_SET, UsageListParams, UsageListResult, UsageRaiseParams, UsageSetParams,
+    CONNECTION, DAEMON, INSTALL, Limit, LimitUsage, PERSON, USAGE_LIST, USAGE_RAISE, USAGE_SET,
+    UsageListParams, UsageListResult, UsageRaiseParams, UsageSetParams,
 };
 use jiff::tz::TimeZone;
 

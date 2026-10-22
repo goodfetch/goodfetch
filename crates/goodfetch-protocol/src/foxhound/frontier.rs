@@ -4,9 +4,14 @@
 //! why. `run.seeds` lists the answers each seed of a crawl got when its Run
 //! began, and `crawl_request.enqueue` adds a request from inside a
 //! handler's attempt, resolving a relative URL against the document's base
-//! URL. Foxhound's own.
+//! URL. A crawl request is sent with a method and a body, which with its
+//! URL's key make its identity, unless the program declares its `key`.
+//! Foxhound's own.
 
-use schemars::JsonSchema;
+use std::borrow::Cow;
+use std::fmt;
+
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -17,13 +22,188 @@ use crate::run::RunId;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
+/// The pattern of an HTTP method: one token of RFC 9110 §5.6.2.
+pub const HTTP_METHOD_PATTERN: &str = "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$";
+
+/// The methods Fetch normalizes to uppercase, matched in any case.
+const NORMALIZED_METHODS: [&str; 6] = ["DELETE", "GET", "HEAD", "OPTIONS", "POST", "PUT"];
+
+/// The methods Fetch forbids a request to use, matched in any case.
+const FORBIDDEN_METHODS: [&str; 3] = ["CONNECT", "TRACE", "TRACK"];
+
+/// The method a crawl request is sent with (ADR 0093): an RFC 9110 token,
+/// normalized as Fetch normalizes one, `GET` by default. A crawl request
+/// is a read whatever its method, sent again on a retry.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct HttpMethod(String);
+
+/// Why a text is no method a crawl request may be sent with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum HttpMethodInvalid {
+    /// It is no RFC 9110 token.
+    #[error("a method is an RFC 9110 token, matching `{HTTP_METHOD_PATTERN}`")]
+    NotAToken,
+    /// Fetch forbids it.
+    #[error(
+        "a crawl request is never sent with `CONNECT`, `TRACE` or `TRACK`, which Fetch forbids"
+    )]
+    Forbidden,
+}
+
+impl HttpMethod {
+    /// `GET`, a crawl request's method by default.
+    pub fn get() -> Self {
+        Self("GET".to_owned())
+    }
+
+    /// Reads `text` as a method, `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST`
+    /// and `PUT` uppercased as Fetch normalizes them, any other kept as
+    /// written, since methods are case-sensitive.
+    ///
+    /// # Errors
+    ///
+    /// When `text` is no token, or a method Fetch forbids.
+    pub fn parse(text: &str) -> Result<Self, HttpMethodInvalid> {
+        let is_token_character =
+            |byte: &u8| byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(byte);
+        if text.is_empty() || !text.as_bytes().iter().all(is_token_character) {
+            return Err(HttpMethodInvalid::NotAToken);
+        }
+        if FORBIDDEN_METHODS
+            .iter()
+            .any(|forbidden| forbidden.eq_ignore_ascii_case(text))
+        {
+            return Err(HttpMethodInvalid::Forbidden);
+        }
+        Ok(Self(
+            NORMALIZED_METHODS
+                .iter()
+                .find(|normalized| normalized.eq_ignore_ascii_case(text))
+                .map_or_else(|| text.to_owned(), |normalized| (*normalized).to_owned()),
+        ))
+    }
+
+    /// The method as sent.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Whether it is `GET`.
+    pub fn is_get(&self) -> bool {
+        self.0 == "GET"
+    }
+}
+
+impl Default for HttpMethod {
+    fn default() -> Self {
+        Self::get()
+    }
+}
+
+impl fmt::Display for HttpMethod {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl Serialize for HttpMethod {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for HttpMethod {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = Cow::<str>::deserialize(deserializer)?;
+        Self::parse(&text).map_err(serde::de::Error::custom)
+    }
+}
+
+impl JsonSchema for HttpMethod {
+    fn schema_name() -> Cow<'static, str> {
+        "HttpMethod".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.",
+            "type": "string",
+            "pattern": HTTP_METHOD_PATTERN,
+        })
+    }
+}
+
+/// The body a crawl request is sent with (ADR 0093): its bytes, in Base64
+/// (RFC 4648, with padding) on the wire. Its hash is part of the request's
+/// identity.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct HttpBody(Vec<u8>);
+
+/// Why a text is no body: it is no Base64 with padding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("a body is its bytes in Base64 (RFC 4648, with padding)")]
+pub struct HttpBodyInvalid;
+
+impl HttpBody {
+    /// A body of `bytes`.
+    pub fn new(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+
+    /// Reads `text`, a body's bytes in Base64.
+    ///
+    /// # Errors
+    ///
+    /// When `text` is no Base64 with padding.
+    pub fn from_base64(text: &str) -> Result<Self, HttpBodyInvalid> {
+        data_encoding::BASE64
+            .decode(text.as_bytes())
+            .map(Self)
+            .map_err(|_| HttpBodyInvalid)
+    }
+
+    /// Its bytes.
+    pub fn bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl Serialize for HttpBody {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&data_encoding::BASE64.encode(&self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for HttpBody {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = Cow::<str>::deserialize(deserializer)?;
+        Self::from_base64(&text).map_err(serde::de::Error::custom)
+    }
+}
+
+impl JsonSchema for HttpBody {
+    fn schema_name() -> Cow<'static, str> {
+        "HttpBody".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).",
+            "type": "string",
+            "contentEncoding": "base64",
+        })
+    }
+}
+
 /// Why the Frontier did not add a request (ADRs 0093 and 0120).
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum NotAddedReason {
-    /// The Frontier already admitted a request of the same identity.
+    /// The Frontier already admitted a request of the same identity: its
+    /// method, its URL's key and its body's hash, or its declared `key`.
     Duplicate,
     /// Its URL is outside the crawl's scope (`crawl.scope.*`).
     OutOfScope,
@@ -141,6 +321,20 @@ pub struct CrawlRequestEnqueueParams {
     #[serde(default)]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub forefront: bool,
+    /// The method it is sent with: `GET` by default.
+    #[serde(default, skip_serializing_if = "HttpMethod::is_get")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub method: HttpMethod,
+    /// The body it is sent with, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub body: Option<HttpBody>,
+    /// Its identity in the Frontier, declared by the program in place of
+    /// its method, its URL's key and its body's hash: a canonicalization
+    /// of the program's own, which always wins (ADR 0005).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key: Option<String>,
     /// The document the handler read, whose base URL a relative `url`
     /// resolves against; absent, the crawl request's own URL is the base.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -167,7 +361,7 @@ pub const RUN_SEEDS: Operation = Operation {
 /// `crawl_request.enqueue`.
 pub const CRAWL_REQUEST_ENQUEUE: Operation = Operation {
     name: "crawl_request.enqueue",
-    description: "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
+    description: "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::SdkOnly,
@@ -193,3 +387,6 @@ pub const ENTRIES: Entries = Entries {
     hook_stages: &[],
     shared_type_values: &[],
 };
+
+#[cfg(test)]
+mod tests;

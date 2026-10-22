@@ -281,6 +281,7 @@ impl StateMachineTest for Subject {
                 &env,
                 RunStateOptions {
                     vfs: Some(vfs.name().to_owned()),
+                    ..RunStateOptions::default()
                 },
             );
             configure(&env, ONE_AT_A_TIME);

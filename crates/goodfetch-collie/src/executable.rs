@@ -54,7 +54,7 @@ use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::settings::{check_environment, deployment_variable};
 use goodfetch_engine::tasks::BlockingPolicy;
-use goodfetch_engine::transport::Network;
+use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Product;
@@ -490,7 +490,7 @@ fn run(
         Parsed::HandWritten(command) => command,
     };
     match command {
-        Command::AttachedEngine => run_attached(engine, dependencies),
+        Command::AttachedEngine => run_attached(engine, dependencies, &machine),
         Command::Browsers {
             command: BrowsersCommand::Install { json },
         } => browsers::install(pinned_by, environment, json),
@@ -657,7 +657,28 @@ fn command_line(product: Product) -> (clap::Command, Generated) {
     (generated.add_to(hand_written), generated)
 }
 
-fn run_attached(engine: &Engine, dependencies: Dependencies) -> ExitCode {
+fn run_attached(
+    engine: &Engine,
+    dependencies: Dependencies,
+    machine: &daemon::Machine<'_>,
+) -> ExitCode {
+    let identity = engine.identity();
+    let settings = browsers::machine_settings(
+        &dependencies.home,
+        identity.product,
+        &identity.product_version,
+    )
+    .ok();
+    // In the per-install layout the Daemon alone writes run state: the
+    // Attached engine hands its Runs to it (ADR 0002).
+    let daemon = if daemon::per_install(settings.as_ref()) {
+        match machine.reach_for_relay() {
+            Ok(reach) => Some(reach),
+            Err(failure) => return failure.report(),
+        }
+    } else {
+        None
+    };
     #[expect(
         clippy::disallowed_methods,
         reason = "main builds the runtime (ADR 0060)"
@@ -666,7 +687,20 @@ fn run_attached(engine: &Engine, dependencies: Dependencies) -> ExitCode {
         .enable_all()
         .build()
         .expect("invariant: the OS gives the runtime its threads");
-    let served = runtime.block_on(engine.run_attached(Network::Os, dependencies));
+    let served = runtime.block_on(async {
+        match daemon {
+            Some((endpoint, token)) => match transport::connect_daemon(&endpoint).await {
+                Ok(connection) => Engine::relay_attached(Network::Os, connection, token)
+                    .await
+                    .map_err(|error| error.to_string()),
+                Err(error) => Err(format!("the Daemon at {endpoint} does not answer: {error}")),
+            },
+            None => engine
+                .run_attached(Network::Os, dependencies)
+                .await
+                .map_err(|error| error.to_string()),
+        }
+    });
     // Tokio's stdin reads on a blocking thread that only new input wakes, so
     // the runtime is not waited for once the Connection has closed.
     runtime.shutdown_background();

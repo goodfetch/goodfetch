@@ -3,17 +3,19 @@
 //! `Enqueued` value, added with its ID or not added with its reason, so a
 //! crawl that does nothing says why. A seed is checked as an enqueue is,
 //! but takes only an absolute URL, since nothing gives it a base; an
-//! enqueue resolves against its document's base URL. The context, where
-//! the crawl keeps its requests, adds a request unless one of the same
-//! identity is already there, exactly, in its run state.
+//! enqueue resolves against its document's base URL. A candidate whose
+//! identity the visited set holds is a `duplicate`; any other is added by
+//! the context, where the crawl keeps its requests, and joins the set, in
+//! the same transaction of the run file.
 //!
-//! A request's identity is its URL as parsed for now; the identity rules
-//! (method, the URL's key and the body's hash, ADR 0093), the scope, the
-//! bounds and the learned rules join behind this one interface.
+//! The scope, the bounds and the learned rules join behind this one
+//! interface.
 
 use goodfetch_protocol::foxhound::frontier::{Enqueued, NotAddedReason};
+use rusqlite::Connection;
 use url::Url;
 
+use crate::identity::{Declared, identity, visit, visitor};
 use crate::url::parse;
 
 /// What the Frontier is asked to admit.
@@ -23,6 +25,8 @@ pub enum Candidate<'a> {
     Seed {
         /// Its URL.
         url: &'a str,
+        /// How it is sent and identified.
+        declared: Declared<'a>,
     },
     /// A handler's enqueue: a URL, relative to `base` or absolute.
     Enqueue {
@@ -30,32 +34,30 @@ pub enum Candidate<'a> {
         url: &'a str,
         /// The base URL of the document the handler read.
         base: &'a Url,
+        /// How it is sent and identified.
+        declared: Declared<'a>,
     },
 }
 
-/// A candidate the Frontier parsed and identified, for its context to add.
-#[derive(Clone, Copy, Debug)]
-pub struct Identified<'a> {
-    /// Its URL as parsed: the URL it is fetched at.
-    pub url: &'a Url,
-    /// Its identity: two requests of one identity are one request.
-    pub identity: &'a str,
-}
-
-/// Admits `candidate` through `add`, which adds it as a crawl request and
-/// answers its ID, or `None` when a request of its identity is already
-/// there.
+/// Admits `candidate` into the run file `connection` holds, through `add`,
+/// which adds it as a crawl request at its URL as parsed, the URL it is
+/// fetched at, and answers its ID.
 ///
 /// # Errors
 ///
-/// What `add` fails with.
-pub fn admit<E>(
+/// When the run file cannot be read or written, or what `add` fails with.
+pub fn admit(
+    connection: &Connection,
     candidate: Candidate<'_>,
-    add: impl FnOnce(Identified<'_>) -> Result<Option<String>, E>,
-) -> Result<Enqueued, E> {
-    let (given, base) = match candidate {
-        Candidate::Seed { url } => (url, None),
-        Candidate::Enqueue { url, base } => (url, Some(base)),
+    add: impl FnOnce(&Url) -> rusqlite::Result<String>,
+) -> rusqlite::Result<Enqueued> {
+    let (given, base, declared) = match candidate {
+        Candidate::Seed { url, declared } => (url, None, declared),
+        Candidate::Enqueue {
+            url,
+            base,
+            declared,
+        } => (url, Some(base), declared),
     };
     let not_added = |reason: NotAddedReason| Enqueued::NotAdded {
         reason,
@@ -65,18 +67,16 @@ pub fn admit<E>(
         Ok(url) => url,
         Err(reason) => return Ok(not_added(reason)),
     };
-    Ok(
-        match add(Identified {
-            url: &url,
-            identity: url.as_str(),
-        })? {
-            Some(id) => Enqueued::Added {
-                id,
-                url: url.into(),
-            },
-            None => not_added(NotAddedReason::Duplicate),
-        },
-    )
+    let identity = identity(&url, declared);
+    if visitor(connection, &identity)?.is_some() {
+        return Ok(not_added(NotAddedReason::Duplicate));
+    }
+    let id = add(&url)?;
+    visit(connection, &identity, &id)?;
+    Ok(Enqueued::Added {
+        id,
+        url: url.into(),
+    })
 }
 
 #[cfg(test)]

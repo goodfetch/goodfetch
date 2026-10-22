@@ -19,7 +19,8 @@ use std::collections::BTreeMap;
 use goodfetch_engine::admission::{Ended, Gate as _};
 use goodfetch_engine::run_state::{RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
-use goodfetch_frontier::{Candidate, DomainKeys, DomainQueues, admit};
+use goodfetch_frontier::{Candidate, Declared, DomainKeys, DomainQueues, VISITED_TABLES, admit};
+use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
@@ -110,8 +111,9 @@ impl Subject {
                 path.clone(),
                 &RunStateOptions {
                     vfs: Some(vfs.name().to_owned()),
+                    ..RunStateOptions::default()
                 },
-                vec![TABLES],
+                vec![TABLES, VISITED_TABLES],
                 1,
                 &owner,
             ))
@@ -142,19 +144,34 @@ impl Subject {
     fn comes(&self, url: String, priority: i64, forefront: bool) {
         let key = self.keys.key(&url);
         self.write(move |connection| {
-            admit(Candidate::Seed { url: &url }, |request| {
-                super::add(
-                    connection,
-                    request,
-                    Adding {
-                        label: "page",
-                        payload: None,
-                        priority,
-                        forefront,
-                        depth: 0,
-                    },
-                )
-            })?;
+            let get = HttpMethod::get();
+            let declared = Declared {
+                method: &get,
+                body: None,
+                key: None,
+            };
+            admit(
+                connection,
+                Candidate::Seed {
+                    url: &url,
+                    declared,
+                },
+                |request| {
+                    super::add(
+                        connection,
+                        request,
+                        Adding {
+                            method: &get,
+                            body: None,
+                            label: "page",
+                            payload: None,
+                            priority,
+                            forefront,
+                            depth: 0,
+                        },
+                    )
+                },
+            )?;
             let keys: Vec<(String, String)> = super::unkeyed(connection)?
                 .into_iter()
                 .map(|(_, waiting)| (waiting.id, key.clone()))

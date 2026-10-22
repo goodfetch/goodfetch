@@ -558,8 +558,40 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 212
+title = "As a crawl developer, I want a request's identity to be its method, its URL's key and its body's hash, so that a POST to one URL with two bodies is two requests (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 213
+title = "As a crawl developer, I want the key made by RFC 3986's safe rules, the fragment dropped, `utm_*`, `gclid` and `fbclid` dropped, the parameters sorted stably, empty pairs dropped and `;jsessionid=` dropped, while the request is fetched at its own URL, so that tracking parameters never split a page and the server sees the URL the page linked (ADRs 0005, 0120; pitfalls U04, U06)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 214
+title = "As a crawl developer, I want `key` on an enqueue to replace the identity, so that my own canonicalization always wins (ADR 0005)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 215
 title = "As a crawl developer, I want `priority` within a domain and `forefront` ahead of the domain's pending requests, so that I order work as Crawlee and Spider let me (CO-04)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 220
+title = "As a crawl developer, I want a redirect reaching a key admitted for another request to end `skipped` with `duplicate` and run no handler, so that one page is never handled twice (ADR 0120)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

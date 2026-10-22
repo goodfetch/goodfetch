@@ -908,6 +908,18 @@
     "CrawlRequest": {
       "description": "One work item of a crawl as its handler receives it (ADR 0093).",
       "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpBody"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The body it is sent with, if any."
+        },
         "id": {
           "arrived_in": "0.1",
           "description": "Its ID within the Run.",
@@ -917,6 +929,11 @@
           "arrived_in": "0.1",
           "description": "Its Label.",
           "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/HttpMethod",
+          "arrived_in": "0.1",
+          "description": "The method it is sent with."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -931,7 +948,8 @@
       "required": [
         "id",
         "url",
-        "label"
+        "label",
+        "method"
       ],
       "type": "object"
     },
@@ -939,6 +957,18 @@
       "additionalProperties": false,
       "description": "What `crawl_request.enqueue` takes: one request to add, from one attempt\nof a crawl request.",
       "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpBody"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The body it is sent with, if any."
+        },
         "crawl_request_id": {
           "arrived_in": "0.1",
           "description": "The ID of the crawl request whose attempt enqueues.",
@@ -962,6 +992,14 @@
           "description": "Whether it goes ahead of every request its domain holds pending,\nwhatever their priority, as Crawlee's `forefront` (ADR 0005): of two\nsuch requests, the later goes first. A priority or `forefront` never\norders requests of different domains (ADR 0004); `false` by default.",
           "type": "boolean"
         },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "label": {
           "arrived_in": "0.1",
           "description": "Its Label.",
@@ -973,6 +1011,11 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "method": {
+          "$ref": "#/$defs/HttpMethod",
+          "arrived_in": "0.1",
+          "description": "The method it is sent with: `GET` by default."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -2308,6 +2351,16 @@
       ],
       "type": "object"
     },
+    "HttpBody": {
+      "contentEncoding": "base64",
+      "description": "The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).",
+      "type": "string"
+    },
+    "HttpMethod": {
+      "description": "The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.",
+      "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$",
+      "type": "string"
+    },
     "HttpsUrl": {
       "description": "An https:// URL with a host.",
       "pattern": "^https://[^/?#\\s]+[^\\s]*$",
@@ -3083,7 +3136,7 @@
       "oneOf": [
         {
           "const": "duplicate",
-          "description": "The Frontier already admitted a request of the same identity.",
+          "description": "The Frontier already admitted a request of the same identity: its\nmethod, its URL's key and its body's hash, or its declared `key`.",
           "type": "string"
         },
         {
@@ -5031,12 +5084,37 @@
     },
     "Seed": {
       "additionalProperties": false,
-      "description": "One request a crawl starts from (ADR 0093): a URL, the Label that picks\nits handler and its Payload.",
+      "description": "One request a crawl starts from (ADR 0093): a URL, the Label that picks\nits handler and its Payload, and how it is sent and identified.",
       "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpBody"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The body it is sent with, if any."
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "label": {
           "arrived_in": "0.1",
           "description": "Its Label.",
           "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/HttpMethod",
+          "arrived_in": "0.1",
+          "description": "The method it is sent with: `GET` by default."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -6517,6 +6595,20 @@
               "run_state": {
                 "additionalProperties": false,
                 "properties": {
+                  "durability": {
+                    "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+                    "enum": [
+                      "full",
+                      "fast"
+                    ]
+                  },
+                  "layout": {
+                    "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+                    "enum": [
+                      "per_run",
+                      "per_install"
+                    ]
+                  },
                   "location": {
                     "anyOf": [
                       {
@@ -7010,6 +7102,20 @@
               "run_state": {
                 "additionalProperties": false,
                 "properties": {
+                  "durability": {
+                    "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+                    "enum": [
+                      "full",
+                      "fast"
+                    ]
+                  },
+                  "layout": {
+                    "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+                    "enum": [
+                      "per_run",
+                      "per_install"
+                    ]
+                  },
                   "location": {
                     "anyOf": [
                       {
@@ -7528,6 +7634,20 @@
               "run_state": {
                 "additionalProperties": false,
                 "properties": {
+                  "durability": {
+                    "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+                    "enum": [
+                      "full",
+                      "fast"
+                    ]
+                  },
+                  "layout": {
+                    "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+                    "enum": [
+                      "per_run",
+                      "per_install"
+                    ]
+                  },
                   "location": {
                     "anyOf": [
                       {

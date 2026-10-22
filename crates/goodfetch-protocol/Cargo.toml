@@ -9,6 +9,8 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+# A crawl request's body in Base64.
+data-encoding.workspace = true
 # The Browser cache entry's RFC 3339 times.
 jiff.workspace = true
 schemars.workspace = true

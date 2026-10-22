@@ -3,10 +3,11 @@
 //! both Products' compositions add, over the in-memory network, on the test
 //! `Clock` and a fixed `Entropy` seed, in a home of its own: under an
 //! install Limit, whose Slices its run state journals, a tagged crawl of
-//! three seeds, one with a Payload and one the Frontier answers
-//! `duplicate`, whose handler enqueues a `forefront` request from the
-//! first, pushes Records for it and fails on the second, whose first byte
-//! never came, so its
+//! four seeds, one with a Payload, one the Frontier answers `duplicate`
+//! and one sent as a `POST` with a body under a declared key, whose
+//! handler enqueues a `forefront` request on another domain from the
+//! first, pushes Records for the first, the last and that request and
+//! fails on the second, whose first byte never came, so its
 //! domain still backs off when `run.finish` ends it; and a Run its
 //! program drives, under an Operator policy and with a setting that
 //! weakens a guarantee, which `run.abort` stops; and a Run bound to a
@@ -70,6 +71,7 @@ fn scenario() -> Vec<Value> {
                     { "url": "https://shop.test/", "label": "home", "payload": { "depth": 0 } },
                     { "url": "https://shop.test/broken", "label": "product" },
                     { "url": "https://SHOP.test:443/", "label": "home" },
+                    { "url": "https://api.test/search", "label": "home", "method": "POST", "body": "eyJwYWdlIjoxfQ==", "key": "search-1" },
                 ],
             }),
         ),

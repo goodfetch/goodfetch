@@ -24,6 +24,7 @@ mod encodings;
 mod extra_loopback;
 mod extraction;
 mod extraction_families;
+mod extraction_markdown;
 mod facets;
 mod fake_model;
 mod fetch_edge;

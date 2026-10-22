@@ -471,3 +471,55 @@ document.querySelector('#counter').addEventListener('click', async event => {
 });
 document.body.dataset.ready = 'true';
 </script></body></html>'''
+
+# Locators resolved at each use (#700): a target the page renders twice for
+# a moment, a controlled field and a menu that opens on hover.
+
+[[tasks]]
+name = "ambiguous-rerender"
+kind = "act"
+description = "Click the button labelled Target once. The page renders it twice for a moment after it loads, then once."
+effects = [{ event = "click", target = "target", trusted = true, details = { ready = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html lang="en"><body><output id="done"></output><main><button id="target">Target</button><button id="target">Target</button></main><script src="/effects.js"></script><script>
+let ready = false;
+const attach = button => button.addEventListener('click', async event => { await post({ event: 'click', target: 'target', trusted: event.isTrusted, details: { ready: String(ready) } }); done(); });
+document.querySelectorAll('#target').forEach(attach);
+// A re-render's transient duplicate: the second copy leaves.
+setTimeout(() => { document.querySelectorAll('#target')[1].remove(); ready = true; }, 180);
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "controlled"
+kind = "submit"
+description = "Type `Goodfetch` into the Name field, then press Save once. The field shows the page's own state, which only typed input changes."
+effects = [{ event = "submit", target = "save", trusted = true, details = { state = "Goodfetch", typed = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html lang="en"><body><output id="done"></output><main><label>Name <input id="name"></label><output id="echo"></output><button id="save">Save</button></main><script src="/effects.js"></script><script>
+// A controlled field, as React renders one: it shows the state, and only an
+// input event changes the state; a value set by a script is overwritten.
+let state = '';
+let typed = false;
+const field = document.querySelector('#name');
+const render = () => { field.value = state; document.querySelector('#echo').textContent = state; };
+field.addEventListener('input', event => { typed = typed || event.isTrusted; state = event.target.value; render(); });
+document.querySelector('#save').addEventListener('click', async event => {
+  render();
+  await post({ event: 'submit', target: 'save', trusted: event.isTrusted, details: { state, typed: String(typed) } });
+  done();
+});
+document.body.dataset.ready = 'true';
+</script></body></html>'''
+
+[[tasks]]
+name = "hover-menu"
+kind = "act"
+description = "Open the File menu with the pointer and click Export once. The menu shows its items only while the pointer is over it."
+effects = [{ event = "click", target = "export", trusted = true, details = { hovered = "true" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html lang="en"><head><style>.menu .items { display: none; } .menu:hover .items { display: block; }</style></head><body style="margin:0;font:16px sans-serif"><output id="done"></output><nav class="menu" style="position:absolute;left:100px;top:100px;width:200px"><button id="menu">File</button><div class="items"><button id="export">Export</button></div></nav><script src="/effects.js"></script><script>
+const menu = document.querySelector('.menu');
+document.querySelector('#export').addEventListener('click', async event => { await post({ event: 'click', target: 'export', trusted: event.isTrusted, details: { hovered: String(menu.matches(':hover')) } }); done(); });
+document.body.dataset.ready = 'true';
+</script></body></html>'''

@@ -306,6 +306,12 @@ pub enum StartError {
         /// this engine.
         install: Option<String>,
     },
+    /// The engine drains (ADR 0049): it takes no Run.
+    #[error("the engine drains and takes no Run")]
+    Draining {
+        /// The Run ID asked for, when the start named one.
+        run_id: Option<RunId>,
+    },
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
@@ -405,6 +411,9 @@ pub enum RunError {
         /// What failed.
         message: String,
     },
+    /// The engine drains (ADR 0049): it resumes no Run.
+    #[error("the engine drains and resumes no Run")]
+    Draining(RunId),
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
@@ -530,6 +539,7 @@ enum Command {
     ),
     Machine(oneshot::Sender<Result<String, RunError>>),
     Reader(RunId, oneshot::Sender<RunReader>),
+    Drain(oneshot::Sender<Vec<watch::Receiver<Option<RunReport>>>>),
 }
 
 /// Whether an abort came forwarded from another engine, which counts on
@@ -907,6 +917,7 @@ impl Runs {
             limits: Arc::clone(&runs.limits),
             drivers: Arc::clone(&runs.drivers),
             machine: None,
+            draining: false,
         };
         owner.spawn(registry.run(mailbox));
         runs
@@ -1228,6 +1239,24 @@ impl Runs {
         answered.await.unwrap_or(0)
     }
 
+    /// Drains the engine (ADR 0049): from now on it takes no Run, starting
+    /// or resuming, and each live Run stops at its next safe point with a
+    /// Checkpoint, `stopped` and resumable by its Run ID; answers once the
+    /// engine takes no Run, with the [`Draining`] Runs, whose ends
+    /// [`Draining::ended`] waits for.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after it was sent still drains: the Runs stop,
+    /// and only the answer is lost.
+    pub(crate) async fn drain(&self) -> Draining {
+        let (answer, answered) = oneshot::channel();
+        if self.commands.send(Command::Drain(answer)).await.is_err() {
+            return Draining(Vec::new());
+        }
+        Draining(answered.await.unwrap_or_default())
+    }
+
     /// Stops every live Run as aborted by its Client, as an Attached engine
     /// does when its Connection ends (ADR 0078), and waits for their ends.
     ///
@@ -1240,6 +1269,27 @@ impl Runs {
             return;
         }
         for report in answered.await.unwrap_or_default() {
+            let _ = wait_for(report).await;
+        }
+    }
+}
+
+/// The Runs a drain stops (ADR 0049).
+pub(crate) struct Draining(Vec<watch::Receiver<Option<RunReport>>>);
+
+impl Draining {
+    /// How many Runs it stops.
+    pub(crate) fn count(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Answers once every one ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the wait.
+    pub(crate) async fn ended(self) {
+        for report in self.0 {
             let _ = wait_for(report).await;
         }
     }
@@ -1301,13 +1351,29 @@ struct Registry {
     drivers: Arc<BTreeMap<RunKind, Driver>>,
     /// The machine's identity, once read.
     machine: Option<String>,
+    /// Whether the engine drains, taking no Run (ADR 0049).
+    draining: bool,
 }
 
 impl Registry {
     async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
+        // No command is answered before the reclaim ends, so a Run starts
+        // on a ledger rid of dead runs' Slices, and an answered Run call
+        // says the engine's startup writes are done.
         self.reclaim().await;
         while let Some(command) = mailbox.recv().await {
             match command {
+                Command::Start(start, _, answer) if self.draining => {
+                    let _ = answer.send(Err(StartError::Draining {
+                        run_id: start.run_id,
+                    }));
+                }
+                Command::Resume(resume, _, answer) if self.draining => {
+                    let _ = answer.send(Err(RunError::Draining(resume.run_id)));
+                }
+                Command::Drain(answer) => {
+                    let _ = answer.send(self.drain().await);
+                }
                 Command::Start(start, connection, answer) => {
                     let started = self.start(*start, connection).await;
                     let _ = answer.send(started);
@@ -1339,6 +1405,11 @@ impl Registry {
                 Command::StopAll(answer) => {
                     let ids: Vec<RunId> = self.live.keys().cloned().collect();
                     let _ = answer.send(self.stop_by_client(ids).await);
+                }
+                // A draining engine leaves each Run to its drain, which a
+                // Client's leaving does not abort.
+                Command::StopConnection(_, answer) if self.draining => {
+                    let _ = answer.send(Vec::new());
                 }
                 Command::StopConnection(connection, answer) => {
                     let ids: Vec<RunId> = self
@@ -1388,6 +1459,20 @@ impl Registry {
         self.readers.wait().await;
         self.ending_owner.wait().await;
         self.owner.wait().await;
+    }
+
+    /// Takes no Run from now on, stops each live Run for the drain with a
+    /// Checkpoint, and answers the waits for their reports.
+    async fn drain(&mut self) -> Vec<watch::Receiver<Option<RunReport>>> {
+        self.draining = true;
+        let ids: Vec<RunId> = self.live.keys().cloned().collect();
+        let mut reports = Vec::new();
+        for run_id in ids {
+            if let Ok(report) = self.stop(&run_id, StopReason::Drain, None).await {
+                reports.push(report);
+            }
+        }
+        reports
     }
 
     /// Stops each of `ids` as aborted by its Client, and answers the waits
@@ -2254,6 +2339,7 @@ impl Registry {
                 StartError::Conflict { .. }
                 | StartError::LimitReached(_)
                 | StartError::LimitNotUnderstood(_)
+                | StartError::Draining { .. }
                 | StartError::Stopped => RunError::Stopped,
             })?;
         let mut after = 0;

@@ -6,6 +6,8 @@ address = "example"
 
 [settings.daemon]
 idle_timeout = 30000
+address = "example"
+drain_grace = 30000
 
 [settings.browser_cache]
 max_unused_age = 30000
@@ -13,6 +15,9 @@ max_unused_age = 30000
 [settings.resolver]
 resolution_delay = 30000
 attempt_delay = 30000
+
+[settings.browser]
+headless = true
 
 [settings.run_state]
 location = "example"
@@ -55,6 +60,7 @@ signing = true
 
 [settings.timeout]
 run = 30000
+action = 30000
 navigation = 30000
 first_byte = 30000
 handler = 30000
@@ -98,6 +104,8 @@ address = "example"
 
 [lock.daemon]
 idle_timeout = 30000
+address = "example"
+drain_grace = 30000
 
 [lock.browser_cache]
 max_unused_age = 30000
@@ -105,6 +113,9 @@ max_unused_age = 30000
 [lock.resolver]
 resolution_delay = 30000
 attempt_delay = 30000
+
+[lock.browser]
+headless = true
 
 [lock.run_state]
 location = "example"
@@ -147,6 +158,7 @@ signing = true
 
 [lock.timeout]
 run = 30000
+action = 30000
 navigation = 30000
 first_byte = 30000
 handler = 30000
@@ -187,6 +199,7 @@ report_guarantee_class = true
 
 [cap.daemon]
 idle_timeout = 30000
+drain_grace = 30000
 
 [cap.browser_cache]
 max_unused_age = 30000
@@ -203,6 +216,7 @@ echo_repeats = 4
 
 [cap.timeout]
 run = 30000
+action = 30000
 navigation = 30000
 first_byte = 30000
 handler = 30000

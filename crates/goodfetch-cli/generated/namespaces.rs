@@ -27,6 +27,11 @@
         about: "Calls the catalog's `page` operations",
     },
     Namespace {
+        name: "locator",
+        spelled: "locator",
+        about: "Calls the catalog's `locator` operations",
+    },
+    Namespace {
         name: "sample",
         spelled: "sample",
         about: "Calls the catalog's `sample` operations",

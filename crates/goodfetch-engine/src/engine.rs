@@ -171,9 +171,17 @@ impl Engine {
             &owner,
         )
         .await;
-        runs.stop_all().await;
-        drop(runs);
-        owner.stop().await;
+        if matches!(ended, DaemonEnd::Drained) {
+            // Its process exits now, within its drain grace: a Run whose
+            // tasks did not stop in time stays as it is, resumable from its
+            // run file, and nothing waits for them.
+            drop(runs);
+            owner.cancel();
+        } else {
+            runs.stop_all().await;
+            drop(runs);
+            owner.stop().await;
+        }
         ended
     }
 

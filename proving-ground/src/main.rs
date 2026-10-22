@@ -30,6 +30,7 @@ mod handmade;
 mod hostile;
 mod languages;
 mod login;
+mod markdown;
 mod model;
 mod network;
 mod network_fixture;

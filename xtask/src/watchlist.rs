@@ -1,8 +1,9 @@
 //! The watchlist job (story 61; ADRs 0035 and 0043): webappanalyzer
-//! (GPL-3.0) and Scrapfly's Antibot-Detector (NPOSL-3.0) are read for vendor
-//! names only, compared with the vendors Collie's block-detection rules
-//! cover (`vendors.toml` beside the rules), and each vendor they list that no
-//! rule covers gets one `watchlist` issue. A rule for it is written from the
+//! (GPL-3.0) and Scrapfly's Antibot-Detector (NPOSL-3.0) are read for the
+//! names of bot-protection, challenge and CAPTCHA vendors only, compared
+//! with the vendors Collie's block-detection rules cover (`vendors.toml`
+//! beside the rules), and each vendor they list that no rule covers gets one
+//! `watchlist` issue. A rule for it is written from the
 //! vendor's documentation and Goodfetch's own captures: nothing else of
 //! either list enters Goodfetch, and the notice inventory refuses a source
 //! that names one ([`Watchlist::named_in`]).
@@ -82,8 +83,8 @@ impl Watchlist {
     }
 }
 
-/// The technologies of webappanalyzer's "Security" category, where its
-/// bot-protection and captcha vendors are.
+/// The technologies of webappanalyzer's "Security" category that
+/// [`describes_bot_protection`].
 fn read_webappanalyzer(folder: &Path) -> Result<Vec<String>> {
     #[derive(Deserialize)]
     struct Category {
@@ -93,6 +94,7 @@ fn read_webappanalyzer(folder: &Path) -> Result<Vec<String>> {
     struct Technology {
         #[serde(default)]
         cats: Vec<u64>,
+        description: Option<String>,
     }
     let source = folder.join("src");
     let categories: BTreeMap<u64, Category> = read_json(&source.join("categories.json"))?;
@@ -118,11 +120,31 @@ fn read_webappanalyzer(folder: &Path) -> Result<Vec<String>> {
         names.extend(
             listed
                 .into_iter()
-                .filter(|(_, technology)| technology.cats.iter().any(|cat| security.contains(cat)))
+                .filter(|(name, technology)| {
+                    technology.cats.iter().any(|cat| security.contains(cat))
+                        && describes_bot_protection(name, technology.description.as_deref())
+                })
                 .map(|(name, _)| name),
         );
     }
     Ok(names)
+}
+
+/// Whether a webappanalyzer Security technology is a bot-protection,
+/// challenge or CAPTCHA vendor: its name or description (read, never kept)
+/// says "bot" or "bots" as a word (also `anti-bot`, `AntiBot`), "captcha" or
+/// "Turing test". The category alone also holds HSTS, bug bounty platforms,
+/// fraud scoring and the like. A bot vendor whose entry says none of these
+/// (Anubis, for one) is found only if Antibot-Detector lists it.
+pub(crate) fn describes_bot_protection(name: &str, description: Option<&str>) -> bool {
+    [Some(name), description].into_iter().flatten().any(|text| {
+        let text = text.to_ascii_lowercase();
+        text.contains("captcha")
+            || text.contains("turing test")
+            || text
+                .split(|character: char| !character.is_ascii_alphanumeric())
+                .any(|word| matches!(word, "bot" | "bots" | "antibot" | "antibots"))
+    })
 }
 
 /// The detectors of Antibot-Detector's `antibot` and `captcha` categories,

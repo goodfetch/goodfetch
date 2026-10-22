@@ -121,7 +121,11 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("page.reload", Offer::Command),
             ("page.go_back", Offer::Command),
             ("page.go_forward", Offer::Command),
+            ("page.formats", Offer::Command),
             ("page.body", Offer::Follow),
+            ("locator.click", Offer::Command),
+            ("locator.fill", Offer::Command),
+            ("locator.press", Offer::Command),
             ("run.start", Offer::Command),
             ("run.finish", Offer::Command),
             ("run.abort", Offer::Command),
@@ -147,7 +151,7 @@ fn the_generated_namespaces_are_those_of_collies_commands() {
     assert_eq!(
         names,
         [
-            "daemon", "engine", "events", "run", "page", "sample", "config", "usage"
+            "daemon", "engine", "events", "run", "page", "locator", "sample", "config", "usage"
         ]
     );
     assert_eq!(

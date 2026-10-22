@@ -388,6 +388,19 @@
             "type": "object"
           },
           {
+            "description": "Its foreground Daemon drained on `SIGTERM`: checkpointed and\nstopped, to be resumed by its Run ID on the Daemon's next start\n(ADR 0049).",
+            "properties": {
+              "kind": {
+                "const": "drain",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
             "$ref": "#/$defs/ReachedLimit",
             "description": "It could not take another Slice of a Limit, and stopped at its next\nsafe point, resumable once the period starts again or a person\nraises the Limit (ADR 0041).",
             "properties": {

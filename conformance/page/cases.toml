@@ -1,16 +1,17 @@
-# The page suite's case list (spec #577, tickets #695 and #698): a Collie
-# program's pages over the protocol, run by `goodfetch-conformance`'s engine
-# harness against an Attached engine of Collie's executable on the local
-# Proving ground (ADR 0094), each case on a Run of its own whose `network.resolve`
-# maps the Proving ground's host names to its address (ADR 0059). The
-# engine finds its browser in the Browser cache its environment names. Bump
-# the version whenever a case changes.
+# The page suite's case list (spec #577, tickets #695, #696, #698 and #700;
+# spec #580, ticket #783): a Collie program's pages, their locator actions
+# and their formats over the protocol, run by `goodfetch-conformance`'s
+# engine harness against an Attached engine of Collie's executable on the
+# local Proving ground (ADR 0094), each case on a Run of its own whose
+# `network.resolve` maps the Proving ground's host names to its address
+# (ADR 0059). The engine finds its browser in the Browser cache its
+# environment names. Bump the version whenever a case changes.
 
 product = "collie"
 
 [suite]
 name = "page"
-version = "2"
+version = "5"
 
 [[capability]]
 name = "sessions.default"
@@ -51,3 +52,62 @@ covers = ["story:5-26", "operation:page.goto", "error:navigation_failed"]
 [[capability.case]]
 id = "a-navigation-superseded-before-it-committed-is-interrupted"
 covers = ["operation:page.goto", "error:navigation_interrupted"]
+
+[[capability]]
+name = "formats"
+
+[[capability.case]]
+id = "markdown-matches-the-oracle-on-the-markdown-pages"
+covers = ["story:6-1", "story:6-12", "operation:page.formats"]
+
+[[capability.case]]
+id = "a-format-the-request-does-not-name-is-left-out"
+covers = ["story:6-8", "operation:page.formats"]
+
+[[capability.case]]
+id = "a-page-with-no-main-content-answers-empty-markdown-and-none"
+covers = ["story:6-12", "operation:page.formats"]
+
+[[capability]]
+name = "launch"
+
+[[capability.case]]
+id = "a-headless-page-shows-the-site-its-windows-identity"
+covers = ["story:5-56", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-page-behind-another-keeps-its-timer-and-its-focus"
+covers = ["story:5-11", "operation:run.new_page", "operation:page.goto"]
+
+name = "locators.guard"
+
+[[capability.case]]
+id = "a-click-on-a-covered-target-lands-once-the-cover-leaves"
+covers = ["story:5-2", "operation:locator.click"]
+
+[[capability.case]]
+id = "an-ambiguous-target-that-becomes-unique-is-acted-on"
+covers = ["story:5-3", "operation:locator.click"]
+
+[[capability.case]]
+id = "a-locator-survives-a-re-render-that-replaces-its-element"
+covers = ["story:5-18", "operation:locator.click"]
+
+[[capability.case]]
+id = "a-target-still-ambiguous-raises-target-not-unique"
+covers = ["story:5-3", "operation:locator.click", "error:target_not_unique", "setting:timeout.action"]
+
+[[capability.case]]
+id = "a-target-never-actionable-raises-deadline-exceeded-naming-the-step"
+covers = ["story:5-2", "operation:locator.click", "error:deadline_exceeded", "setting:timeout.action"]
+
+[[capability]]
+name = "locators.input"
+
+[[capability.case]]
+id = "typed-text-reaches-a-controlled-field-as-trusted-input"
+covers = ["story:5-10", "operation:locator.fill", "operation:locator.click"]
+
+[[capability.case]]
+id = "a-pressed-key-reaches-a-field-as-a-trusted-key"
+covers = ["story:5-10", "operation:locator.press"]

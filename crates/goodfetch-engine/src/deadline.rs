@@ -44,6 +44,12 @@ impl Deadline {
         self.duration
     }
 
+    /// The setting that set it, its value and its layer, which an error
+    /// at the deadline names.
+    pub fn limit(&self) -> &SettingLimit {
+        &self.limit
+    }
+
     /// Waits for `work` on `clock` until the deadline passes, then ends it
     /// with `deadline_exceeded`, which says it waited for `waited_for`.
     ///

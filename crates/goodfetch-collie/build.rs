@@ -42,7 +42,7 @@ fn main() {
 /// at its path without that suffix.
 fn table(folder: &Path, files: &[PathBuf]) -> String {
     let mut table = format!(
-        "static FILES: [goodfetch_engine::console::ConsoleFile; {}] = [\n",
+        "static FILES: [goodfetch_engine::ConsoleFile; {}] = [\n",
         files.len()
     );
     for file in files {
@@ -50,12 +50,12 @@ fn table(folder: &Path, files: &[PathBuf]) -> String {
         let served = served.strip_suffix(".br").unwrap_or(&served);
         let _ = writeln!(
             table,
-            "    goodfetch_engine::console::ConsoleFile::new({:?}, include_bytes!({:?})),",
+            "    goodfetch_engine::ConsoleFile::new({:?}, include_bytes!({:?})),",
             format!("/{served}"),
             folder.join(file).to_string_lossy(),
         );
     }
-    table.push_str("];\n\n/// Collie's Console build, as `xtask console build` wrote it.\npub(crate) static CONSOLE: goodfetch_engine::console::ConsoleBuild =\n    goodfetch_engine::console::ConsoleBuild::new(&FILES);\n");
+    table.push_str("];\n\n/// Collie's Console build, as `xtask console build` wrote it.\npub(crate) static CONSOLE: goodfetch_engine::ConsoleBuild =\n    goodfetch_engine::ConsoleBuild::new(&FILES);\n");
     table
 }
 

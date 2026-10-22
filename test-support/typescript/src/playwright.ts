@@ -24,7 +24,8 @@
 //   (by default the one the Daemon serves from its executable's Console
 //   build), and the Proving ground
 //   of `provingGroundSeed` when set. All of it stops at teardown, leaving no
-//   runtime file and no process.
+//   runtime file and no process, once the test's pages are audited and
+//   closed, so no Console reaches for a Daemon the harness stopped.
 // - `signIn`: the ways a person signs in to the test's Console (the
 //   executable's single-user link, single sign-on through the worker's
 //   local OIDC provider), with Playwright's virtual authenticator installed
@@ -39,11 +40,13 @@
 // `playwright.config.ts`.
 import {
   test as base,
+  type BrowserContext,
   type Page,
   type PlaywrightTestArgs,
   type PlaywrightTestOptions,
   type PlaywrightWorkerArgs,
   type PlaywrightWorkerOptions,
+  type TestInfo,
   type TestType,
 } from "@playwright/test";
 import { auditAccessibility } from "./accessibility.ts";
@@ -173,7 +176,7 @@ export const test: TestType<
     { scope: "worker" },
   ],
   daemon: async (
-    { product, provingGroundSeed, consoleServer, toolManifest, engine, oidcProvider },
+    { context, product, provingGroundSeed, consoleServer, toolManifest, engine, oidcProvider },
     use,
     testInfo,
   ) => {
@@ -197,6 +200,10 @@ export const test: TestType<
         oidc: oidcProvider,
       });
       await use(started.daemon);
+      // The pages are audited, then closed, before their Daemon stops, so
+      // no Console tries to reach a Daemon the harness stopped.
+      await auditOnce(context, testInfo);
+      await Promise.all(context.pages().map(async (page) => page.close()));
       await started.close();
     } finally {
       await processes.close();
@@ -248,21 +255,34 @@ export const test: TestType<
     // Taking `failOnErrors` sets it up first, so it judges the pages after the audit.
     async ({ context, failOnErrors }, use, testInfo) => {
       await use();
-      if (testInfo.status !== "passed") {
-        return;
-      }
-      const exceptions = await readAxeExceptions();
-      for (const page of context.pages()) {
-        if (page.url() !== "about:blank") {
-          await resumeInstalledClock(page);
-          await auditAccessibility(page, { exceptions, testInfo });
-        }
-      }
+      await auditOnce(context, testInfo);
       void failOnErrors;
     },
     { auto: true },
   ],
 });
+
+/** The tests whose pages were audited already. */
+const audited = new WeakSet<TestInfo>();
+
+/**
+ * Audits each open page of `context` once its test has passed, once per
+ * test: at the `daemon` fixture's teardown, before it closes the pages, or
+ * else at the `axe` fixture's.
+ */
+async function auditOnce(context: BrowserContext, testInfo: TestInfo): Promise<void> {
+  if (testInfo.status !== "passed" || audited.has(testInfo)) {
+    return;
+  }
+  audited.add(testInfo);
+  const exceptions = await readAxeExceptions();
+  for (const page of context.pages()) {
+    if (page.url() !== "about:blank") {
+      await resumeInstalledClock(page);
+      await auditAccessibility(page, { exceptions, testInfo });
+    }
+  }
+}
 
 /**
  * Lets time flow again on a page whose test installed `page.clock`, which

@@ -134,7 +134,7 @@
     {
       "id": "command:console",
       "kind": "command",
-      "area": null,
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [
@@ -672,6 +672,17 @@
       "id": "error:closed",
       "kind": "error",
       "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:connection_lost",
+      "kind": "error",
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [
@@ -9197,6 +9208,17 @@
       "kind": "story",
       "area": 11,
       "milestone": "M3 Browser automation",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-1",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
       "status": "active",
       "products": [
         "collie",

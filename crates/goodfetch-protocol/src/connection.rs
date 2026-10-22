@@ -489,6 +489,18 @@ pub const ENGINE_EXITED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A Connection to an engine that dropped while a call waited for its
+/// answer (ADRs 0031 and 0079), raised by the Client's own runtime, as the
+/// Console's, which then connects again.
+pub const CONNECTION_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "connection_lost",
+    description: "The Connection to the engine dropped before the call was answered, so whether it took effect is unknown. The Client connects again by itself; make the call again once it has, after checking that an Effect did not happen.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// What `engine_exited` details.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct EngineExitedDetails {
@@ -541,6 +553,7 @@ pub const ENTRIES: Entries = Entries {
         CLOSED,
         ENGINE_NOT_FOUND,
         ENGINE_EXITED,
+        CONNECTION_LOST,
         ENGINE_OUTPUT_INVALID,
         PERSON_REQUIRED,
     ],

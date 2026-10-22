@@ -30,7 +30,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::admission::Gates;
 use crate::client::Client;
-use crate::console::ConsoleBuild;
 use crate::events::{Credits, Events};
 use crate::log::ConnectionLog;
 use crate::politeness::PolitenessTables;
@@ -402,6 +401,41 @@ impl Contribution {
     /// Who contributes it.
     pub fn name(&self) -> &'static str {
         self.name
+    }
+}
+
+/// One file of a Console build: its path from the build's root, such as
+/// `/assets/index-4f2a.js`, and its bytes, brotli-compressed.
+#[derive(Clone, Copy, Debug)]
+pub struct ConsoleFile {
+    pub(crate) path: &'static str,
+    pub(crate) brotli: &'static [u8],
+}
+
+impl ConsoleFile {
+    /// The file at `path`, such as `/index.html`, holding `brotli`.
+    pub const fn new(path: &'static str, brotli: &'static [u8]) -> Self {
+        Self { path, brotli }
+    }
+}
+
+/// A Product's Console build, as its executable embeds it: brotli files
+/// only, `xtask console build`'s output (ADR 0057).
+#[derive(Debug)]
+pub struct ConsoleBuild {
+    files: &'static [ConsoleFile],
+}
+
+impl ConsoleBuild {
+    /// The build made of `files`.
+    pub const fn new(files: &'static [ConsoleFile]) -> Self {
+        Self { files }
+    }
+
+    /// The file a request's path names: `/` names the page itself.
+    pub(crate) fn file(&self, path: &str) -> Option<&ConsoleFile> {
+        let path = if path == "/" { "/index.html" } else { path };
+        self.files.iter().find(|file| file.path == path)
     }
 }
 

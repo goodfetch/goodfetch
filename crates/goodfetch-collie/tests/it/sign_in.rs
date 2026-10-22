@@ -178,7 +178,7 @@ fn reason(rule: Rule) -> Option<&'static str> {
     })
 }
 
-/// Covers: story:12-127
+/// Covers: story:12-1
 #[test]
 fn the_consoles_websocket_passes_its_endpoint_table_rows() {
     let env = TestEnv::new();

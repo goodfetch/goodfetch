@@ -74,9 +74,21 @@ fn planned_with(
     record: Option<&GateRun>,
     touched: &BTreeMap<String, Touched>,
 ) -> Vec<Planned> {
+    planned_shuffling(members, &BTreeSet::new(), record, touched)
+}
+
+/// The plan for a head whose `shuffled` members' tests run in Vitest,
+/// Playwright or pytest, which order them by the head's seed.
+fn planned_shuffling(
+    members: &BTreeSet<String>,
+    shuffled: &BTreeSet<String>,
+    record: Option<&GateRun>,
+    touched: &BTreeMap<String, Touched>,
+) -> Vec<Planned> {
     let head = Head {
         base: BASE,
         members,
+        shuffled,
         host: HOST,
         now: NOW,
     };
@@ -467,4 +479,36 @@ fn evidence_reaches_a_member_the_selection_misses() {
         "{:?}",
         action(&plan, Step::PreMerge)
     );
+}
+
+/// Vitest, Playwright and pytest order their tests by the head's seed, so
+/// every member they test reruns in the head's order, reused or not, and a
+/// verdict equals a full run's (the owner's F8, option B); nextest runs each
+/// test in its own process, so a crate's result is still reused.
+#[test]
+fn the_shuffling_runners_rerun_every_member_in_the_heads_order() {
+    let record = full_green_run();
+    let shuffled = BTreeSet::from([
+        "sdks/python/collie-client".to_owned(),
+        "test-support/typescript".to_owned(),
+    ]);
+
+    let plan = planned_shuffling(
+        &members(),
+        &shuffled,
+        Some(&record),
+        &touched_since_earlier(Touched::default()),
+    );
+
+    for step in [Step::Quick, Step::PreMerge, Step::Stress] {
+        assert!(
+            matches!(
+                action(&plan, step),
+                Action::Part { members, why } if members == &shuffled && why.contains("the head's test order")
+            ),
+            "{step:?}: {:?}",
+            action(&plan, step)
+        );
+    }
+    assert!(matches!(action(&plan, Step::Perf), Action::Reuse { .. }));
 }

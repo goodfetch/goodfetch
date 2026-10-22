@@ -188,10 +188,7 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
     let host = host_fingerprint(root, &environment.cargo, &options.variables);
     let members_read = WorkspaceMembers::read(&environment.cargo, root)?;
     let unowned = evidence::unowned_tests(root, &members_read)?;
-    let mut members: BTreeSet<String> = members_read.all().map(|(name, _)| name).collect();
-    if !unowned.is_empty() {
-        members.insert(UNOWNED.to_owned());
-    }
+    let (members, shuffled) = head_members(&members_read, &unowned);
     let (previous, no_previous) = if options.full {
         (
             None,
@@ -205,6 +202,7 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
             &Head {
                 base: &base,
                 members: &members,
+                shuffled: &shuffled,
                 host: &host,
                 now: options.now,
             },
@@ -234,6 +232,7 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
         &Head {
             base: &base,
             members: &members,
+            shuffled: &shuffled,
             host: &host,
             now: options.now,
         },
@@ -276,6 +275,28 @@ fn write(records: &Path, carried: &GateRun, plan: &str) -> Result<()> {
         .with_context(|| format!("writing {}", record_file.display()))?;
     let plan_file = runs::plan_file(records, &carried.head);
     std::fs::write(&plan_file, plan).with_context(|| format!("writing {}", plan_file.display()))
+}
+
+/// Every member of the head's workspaces, with [`UNOWNED`] when some test
+/// belongs to none, and those whose tests Vitest, Playwright or pytest run,
+/// ordered by the head's seed: every run reruns them in that order.
+fn head_members(
+    members: &WorkspaceMembers,
+    unowned: &[String],
+) -> (BTreeSet<String>, BTreeSet<String>) {
+    let unowned = (!unowned.is_empty()).then(|| UNOWNED.to_owned());
+    let all = members
+        .all()
+        .map(|(name, _)| name)
+        .chain(unowned.clone())
+        .collect();
+    let shuffled = members
+        .all()
+        .filter(|(_, kind)| *kind != affected::Kind::Crate)
+        .map(|(name, _)| name)
+        .chain(unowned)
+        .collect();
+    (all, shuffled)
 }
 
 /// What reads the change since a head: the workspace and its evidence.

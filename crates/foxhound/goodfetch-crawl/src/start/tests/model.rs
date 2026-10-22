@@ -4,10 +4,13 @@
 //! the generated script says (Records, a retryable failure, its own
 //! failure, silence until the lease ends, or Records sent only once the
 //! engine cancelled the attempt at its lease's end: a late commit, which
-//! commits nothing), and which may crash or lose
-//! power between attempts. A reference model of the Run's policy says which
-//! work item and attempt each handler request must be, and which Records
-//! each commit holds. After every step the run file holds every Record
+//! commits nothing), and which may crash or lose power between attempts, or
+//! abort the Run. A reference model of the Run's policy says which work item
+//! and attempt each handler request must be, and which Records each commit
+//! holds; the Run's transition table (ADR 0128) is its reference for the
+//! Run's Lifecycle: the driver's finish once no work is left, an abort, the
+//! loss of the engine in a crash, and a finish or an abort of the Run
+//! afterwards, which another engine's abort takes over after a crash. After every step the run file holds every Record
 //! acknowledged, none twice and none of an attempt that did not commit;
 //! after a crash, the file the next process opens passes `PRAGMA
 //! integrity_check` (in `after_crash`) and still does. The handler takes
@@ -18,8 +21,10 @@
 use std::collections::BTreeMap;
 
 use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::runs::lifecycle::{self, Next, RunEvent};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Network};
+use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
@@ -28,7 +33,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 use tokio::runtime::Runtime;
 
-use super::{POLICY, configure, dependencies, engine};
+use super::{POLICY, configure, default_dependencies, dependencies, engine};
 use crate::policy::CrawlPolicy;
 
 /// The model's crawls take one work item at a time.
@@ -57,6 +62,8 @@ enum Behaviour {
 enum Transition {
     /// The next handler request is answered so.
     Deliver(Behaviour),
+    /// The Client aborts the Run.
+    Abort,
     /// The process crashes or the power goes, between attempts; the case
     /// ends with the file the next process opens.
     Crash(CrashKind),
@@ -78,15 +85,43 @@ struct Model {
     committed: Vec<Value>,
     last_answer: Vec<Value>,
     crashed: bool,
+    /// The Run's Lifecycle, as the Run's table changes it.
+    lifecycle: Lifecycle,
 }
 
 impl Model {
-    /// The work item the next handler request leases, and its attempt.
+    /// The work item the next handler request leases, and its attempt;
+    /// none once the Run ended.
     fn next(&self) -> Option<(usize, u32)> {
+        if self.lifecycle != Lifecycle::Running {
+            return None;
+        }
         self.items
             .iter()
             .position(|item| !item.done)
             .map(|index| (index, self.items[index].attempts + 1))
+    }
+
+    /// The Lifecycle `events` leave the Run in, as the Run's table says.
+    fn after(&self, events: &[RunEvent]) -> Lifecycle {
+        events.iter().fold(self.lifecycle, |state, event| {
+            match lifecycle::apply(state, *event) {
+                Ok(Next::To(next)) => next,
+                Ok(Next::Unchanged) => state,
+                Err(refused) => panic!("the Run's table refused {refused}"),
+            }
+        })
+    }
+
+    /// The Lifecycles a crash may leave the Run in, as another engine's
+    /// abort then reports it: its engine lost while it ran, or, once no
+    /// work was left, after its driver's finish had landed.
+    fn after_a_crash_and_an_abort(&self) -> Vec<Lifecycle> {
+        let mut possible = vec![self.after(&[RunEvent::EngineLost, RunEvent::Abort])];
+        if self.next().is_none() {
+            possible.push(self.after(&[RunEvent::Finish, RunEvent::Abort]));
+        }
+        possible
     }
 }
 
@@ -112,6 +147,7 @@ impl ReferenceStateMachine for Model {
                 committed: Vec::new(),
                 last_answer: Vec::new(),
                 crashed: false,
+                lifecycle: Lifecycle::Running,
             })
             .boxed()
     }
@@ -124,17 +160,31 @@ impl ReferenceStateMachine for Model {
             1 => Just(Transition::Deliver(Behaviour::Silent)),
             1 => (1_u8..3).prop_map(|count| Transition::Deliver(Behaviour::Late(count))),
             1 => prop_oneof![Just(CrashKind::Process), Just(CrashKind::PowerCut)].prop_map(Transition::Crash),
+            1 => Just(Transition::Abort),
         ]
         .boxed()
+    }
+
+    /// An abort races nothing: it is sent only while the Run runs, before
+    /// its driver could finish it.
+    fn preconditions(model: &Self, transition: &Transition) -> bool {
+        !matches!(transition, Transition::Abort) || model.next().is_some()
     }
 
     fn apply(mut model: Self, transition: &Transition) -> Self {
         if model.crashed {
             return model;
         }
-        let Transition::Deliver(behaviour) = transition else {
-            model.crashed = true;
-            return model;
+        let behaviour = match transition {
+            Transition::Deliver(behaviour) => behaviour,
+            Transition::Abort => {
+                model.lifecycle = model.after(&[RunEvent::Abort]);
+                return model;
+            }
+            Transition::Crash(_) => {
+                model.crashed = true;
+                return model;
+            }
         };
         let Some((index, attempt)) = model.next() else {
             return model;
@@ -169,6 +219,8 @@ struct Subject {
     writer: goodfetch_engine::transport::ConnectionWriter,
     delivered: usize,
     finished: bool,
+    /// Whether the Client aborted the Run.
+    aborted: bool,
     /// The requests left unanswered, with the Records each answers once
     /// the engine cancels it.
     silent: Vec<(Value, Vec<Value>)>,
@@ -199,6 +251,48 @@ impl Subject {
             .join("run.sqlite")
             .to_string_lossy()
             .into_owned()
+    }
+
+    /// Says `hello` to the engine.
+    fn hello(&mut self) {
+        self.send(&json!({
+            "jsonrpc": "2.0", "id": "hello", "method": "hello",
+            "params": { "protocol_version": "0.1", "surface": "rust", "needs": "foxhound", "product_version": "1.4.0" },
+        }));
+        assert_eq!(self.next()["result"]["product"], "foxhound");
+    }
+
+    /// Calls `method` on the Run under the id `id` and answers its reply;
+    /// a handler request on the way is left unanswered, as a request whose
+    /// cancel the reply follows.
+    fn call(&mut self, id: &str, method: &str) -> Value {
+        self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": { "run_id": "model" } }));
+        loop {
+            let message = next_from_engine(self);
+            if message["id"] == id {
+                return message;
+            }
+            if message["method"] == "crawl_request.handle" {
+                self.silent.push((message["id"].clone(), Vec::new()));
+            }
+        }
+    }
+
+    /// Starts another engine in the same home, on the crash VFS, and says
+    /// `hello` to it.
+    fn restart(&mut self) {
+        let options = RunStateOptions {
+            vfs: Some(self.vfs.name().to_owned()),
+        };
+        self.owner = TaskOwner::root(BlockingPolicy::Inline);
+        let (env, owner) = (&self.env, &self.owner);
+        let (reader, writer) = self
+            .runtime
+            .block_on(async { attach(owner, default_dependencies(env, options)).await });
+        self.lines = BufReader::new(reader).lines();
+        self.writer = writer;
+        self.silent.clear();
+        self.hello();
     }
 
     /// The Records the run file holds now, read beside the writer.
@@ -284,15 +378,7 @@ impl StateMachineTest for Subject {
                 },
             );
             configure(&env, ONE_AT_A_TIME);
-            let (network, dialer) = transport::in_memory();
-            let engine = engine();
-            owner.spawn(async move {
-                engine
-                    .run_attached(Network::InMemory(network), dependencies)
-                    .await
-                    .unwrap();
-            });
-            dialer.connect().await.unwrap().split()
+            attach(&owner, dependencies).await
         });
         let mut subject = Self {
             runtime,
@@ -303,13 +389,10 @@ impl StateMachineTest for Subject {
             writer,
             delivered: 0,
             finished: false,
+            aborted: false,
             silent: Vec::new(),
         };
-        subject.send(&json!({
-            "jsonrpc": "2.0", "id": "hello", "method": "hello",
-            "params": { "protocol_version": "0.1", "surface": "rust", "needs": "foxhound", "product_version": "1.4.0" },
-        }));
-        assert_eq!(subject.next()["result"]["product"], "foxhound");
+        subject.hello();
         let seeds: Vec<Value> = (1..=model.items.len())
             .map(|page| json!({ "url": format!("https://shop.test/{page}"), "label": "page" }))
             .collect();
@@ -331,7 +414,40 @@ impl StateMachineTest for Subject {
                 subject.stop();
                 let connection = after_crash(&subject.vfs, &subject.path()).unwrap();
                 check(&stored_records(&connection), model);
+                drop::<Connection>(connection);
+                // Another engine takes the interrupted Run's writer role
+                // to abort it.
+                subject.restart();
+                let report = subject.call("abort", "run.abort");
+                let reported = report["result"]["lifecycle"].as_str().unwrap();
+                assert!(
+                    model
+                        .after_a_crash_and_an_abort()
+                        .iter()
+                        .any(|lifecycle| lifecycle.as_str() == reported),
+                    "{report}"
+                );
+                check(&subject.records(), model);
+                subject.stop();
                 subject.finished = true;
+            }
+            Transition::Abort => {
+                if subject.aborted {
+                    return subject;
+                }
+                subject.aborted = true;
+                let report = subject.call("abort", "run.abort");
+                assert_eq!(
+                    (
+                        &report["result"]["lifecycle"],
+                        &report["result"]["stop_reason"]
+                    ),
+                    (
+                        &json!(model.lifecycle.as_str()),
+                        &json!({ "kind": "abort", "by": "client" })
+                    ),
+                    "{report}"
+                );
             }
             Transition::Deliver(behaviour) => {
                 if model.delivered == subject.delivered {
@@ -392,15 +508,20 @@ impl StateMachineTest for Subject {
         if subject.finished {
             return;
         }
-        if model.next().is_none() {
-            subject.send(&json!({ "jsonrpc": "2.0", "id": "finish", "method": "run.finish", "params": { "run_id": "model" } }));
-            let report = loop {
-                let message = next_from_engine(&mut subject);
-                if message["id"] == "finish" {
-                    break message;
-                }
-            };
-            assert_eq!(report["result"]["lifecycle"], "finished");
+        if subject.aborted {
+            // A finish of the aborted Run changes nothing.
+            let report = subject.call("finish", "run.finish");
+            assert_eq!(
+                report["result"]["lifecycle"],
+                model.after(&[RunEvent::Finish]).as_str()
+            );
+            check(&subject.records(), &model);
+        } else if model.next().is_none() {
+            let report = subject.call("finish", "run.finish");
+            assert_eq!(
+                report["result"]["lifecycle"],
+                model.after(&[RunEvent::Finish]).as_str()
+            );
             let mut expected = model.committed.clone();
             expected.extend(model.last_answer.iter().cloned());
             let mut records = subject.records();
@@ -410,6 +531,26 @@ impl StateMachineTest for Subject {
         }
         subject.stop();
     }
+}
+
+/// Runs an Attached engine on `dependencies` as a task of `owner`, and
+/// connects to it.
+async fn attach(
+    owner: &TaskOwner,
+    dependencies: goodfetch_engine::Dependencies,
+) -> (
+    goodfetch_engine::transport::ConnectionReader,
+    goodfetch_engine::transport::ConnectionWriter,
+) {
+    let (network, dialer) = transport::in_memory();
+    let engine = engine();
+    owner.spawn(async move {
+        engine
+            .run_attached(Network::InMemory(network), dependencies)
+            .await
+            .unwrap();
+    });
+    dialer.connect().await.unwrap().split()
 }
 
 /// The next message, a `crawl_request.handle` request.
@@ -445,7 +586,7 @@ fn next_from_engine(subject: &mut Subject) -> Value {
 prop_state_machine! {
     #![proptest_config(goodfetch_test_support::proptest_config())]
 
-    /// Covers: story:3-41, story:3-26
+    /// Covers: story:3-41, story:3-26, story:3-151
     #[test]
     fn delivery_commits_each_answered_attempt_once_through_failures_lost_leases_and_crashes(
         sequential 1..20 => Subject

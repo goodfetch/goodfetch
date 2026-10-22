@@ -176,9 +176,10 @@ fn call(id: i64, method: &str, params: &Value) -> Value {
 }
 
 /// Over the WebSocket of `daemon run`'s configured address, a Client opens
-/// with `hello` and its token, subscribes to the event stream, grants
-/// credits and reads each Run's axis changes in position order, as over
-/// any other transport.
+/// with `hello` and its token, starts a Run, subscribes to the event stream
+/// from the start of the Engine instance its `hello` named, grants credits
+/// and reads the Run's axis change at its position, as over any other
+/// transport.
 ///
 /// Covers: story:3-13, operation:events.subscribe, event:run.axes_changed, operation:run.start
 #[test]
@@ -191,16 +192,19 @@ fn a_client_calls_daemon_run_over_websocket_with_events_and_credits() {
 
     send(&mut socket, &call(0, "hello", &hello));
     let (opened, _) = reply(&mut socket, 0);
-    send(&mut socket, &call(1, "events.subscribe", &json!({})));
-    send(
-        &mut socket,
-        &json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": 1, "credits": 10 } }),
-    );
     send(
         &mut socket,
         &call(2, "run.start", &json!({ "run_id": "over-websocket" })),
     );
     let (started, _) = reply(&mut socket, 2);
+    let after = json!({
+        "after": { "engine_instance": opened["result"]["engine_instance"], "position": 0 },
+    });
+    send(&mut socket, &call(1, "events.subscribe", &after));
+    send(
+        &mut socket,
+        &json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": 1, "credits": 10 } }),
+    );
     let mut events = Vec::new();
     while events.is_empty() {
         let message = next(&mut socket);

@@ -217,7 +217,7 @@ struct Listening {
 /// `lsof` lists them.
 fn listening_sockets() -> Vec<Listening> {
     let listed = Command::new("lsof")
-        .args(["-nP", "-iTCP", "-sTCP:LISTEN", "-iUDP", "-FpPn"])
+        .args(["-nP", "-iTCP", "-sTCP:LISTEN", "-iUDP", "-FnPp"])
         .output()
         .unwrap();
     let mut sockets = Vec::new();

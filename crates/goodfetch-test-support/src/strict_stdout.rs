@@ -7,7 +7,7 @@ use std::fmt;
 use std::io::{self, BufRead as _, BufReader, Cursor, Read};
 use std::process::Output;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::process::Process;
 
@@ -17,6 +17,11 @@ pub const MESSAGE_DEADLINE: Duration = Duration::from_secs(10);
 /// How long a failure waits for more of the child's stderr, once nothing
 /// new has come, before showing what it has.
 pub const STDERR_GRACE: Duration = Duration::from_secs(1);
+
+/// The longest a failure waits for the child's stderr in all, for a child
+/// that keeps logging (at `trace`, mid-Run) and is never quiet for
+/// [`STDERR_GRACE`]: it then shows what came so far.
+pub const STDERR_LIMIT: Duration = Duration::from_secs(3);
 
 /// What the stdout reader thread sends.
 type Lines = Receiver<io::Result<Chunk>>;
@@ -142,10 +147,18 @@ impl StrictStdout {
 
     /// The failure of `kind`, with the child's stderr: all of it if the
     /// child closes its stderr, or what came until it was quiet for
-    /// [`STDERR_GRACE`].
+    /// [`STDERR_GRACE`], or for [`STDERR_LIMIT`] in all.
     fn fail(&mut self, kind: StrictStdoutErrorKind) -> StrictStdoutError {
-        while let Ok(bytes) = self.stderr.recv_timeout(STDERR_GRACE) {
-            self.stderr_read.extend_from_slice(&bytes);
+        let limit = Instant::now() + STDERR_LIMIT;
+        loop {
+            let left = limit.saturating_duration_since(Instant::now());
+            match self.stderr.recv_timeout(STDERR_GRACE.min(left)) {
+                Ok(bytes) => self.stderr_read.extend_from_slice(&bytes),
+                Err(_) => break,
+            }
+            if left.is_zero() {
+                break;
+            }
         }
         StrictStdoutError {
             kind,

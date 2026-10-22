@@ -166,7 +166,8 @@ pub use ssrf::{
     Redirect, Refusal, Route, SsrfCase, SsrfTable, SsrfTableError, run_cases,
 };
 pub use strict_stdout::{
-    Line, MESSAGE_DEADLINE, STDERR_GRACE, StrictStdout, StrictStdoutError, StrictStdoutErrorKind,
+    Line, MESSAGE_DEADLINE, STDERR_GRACE, STDERR_LIMIT, StrictStdout, StrictStdoutError,
+    StrictStdoutErrorKind,
 };
 pub use tools::{Product, Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};

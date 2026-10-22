@@ -342,6 +342,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or else by the next call on its page. The details name the handler, the request's URL and what the failure said.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "page_handler_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.",
       "exit_code": 13,
       "group": "program",
@@ -409,6 +419,16 @@
       "name": "response_unavailable",
       "product": "foxhound",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The route's request was answered already, by an earlier `continue`, `fulfill`, `abort` or `fallback`, or its handler ended: the first answer stands and this one changed nothing.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "route_already_handled",
+      "product": "collie",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",
@@ -945,6 +965,20 @@
       "product": "foxhound",
       "result": {
         "$ref": "#/$defs/CrawlRequestHandled"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "deprecated": null,
+      "description": "Asks a route's handler to answer one request its URL pattern matched, named by its `route_id`, with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. The handler replies once it ends: a request it did not answer falls back. A failure reply aborts the request unless it was answered, removes the route and raises `page_handler_failed`.",
+      "name": "route.handle",
+      "params": {
+        "$ref": "#/$defs/RouteHandleParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/RouteHandled"
       },
       "stability": "experimental"
     }
@@ -1592,6 +1626,120 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Routes the page's requests whose URL matches to the program, armed when the call arrives: the call stays in flight, and for each such request the engine sends `route.handle`, which the handler answers with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. Page routes come before Session routes, later routes first, and the first answer wins; a handler that ends without one falls back, and past the last route the request goes on to the network, so an unanswered route never stalls a request. What a route sends on still passes the domain policy. Cancelling the call removes the route; a handler that fails ends it with `page_handler_failed`.",
+      "events": [],
+      "kind": "sequence",
+      "name": "page.route",
+      "params": {
+        "$ref": "#/$defs/PageRouteParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RouteEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Answers a route's request by failing it with a network error its page sees, `failed` unless named; nothing reaches the network.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "route.abort",
+      "params": {
+        "$ref": "#/$defs/RouteAbortParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RouteAnswered"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Answers a route's request by sending it on, with any overrides, past every other route: the domain policy judges what it sends.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "route.continue",
+      "params": {
+        "$ref": "#/$defs/RouteOverridesParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RouteAnswered"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Answers a route's request by passing it, with any overrides, to the route registered before, from the page's first route to the Session's last; past the last route it goes on to the network.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "route.fallback",
+      "params": {
+        "$ref": "#/$defs/RouteOverridesParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RouteAnswered"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Sends a route's request on, with any overrides, past every other route, as `route.continue` does, and answers the response it got, its body kept; the handler then answers the request with `route.fulfill`, or, ending without one, the page gets that response.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "route.fetch",
+      "params": {
+        "$ref": "#/$defs/RouteOverridesParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RouteFetched"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Answers a route's request with a response of the program's own, or the one `route.fetch` returned with its changes; nothing reaches the network.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "route.fulfill",
+      "params": {
+        "$ref": "#/$defs/RouteFulfillParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RouteAnswered"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
@@ -1947,6 +2095,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleEchoResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes.",
+      "events": [],
+      "kind": "sequence",
+      "name": "session.route",
+      "params": {
+        "$ref": "#/$defs/SessionRouteParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RouteEnded"
       },
       "stability": "experimental"
     },

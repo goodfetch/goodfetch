@@ -568,6 +568,33 @@ number = 5
 kind = "error"
 prefix = "pattern_unsupported"
 
+# The page's and the Session's routes, their answers and their Error codes
+# (#702).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.route"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "session.route"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "route."
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_handler_failed"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "route_already_handled"
+
 # A navigation's redirect loops, cut documents and downloads (#699).
 [[area]]
 number = 5
@@ -733,6 +760,16 @@ prefix = "page."
 number = 11
 kind = "command"
 prefix = "locator."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "route."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "session."
 
 [[area]]
 number = 11

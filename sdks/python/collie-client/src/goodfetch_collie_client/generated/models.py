@@ -19,6 +19,42 @@ class CollieTypes(BaseModel):
     )
 
 
+class AbortReason(StrEnum):
+    """
+    The network error an aborted request reports to its page, under
+    Playwright's names.
+    """
+
+    aborted = "aborted"
+    """`aborted`."""
+    accessdenied = "accessdenied"
+    """`accessdenied`."""
+    addressunreachable = "addressunreachable"
+    """`addressunreachable`."""
+    blockedbyclient = "blockedbyclient"
+    """`blockedbyclient`."""
+    blockedbyresponse = "blockedbyresponse"
+    """`blockedbyresponse`."""
+    connectionaborted = "connectionaborted"
+    """`connectionaborted`."""
+    connectionclosed = "connectionclosed"
+    """`connectionclosed`."""
+    connectionfailed = "connectionfailed"
+    """`connectionfailed`."""
+    connectionrefused = "connectionrefused"
+    """`connectionrefused`."""
+    connectionreset = "connectionreset"
+    """`connectionreset`."""
+    internetdisconnected = "internetdisconnected"
+    """`internetdisconnected`."""
+    namenotresolved = "namenotresolved"
+    """`namenotresolved`."""
+    timedout = "timedout"
+    """`timedout`."""
+    failed = "failed"
+    """`failed`."""
+
+
 class Acted(BaseModel):
     """
     What a locator action answers once its input landed on its target:
@@ -784,6 +820,108 @@ class Resource(StrEnum):
     """A filesystem the Run writes to."""
 
 
+class RouteAnswered(BaseModel):
+    """What an answer to a route answers once the engine acted on it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class RouteEnded(BaseModel):
+    """What a route's subscription answers when its page or Session closes."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class RouteFetched(BaseModel):
+    """
+    What `route.fetch` answers: the response the request got, its body
+    kept, for the handler to pass to `route.fulfill`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    body: str
+    """Its body, in Base64."""
+    headers: dict[str, str]
+    """Its headers, their names lower-cased."""
+    status: Annotated[int, Field(ge=0, le=65535)]
+    """Its HTTP status."""
+    status_text: str
+    """Its status text."""
+
+
+class RouteHandled(BaseModel):
+    """
+    What the handler replies to `route.handle` once it ended; a failure
+    reply says it failed.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class RouteId(RootModel[str]):
+    root: str
+    """
+    One intercepted request a route's handler answers, which `route.*`
+    names.
+    """
+
+
+class RouteOverridesParams(BaseModel):
+    """
+    What `route.continue`, `route.fallback` and `route.fetch` take: the
+    request, and what to send instead of what it carries. Each override
+    replaces its part whole; a header value may hold a Secret placeholder
+    (ADR 0092).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    headers: dict[str, Any] | None = None
+    """Other headers, in place of every header the request carries."""
+    method: str | None = None
+    """Another method."""
+    post_data: str | None = None
+    """Another body, in Base64."""
+    route_id: RouteId
+    """The request."""
+    url: str | None = None
+    """Another URL, judged again by the domain policy."""
+
+
+class RouteRequest(BaseModel):
+    """
+    A request as a route sees it: as the page sent it, with the overrides of
+    the routes that fell back before. The engine's own additions, such as
+    the Session's cookies, come after every route, so none is here.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    headers: dict[str, str]
+    """Its headers, as the page sent them."""
+    is_navigation_request: bool
+    """Whether it loads the document of the page's main frame."""
+    method: str
+    """Its method, such as `GET`."""
+    resource_type: str
+    """
+    What the page loads with it, as the browser names it, such as
+    `Document`, `Script` or `XHR`.
+    """
+    url: str
+    """Its URL."""
+
+
 class RunId(RootModel[str]):
     root: Annotated[str, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")]
     """A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device."""
@@ -1266,6 +1404,38 @@ class Unready(StrEnum):
     """Its run state cannot be written."""
     browsers_missing = "browsers_missing"
     """A browser its configuration uses is not installed."""
+
+
+class UrlMatcher1(BaseModel):
+    """A glob, such as `**/*.png`."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["glob"]
+    pattern: str
+    """The glob."""
+
+
+class UrlMatcher2(BaseModel):
+    """A regular expression, matched anywhere in the URL."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["regex"]
+    pattern: str
+    """The expression's source."""
+
+
+class UrlMatcher(RootModel[UrlMatcher1 | UrlMatcher2]):
+    root: UrlMatcher1 | UrlMatcher2
+    """
+    A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
+    one, or a regular expression in the `regex` crate's syntax. A predicate
+    runs in the program, which routes every URL and falls back for the
+    requests it does not match.
+    """
 
 
 class UsageAmount(BaseModel):
@@ -1909,6 +2079,21 @@ class PageOpened(BaseModel):
     """Its Session: the Run's default Session."""
 
 
+class PageRouteParams(BaseModel):
+    """
+    What `page.route` takes: the page, and the URLs whose requests its
+    handler answers.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    url: UrlMatcher
+    """The URLs it answers."""
+
+
 class Period(BaseModel):
     """
     The period a Limit counts over, in an explicit IANA time zone, so that
@@ -1977,6 +2162,61 @@ class ReachedLimit(BaseModel):
     """The Limit's scope."""
     usage_kind: str
     """The Usage kind it caps."""
+
+
+class RouteAbortParams(BaseModel):
+    """What `route.abort` takes: the request, and the error its page sees."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error_code: AbortReason | None = None
+    """The network error; `failed` when absent."""
+    route_id: RouteId
+    """The request."""
+
+
+class RouteFulfillParams(BaseModel):
+    """
+    What `route.fulfill` takes: the request, and the response the program
+    answers it with; nothing reaches the network.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    body: str | None = None
+    """Its body, in Base64; empty when absent."""
+    content_type: str | None = None
+    """Its `Content-Type`, set over `headers`' own."""
+    headers: dict[str, Any] | None = None
+    """Its headers."""
+    route_id: RouteId
+    """The request."""
+    status: Annotated[int | None, Field(ge=0, le=65535)] = None
+    """Its status; 200 when absent."""
+
+
+class RouteHandleParams(BaseModel):
+    """
+    What `route.handle` gives the handler: the request, named by the ID its
+    answer passes.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    id: RequestId
+    """
+    The id of the `page.route` or `session.route` call whose handler is
+    asked.
+    """
+    page_id: PageId
+    """The page that sent the request."""
+    request: RouteRequest
+    """The request."""
+    route_id: RouteId
+    """The intercepted request, which an answer names."""
 
 
 class RunAbortParams(BaseModel):
@@ -2092,6 +2332,21 @@ class RunStarted(BaseModel):
     """The Run's ID."""
     started_as: StartedAs
     """Whether the start began it."""
+
+
+class SessionRouteParams(BaseModel):
+    """
+    What `session.route` takes: the Session, and the URLs whose requests its
+    handler answers, on every page of the Session.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    session_id: SessionId
+    """The Session."""
+    url: UrlMatcher
+    """The URLs it answers."""
 
 
 class SettingsFile(BaseModel):

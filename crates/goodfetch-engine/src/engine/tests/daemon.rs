@@ -28,7 +28,7 @@ use crate::engine::Engine;
 use crate::runs::{EndedBy, Start, Started};
 use crate::transport::{self, InMemoryDialer, Network};
 
-const TOKEN: &str = "the-launch-token";
+pub(super) const TOKEN: &str = "the-launch-token";
 
 const MINUTE: Duration = Duration::from_secs(60);
 
@@ -79,7 +79,7 @@ fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
 }
 
 /// The pick's options.
-fn the_pick() -> DaemonOptions {
+pub(super) fn the_pick() -> DaemonOptions {
     options(true, &no_handover())
 }
 
@@ -87,7 +87,7 @@ fn the_pick() -> DaemonOptions {
 /// on the tests' paused runtime, and answers how it ended and what `body`
 /// answered. As in `attached_with`, the test `tracing` subscriber writes the
 /// dispatch records into the test's exercise record (ADR 0072).
-fn daemon<F, Fut, T>(
+pub(super) fn daemon<F, Fut, T>(
     engine: &Engine,
     env: &TestEnv,
     options: DaemonOptions,
@@ -120,7 +120,7 @@ where
     })
 }
 
-async fn connect(dialer: &InMemoryDialer) -> Client {
+pub(super) async fn connect(dialer: &InMemoryDialer) -> Client {
     let (reader, writer) = dialer.connect().await.unwrap().split();
     Client {
         lines: BufReader::new(reader).lines(),
@@ -128,7 +128,12 @@ async fn connect(dialer: &InMemoryDialer) -> Client {
     }
 }
 
-fn hello_with(product: &str, protocol_version: &str, surface: &str, token: Option<&str>) -> Value {
+pub(super) fn hello_with(
+    product: &str,
+    protocol_version: &str,
+    surface: &str,
+    token: Option<&str>,
+) -> Value {
     let mut params = json!({
         "protocol_version": protocol_version,
         "surface": surface,

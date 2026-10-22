@@ -2288,6 +2288,18 @@
       "additionalProperties": false,
       "description": "What a `hello` says.",
       "properties": {
+        "log_level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LogLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The level of the engine's log events the Client receives as `$/log`\nnotifications, until `connection.set_log_level` changes it; none,\nas `off`, receives none (ADR 0078)."
+        },
         "needs": {
           "anyOf": [
             {
@@ -3161,6 +3173,86 @@
         "page_id",
         "selector"
       ],
+      "type": "object"
+    },
+    "LogEvent": {
+      "additionalProperties": false,
+      "description": "What `$/log` carries: one log event of the engine.",
+      "properties": {
+        "dropped": {
+          "arrived_in": "0.1",
+          "description": "How many log events the Connection was too slow to receive since the\none before: logs are telemetry, and never slow a Run.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fields": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its fields, by name: Experimental (ADR 0132).",
+          "type": "object"
+        },
+        "level": {
+          "$ref": "#/$defs/LogLevel",
+          "arrived_in": "0.1",
+          "description": "Its level, never `off`."
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "Its message.",
+          "type": "string"
+        },
+        "target": {
+          "arrived_in": "0.1",
+          "description": "Where in the engine it comes from, such as `goodfetch::rpc::dispatch`:\nExperimental (ADR 0132).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "target",
+        "message"
+      ],
+      "type": "object"
+    },
+    "LogLevel": {
+      "description": "The level of the engine's log events a Connection receives: those at\nit and above; `off`, the default, receives none.",
+      "oneOf": [
+        {
+          "const": "off",
+          "description": "No log event.",
+          "type": "string"
+        },
+        {
+          "const": "error",
+          "description": "Errors only.",
+          "type": "string"
+        },
+        {
+          "const": "warn",
+          "description": "Warnings and errors.",
+          "type": "string"
+        },
+        {
+          "const": "info",
+          "description": "State changes, warnings and errors: what `info` logs.",
+          "type": "string"
+        },
+        {
+          "const": "debug",
+          "description": "Also a line per request, fetch or command.",
+          "type": "string"
+        },
+        {
+          "const": "trace",
+          "description": "Everything the engine logs.",
+          "type": "string"
+        }
+      ]
+    },
+    "LogLevelSet": {
+      "additionalProperties": false,
+      "description": "What `connection.set_log_level` answers: nothing more.",
       "type": "object"
     },
     "MainContent": {
@@ -5599,6 +5691,21 @@
       "description": "A Session of a Run, named by the engine when it opens it.",
       "type": "string"
     },
+    "SetLogLevelParams": {
+      "additionalProperties": false,
+      "description": "What `connection.set_log_level` takes.",
+      "properties": {
+        "log_level": {
+          "$ref": "#/$defs/LogLevel",
+          "arrived_in": "0.1",
+          "description": "The Connection's new level."
+        }
+      },
+      "required": [
+        "log_level"
+      ],
+      "type": "object"
+    },
     "SettingLimit": {
       "description": "A setting that decided an outcome: its key, its value and the layer that\nset it (ADRs 0028 and 0079).",
       "properties": {
@@ -6487,6 +6594,11 @@
       "params": {
         "$ref": "#/$defs/KeyValueStoreKey"
       }
+    },
+    "log": {
+      "params": {
+        "$ref": "#/$defs/LogEvent"
+      }
     }
   },
   "documents": {
@@ -7036,6 +7148,26 @@
                 },
                 "type": "object"
               },
+              "log": {
+                "additionalProperties": false,
+                "properties": {
+                  "format": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "text",
+                          "json"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "network": {
                 "additionalProperties": false,
                 "properties": {
@@ -7049,6 +7181,23 @@
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "otlp": {
+                "additionalProperties": false,
+                "properties": {
+                  "traces_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only."
                   }
                 },
                 "type": "object"
@@ -7582,6 +7731,26 @@
                 },
                 "type": "object"
               },
+              "log": {
+                "additionalProperties": false,
+                "properties": {
+                  "format": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "text",
+                          "json"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "network": {
                 "additionalProperties": false,
                 "properties": {
@@ -7595,6 +7764,23 @@
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "otlp": {
+                "additionalProperties": false,
+                "properties": {
+                  "traces_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only."
                   }
                 },
                 "type": "object"
@@ -8144,6 +8330,26 @@
                 },
                 "type": "object"
               },
+              "log": {
+                "additionalProperties": false,
+                "properties": {
+                  "format": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "text",
+                          "json"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "network": {
                 "additionalProperties": false,
                 "properties": {
@@ -8157,6 +8363,23 @@
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "otlp": {
+                "additionalProperties": false,
+                "properties": {
+                  "traces_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only."
                   }
                 },
                 "type": "object"

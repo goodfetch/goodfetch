@@ -49,6 +49,7 @@ use crate::composition::{
     CallContext, CallError, CallStream, ConnectionContext, DaemonSide, Handler,
 };
 use crate::events::{Credits, Events};
+use crate::log::LogEvents;
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
@@ -74,6 +75,9 @@ pub const REFUSAL_TARGET: &str = "goodfetch::rpc::refusal";
 pub(crate) struct Dispatch {
     pub(crate) identity: Arc<Identity>,
     pub(crate) handlers: BTreeMap<&'static str, Handler>,
+    /// The process's log events, which each Connection receives at its
+    /// own level.
+    pub(crate) log_events: LogEvents,
 }
 
 /// How a Connection reached the engine, which says what its `hello` must
@@ -131,6 +135,19 @@ pub(crate) async fn serve(
         Access::Daemon(daemon) => Some(Arc::clone(daemon)),
         Access::Attached(_) | Access::PrivateEndpoint(_) => None,
     };
+    let log = dispatch.log_events.connection();
+    let logging = CancellationToken::new();
+    let forwarding = log.forward(outgoing.clone());
+    let stop_logging = logging.clone();
+    owner.spawn(async move {
+        // Polled first, it sends every log event already waiting before
+        // the Connection's end stops it.
+        tokio::select! {
+            biased;
+            () = forwarding => {}
+            () = stop_logging.cancelled() => {}
+        }
+    });
     let connection = Arc::new(ConnectionContext {
         identity: Arc::clone(&dispatch.identity),
         client,
@@ -138,6 +155,7 @@ pub(crate) async fn serve(
         runs,
         events,
         daemon,
+        log,
     });
     let mut session = Session {
         dispatch,
@@ -156,6 +174,7 @@ pub(crate) async fn serve(
         access,
     };
     session.run(&mut reader).await;
+    logging.cancel();
     session.cancel_in_flight();
     drop(session);
     owner.wait().await;
@@ -500,7 +519,7 @@ impl Session<'_> {
         }
         let answered = match hello {
             Ok(hello) => handshake::answer(&self.dispatch.identity, &hello)
-                .map(|accepted| (accepted, hello.surface)),
+                .map(|accepted| (accepted, hello.surface, hello.log_level)),
             Err(error) => Err(handshake::Refused::Invalid(CallError::protocol(
                 ProtocolFailure::InvalidParams,
                 error.to_string(),
@@ -517,8 +536,9 @@ impl Session<'_> {
             }
         };
         match answered {
-            Ok((mut accepted, surface)) => {
+            Ok((mut accepted, surface, log_level)) => {
                 record(HELLO, None);
+                self.connection.log.set(log_level.unwrap_or_default());
                 if let Err(refused) = self.transition(ConnectionEvent::Accepted) {
                     let _ = refused.logged();
                     return Flow::Close;

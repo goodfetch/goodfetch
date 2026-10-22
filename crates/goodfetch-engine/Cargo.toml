@@ -43,7 +43,12 @@ tokio = { workspace = true, features = ["rt", "io-util", "io-std", "sync", "macr
 tokio-rustls = { workspace = true, features = ["ring"] }
 tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true
+# The layer that hands log events to the Connections and the timer that
+# reads the Clock (spec #213, ADR 0059).
+tracing-subscriber.workspace = true
 ulid.workspace = true
+# The origin a span records of a URL (ADR 0132).
+url.workspace = true
 webpki-roots.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }
 
@@ -78,7 +83,6 @@ rstest.workspace = true
 # (ADR 0128, src/transition/tests.rs).
 syn = { workspace = true, features = ["visit"] }
 tempfile.workspace = true
-tracing-subscriber.workspace = true
 
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
 [[bench]]

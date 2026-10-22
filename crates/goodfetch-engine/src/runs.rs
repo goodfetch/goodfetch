@@ -1843,7 +1843,11 @@ impl Registry {
                 }
                 Command::Resume(resume, connection, answer) => {
                     let (resume, link) = *resume;
-                    let _ = answer.send(self.resume(resume, connection, &link).await);
+                    let resumed = self.resume(resume, connection).await;
+                    if let Ok(Resumed::New { run, .. }) = &resumed {
+                        link.add_to(run.span());
+                    }
+                    let _ = answer.send(resumed);
                 }
                 Command::Machine(answer) => {
                     let _ = answer.send(self.machine().await);
@@ -2716,7 +2720,6 @@ impl Registry {
         &mut self,
         resume: Resume,
         connection: Option<ConnectionId>,
-        link: &Link,
     ) -> Result<Resumed, RunError> {
         let Resume {
             run_id,
@@ -2766,11 +2769,9 @@ impl Registry {
             .await?;
         let recorded = self.recorded(&run_id, &folder).await?;
         self.ended.remove(&run_id);
-        let run = self.new_run(&run_id, &folder, state, connection, settings, secrets);
-        link.add_to(run.span());
         let live = Live {
             id: run_id.clone(),
-            run: Some(run),
+            run: Some(self.new_run(&run_id, &folder, state, connection, settings, secrets)),
             folder,
             kind: recorded.kind,
             needs: recorded.needs,

@@ -142,7 +142,8 @@ fn bound() -> Contribution {
 }
 
 /// The handler's enqueue, from the home page's attempt, of a request that
-/// goes ahead of its domain's pending ones.
+/// goes ahead of its domain's pending ones, on a domain of its own so the
+/// home page's domain still waits when `run.finish` ends the crawl.
 fn enqueue(request: &Value) -> Value {
     json!({
         "jsonrpc": "2.0",
@@ -152,7 +153,7 @@ fn enqueue(request: &Value) -> Value {
             "run_id": request["params"]["run_id"],
             "crawl_request_id": request["params"]["crawl_request"]["id"],
             "lease_epoch": request["params"]["lease_epoch"],
-            "url": "/sale",
+            "url": "https://outlet.test/sale",
             "label": "home",
             "forefront": true,
         },

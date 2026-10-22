@@ -130,15 +130,17 @@ case "$part" in
     skip_vitest=() skip_playwright=()
     while IFS= read -r argument; do skip_vitest+=("$argument"); done < <(skip vitest)
     while IFS= read -r argument; do skip_playwright+=("$argument"); done < <(skip playwright)
+    mapfile -t vitest_order < <(ci/order-arguments.sh vitest)
+    mapfile -t playwright_order < <(ci/order-arguments.sh playwright)
     for entry in ${GOODFETCH_NODE_LINES:?host-tools sets GOODFETCH_NODE_LINES}; do
       line=${entry%%=*}
       folder=${entry#*=}
       echo "Node $line ($folder)"
-      PATH="$folder:$PATH" pnpm exec vitest run --shard="$shard" \
+      PATH="$folder:$PATH" pnpm exec vitest run --shard="$shard" "${vitest_order[@]}" \
         --outputFile.junit="target/junit/vitest-node$line.xml" \
         ${skip_vitest[@]+"${skip_vitest[@]}"} || status=$?
       PATH="$folder:$PATH" PLAYWRIGHT_JUNIT_OUTPUT_FILE="target/junit/playwright-node$line.xml" \
-        pnpm exec playwright test --shard="$shard" --pass-with-no-tests --shuffle="$GOODFETCH_ORDER_SEED" \
+        pnpm exec playwright test --shard="$shard" --pass-with-no-tests "${playwright_order[@]}" \
         ${skip_playwright[@]+"${skip_playwright[@]}"} || status=$?
     done
     exit "$status"
@@ -147,11 +149,12 @@ case "$part" in
     status=0
     skip_pytest=()
     while IFS= read -r argument; do skip_pytest+=("$argument"); done < <(skip pytest)
+    mapfile -t pytest_order < <(ci/order-arguments.sh pytest)
     for python in ${GOODFETCH_PYTHONS:?host-tools sets GOODFETCH_PYTHONS}; do
       echo "CPython $python"
       # pytest exits 5 when it collects no test, as before any Python test exists.
       code=0
-      uv run --frozen --python "$python" pytest -n auto -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" \
+      uv run --frozen --python "$python" pytest -n auto "${pytest_order[@]}" \
         --junitxml="target/junit/pytest-$python.xml" ${skip_pytest[@]+"${skip_pytest[@]}"} || code=$?
       [[ $code -eq 0 || $code -eq 5 ]] || status=$code
     done

@@ -371,6 +371,11 @@ test suite *packages:
     GOODFETCH_ORDER_SEED=$(ci/order-seed.sh)
     export GOODFETCH_ORDER_SEED
     echo "Test order seed: $GOODFETCH_ORDER_SEED (set GOODFETCH_ORDER_SEED to repeat an order)"
+    # The arguments that order each runner's tests by that seed, one source
+    # for every recipe (ci/order-arguments.sh, which xtask's stress tests run).
+    mapfile -t vitest_order < <(ci/order-arguments.sh vitest)
+    mapfile -t playwright_order < <(ci/order-arguments.sh playwright)
+    mapfile -t pytest_order < <(ci/order-arguments.sh pytest)
     # Each runner skips the tests on the test quarantine list through its own
     # filter (ADR 0064): `xtask quarantine exclude` prints `<runner>\t<argument>`.
     # nextest's arguments, which also skip the tests of an OS service a local
@@ -400,11 +405,11 @@ test suite *packages:
             --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
         fi
         if $typescript; then
-          pnpm exec vitest run --project unit --slowTestThreshold=1000 ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
+          pnpm exec vitest run --project unit --slowTestThreshold=1000 "${vitest_order[@]}" ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
         fi
         # pytest exits 5 when it collects no test, as before any Python test exists.
         if $python; then
-          uv run pytest --timeout=10 -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest --timeout=10 "${pytest_order[@]}" --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       pre-merge|release)
@@ -453,13 +458,13 @@ test suite *packages:
           fi
         fi
         if $vitest_runs; then
-          pnpm exec vitest run ${vitest[@]+"${vitest[@]}"} ${select_vitest[@]+"${select_vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
+          pnpm exec vitest run "${vitest_order[@]}" ${vitest[@]+"${vitest[@]}"} ${select_vitest[@]+"${select_vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
         fi
         if $playwright_runs; then
-          pnpm exec playwright test --pass-with-no-tests --shuffle="$GOODFETCH_ORDER_SEED" ${vitest[@]+"${vitest[@]}"} ${select_playwright[@]+"${select_playwright[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
+          pnpm exec playwright test --pass-with-no-tests "${playwright_order[@]}" ${vitest[@]+"${vitest[@]}"} ${select_playwright[@]+"${select_playwright[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
         fi
         if $python; then
-          uv run pytest -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" ${pytest[@]+"${pytest[@]}"} ${select_pytest[@]+"${select_pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest "${pytest_order[@]}" ${pytest[@]+"${pytest[@]}"} ${select_pytest[@]+"${select_pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       *)
@@ -545,6 +550,11 @@ repeat count *selection:
     GOODFETCH_ORDER_SEED=$(ci/order-seed.sh)
     export GOODFETCH_ORDER_SEED
     echo "Test order seed: $GOODFETCH_ORDER_SEED (set GOODFETCH_ORDER_SEED to repeat an order)"
+    # The arguments that order each runner's tests by that seed, one source
+    # for every recipe (ci/order-arguments.sh, which xtask's stress tests run).
+    mapfile -t vitest_order < <(ci/order-arguments.sh vitest)
+    mapfile -t playwright_order < <(ci/order-arguments.sh playwright)
+    mapfile -t pytest_order < <(ci/order-arguments.sh pytest)
     nextest=() vitest=() playwright=() pytest=()
     arguments=$(cargo run --quiet -p xtask -- repeat --count "{{ count }}" "$@")
     while IFS=$'\t' read -r runner argument; do
@@ -562,13 +572,13 @@ repeat count *selection:
       cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${nextest[@]}" || status=$?
     fi
     if [[ ${#vitest[@]} -gt 0 ]]; then
-      pnpm exec vitest run "${vitest[@]}" || status=$?
+      pnpm exec vitest run "${vitest_order[@]}" "${vitest[@]}" || status=$?
     fi
     if [[ ${#playwright[@]} -gt 0 ]]; then
-      pnpm exec playwright test --shuffle="$GOODFETCH_ORDER_SEED" "${playwright[@]}" || status=$?
+      pnpm exec playwright test "${playwright_order[@]}" "${playwright[@]}" || status=$?
     fi
     if [[ ${#pytest[@]} -gt 0 ]]; then
-      uv run pytest -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" "${pytest[@]}" || status=$?
+      uv run pytest "${pytest_order[@]}" "${pytest[@]}" || status=$?
     fi
     exit "$status"
 

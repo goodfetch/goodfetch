@@ -79,12 +79,6 @@ impl<'env> Attached<'env> {
         self.process.child().id()
     }
 
-    /// Whether the engine writes nothing on its stdout for `quiet`; a
-    /// message written meanwhile is kept for the next read.
-    pub(crate) fn is_quiet_for(&mut self, quiet: std::time::Duration) -> bool {
-        self.stdout.is_quiet_for(quiet)
-    }
-
     /// Kills the engine (`kill -9`) and waits for it to end, as a power cut
     /// or a crash ends it.
     #[cfg_attr(

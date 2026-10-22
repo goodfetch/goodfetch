@@ -40,7 +40,11 @@ fn ended_at() -> PointInTime {
 
 fn crawl_of(count: usize) -> Connection {
     let connection = Connection::open_in_memory().unwrap();
-    for statement in work_items::TABLES.statements {
+    for statement in work_items::TABLES
+        .statements
+        .iter()
+        .chain(goodfetch_frontier::VISITED_TABLES.statements)
+    {
         connection.execute_batch(statement).unwrap();
     }
     let seeds: Vec<_> = (0..count)
@@ -49,6 +53,9 @@ fn crawl_of(count: usize) -> Connection {
             label: "page".to_owned(),
             payload: None,
             priority: 0,
+            method: goodfetch_protocol::foxhound::frontier::HttpMethod::get(),
+            body: None,
+            key: None,
         })
         .collect();
     work_items::admit_seeds(&connection, &seeds).unwrap();

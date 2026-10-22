@@ -529,6 +529,7 @@ dependencies = [
 name = "goodfetch-protocol"
 version = "0.0.0"
 dependencies = [
+ "data-encoding",
  "jiff",
  "schemars",
  "serde",

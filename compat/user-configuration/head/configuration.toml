@@ -21,6 +21,8 @@ headless = true
 
 [settings.run_state]
 location = "example"
+durability = "full"
+layout = "per_run"
 
 [settings.checkpoint]
 interval = 30000

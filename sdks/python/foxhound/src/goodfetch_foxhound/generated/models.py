@@ -109,11 +109,24 @@ class Enqueued1(BaseModel):
     """
 
 
+class HttpBody(RootModel[str]):
+    root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
+    """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
+
+
+class HttpMethod(RootModel[str]):
+    root: Annotated[str, Field(pattern="^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")]
+    """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
+
+
 class NotAddedReason(StrEnum):
     """Why the Frontier did not add a request (ADRs 0093 and 0120)."""
 
     duplicate = "duplicate"
-    """The Frontier already admitted a request of the same identity."""
+    """
+    The Frontier already admitted a request of the same identity: its
+    method, its URL's key and its body's hash, or its declared `key`.
+    """
     out_of_scope = "out_of_scope"
     """Its URL is outside the crawl's scope (`crawl.scope.*`)."""
     domain_policy = "domain_policy"
@@ -301,14 +314,24 @@ class SamplePageFilterAdmitResult(BaseModel):
 class Seed(BaseModel):
     """
     One request a crawl starts from (ADR 0093): a URL, the Label that picks
-    its handler and its Payload.
+    its handler and its Payload, and how it is sent and identified.
     """
 
     model_config = ConfigDict(
         extra="forbid",
     )
+    body: HttpBody | None = None
+    """The body it is sent with, if any."""
+    key: str | None = None
+    """
+    Its identity in the Frontier, declared by the program in place of
+    its method, its URL's key and its body's hash: a canonicalization
+    of the program's own, which always wins (ADR 0005).
+    """
     label: str
     """Its Label."""
+    method: HttpMethod | None = None
+    """The method it is sent with: `GET` by default."""
     payload: Any | None = None
     """The data the program attaches for its handler."""
     priority: int | None = None
@@ -366,6 +389,8 @@ class CrawlRequestEnqueueParams(BaseModel):
         extra="forbid",
         arbitrary_types_allowed=True,
     )
+    body: HttpBody | None = None
+    """The body it is sent with, if any."""
     crawl_request_id: str
     """The ID of the crawl request whose attempt enqueues."""
     document: EnqueueDocument | None = None
@@ -373,10 +398,18 @@ class CrawlRequestEnqueueParams(BaseModel):
     The document the handler read, whose base URL a relative `url`
     resolves against; absent, the crawl request's own URL is the base.
     """
+    key: str | None = None
+    """
+    Its identity in the Frontier, declared by the program in place of
+    its method, its URL's key and its body's hash: a canonicalization
+    of the program's own, which always wins (ADR 0005).
+    """
     label: str
     """Its Label."""
     lease_epoch: Annotated[int, Field(ge=0)]
     """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+    method: HttpMethod | None = None
+    """The method it is sent with: `GET` by default."""
     payload: Any | None = None
     """The data the program attaches for its handler."""
     priority: int | None = 0

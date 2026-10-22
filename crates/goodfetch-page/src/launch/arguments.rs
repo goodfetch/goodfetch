@@ -1,8 +1,9 @@
 //! The launch-argument builder (spec #577, ticket #696): the command line
 //! of every Chromium the engine launches, from what the launch decided.
 //! The browser runs over its debugging pipe, never a port (ADR 0017), on a
-//! profile of the Run's own; headless only when `browser.headless` says so,
-//! the site seeing one identity either way (the driver's user agent, ADR
+//! profile of the Run's own, its background traffic off by the table
+//! `pinned_download` owns (ADR 0043); headless only when `browser.headless`
+//! says so, the site seeing one identity either way (the driver's user agent, ADR
 //! 0092); every page keeps its timers behind another tab or window (ADR
 //! 0085's question); the back/forward cache is off, so going back or
 //! forward always loads its document again (ADR 0121, with no setting);
@@ -15,6 +16,8 @@
 use std::fmt;
 use std::net::IpAddr;
 use std::path::Path;
+
+use goodfetch_engine::pinned_download::chromium_background_traffic_off;
 
 /// The `/dev/shm` below which Chromium's shared memory moves to `/tmp`:
 /// 512 MiB, half the 1 GiB the Helm chart mounts (ADR 0049) and eight
@@ -86,9 +89,6 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
         [
             "--no-first-run",
             "--no-default-browser-check",
-            "--disable-background-networking",
-            "--disable-component-update",
-            "--disable-sync",
             "--password-store=basic",
             "--use-mock-keychain",
             "--disable-back-forward-cache",
@@ -97,6 +97,7 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
         .chain(BACKGROUND_PAGES)
         .map(str::to_owned),
     );
+    arguments.extend(chromium_background_traffic_off());
     let mut warnings = Vec::new();
     if let Some(bytes) = launch
         .shared_memory

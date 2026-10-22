@@ -118,6 +118,14 @@ class AxisReason(BaseModel):
     """What it says, for people."""
 
 
+class CertsListParams(BaseModel):
+    """What `certs.list` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
 class Completeness(StrEnum):
     """
     Whether a Run's results cover everything in its scope (ADRs 0005 and
@@ -1530,6 +1538,43 @@ class CancelParams(BaseModel):
     )
     id: RequestId
     """The call's id."""
+
+
+class CertificatePin(BaseModel):
+    """
+    One pin of the known-certificates store, as `certs.list` answers it and
+    as the store's rows hold it: a host whose certificate was accepted on
+    first use, and the key it must keep presenting.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    host: str
+    """The host, as the URL parser leaves it."""
+    pinned_at: PointInTime | None = None
+    """When it was pinned; none when the row cannot be read."""
+    run_id: RunId | None = None
+    """
+    The Run whose connection pinned it; none outside a Run or when the
+    row cannot be read.
+    """
+    spki_sha256: str | None = None
+    """
+    The SHA-256 of the pinned certificate's `SubjectPublicKeyInfo`, as
+    `sha256/` and its standard base64; none when the row cannot be read,
+    which stops the host as a changed key.
+    """
+
+
+class CertsListed(BaseModel):
+    """What `certs.list` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    pins: list[CertificatePin]
+    """The caller's pins, by host."""
 
 
 class Checkpoint(BaseModel):

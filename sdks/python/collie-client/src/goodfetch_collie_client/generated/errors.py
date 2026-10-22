@@ -410,6 +410,14 @@ class SecretDomainNotAllowedError(RefusedError):
         super().__init__(message, code="secret_domain_not_allowed", group="refused", retryable=False)
 
 
+class SecretInputRefusedError(RefusedError):
+    """A Secret placeholder's value would be typed or sent where other code may read it, or to a host reached through an invalid-certificate exception, so it was not resolved. The details name the placeholder, the reference, the domain and the `reason`, never a value."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="secret_input_refused", group="refused", retryable=False)
+
+
 class SecretUnavailableError(UnavailableError):
     """A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value."""
 
@@ -543,6 +551,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "run_state_unavailable": RunStateUnavailableError,
     "sample_refused": SampleRefusedError,
     "secret_domain_not_allowed": SecretDomainNotAllowedError,
+    "secret_input_refused": SecretInputRefusedError,
     "secret_unavailable": SecretUnavailableError,
     "secret_unbound": SecretUnboundError,
     "session_bound_to_machine": SessionBoundToMachineError,

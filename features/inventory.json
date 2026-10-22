@@ -121,6 +121,17 @@
       ]
     },
     {
+      "id": "command:certs.list",
+      "kind": "command",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:config.explain",
       "kind": "command",
       "area": 3,
@@ -1159,6 +1170,17 @@
       ]
     },
     {
+      "id": "error:secret_input_refused",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:secret_unavailable",
       "kind": "error",
       "area": 4,
@@ -1686,6 +1708,17 @@
       ]
     },
     {
+      "id": "format:known-certificates",
+      "kind": "format",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:operator-policy",
       "kind": "format",
       "area": 3,
@@ -1764,6 +1797,17 @@
     },
     {
       "id": "operation:audit.verify",
+      "kind": "operation",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:certs.list",
       "kind": "operation",
       "area": 4,
       "milestone": null,

@@ -522,6 +522,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Secret placeholder's value would be typed or sent where other code may read it, or to a host reached through an invalid-certificate exception, so it was not resolved. The details name the placeholder, the reference, the domain and the `reason`, never a value.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "secret_input_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.",
       "exit_code": null,
       "group": "unavailable",
@@ -1206,6 +1216,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/AuditVerified"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key.",
+      "events": [],
+      "kind": "query",
+      "name": "certs.list",
+      "params": {
+        "$ref": "#/$defs/CertsListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/CertsListed"
       },
       "stability": "experimental"
     },

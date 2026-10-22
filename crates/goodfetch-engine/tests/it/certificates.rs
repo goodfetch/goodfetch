@@ -13,7 +13,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::http_client::{Failure, FetchError, PageTraffic, Resolve, Waiter};
-use goodfetch_engine::tls::Trust;
+use goodfetch_engine::tls::{CertificateExceptions, Trust};
 use goodfetch_protocol::tls::{
     CertificateFailure, CertificateInvalidDetails, KnownCertificateFailure,
 };
@@ -50,6 +50,8 @@ fn traffic(proving_ground: &ProvingGround, domains: &[&str]) -> PageTraffic {
             .unwrap(),
         resolve,
         trust,
+        exceptions: CertificateExceptions::default(),
+        cookies: Vec::new(),
         clock: Clock::system(),
         delays: Delays::BUILT_IN,
     }

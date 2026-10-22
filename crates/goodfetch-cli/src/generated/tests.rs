@@ -115,6 +115,7 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("daemon.status", Offer::Command),
             ("daemon.stop", Offer::Command),
             ("daemon.health", Offer::Command),
+            ("certs.list", Offer::Command),
             ("engine.info", Offer::Command),
             ("events.subscribe", Offer::Follow),
             ("run.new_page", Offer::Command),
@@ -160,6 +161,7 @@ fn the_generated_namespaces_are_those_of_collies_commands() {
         names,
         [
             "daemon",
+            "certs",
             "engine",
             "events",
             "run",
@@ -173,7 +175,7 @@ fn the_generated_namespaces_are_those_of_collies_commands() {
         ]
     );
     assert_eq!(
-        NAMESPACES[3],
+        NAMESPACES[4],
         Namespace {
             name: "run",
             spelled: "run",

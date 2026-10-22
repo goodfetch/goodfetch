@@ -84,7 +84,7 @@ fn attributes(html: &str, name: &str) -> Vec<String> {
 /// Crawls `seeds` with one request in flight at a time, answering each
 /// `crawl_request.handle` with `handler`, which may call the engine
 /// itself through the `Inside` it gets; answers `run.finish`'s reply.
-fn crawl(
+pub(crate) fn crawl(
     engine: &mut Attached,
     run_id: &str,
     seeds: &[Value],
@@ -120,7 +120,7 @@ fn crawl(
 }
 
 /// The engine as a handler reaches it while it handles one request.
-struct Inside<'a> {
+pub(crate) struct Inside<'a> {
     engine: &'a mut Attached,
     calls: &'a mut u32,
 }
@@ -128,7 +128,7 @@ struct Inside<'a> {
 impl Inside<'_> {
     /// Calls `method` and answers its reply; with one request in flight,
     /// nothing else comes meanwhile.
-    fn call(&mut self, method: &str, params: &Value) -> Value {
+    pub(crate) fn call(&mut self, method: &str, params: &Value) -> Value {
         *self.calls += 1;
         let id = format!("inside-{}", self.calls);
         self.engine
@@ -165,11 +165,11 @@ impl Inside<'_> {
     }
 }
 
-fn added(id: &str, url: &str) -> Value {
+pub(crate) fn added(id: &str, url: &str) -> Value {
     json!({ "kind": "added", "id": id, "url": url })
 }
 
-fn not_added(reason: &str, url: &str) -> Value {
+pub(crate) fn not_added(reason: &str, url: &str) -> Value {
     json!({ "kind": "not_added", "reason": reason, "url": url })
 }
 

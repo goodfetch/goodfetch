@@ -16,6 +16,7 @@ mod journeys;
 mod limits;
 mod outcomes;
 mod politeness;
+mod seeds;
 mod service_manager;
 mod session_pool;
 mod workers;

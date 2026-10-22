@@ -26,19 +26,21 @@ use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 use crate::delivery;
 use crate::enqueue;
 use crate::outcomes;
+use crate::seeding;
 use crate::serving::Crawls;
 use crate::work_items;
 
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
-/// a handler's enqueue, the reads of its outcomes, the work items',
-/// Records' and outcomes' tables of every run file, and the driver a
-/// resumed crawl starts again with.
+/// a handler's enqueue, the seeds added to a running crawl, the reads of
+/// its outcomes, the work items', Records' and outcomes' tables of every
+/// run file, and the driver a resumed crawl starts again with.
 pub fn contribution() -> Contribution {
     let crawls = Crawls::default();
     let serving = crawls.clone();
     let enqueuing = crawls.clone();
     let resuming = crawls.clone();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
+    let [add_seed, add_seeds] = seeding::handlers(&crawls);
     Contribution::new("goodfetch-crawl")
         .with_handler(Handler::new(&CRAWL_START, move |params, context| {
             start(params, context, crawls.clone())
@@ -47,6 +49,8 @@ pub fn contribution() -> Contribution {
             serve(params, context, serving.clone())
         }))
         .with_handler(enqueue::handler(enqueuing))
+        .with_handler(add_seed)
+        .with_handler(add_seeds)
         .with_handler(read_outcomes)
         .with_handler(read_failed_requests)
         .with_run_state_tables(work_items::TABLES)
@@ -139,11 +143,11 @@ async fn start(
                 lifecycle: Lifecycle::Running,
                 needs: Product::Foxhound,
             };
-            let joined = crawls.open(&run).await;
+            let opened = crawls.open(&run).await;
             run.spawn(delivery::drive(
                 run.clone(),
                 context.client().clone(),
-                joined,
+                opened,
                 crawls,
                 settings,
             ));

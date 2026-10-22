@@ -94,6 +94,11 @@ impl Attached {
         self.stdout.is_quiet_for(quiet)
     }
 
+    /// The engine's process ID.
+    pub(crate) fn pid(&self) -> u32 {
+        self.process.child().id()
+    }
+
     /// Kills the engine (`kill -9`, `TerminateProcess` on Windows) and
     /// waits for it to exit.
     pub(crate) fn kill(self) {

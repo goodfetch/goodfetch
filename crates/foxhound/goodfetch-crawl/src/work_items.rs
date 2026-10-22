@@ -175,7 +175,7 @@ pub(crate) fn admit_seeds(
                         label: &seed.label,
                         payload: seed.payload.as_ref(),
                         priority: seed.priority,
-                        forefront: false,
+                        forefront: seed.forefront,
                         depth: 0,
                     },
                 )
@@ -227,15 +227,18 @@ pub(crate) fn attempt(
         .optional()
 }
 
-/// Each work item not keyed yet, in order: its URL, and how it waits once
-/// keyed, its key still empty.
-pub(crate) fn unkeyed(connection: &Connection) -> rusqlite::Result<Vec<(String, Waiting)>> {
+/// The first `limit` work items not keyed yet, in order: each one's URL,
+/// and how it waits once keyed, its key still empty.
+pub(crate) fn unkeyed(
+    connection: &Connection,
+    limit: usize,
+) -> rusqlite::Result<Vec<(String, Waiting)>> {
     connection
         .prepare(
             "SELECT url, id, priority, position, forefront IS NOT NULL FROM work_items
-             WHERE domain_key IS NULL ORDER BY position",
+             WHERE domain_key IS NULL ORDER BY position LIMIT ?1",
         )?
-        .query_map([], |row| {
+        .query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
             Ok((
                 row.get(0)?,
                 Waiting {

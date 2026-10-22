@@ -172,7 +172,7 @@ impl Subject {
                     )
                 },
             )?;
-            let keys: Vec<(String, String)> = super::unkeyed(connection)?
+            let keys: Vec<(String, String)> = super::unkeyed(connection, usize::MAX)?
                 .into_iter()
                 .map(|(_, waiting)| (waiting.id, key.clone()))
                 .collect();

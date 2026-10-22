@@ -550,6 +550,29 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 208
+title = "As a crawl developer, I want `run.addSeed(url, label, payload?, options)` and `run.addSeed(sitemap(...))` to add a seed to a running crawl, committed at once, or staged with the attempt through `ctx.run`, so that new work reaches a running crawl (CO-03)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 209
+title = "As a crawl developer, I want `run.addSeeds(source)` to take a list, an iterable or an async iterable of seeds and send them under the connection's credits, yielding each seed's answer in order, so that a million-URL input never sits in memory (CO-02)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 210
+title = "As a crawl developer, I want a keep-alive crawl (`crawl.keep_alive`) to take seeds from `addSeed` and `addSeeds` while idle, so that a crawl in a service waits for work (RT-12, golden scenario 12)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
 id = 211
 title = "As a crawl developer, I want every URL a crawl meets (seeds, enqueues, `href`s, sitemap entries, `Location`s, Hook rewrites) parsed once by the WHATWG URL Standard on every tier, so that the crawl sees the links a browser sees (ADR 0120; pitfall U07)."
 milestone = "M1 Core"

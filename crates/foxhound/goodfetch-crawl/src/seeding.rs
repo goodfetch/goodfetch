@@ -1,0 +1,221 @@
+//! Seeds added to a running crawl (ADRs 0024, 0093 and 0102; CO-02, CO-03,
+//! RT-12): `run.add_seed` admits one seed through the Frontier, as the
+//! start admits its seeds, committed at once in the Run's state, and
+//! answers it as an enqueue is answered; named by a handler's attempt, it
+//! is bound to that attempt and fails with `attempt_ended` once the attempt
+//! ended. `run.add_seeds` takes a stream of seeds under credits it grants
+//! its Client, at most [`SEED_CREDITS`] seeds unanswered at a time, commits
+//! each batch in one write and answers its seeds in order, so a million
+//! seeds never sit in the engine's memory. Each seed added wakes the
+//! crawl's delivery, which keys it and queues it under its domain, an idle
+//! `crawl.keep_alive` crawl included.
+
+use goodfetch_engine::runs::Run;
+use goodfetch_engine::{CallContext, CallError, Handler};
+use goodfetch_protocol::events::{CREDIT, CreditParams};
+use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, Seed};
+use goodfetch_protocol::foxhound::frontier::{
+    ENQUEUED, Enqueued, EnqueuedBatch, RUN_ADD_SEED, RUN_ADD_SEEDS, RunAddSeedParams,
+    RunAddSeedsParams, RunSeedsAdded, SEED_CREDITS, SEEDS, SeedAttempt, SeedBatch,
+};
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::run::{RUN_NOT_FOUND, RUN_STATE_UNAVAILABLE, RunDetails, RunId};
+use rusqlite::Connection;
+
+use crate::serving::Crawls;
+use crate::work_items;
+
+/// The handlers of `run.add_seed` and `run.add_seeds` on the live crawls of
+/// `crawls`.
+pub(crate) fn handlers(crawls: &Crawls) -> [Handler; 2] {
+    let one = crawls.clone();
+    let streamed = crawls.clone();
+    [
+        Handler::new(&RUN_ADD_SEED, move |params, context| {
+            add_seed(params, context, one.clone())
+        }),
+        Handler::new(&RUN_ADD_SEEDS, move |params, context| {
+            add_seeds(params, context, streamed.clone())
+        })
+        .taking_input(SEEDS),
+    ]
+}
+
+/// `run_not_found` for a Run this engine does not run as a live crawl.
+fn not_live(run_id: &RunId) -> CallError {
+    CallError::new(
+        &RUN_NOT_FOUND,
+        format!(
+            "This engine runs no crawl `{run_id}` to add seeds to: it ended, or another engine runs it."
+        ),
+        &RunDetails {
+            run_id: run_id.clone(),
+            path: None,
+        },
+    )
+}
+
+/// `run_state_unavailable` for a write the Run's state did not take.
+fn unwritten(run_id: &RunId, error: &impl std::fmt::Display) -> CallError {
+    CallError::new(
+        &RUN_STATE_UNAVAILABLE,
+        format!("The state of the Run `{run_id}` could not take the seeds: {error}"),
+        &RunDetails {
+            run_id: run_id.clone(),
+            path: None,
+        },
+    )
+}
+
+async fn add_seed(
+    params: RunAddSeedParams,
+    _context: CallContext,
+    crawls: Crawls,
+) -> Result<Enqueued, CallError> {
+    let Some((run, seeded)) = crawls.seeding(&params.run_id).await else {
+        return Err(not_live(&params.run_id));
+    };
+    let RunAddSeedParams {
+        run_id,
+        seed,
+        attempt,
+    } = params;
+    let bound = attempt.clone();
+    let answered = run
+        .state()
+        .write(move |connection| admit_within(connection, &seed, bound.as_ref()))
+        .await
+        .map_err(|error| unwritten(&run_id, &error))?;
+    match answered {
+        Some(answer) => {
+            seeded.notify_one();
+            Ok(answer)
+        }
+        None => {
+            let attempt = attempt.expect("invariant: only an attempt ends");
+            Err(CallError::new(
+                &ATTEMPT_ENDED,
+                format!(
+                    "Attempt {} of crawl request `{}` of the crawl `{run_id}` already ended, so no seed was added.",
+                    attempt.lease_epoch, attempt.crawl_request_id
+                ),
+                &(),
+            ))
+        }
+    }
+}
+
+/// Admits `seed`, while `attempt`, when given, holds its lease; `None`
+/// once that attempt ended.
+fn admit_within(
+    connection: &Connection,
+    seed: &Seed,
+    attempt: Option<&SeedAttempt>,
+) -> rusqlite::Result<Option<Enqueued>> {
+    if let Some(attempt) = attempt
+        && work_items::attempt(connection, &attempt.crawl_request_id, attempt.lease_epoch)?
+            .is_none()
+    {
+        return Ok(None);
+    }
+    let mut answers = work_items::admit_seeds(connection, std::slice::from_ref(seed))?;
+    Ok(Some(
+        answers
+            .pop()
+            .expect("invariant: the Frontier answers each seed"),
+    ))
+}
+
+async fn add_seeds(
+    params: RunAddSeedsParams,
+    context: CallContext,
+    crawls: Crawls,
+) -> Result<RunSeedsAdded, CallError> {
+    let Some((run, seeded)) = crawls.seeding(&params.run_id).await else {
+        return Err(not_live(&params.run_id));
+    };
+    let input = context.input();
+    let mut added = RunSeedsAdded::default();
+    let mut credits = SEED_CREDITS;
+    if !grant(&context, credits).await {
+        return Ok(added);
+    }
+    loop {
+        let Some(batch) = input.next().await else {
+            return Ok(added);
+        };
+        let batch: SeedBatch = serde_json::from_value(batch).map_err(|error| {
+            CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                format!("A `$/seeds` batch holds no seeds: {error}"),
+            )
+        })?;
+        let taken = u32::try_from(batch.seeds.len()).unwrap_or(u32::MAX);
+        if taken > credits {
+            return Err(CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                format!(
+                    "A `$/seeds` batch of {taken} seeds came with {credits} credits granted: a Client sends no more seeds than its credits."
+                ),
+            ));
+        }
+        credits -= taken;
+        let answers = admit_batch(&run, &params.run_id, batch.seeds).await?;
+        seeded.notify_one();
+        for answer in &answers {
+            match answer {
+                Enqueued::Added { .. } => added.added += 1,
+                Enqueued::NotAdded { .. } => added.not_added += 1,
+            }
+        }
+        let sent = input
+            .notify(
+                ENQUEUED,
+                &EnqueuedBatch {
+                    id: input.id().clone(),
+                    answers,
+                },
+            )
+            .await;
+        if batch.end || !sent {
+            return Ok(added);
+        }
+        if taken > 0 {
+            credits += taken;
+            if !grant(&context, taken).await {
+                return Ok(added);
+            }
+        }
+    }
+}
+
+/// Grants the call's Client `credits` more seeds; `false` once the
+/// Connection's writer is gone.
+async fn grant(context: &CallContext, credits: u32) -> bool {
+    let input = context.input();
+    input
+        .notify(
+            CREDIT,
+            &CreditParams {
+                id: input.id().clone(),
+                credits,
+            },
+        )
+        .await
+}
+
+/// Admits each of `seeds` in one write of `run`'s state, and answers each
+/// one's answer in order.
+async fn admit_batch(
+    run: &Run,
+    run_id: &RunId,
+    seeds: Vec<Seed>,
+) -> Result<Vec<Enqueued>, CallError> {
+    if seeds.is_empty() {
+        return Ok(Vec::new());
+    }
+    run.state()
+        .write(move |connection| work_items::admit_seeds(connection, &seeds))
+        .await
+        .map_err(|error| unwritten(run_id, &error))
+}

@@ -56,7 +56,7 @@ export {
   type PlayedScript,
 } from "./play-script.ts";
 export { daemonOf, type DaemonDescription } from "./daemon.ts";
-export { productEnv, type Product } from "./product-env.ts";
+export { productEnv, scriptedEngineEnv, type Product } from "./product-env.ts";
 export { redact, type SnapshotValues } from "./snapshot.ts";
 export {
   provingGroundOf,

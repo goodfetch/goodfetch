@@ -1,4 +1,5 @@
-//! One Connection's life: it opens with `hello`, then each request goes to
+//! One Connection's life, whose states change only as the engine's
+//! transition table says (ADR 0128): it opens with `hello`, then each request goes to
 //! its handler as a task of the Connection's owner, each call under its own
 //! cancellation token that `$/cancel` trips, while one writer task sends
 //! every line whole. A refused `hello` is answered before any other message
@@ -51,6 +52,10 @@ use crate::events::{Credits, Events};
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
+use crate::transition::engine::{
+    ConnectionEffect, ConnectionEvent, ConnectionState, InvalidConnectionTransition,
+};
+use crate::transition::{self, Refusal};
 use crate::transport::{Connection, ConnectionReader, ConnectionWriter};
 
 /// How many bytes one read takes from the Connection.
@@ -142,7 +147,7 @@ pub(crate) async fn serve(
         completions,
         in_flight: BTreeMap::new(),
         behind_gateway: false,
-        opened: false,
+        state: ConnectionState::Opening,
         connection,
         requests,
         pending: BTreeMap::new(),
@@ -177,6 +182,41 @@ struct InFlight {
     credits: Option<Credits>,
 }
 
+/// A message read from the Connection, by the event of the engine's table
+/// it is.
+enum Message {
+    Hello(Request),
+    Request(Request),
+    Notification(Notification),
+    Reply {
+        id: RequestId,
+        answer: Result<Value, ErrorObject>,
+    },
+    Unreadable(DecodeError),
+}
+
+impl Message {
+    fn of(incoming: Result<Incoming, DecodeError>) -> Self {
+        match incoming {
+            Ok(Incoming::Request(request)) if request.method == HELLO => Self::Hello(request),
+            Ok(Incoming::Request(request)) => Self::Request(request),
+            Ok(Incoming::Notification(notification)) => Self::Notification(notification),
+            Ok(Incoming::Reply { id, answer }) => Self::Reply { id, answer },
+            Err(error) => Self::Unreadable(error),
+        }
+    }
+
+    fn event(&self) -> ConnectionEvent {
+        match self {
+            Self::Hello(_) => ConnectionEvent::Hello,
+            Self::Request(_) => ConnectionEvent::Request,
+            Self::Notification(_) => ConnectionEvent::Notification,
+            Self::Reply { .. } => ConnectionEvent::Reply,
+            Self::Unreadable(_) => ConnectionEvent::Unreadable,
+        }
+    }
+}
+
 /// Whether the Connection goes on after a message.
 enum Flow {
     Continue,
@@ -191,7 +231,8 @@ struct Session<'owner> {
     completions: mpsc::Receiver<RequestId>,
     in_flight: BTreeMap<RequestId, InFlight>,
     behind_gateway: bool,
-    opened: bool,
+    /// Where it is, which only the engine's table changes (ADR 0128).
+    state: ConnectionState,
     connection: Arc<ConnectionContext>,
     requests: mpsc::Receiver<Outgoing>,
     pending: BTreeMap<RequestId, Pending>,
@@ -214,6 +255,7 @@ impl Session<'_> {
         let mut pending = Vec::new();
         let mut chunk = vec![0; READ_CHUNK];
         let mut ended = false;
+        let mut lost = false;
         loop {
             for frame in std::mem::take(&mut pending) {
                 if let Flow::Close = self.handle(frame).await {
@@ -221,18 +263,38 @@ impl Session<'_> {
                 }
             }
             if ended {
-                self.cancel_in_flight();
+                if !lost {
+                    lost = true;
+                    match self.transition(ConnectionEvent::ClientLost) {
+                        Ok(ConnectionEffect::CancelCalls) => self.cancel_in_flight(),
+                        Ok(
+                            ConnectionEffect::Handshake
+                            | ConnectionEffect::Serve
+                            | ConnectionEffect::Answer
+                            | ConnectionEffect::Refuse
+                            | ConnectionEffect::Nothing,
+                        ) => {}
+                        Err(refused) => {
+                            let _ = refused.logged();
+                            return;
+                        }
+                    }
+                }
                 if self.in_flight.is_empty() {
+                    if let Err(refused) = self.transition(ConnectionEvent::CallsEnded) {
+                        let _ = refused.logged();
+                    }
                     return;
                 }
             }
             let reading = !ended && self.in_flight.len() < MAX_IN_FLIGHT;
+            let sending = self.state != ConnectionState::Opening;
             tokio::select! {
                 biased;
                 Some(id) = self.completions.recv() => {
                     self.in_flight.remove(&id);
                 }
-                Some(request) = self.requests.recv(), if self.opened => {
+                Some(request) = self.requests.recv(), if sending => {
                     if let Flow::Close = self.send_request(request).await {
                         return;
                     }
@@ -248,6 +310,17 @@ impl Session<'_> {
         }
     }
 
+    /// Applies `event` to the Connection's state, as the engine's table
+    /// says: its effect, or why it is refused.
+    fn transition(
+        &mut self,
+        event: ConnectionEvent,
+    ) -> Result<ConnectionEffect, InvalidConnectionTransition> {
+        let (next, effect) = transition::engine::connection(self.state, event)?;
+        self.state = next;
+        Ok(effect)
+    }
+
     fn cancel_in_flight(&self) {
         for call in self.in_flight.values() {
             if call.cancellable {
@@ -261,40 +334,98 @@ impl Session<'_> {
             Frame::TooLarge => Err(DecodeError::too_large()),
             Frame::Line(line) => decode(&line),
         };
-        if !self.opened && self.access.token().is_some() {
-            if let Ok(Incoming::Request(request)) = incoming {
-                return self.open(request).await;
-            }
-            self.refused("hello_not_first");
-            return Flow::Close;
+        let message = Message::of(incoming);
+        match self.transition(message.event()) {
+            Ok(
+                ConnectionEffect::Handshake
+                | ConnectionEffect::Serve
+                | ConnectionEffect::Answer
+                | ConnectionEffect::CancelCalls
+                | ConnectionEffect::Nothing,
+            ) => self.serve(message).await,
+            Ok(ConnectionEffect::Refuse) => self.refuse(message).await,
+            Err(refused) => self.refuse_transition(refused, message).await,
         }
-        match (incoming, self.opened) {
-            (Err(error), opened) => {
+    }
+
+    /// Serves a message the Connection's state lets through: checks its
+    /// `hello`, calls a request's handler, routes a reply, acts on a
+    /// notification, or answers a line it cannot read.
+    async fn serve(&mut self, message: Message) -> Flow {
+        match message {
+            Message::Hello(request) => self.open(request).await,
+            Message::Request(request) => self.request(request).await,
+            Message::Notification(notification) => {
+                self.notification(&notification);
+                Flow::Continue
+            }
+            Message::Reply { id, answer } => {
+                self.reply(&id, answer);
+                Flow::Continue
+            }
+            Message::Unreadable(error) => {
                 let failure = CallError::protocol(error.failure, error.detail);
-                if self.send(failure_line(error.id, &failure)).await && opened {
+                if self.send(failure_line(error.id, &failure)).await {
                     Flow::Continue
                 } else {
                     Flow::Close
                 }
             }
-            (Ok(Incoming::Request(request)), false) => self.open(request).await,
-            (Ok(Incoming::Notification(notification)), false) => {
+        }
+    }
+
+    /// Refuses a first message that is no `hello`, then closes: unanswered
+    /// on a listener with a token, answered with its error otherwise.
+    async fn refuse(&mut self, message: Message) -> Flow {
+        if self.access.token().is_some() {
+            self.refused("hello_not_first");
+            return Flow::Close;
+        }
+        match message {
+            Message::Hello(request) | Message::Request(request) => {
+                let error = CallError::protocol(
+                    ProtocolFailure::InvalidRequest,
+                    "a Connection opens with `hello`",
+                );
+                record(&request.method, Some(error.code()));
+                self.send(failure_line(Some(request.id), &error)).await;
+            }
+            Message::Unreadable(error) => {
+                let failure = CallError::protocol(error.failure, error.detail);
+                self.send(failure_line(error.id, &failure)).await;
+            }
+            Message::Notification(notification) => {
                 tracing::debug!(method = %notification.method, "a Connection that does not open with `hello` closes");
-                Flow::Close
             }
-            (Ok(Incoming::Request(request)), true) => self.request(request).await,
-            (Ok(Incoming::Notification(notification)), true) => {
-                self.notification(&notification);
-                Flow::Continue
-            }
-            (Ok(Incoming::Reply { id, .. }), false) => {
+            Message::Reply { id, .. } => {
                 tracing::debug!(?id, "a Connection that does not open with `hello` closes");
-                Flow::Close
             }
-            (Ok(Incoming::Reply { id, answer }), true) => {
-                self.reply(&id, answer);
-                Flow::Continue
-            }
+        }
+        Flow::Close
+    }
+
+    /// Answers a message the engine's table refuses in the Connection's
+    /// state: a program's second `hello` with `invalid_request`, the
+    /// Connection going on; one only a bug causes, logged, by closing.
+    async fn refuse_transition(
+        &mut self,
+        refused: InvalidConnectionTransition,
+        message: Message,
+    ) -> Flow {
+        let refused = refused.logged();
+        let request = match (refused.refusal, message) {
+            (Refusal::Program(_), Message::Hello(request)) => request,
+            (Refusal::Program(_) | Refusal::Internal, _) => return Flow::Close,
+        };
+        let error = CallError::protocol(
+            ProtocolFailure::InvalidRequest,
+            "a Connection opens with `hello` once",
+        );
+        record(&request.method, Some(error.code()));
+        if self.send(failure_line(Some(request.id), &error)).await {
+            Flow::Continue
+        } else {
+            Flow::Close
         }
     }
 
@@ -348,34 +479,21 @@ impl Session<'_> {
         let _ = pending.reply.send(answer);
     }
 
-    /// The first request, which must be `hello`, carrying the token on a
-    /// Daemon and on a private endpoint.
+    /// The Connection's `hello`, which carries the token on a Daemon and
+    /// on a private endpoint.
     async fn open(&mut self, request: Request) -> Flow {
         let daemon = self.connection.daemon.clone();
-        if request.method != HELLO {
-            if self.access.token().is_some() {
-                self.refused("hello_not_first");
-                return Flow::Close;
-            }
-            let error = CallError::protocol(
-                ProtocolFailure::InvalidRequest,
-                "a Connection opens with `hello`",
-            );
-            record(&request.method, Some(error.code()));
-            self.send(failure_line(Some(request.id), &error)).await;
-            return Flow::Close;
-        }
         let hello = serde_json::from_value::<HelloParams>(request.params.unwrap_or(Value::Null));
         if let Some(expected) = self.access.token() {
             let token = hello.as_ref().ok().and_then(|hello| hello.token.as_deref());
             match token {
                 None => {
                     self.refused("token_missing");
-                    return Flow::Close;
+                    return self.rejected();
                 }
                 Some(token) if !same_token(token, expected) => {
                     self.refused("token_wrong");
-                    return Flow::Close;
+                    return self.rejected();
                 }
                 Some(_) => {}
             }
@@ -401,7 +519,10 @@ impl Session<'_> {
         match answered {
             Ok((mut accepted, surface)) => {
                 record(HELLO, None);
-                self.opened = true;
+                if let Err(refused) = self.transition(ConnectionEvent::Accepted) {
+                    let _ = refused.logged();
+                    return Flow::Close;
+                }
                 // A Connection answers one `hello`: the first sets it.
                 let _ = self.connection.surface.set(surface);
                 self.opened_client = daemon.map(|daemon| daemon.opened(surface));
@@ -423,21 +544,24 @@ impl Session<'_> {
             Err(error) => {
                 record(HELLO, Some(error.code()));
                 self.send(failure_line(Some(request.id), &error)).await;
-                Flow::Close
+                self.rejected()
             }
         }
+    }
+
+    /// Its `hello` was refused: it closes.
+    fn rejected(&mut self) -> Flow {
+        if let Err(refused) = self.transition(ConnectionEvent::Rejected) {
+            let _ = refused.logged();
+        }
+        Flow::Close
     }
 
     async fn request(&mut self, request: Request) -> Flow {
         let Request {
             id, method, params, ..
         } = request;
-        let refusal = if method == HELLO {
-            Some(CallError::protocol(
-                ProtocolFailure::InvalidRequest,
-                "a Connection opens with `hello` once",
-            ))
-        } else if method == CANCEL {
+        let refusal = if method == CANCEL {
             Some(CallError::protocol(
                 ProtocolFailure::InvalidRequest,
                 "`$/cancel` is a notification",

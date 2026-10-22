@@ -47,6 +47,7 @@ pub mod run_state;
 pub mod runs;
 pub mod settings;
 pub mod tasks;
+pub mod transition;
 pub mod transport;
 pub mod upgrade;
 mod usage;

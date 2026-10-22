@@ -25,13 +25,9 @@ function exception(
   return { rule, selector, pages, reason: "a fixture's false positive", issue: 1701 };
 }
 
+// That the `axe` fixture fails a test whose page has a violation, by its
+// Error code, is `fixture-failures.test.ts`'s.
 servedTest.describe("the axe fixture", () => {
-  servedTest.fail("fails a test whose page has a violation", async ({ page, cspPages }) => {
-    await page.goto(cspPages.url("inaccessible"));
-
-    await expect(page.getByRole("heading", { name: "Inaccessible" })).toBeVisible();
-  });
-
   servedTest("passes a test whose page is accessible", async ({ page, cspPages }) => {
     await page.goto(cspPages.url("accessible"));
 

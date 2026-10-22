@@ -26,6 +26,8 @@ export interface RepositoryPlaywright {
   readonly config?: string;
   /** Playwright's `--workers`, when given. */
   readonly workers?: number;
+  /** Report through Playwright's JSON reporter alone, into the run's `report.json`. */
+  readonly json?: boolean;
 }
 
 /** How one run ended. */
@@ -36,6 +38,8 @@ export interface RepositoryPlaywrightRun {
   readonly documents: string;
   /** Playwright's exit code. */
   readonly code: number | null;
+  /** The JSON report, when the run asked for one. */
+  readonly report: string;
 }
 
 /** Runs Playwright on a copy of the repository's configuration, on the spec file `run.spec`. */
@@ -68,14 +72,19 @@ export async function runRepositoryPlaywright(
     ...run.env,
   };
   delete env["PLAYWRIGHT_JUNIT_OUTPUT_FILE"];
+  const report = join(project, "report.json");
+  const reporter = run.json === true ? ["--reporter", "json"] : [];
+  if (run.json === true) {
+    env["PLAYWRIGHT_JSON_OUTPUT_FILE"] = report;
+  }
   const workers = run.workers === undefined ? [] : ["--workers", String(run.workers)];
   const playwright = processes.spawn(
     process.execPath,
-    [CLI, "test", "--config", config, ...workers],
+    [CLI, "test", "--config", config, ...workers, ...reporter],
     { env, cwd: project },
   );
   playwright.child.stdout.resume();
   playwright.child.stderr.resume();
   const { code } = await playwright.exit;
-  return { project, documents, code };
+  return { project, documents, code, report };
 }

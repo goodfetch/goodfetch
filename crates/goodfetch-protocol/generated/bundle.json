@@ -2933,6 +2933,14 @@
           "arrived_in": "0.1",
           "description": "The Limit."
         },
+        "managed_major": {
+          "arrived_in": "0.1",
+          "description": "The major of the managed Operator policy whose row it is; none for\na row no managed policy wrote.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "period_started_at": {
           "anyOf": [
             {
@@ -3007,6 +3015,64 @@
           "type": "string"
         }
       ]
+    },
+    "Managed": {
+      "additionalProperties": false,
+      "description": "What an Operator policy's `[managed]` table holds, which marks the\npolicy *managed*: deployed by MDM or Ansible, read-only in the Console\n(ADR 0031).",
+      "properties": {
+        "install_limits": {
+          "arrived_in": "0.1",
+          "description": "The install Limits it names (ADR 0041).",
+          "items": {
+            "$ref": "#/$defs/ManagedLimit"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ManagedLimit": {
+      "additionalProperties": false,
+      "description": "An install Limit a managed Operator policy names (ADRs 0031 and 0041):\neach engine of the policy's major writes it to the Usage ledger when it\nstarts, as a row of its own keyed by that major and set by\n[`LimitSetter::ManagedPolicy`], which only the policy and\n`upgrade-files` change.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period: a count of the Usage kind, or\nmillionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the price in, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "usage_kind",
+        "amount"
+      ],
+      "type": "object"
     },
     "MarkdownContent": {
       "description": "How much of the page a Markdown format holds.",
@@ -6861,6 +6927,15 @@
             "maximum": 65535,
             "minimum": 0,
             "type": "integer"
+          },
+          "managed": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/Managed"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "Marks the policy managed, deployed by MDM or Ansible (ADR 0031), with the install Limits each engine of its major writes to the Usage ledger when it starts (ADR 0041)."
           },
           "settings": {
             "additionalProperties": false,

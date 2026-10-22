@@ -1039,6 +1039,11 @@ export interface LimitUsage {
   left: number;
   limit: Limit1;
   /**
+   * The major of the managed Operator policy whose row it is; none for
+   * a row no managed policy wrote.
+   */
+  managed_major?: string | null;
+  /**
    * When the current period started; none for a Limit without one.
    */
   period_started_at?: PointInTime | null;

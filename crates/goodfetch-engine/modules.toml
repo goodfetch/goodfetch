@@ -40,7 +40,7 @@ runs = ["admission", "body", "checkpoint", "client", "clock", "entropy", "events
 settings = ["home", "lowest_minor", "tasks"]
 tasks = []
 transport = []
-upgrade = ["home"]
+upgrade = ["home", "ledger"]
 
 # Which of `settings`'s own modules may import which.
 [submodules.settings]

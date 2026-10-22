@@ -1468,6 +1468,14 @@
           "arrived_in": "0.1",
           "description": "The Limit."
         },
+        "managed_major": {
+          "arrived_in": "0.1",
+          "description": "The major of the managed Operator policy whose row it is; none for\na row no managed policy wrote.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "period_started_at": {
           "anyOf": [
             {

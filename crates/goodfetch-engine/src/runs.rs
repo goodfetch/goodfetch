@@ -1446,8 +1446,10 @@ struct Registry {
 impl Registry {
     async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
         // No command is answered before the reclaim ends, so a Run starts
-        // on a ledger rid of dead runs' Slices, and an answered Run call
-        // says the engine's startup writes are done.
+        // on a ledger holding its major's managed Limits and rid of dead
+        // runs' Slices, and an answered Run call says the engine's startup
+        // writes are done.
+        self.write_managed().await;
         self.reclaim().await;
         while let Some(command) = mailbox.recv().await {
             match command {
@@ -1576,6 +1578,37 @@ impl Registry {
             }
         }
         reports
+    }
+
+    /// Writes the install Limits the managed Operator policy of the
+    /// engine's major names as that major's managed rows, as each engine
+    /// does when it starts (ADR 0041); a policy that names none, or none
+    /// at all, leaves that major no managed row.
+    async fn write_managed(&self) {
+        let machine = match self.setup.settings.machine().await {
+            Ok(machine) => machine,
+            Err(error) => {
+                tracing::warn!(%error, "the Operator policy could not be read to write its managed Limits");
+                return;
+            }
+        };
+        let limits: Vec<goodfetch_protocol::usage::Limit> = machine
+            .operator_policy
+            .managed
+            .iter()
+            .flat_map(|managed| managed.install_limits.iter())
+            .map(goodfetch_protocol::usage::ManagedLimit::limit)
+            .collect();
+        let ledger = self.limits.ledger.clone();
+        let major = major_name(&self.setup.version);
+        let now = self.limits.now();
+        let written = self
+            .owner
+            .blocking(move || ledger.write_managed(&major, &limits, now))
+            .await;
+        if let Err(error) = written {
+            tracing::warn!(%error, "the Usage ledger could not be opened to write the managed Operator policy's Limits");
+        }
     }
 
     /// Reclaims the Slices of every run whose engine is gone, as each engine

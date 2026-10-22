@@ -5,7 +5,8 @@
 //! files, so that a person can go back. Its own Daemon's runtime files are
 //! no state, and are not copied. Shared files outside the per-major folders
 //! (the Browser cache, the Usage ledger's family, the list of installed
-//! executables) need no copy.
+//! executables) need no copy; the Usage ledger's managed rows of older
+//! majors are replaced with the new major's (ADR 0041).
 //!
 //! It upgrades only from a major `compat/upgrade-paths.toml` lists: another
 //! older major is refused, naming the release to upgrade through first, and
@@ -31,6 +32,7 @@ use goodfetch_protocol::connection::ProductVersion;
 use toml_edit::DocumentMut;
 
 use crate::home::{Home, major_name, major_order};
+use crate::ledger::Ledger;
 
 /// The committed table of the majors `upgrade-files` upgrades from.
 const COMMITTED: &str = include_str!("../../../compat/upgrade-paths.toml");
@@ -246,6 +248,17 @@ pub fn upgrade_files(
             }
             Err(error) => return Err(io_error(&target, &error)),
         }
+    }
+    let ledger = home.usage_ledger();
+    if ledger.exists() {
+        Ledger::at(ledger.clone(), None)
+            .upgrade_managed(&source, &current, |major| {
+                major_order(major).is_some_and(|order| order < current_order)
+            })
+            .map_err(|error| UpgradeError::Io {
+                path: ledger,
+                message: error.to_string(),
+            })?;
     }
     Ok(upgraded)
 }

@@ -142,6 +142,11 @@ pub struct LimitUsage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub resets_at: Option<PointInTime>,
+    /// The major of the managed Operator policy whose row it is; none for
+    /// a row no managed policy wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub managed_major: Option<String>,
 }
 
 /// What `usage.list` takes.
@@ -185,6 +190,62 @@ pub struct UsageSetParams {
     /// millionths of the currency.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub amount: u64,
+}
+
+/// An install Limit a managed Operator policy names (ADRs 0031 and 0041):
+/// each engine of the policy's major writes it to the Usage ledger when it
+/// starts, as a row of its own keyed by that major and set by
+/// [`LimitSetter::ManagedPolicy`], which only the policy and
+/// `upgrade-files` change.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ManagedLimit {
+    /// The Usage kind it caps.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub usage_kind: String,
+    /// The currency it caps the price in, an ISO 4217 code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub currency: Option<String>,
+    /// The period it counts over; none for a Limit that never starts again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub period: Option<Period>,
+    /// How much it allows per period: a count of the Usage kind, or
+    /// millionths of the currency.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub amount: u64,
+}
+
+impl ManagedLimit {
+    /// Its row: on the install, flagged *must understand*, set by a
+    /// managed policy.
+    pub fn limit(&self) -> Limit {
+        Limit {
+            scope: LimitScope {
+                kind: INSTALL.to_owned(),
+                id: String::new(),
+            },
+            usage_kind: self.usage_kind.clone(),
+            currency: self.currency.clone(),
+            period: self.period.clone(),
+            amount: self.amount,
+            must_understand: true,
+            set_by: LimitSetter::ManagedPolicy,
+        }
+    }
+}
+
+/// What an Operator policy's `[managed]` table holds, which marks the
+/// policy *managed*: deployed by MDM or Ansible, read-only in the Console
+/// (ADR 0031).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Managed {
+    /// The install Limits it names (ADR 0041).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub install_limits: Vec<ManagedLimit>,
 }
 
 /// What `usage.raise` takes: a Limit a person sets, which replaces every

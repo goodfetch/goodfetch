@@ -174,6 +174,8 @@ pub struct StoredLimit {
     pub must_understand: bool,
     /// Who set it, as written.
     pub set_by: String,
+    /// The major of the managed Operator policy whose row it is.
+    pub managed_major: Option<String>,
 }
 
 impl StoredLimit {
@@ -463,6 +465,120 @@ impl Ledger {
         Ok(stored.amount.saturating_sub(charged.saturating_add(held)))
     }
 
+    /// Writes `limits`, the install Limits the managed Operator policy of
+    /// `major` names, as that major's managed rows, in one transaction
+    /// (ADR 0041): a row of the same Usage kind, currency and period takes
+    /// the policy's amount and keeps the Usage counted against it, a Limit
+    /// it lacks is added, and a row of that major the policy no longer
+    /// names is dropped with its Slices. Rows of other majors, and rows
+    /// anyone else set, are left as they are. Each engine does this when it
+    /// starts.
+    ///
+    /// # Errors
+    ///
+    /// When the ledger cannot be written.
+    pub fn write_managed(
+        &self,
+        major: &str,
+        limits: &[Limit],
+        now: Timestamp,
+    ) -> Result<(), LedgerError> {
+        let mut connection = self.open()?;
+        (|| {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let held: Vec<StoredLimit> = stored_limits(&transaction)?
+                .into_iter()
+                .filter(|stored| stored.managed_major.as_deref() == Some(major))
+                .collect();
+            let mut kept = Vec::new();
+            for limit in limits {
+                let period = limit.period.as_ref().map(|period| period.every.as_str());
+                let time_zone = limit
+                    .period
+                    .as_ref()
+                    .map(|period| period.time_zone.as_str());
+                let same = held.iter().find(|stored| {
+                    stored.scope == limit.scope
+                        && stored.usage_kind == limit.usage_kind
+                        && stored.currency == limit.currency
+                        && stored.period.as_deref() == period
+                        && stored.time_zone.as_deref() == time_zone
+                        && !kept.contains(&stored.id)
+                });
+                match same {
+                    Some(stored) if stored.amount == limit.amount => kept.push(stored.id),
+                    Some(stored) => {
+                        transaction.execute(
+                            "UPDATE limits SET amount = ?1, set_at = ?2 WHERE limit_id = ?3",
+                            (amount(limit.amount), now.to_string(), stored.id),
+                        )?;
+                        kept.push(stored.id);
+                    }
+                    None => kept.push(insert_limit(&transaction, limit, Some(major), now)?),
+                }
+            }
+            for stored in held.iter().filter(|stored| !kept.contains(&stored.id)) {
+                drop_limit(&transaction, stored.id)?;
+            }
+            transaction.commit()
+        })()
+        .map_err(|error: rusqlite::Error| self.failed(&error))?;
+        tracing::trace!(target: TARGET, transition = "set_limit", major, limits = limits.len(), "a managed Operator policy's Limits were written");
+        Ok(())
+    }
+
+    /// What `upgrade-files` does to the managed rows when it gives `to` its
+    /// copy of `from`'s files (ADR 0041): `from`'s rows become `to`'s,
+    /// keeping their Usage, unless `to` has rows of its own already, and
+    /// the rows of every other major `older` than `to` names, whether
+    /// still supported or not, are dropped, so that an uninstalled major's
+    /// cap does not linger. An older major still in use writes its rows
+    /// back when it starts. Answers how many rows `to` took over and how
+    /// many were dropped.
+    ///
+    /// # Errors
+    ///
+    /// When the ledger cannot be written.
+    pub fn upgrade_managed(
+        &self,
+        from: &str,
+        to: &str,
+        older: impl Fn(&str) -> bool,
+    ) -> Result<(usize, usize), LedgerError> {
+        let mut connection = self.open()?;
+        let counts = (|| {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let managed: Vec<(LimitId, String)> = stored_limits(&transaction)?
+                .into_iter()
+                .filter_map(|stored| stored.managed_major.map(|major| (stored.id, major)))
+                .collect();
+            let has_own = managed.iter().any(|(_, major)| major == to);
+            let (mut taken, mut dropped) = (0, 0);
+            for (id, major) in &managed {
+                if major == to || !older(major) {
+                    continue;
+                }
+                if major == from && !has_own {
+                    transaction.execute(
+                        "UPDATE limits SET managed_major = ?1 WHERE limit_id = ?2",
+                        (to, id),
+                    )?;
+                    taken += 1;
+                } else {
+                    drop_limit(&transaction, *id)?;
+                    dropped += 1;
+                }
+            }
+            transaction.commit()?;
+            Ok((taken, dropped))
+        })()
+        .map_err(|error: rusqlite::Error| self.failed(&error))?;
+        tracing::trace!(target: TARGET, transition = "set_limit", from, to, taken = counts.0, dropped = counts.1, "upgrade-files replaced older majors' managed Limits");
+        Ok(counts)
+    }
+
     /// Takes a Slice of the Limit `stored` for `holder`, in the period that
     /// holds `now`, in one transaction: sized by `sizing` from what is left
     /// and the live runs holding Slices of it, and at least `needing`, as a
@@ -643,6 +759,13 @@ fn insert_limit(
     Ok(connection.last_insert_rowid())
 }
 
+/// Drops the Limit row `id` and its Slices.
+fn drop_limit(connection: &Connection, id: LimitId) -> rusqlite::Result<()> {
+    connection.execute("DELETE FROM slices WHERE limit_id = ?1", [id])?;
+    connection.execute("DELETE FROM limits WHERE limit_id = ?1", [id])?;
+    Ok(())
+}
+
 /// A Slice held under one run's holder.
 struct HeldSlice {
     id: SliceId,
@@ -692,6 +815,7 @@ fn limit_usage(
         left: stored.amount.saturating_sub(charged.saturating_add(held)),
         period_started_at: found.map(|found| point_in_time(found.start)),
         resets_at: found.map(|found| point_in_time(found.end)),
+        managed_major: stored.managed_major.clone(),
     })
 }
 
@@ -709,7 +833,7 @@ fn counted(connection: &Connection, limit: LimitId, key: &str) -> rusqlite::Resu
 
 fn stored_limits(connection: &Connection) -> rusqlite::Result<Vec<StoredLimit>> {
     let mut statement = connection.prepare(
-        "SELECT limit_id, scope_kind, scope_id, usage_kind, currency, period, time_zone, amount, must_understand, set_by
+        "SELECT limit_id, scope_kind, scope_id, usage_kind, currency, period, time_zone, amount, must_understand, set_by, managed_major
          FROM limits ORDER BY limit_id",
     )?;
     let rows = statement.query_map([], |row| {
@@ -726,6 +850,7 @@ fn stored_limits(connection: &Connection) -> rusqlite::Result<Vec<StoredLimit>> 
             amount: counted_value(row, 7)?,
             must_understand: row.get(8)?,
             set_by: row.get(9)?,
+            managed_major: row.get(10)?,
         })
     })?;
     rows.collect()

@@ -1464,6 +1464,11 @@ class LimitUsage(BaseModel):
     """What is left of the amount in the current period."""
     limit: Limit
     """The Limit."""
+    managed_major: str | None = None
+    """
+    The major of the managed Operator policy whose row it is; none for
+    a row no managed policy wrote.
+    """
     period_started_at: PointInTime | None = None
     """When the current period started; none for a Limit without one."""
     resets_at: PointInTime | None = None

@@ -666,3 +666,28 @@ fn a_client_sets_limits_only_on_its_own_work() {
 
     assert_eq!(replies[0]["error"]["code"], json!(-32602));
 }
+
+/// Covers: story:3-77
+#[test]
+fn an_engine_writes_its_managed_operator_policys_install_limit_when_it_starts() {
+    let env = TestEnv::new();
+    let folder = env.home().join("1");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("operator-policy.toml"),
+        "version = \"0.1\"\n\n[managed]\ninstall_limits = [{ usage_kind = \"requests\", amount = 40 }]\n",
+    )
+    .unwrap();
+
+    let replies = replies(&env, Product::Collie, &[("usage.list", json!({}))]);
+
+    let install = &replies[0]["result"]["limits"][0];
+    assert_eq!(
+        (
+            &install["limit"]["amount"],
+            &install["limit"]["set_by"],
+            &install["managed_major"],
+        ),
+        (&json!(40), &json!("managed_policy"), &json!("1"))
+    );
+}

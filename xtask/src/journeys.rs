@@ -190,6 +190,11 @@ pub(crate) struct Select {
     /// A Git tag whose catalog to read instead of the working tree's.
     #[arg(long)]
     tag: Option<String>,
+    /// The folder of the runners' listings that `listings` writes: each
+    /// chosen variant no test carries is noted, and a choice none of whose
+    /// variants has a test fails.
+    #[arg(long)]
+    listings: Option<PathBuf>,
 }
 
 fn parse_id(text: &str) -> Result<JourneyId, String> {
@@ -276,38 +281,7 @@ pub(crate) fn run(
             output::line(markdown.trim_end_matches('\n'));
             Ok(ExitCode::SUCCESS)
         }
-        Command::Select(arguments) => {
-            let journeys = match &arguments.tag {
-                Some(tag) => tagged_journeys(&environment.root, tag)?,
-                None => working_journeys(&environment.root)?,
-            };
-            let choice = select::Choice {
-                ids: arguments.ids.clone(),
-                surfaces: arguments.surfaces.clone(),
-                milestones: arguments.milestones.clone(),
-                areas: arguments.areas.clone(),
-            };
-            let active = journeys
-                .iter()
-                .filter(|journey| journey.status == Status::Active)
-                .flat_map(variants::of)
-                .collect();
-            let chosen = select::chosen(active, &choice);
-            if chosen.is_empty() {
-                output::error("error: no variant of an active Journey matches the flags");
-                return Ok(ExitCode::from(1));
-            }
-            let (filters, unrun) = select::filters(&chosen);
-            for variant in unrun {
-                output::error(&format!(
-                    "skipped: {variant}, since no runner runs its surface's variants yet"
-                ));
-            }
-            for (runner, argument) in filters {
-                output::line(&format!("{}\t{argument}", runner.name()));
-            }
-            Ok(ExitCode::SUCCESS)
-        }
+        Command::Select(arguments) => select_command(arguments, environment),
         Command::Tasks(tasks) => {
             let proving_ground = environment.path(&tasks.proving_ground);
             let lists = proving_ground_lists(&environment.root, &proving_ground)?;
@@ -790,6 +764,57 @@ pub(crate) fn active_variants(root: &Path) -> Result<Vec<CatalogVariant>> {
                 .collect(),
         })
         .collect())
+}
+
+/// `xtask journeys select`: each runner's filter for the chosen variants.
+fn select_command(arguments: &Select, environment: &Environment) -> Result<ExitCode> {
+    let journeys = match &arguments.tag {
+        Some(tag) => tagged_journeys(&environment.root, tag)?,
+        None => working_journeys(&environment.root)?,
+    };
+    let choice = select::Choice {
+        ids: arguments.ids.clone(),
+        surfaces: arguments.surfaces.clone(),
+        milestones: arguments.milestones.clone(),
+        areas: arguments.areas.clone(),
+    };
+    let active = journeys
+        .iter()
+        .filter(|journey| journey.status == Status::Active)
+        .flat_map(variants::of)
+        .collect();
+    let chosen = select::chosen(active, &choice);
+    if chosen.is_empty() {
+        output::error("error: no variant of an active Journey matches the flags");
+        return Ok(ExitCode::from(1));
+    }
+    if let Some(folder) = &arguments.listings {
+        let carried = variant_tests(&environment.root, &environment.path(folder))?;
+        let untested: Vec<String> = chosen
+            .iter()
+            .map(variants::Variant::id)
+            .filter(|variant| !carried.contains_key(variant))
+            .collect();
+        for variant in &untested {
+            output::error(&format!(
+                "note[no-test] {variant}: no test carries it, so it runs nowhere"
+            ));
+        }
+        if untested.len() == chosen.len() {
+            output::error("error: no chosen variant has a test, so nothing would run");
+            return Ok(ExitCode::from(1));
+        }
+    }
+    let (filters, unrun) = select::filters(&chosen);
+    for variant in unrun {
+        output::error(&format!(
+            "skipped: {variant}, since no runner runs its surface's variants yet"
+        ));
+    }
+    for (runner, argument) in filters {
+        output::line(&format!("{}\t{argument}", runner.name()));
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// The tests that carry each variant, by its ID, from the runners' listings

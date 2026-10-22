@@ -209,7 +209,17 @@ journeys *arguments:
       rm -rf "$scratch"
     }
     trap cleanup EXIT
-    cargo run --quiet -p xtask -- journeys select ${select[@]+"${select[@]}"} > "$scratch/selection"
+    # The working tree's listings name each chosen variant no test carries,
+    # and fail a choice none of whose variants has one; a tag's tests are
+    # its own, so a `--tag` run lists none.
+    listings=()
+    if [[ -z "$tag" ]]; then
+      cargo run --quiet -p xtask -- journeys listings --out "$scratch/listings" \
+        --cargo-profile {{ test_profile }}
+      listings=(--listings "$scratch/listings")
+    fi
+    cargo run --quiet -p xtask -- journeys select ${select[@]+"${select[@]}"} \
+      ${listings[@]+"${listings[@]}"} > "$scratch/selection"
     if [[ ! -s "$scratch/selection" ]]; then
       echo "No chosen variant has a runner yet."
       exit 0

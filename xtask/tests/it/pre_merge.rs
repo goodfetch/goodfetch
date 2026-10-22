@@ -54,7 +54,8 @@ const HOST_SETUP: &[&str] = if cfg!(target_os = "linux") {
 
 /// A stand-in `just` that appends its arguments to `calls`, and them with
 /// the OS services' variables it was given to `variables`, and fails with
-/// status 3 when they are `failing`'s content.
+/// status 3 when they are `failing`'s content. As `just _gate-plan` it
+/// prints `plan`'s content, the incremental gate's plan, when there is one.
 fn stand_in_just(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
@@ -62,12 +63,16 @@ fn stand_in_just(workspace: &Workspace) -> PathBuf {
         r#"#!/bin/sh
 echo "$*" >>"{calls}"
 echo "$*|${{DBUS_SESSION_BUS_ADDRESS:-}}|${{GOODFETCH_OS_SERVICES:-}}|${{GOODFETCH_TEST_DNS_NAMESPACE:-}}" >>"{variables}"
+if [ "$1" = _gate-plan ] && [ -f "{plan}" ]; then
+  cat "{plan}"
+fi
 if [ -f "{failing}" ] && [ "$*" = "$(cat "{failing}")" ]; then
   exit 3
 fi
 "#,
         calls = folder.join("calls").display(),
         variables = folder.join("variables").display(),
+        plan = folder.join("plan").display(),
         failing = folder.join("failing").display(),
     );
     let just = folder.join("just");
@@ -81,9 +86,13 @@ fi
 
 struct Run {
     code: Option<i32>,
+    /// The steps' calls, the incremental gate's own aside.
     calls: Vec<String>,
+    /// The incremental gate's calls: `_gate-plan`, `_gate-record <step> <status>`.
+    gate: Vec<String>,
     /// Each call as `<arguments>|<session bus>|<GOODFETCH_OS_SERVICES>|<GOODFETCH_TEST_DNS_NAMESPACE>`.
     variables: Vec<String>,
+    stdout: String,
     stderr: String,
 }
 
@@ -125,10 +134,17 @@ fn pre_merge_with_env(
             .map(str::to_owned)
             .collect()
     };
+    let is_gate = |call: &String| call.starts_with("_gate-");
+    let (gate, calls) = read("calls").into_iter().partition(is_gate);
     Run {
         code: output.status.code(),
-        calls: read("calls"),
-        variables: read("variables"),
+        calls,
+        gate,
+        variables: read("variables")
+            .into_iter()
+            .filter(|call| !is_gate(call))
+            .collect(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
     }
 }
@@ -329,4 +345,116 @@ fn on_linux_a_failed_os_service_setup_stops_the_suite_before_any_step() {
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
     assert_eq!(run.calls, ["_os-services", "_skips-report"]);
+}
+
+/// A plan of the incremental gate (ADR 0135), as `xtask gate plan` prints
+/// it: perf, the Pre-merge suite and TLC reused from an earlier run on
+/// `earlier`, the Quick suite rerun for two members and the stress run for
+/// one; every other step runs.
+const PLAN: &str = "previous\tearlier
+members\ta b c
+perf\treuse\t-\tgreen on earlier
+pre-merge\treuse\t-\tgreen on earlier
+tlc\treuse\t-\tgreen on earlier
+quick\tpart\ta b\tthe change since earlier reaches it
+stress\tpart\ta\tthe change since earlier reaches it
+lint\trun\t-\tevery run reruns it
+";
+
+#[test]
+fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("plan"), PLAN).unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    for reused in ["perf", "_suite pre-merge all", "features-audit", "_tlc all"] {
+        assert!(
+            !run.calls.iter().any(|call| call == reused),
+            "{reused} ran: {:?}",
+            run.calls
+        );
+    }
+    for rerun in [
+        "test quick a b",
+        "stress  earlier a",
+        "lint",
+        "linux",
+        "visual",
+        "msrv",
+    ] {
+        assert!(
+            run.calls.iter().any(|call| call == rerun),
+            "{rerun} did not run: {:?}",
+            run.calls
+        );
+    }
+    assert!(
+        run.stdout.contains("perf: reused (green on earlier)"),
+        "{}",
+        run.stdout
+    );
+    assert_eq!(run.gate.first().map(String::as_str), Some("_gate-plan"));
+    let mut recorded = run.gate[1..].to_vec();
+    recorded.sort();
+    let mut expected: Vec<String> = [
+        "dco",
+        "commit-messages",
+        "lint",
+        "feature-combinations",
+        "audit",
+        "commit-leaks",
+        "fuzz-check",
+        "proofs",
+        "quick",
+        "stress",
+        "journeys-tasks",
+        "features-tests",
+        "msrv",
+        "miri",
+        "notices",
+        "linux",
+        "visual",
+    ]
+    .iter()
+    .map(|step| format!("_gate-record {step} pass"))
+    .collect();
+    expected.sort();
+    assert_eq!(recorded, expected);
+}
+
+#[rstest]
+#[case::host_step("lint", "lint")]
+#[case::beside("perf", "perf")]
+#[case::suite("_suite pre-merge all", "pre-merge")]
+fn a_failed_step_is_recorded_as_failed(#[case] call: &str, #[case] step: &str) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("failing"), call).unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_eq!(run.code, Some(3), "{}", run.stderr);
+    assert!(
+        run.gate.contains(&format!("_gate-record {step} fail")),
+        "{:?}",
+        run.gate
+    );
+}
+
+#[rstest]
+#[case::what_changed("")]
+#[case::quick("quick")]
+fn only_the_whole_workspace_gate_plans_and_records(#[case] form: &str) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("plan"), PLAN).unwrap();
+    let args: &[&str] = if form.is_empty() { &[] } else { &[form] };
+
+    let run = pre_merge(&workspace, &stand_in, args);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert!(run.gate.is_empty(), "{:?}", run.gate);
 }

@@ -607,11 +607,22 @@ repeat count *selection:
 # target/junit/repeat-<count>/, which the results store's ingest reads as run
 # that many times. Nothing skips it and no count is lowered; it counts
 # against the Pre-merge budget.
-stress base="":
+#
+# The incremental gate (ADR 0135) narrows it: with `within` members (crates
+# by name, pnpm and uv packages by folder), only their new and changed
+# tests run, plus each test whose file changed `since` the earlier gate
+# run's head.
+# Stresses new and changed tests: `just stress [base] [since] [within…]`.
+[positional-arguments]
+stress base="" since="" *within:
     #!/usr/bin/env bash
     set -euo pipefail
+    shift 2
     base="{{ base }}"
     [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
+    narrowing=()
+    for member in "$@"; do narrowing+=(--within "$member"); done
+    [[ -z "{{ since }}" ]] || narrowing+=(--since "{{ since }}")
     target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
     # Vitest lists a file's tests by loading it, as a run does, so the
     # listings get the variables `just repeat` runs the tests with.
@@ -619,7 +630,8 @@ stress base="":
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     selection=$(cargo run --quiet -p xtask -- stress select --base "$base" \
-      --saved "$target/stress-listings" --cargo-profile {{ test_profile }})
+      --saved "$target/stress-listings" --cargo-profile {{ test_profile }} \
+      ${narrowing[@]+"${narrowing[@]}"})
     echo "Stressed tests (<count>, <runner>, <test ID>):"
     echo "$selection"
     # The JUnit files an earlier step of the job wrote stay where they are.
@@ -689,7 +701,10 @@ quick *all:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
 # projects in the pinned Playwright image, ADR 0073). The suite waits for
 # them and fails when one fails (ci/pre-merge.sh). `quick` runs only the
-# checks every change needs, for a change no test reads (ADR 0135).
+# checks every change needs, for a change no test reads (ADR 0135). `all`
+# on a head descending from a head whose gate ran reruns only the steps and
+# members' tests the change since then reaches, with every whole-change
+# check, and reuses the other green results (ADR 0135, `xtask gate`).
 pre-merge *all:
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/pre-merge.sh {{ all }}
 
@@ -1192,6 +1207,16 @@ _tlc all:
 _visual-elsewhere:
     @mkdir -p target
     @echo "visual projects: skipped, they run only in the pinned Playwright image (CI's visual job, ADR 0073)" >>target/skipped.txt
+
+# The incremental gate's plan for HEAD (ADR 0135), from the results earlier
+# gate runs recorded in target/gate-runs/, which `just merge` keeps between
+# gates; GOODFETCH_GATE_FULL=1 reuses nothing.
+_gate-plan:
+    cargo run --quiet -p xtask -- gate plan --records target/gate-runs ${GOODFETCH_GATE_FULL:+--full}
+
+# Records a gate step's result (`pass` or `fail`) for HEAD (ADR 0135).
+_gate-record step status:
+    cargo run --quiet -p xtask -- gate record --records target/gate-runs --step {{ step }} --status {{ status }}
 
 # Starts and checks the real OS services the tests use (ci/os-services.sh),
 # which `just pre-merge` runs first on a Linux host.

@@ -94,13 +94,29 @@ interface Ran {
   readonly refusal: string;
 }
 
-/** Runs `spec` under the repository's configuration and reads the document of `journey`'s `console` variant. */
+/**
+ * A configuration that is the repository's with every project setting
+ * `provingGroundSeed: 7`, as a Console conformance project does.
+ */
+const SEEDED_CONFIG = `import config from "./playwright.config.ts";
+
+export default {
+  ...config,
+  projects: (config.projects ?? []).map((project) => ({
+    ...project,
+    use: { ...project.use, provingGroundSeed: 7 },
+  })),
+};
+`;
+
+/** Runs `spec` under the repository's configuration, or `config`'s text built on it, and reads the document of `journey`'s `console` variant. */
 async function run(
   processes: ProcessRecord,
   testEnv: TestEnvDescription,
   journey: string,
   specText: string,
   env: Readonly<Record<string, string>> = {},
+  config?: string,
 ): Promise<Ran> {
   // Inside the repository, so the copied configuration finds `@playwright/test`.
   mkdirSync(join(ROOT, "target"), { recursive: true });
@@ -113,6 +129,9 @@ async function run(
     join(project, "features", "inventory.json"),
   );
   writeFileSync(join(project, "journey.spec.ts"), specText);
+  if (config !== undefined) {
+    writeFileSync(join(project, "built.config.ts"), config);
+  }
   const documents = join(project, "result-documents");
   const playwrightEnv: NodeJS.ProcessEnv = {
     ...process.env,
@@ -123,7 +142,14 @@ async function run(
   delete playwrightEnv["PLAYWRIGHT_JUNIT_OUTPUT_FILE"];
   const playwright = processes.spawn(
     process.execPath,
-    [CLI, "test", "--config", "playwright.config.ts", "--workers", "1"],
+    [
+      CLI,
+      "test",
+      "--config",
+      config === undefined ? "playwright.config.ts" : "built.config.ts",
+      "--workers",
+      "1",
+    ],
     { env: playwrightEnv, cwd: project },
   );
   playwright.child.stdout.resume();
@@ -220,6 +246,27 @@ describe("a console variant", () => {
         `${j961()}
   expect(daemon.provingGround).toBeUndefined();`,
       ),
+    );
+
+    expect(ran.document.proving_ground).toBeUndefined();
+    expect(ran.code).toBe(0);
+  });
+
+  test("of a Journey with no Proving ground table starts none where the project sets a seed", async ({
+    processes,
+    testEnv,
+  }) => {
+    const ran = await run(
+      processes,
+      testEnv,
+      "J-961",
+      spec(
+        "J-961",
+        `${j961()}
+  expect(daemon.provingGround).toBeUndefined();`,
+      ),
+      {},
+      SEEDED_CONFIG,
     );
 
     expect(ran.document.proving_ground).toBeUndefined();

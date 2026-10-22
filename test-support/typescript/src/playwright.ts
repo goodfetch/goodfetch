@@ -123,8 +123,12 @@ export interface ServedOptions {
   translationEmulation: boolean;
   /** The Product whose executable runs the test's Daemon and serves its Console build: Collie's unless the screen is Foxhound's (ADR 0094). */
   product: Product;
-  /** The seed of the Proving ground `daemon` starts beside the Daemon; none when unset. */
-  provingGroundSeed: number | undefined;
+  /**
+   * The seed of the Proving ground `daemon` starts beside the Daemon; none
+   * when unset or `null`. `null` is "none" even where the project sets one:
+   * `test.use` with `undefined` falls back to the project's value.
+   */
+  provingGroundSeed: number | null | undefined;
   /** What serves the test's Console: the Daemon itself by default (`executableConsole`), or a stand-in for what its executable cannot serve yet (area 12). */
   consoleServer: ConsoleServer | undefined;
   /** The test tool manifest's path: `GOODFETCH_TEST_TOOLS`, which `just test` sets. */
@@ -197,7 +201,7 @@ export const test: TestType<
                 testInfo.outputPath("test-tools.json"),
               ),
         product,
-        provingGroundSeed,
+        provingGroundSeed: provingGroundSeed ?? undefined,
         consoleServer,
         oidc: oidcProvider,
       });

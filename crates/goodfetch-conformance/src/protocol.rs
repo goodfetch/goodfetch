@@ -284,6 +284,7 @@ fn hello(connection: &mut Connection, product: Product) -> Result<HelloResult, P
     let params = HelloParams {
         protocol_version: PROTOCOL_VERSION,
         surface: Surface::Rust,
+        form: None,
         token: connection.token().map(ToOwned::to_owned),
         needs: Some(product),
         product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))

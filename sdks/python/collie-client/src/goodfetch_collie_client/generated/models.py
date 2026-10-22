@@ -265,6 +265,29 @@ class ErrorData(BaseModel):
     """Whether the same call may succeed when made again."""
 
 
+class Form(StrEnum):
+    """
+    The form a Client's user writes names in (ADR 0099), which the engine
+    renders the names and targets of its messages in.
+    """
+
+    typescript = "typescript"
+    """The TypeScript SDK, and Code mode."""
+    python = "python"
+    """The Python SDK."""
+    rust = "rust"
+    """A Rust program."""
+    cli = "cli"
+    """The CLI."""
+    tool = "tool"
+    """The MCP server and the Framework adapters."""
+    catalog = "catalog"
+    """
+    The catalog's own names: the Console, Integrations and the HTTP
+    listener.
+    """
+
+
 class HttpBody(RootModel[str]):
     root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
     """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
@@ -1629,6 +1652,11 @@ class HelloParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    form: Form | None = None
+    """
+    The form its user writes names in (ADR 0099); none until each
+    surface names its own.
+    """
     log_level: LogLevel | None = None
     """
     The level of the engine's log events the Client receives as `$/log`

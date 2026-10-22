@@ -174,16 +174,13 @@ fn outcome(proving_ground: &ProvingGround, task: &str, status: &str) -> Value {
     }
 }
 
-/// Each task done through locator actions is verified by the oracle: one
-/// trusted event of the right kind on the right control, none on a decoy
-/// and none twice. A click waits out an overlay, a disabled or hidden
-/// target, a duplicate a re-render leaves for a moment, and a target that
-/// slips away from the pointer, whose click is cancelled on the decoy and
-/// replayed; a locator survives a re-render that replaces its element;
-/// typed text reaches a controlled field and a contenteditable box, Enter
-/// a field, and the pointer opens a hover menu. Every action answers an
-/// empty result: no handle on an element.
-/// Covers: story:5-2, story:5-3, story:5-10, story:5-18, operation:locator.click, operation:locator.fill, operation:locator.press
+/// Each task done through clicks is verified by the oracle. A click waits
+/// out an overlay, a disabled or hidden target, a duplicate a re-render
+/// leaves for a moment, and a target that slips away from the pointer,
+/// whose click is cancelled on the decoy and replayed; a locator survives
+/// a re-render that replaces its element; and the pointer opens a hover
+/// menu.
+/// Covers: story:5-2, story:5-3, story:5-10, story:5-18, operation:locator.click
 #[rstest]
 #[case::overlay("actionability/2", &[Step::Click("#target")])]
 #[case::delayed("actionability/3", &[Step::Click("#target")])]
@@ -192,14 +189,40 @@ fn outcome(proving_ground: &ProvingGround, task: &str, status: &str) -> Value {
 #[case::moved("actionability/18", &[Step::Click("#target")])]
 #[case::ambiguous_until_rerendered("actionability/27", &[Step::Click("#target")])]
 #[case::hover_menu("actionability/29", &[Step::Click("#menu"), Step::Click("#export")])]
-#[case::controlled_field("actionability/28", &[Step::Fill("#name", "Goodfetch"), Step::Click("#save")])]
-#[case::enter("actionability/15", &[Step::Press("#field", "Enter")])]
-#[case::contenteditable("actionability/16", &[Step::Fill("#editor", "Goodfetch")])]
-#[case::unicode("actionability/17", &[Step::Fill("#field", "Ünïcødé — 漢字 😀")])]
-fn a_task_done_through_locator_actions_is_verified_by_the_oracle(
+fn a_task_done_through_clicks_is_verified_by_the_oracle(
     #[case] task: &str,
     #[case] steps: &[Step],
 ) {
+    verified_by_the_oracle(task, steps);
+}
+
+/// Each task done through typed text is verified by the oracle: the text
+/// reaches a controlled field, which then saves, a contenteditable box, and
+/// a field taking text beyond ASCII.
+/// Covers: story:5-10, operation:locator.fill
+#[rstest]
+#[case::controlled_field("actionability/28", &[Step::Fill("#name", "Goodfetch"), Step::Click("#save")])]
+#[case::contenteditable("actionability/16", &[Step::Fill("#editor", "Goodfetch")])]
+#[case::unicode("actionability/17", &[Step::Fill("#field", "Ünïcødé — 漢字 😀")])]
+fn a_task_done_through_typed_text_is_verified_by_the_oracle(
+    #[case] task: &str,
+    #[case] steps: &[Step],
+) {
+    verified_by_the_oracle(task, steps);
+}
+
+/// Enter pressed in a field is verified by the oracle.
+/// Covers: story:5-10, operation:locator.press
+#[test]
+fn enter_pressed_in_a_field_is_verified_by_the_oracle() {
+    verified_by_the_oracle("actionability/15", &[Step::Press("#field", "Enter")]);
+}
+
+/// Does `task` through the locator actions `steps`, and asserts that the
+/// oracle verifies it: one trusted event of the right kind on the right
+/// control, none on a decoy and none twice. Every action answers an empty
+/// result: no handle on an element.
+fn verified_by_the_oracle(task: &str, steps: &[Step]) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
@@ -396,14 +419,33 @@ fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
     );
 }
 
-/// The locator actions through the commands generated from the catalog:
-/// no engine holds a page the command names, so each fails with `closed`.
-/// Covers: command:locator.click, command:locator.fill, command:locator.press
-#[rstest]
-#[case::click(&["locator", "click"])]
-#[case::fill(&["locator", "fill", "--value", "Goodfetch"])]
-#[case::press(&["locator", "press", "--key", "Enter"])]
-fn a_locator_command_on_a_page_no_engine_holds_fails_with_closed(#[case] command: &[&str]) {
+/// `locator click`, generated from the catalog: no engine holds the page
+/// it names, so it fails with `closed`.
+/// Covers: command:locator.click
+#[test]
+fn locator_click_on_a_page_no_engine_holds_fails_with_closed() {
+    fails_with_closed(&["locator", "click"]);
+}
+
+/// `locator fill`, generated from the catalog: no engine holds the page
+/// it names, so it fails with `closed`.
+/// Covers: command:locator.fill
+#[test]
+fn locator_fill_on_a_page_no_engine_holds_fails_with_closed() {
+    fails_with_closed(&["locator", "fill", "--value", "Goodfetch"]);
+}
+
+/// `locator press`, generated from the catalog: no engine holds the page
+/// it names, so it fails with `closed`.
+/// Covers: command:locator.press
+#[test]
+fn locator_press_on_a_page_no_engine_holds_fails_with_closed() {
+    fails_with_closed(&["locator", "press", "--key", "Enter"]);
+}
+
+/// Runs the locator command `command` on a page no engine holds, and
+/// asserts that it fails with `closed`, naming its operation.
+fn fails_with_closed(command: &[&str]) {
     let env = TestEnv::new();
     let mut arguments = command.to_vec();
     arguments.extend([

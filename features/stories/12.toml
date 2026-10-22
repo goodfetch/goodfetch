@@ -8,6 +8,13 @@
 # `status = "retired"` and a `reason`.
 
 [[story]]
+id = 1
+title = "As a user, I want `goodfetch-collie console` to start my major's Daemon if none runs, open my browser on the Console and sign me in once through a token passed in the URL fragment and swapped for an `HttpOnly` cookie, so that I see my runs with no sign-in step on my own machine (ADR 0024; ADR 0037 / CN-03; J-001)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
 id = 3
 title = "As a user with two majors installed, I want each major's Console on its own port, so that a 1.x and a 2.x project never share or restart each other's Console (area 3 story 22)."
 milestone = "M1 Core"

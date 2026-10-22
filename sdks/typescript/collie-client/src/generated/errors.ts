@@ -186,6 +186,15 @@ export class ClosedError extends ProgramError {
 }
 
 /**
+ * The Connection to the engine dropped before the call was answered, so whether it took effect is unknown. The Client connects again by itself; make the call again once it has, after checking that an Effect did not happen.
+ */
+export class ConnectionLostError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "connection_lost", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon.
  */
 export class ConsolePortInUseError extends UnavailableError {
@@ -592,6 +601,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   browser_not_installed: BrowserNotInstalledError,
   call_cancelled: CallCancelledError,
   closed: ClosedError,
+  connection_lost: ConnectionLostError,
   console_port_in_use: ConsolePortInUseError,
   daemon_draining: DaemonDrainingError,
   egress_refused: EgressRefusedError,

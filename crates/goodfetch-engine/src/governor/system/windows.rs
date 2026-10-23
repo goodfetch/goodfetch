@@ -115,9 +115,14 @@ fn low_memory() -> bool {
 /// The private bytes of the engine and every descendant; a process that
 /// ended meanwhile counts nothing.
 pub(super) fn footprint() -> u64 {
-    let parents = parents();
     // SAFETY: no argument.
-    let mut found = vec![unsafe { GetCurrentProcessId() }];
+    footprint_from(unsafe { GetCurrentProcessId() })
+}
+
+/// The private bytes of `root` and every descendant.
+pub(super) fn footprint_from(root: u32) -> u64 {
+    let parents = parents();
+    let mut found = vec![root];
     let mut total = 0;
     while let Some(process) = found.pop() {
         total += private_bytes(process);

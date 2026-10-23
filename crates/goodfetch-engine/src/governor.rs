@@ -33,7 +33,7 @@ mod shares;
 mod system;
 
 pub use shares::{Permit, RunShare};
-pub use system::System;
+pub use system::{System, footprint_of};
 
 use controller::{Bounds, Controller, Decision, Limits, Reading};
 use shares::Shares;

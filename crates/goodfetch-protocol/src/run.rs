@@ -25,10 +25,15 @@ use crate::catalog::{
 };
 use crate::connection::{DaemonEndpoint, PrivateEndpoint, StoppedBy};
 use crate::settings::{ProjectSettings, SettingLimit};
-use crate::storage::StorageLevel;
 
+mod progress;
 mod report;
 pub mod warning;
+
+pub use self::progress::{
+    EngineStep, HumanPause, PauseOrigin, RUN_INTERRUPTED, RUN_PROGRESS, RUN_PROGRESS_READ,
+    RUN_REPORT, RunInterruptedDetails, RunProgress, RunProgressParams, RunStorage, RunWriter,
+};
 
 pub use self::report::{
     AppliedLimit, AxisReason, EndingError, KindUsage, LimitSetter, ModelUsage, NothingDone,
@@ -719,41 +724,6 @@ pub const RUN_AXES_CHANGED: Event = Event {
     arrived_in: ARRIVED_IN,
 };
 
-/// A Run's progress as it is now (ADR 0102): what `run.progress` reports.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct RunProgress {
-    /// The Run's ID.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub run_id: RunId,
-    /// Where it is.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub lifecycle: Lifecycle,
-    /// The program's own status line, once it set one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub message: Option<ProgressMessage>,
-    /// The worst storage level among the filesystems the Run writes to,
-    /// once the Resource governor sampled them (ADR 0122).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub storage: Option<RunStorage>,
-}
-
-/// The worst storage level among the filesystems a Run writes to, with
-/// that filesystem's folder and free space (ADR 0122).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct RunStorage {
-    /// The level.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub level: StorageLevel,
-    /// A folder the Run writes to on that filesystem.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub folder: String,
-    /// The space left on it to the engine's user, in bytes.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub free_bytes: u64,
-}
-
 /// What `run.set_progress_message` takes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -765,17 +735,6 @@ pub struct RunSetProgressMessageParams {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub message: ProgressMessage,
 }
-
-/// A Run's progress changed (ADR 0102).
-pub const RUN_PROGRESS: Event = Event {
-    name: "run.progress",
-    description: "A Run's progress changed, such as the program's own status line. Telemetry: a newer value of the same Run replaces an unsent one.",
-    class: EventClass::Telemetry,
-    payload: schema_of::<RunProgress>,
-    stability: Stability::Experimental,
-    deprecated: None,
-    arrived_in: ARRIVED_IN,
-};
 
 /// `run.set_progress_message`.
 pub const RUN_SET_PROGRESS_MESSAGE: Operation = Operation {
@@ -1299,6 +1258,8 @@ pub const ENTRIES: Entries = Entries {
         RUN_USAGE,
         RUN_SET_PROGRESS_MESSAGE,
         RUN_DISCARD,
+        RUN_PROGRESS_READ,
+        RUN_REPORT,
     ],
     events: &[RUN_AXES_CHANGED, RUN_PROGRESS],
     handler_requests: &[],
@@ -1313,6 +1274,7 @@ pub const ENTRIES: Entries = Entries {
         RUN_STATE_UNAVAILABLE,
         RUN_LIVE,
         RESOURCES_EXHAUSTED,
+        RUN_INTERRUPTED,
     ],
     plugin_kinds: &[],
     metrics: &[],

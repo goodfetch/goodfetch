@@ -36,7 +36,7 @@ use crate::people::SignInDriver;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
-use crate::runs::{Driver, ReportPart, Runs};
+use crate::runs::{Driver, ProgressPart, ReportPart, Runs};
 use goodfetch_protocol::run::RunKind;
 
 /// A failure a call answers with: an Error code of the catalog, with its
@@ -477,6 +477,7 @@ pub struct Contribution {
     drivers: Vec<(RunKind, Driver)>,
     admission_gates: Option<Arc<dyn Gates>>,
     report_parts: Vec<Arc<dyn ReportPart>>,
+    progress_parts: Vec<Arc<dyn ProgressPart>>,
 }
 
 impl Contribution {
@@ -490,6 +491,7 @@ impl Contribution {
             drivers: Vec::new(),
             admission_gates: None,
             report_parts: Vec::new(),
+            progress_parts: Vec::new(),
         }
     }
 
@@ -537,6 +539,14 @@ impl Contribution {
     #[must_use]
     pub fn with_report_part(mut self, part: Arc<dyn ReportPart>) -> Self {
         self.report_parts.push(part);
+        self
+    }
+
+    /// The same, adding `part` to each value of a Run's progress, read from
+    /// its committed state (ADR 0102).
+    #[must_use]
+    pub fn with_progress_part(mut self, part: Arc<dyn ProgressPart>) -> Self {
+        self.progress_parts.push(part);
         self
     }
 
@@ -685,6 +695,15 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.report_parts.iter().cloned())
+            .collect()
+    }
+
+    /// What every contribution adds to each value of a Run's progress, in
+    /// order.
+    pub(crate) fn progress_parts(&self) -> Vec<Arc<dyn ProgressPart>> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.progress_parts.iter().cloned())
             .collect()
     }
 

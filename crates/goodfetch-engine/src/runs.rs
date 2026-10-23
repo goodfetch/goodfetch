@@ -58,14 +58,15 @@ use goodfetch_protocol::checkpoint::{
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::governor::RUN_SHARE;
+use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
-    AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, Lifecycle, NotUnderstoodLimit,
-    NothingDone, PointInTime, Presence, ProgressMessage, RUN_IN_USE, RUN_PROGRESS,
+    AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, HumanPause, Lifecycle,
+    NotUnderstoodLimit, NothingDone, PointInTime, Presence, ProgressMessage, RUN_IN_USE,
     RUN_STATE_DURABILITY, ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunOwner,
-    RunProgress, RunReport, RunStarted, RunStorage, RunUsage, RunWarning, StartInput, StartedAs,
-    StopReason, Tags,
+    RunProgress, RunReport, RunStarted, RunStorage, RunUsage, RunWarning, RunWriter, StartInput,
+    StartedAs, StopReason, Tags,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
@@ -81,6 +82,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 pub use self::import::fuzz_run_state_import;
+pub use self::progress::{PauseHeld, ProgressPart};
 pub use self::reader::RunReader;
 pub use self::reindex::{Reindexed, reindex};
 pub use self::report::ReportPart;
@@ -91,6 +93,7 @@ use self::folder::{
     text, write_end,
 };
 use self::lifecycle::{InvalidRunTransition, Next, RunEvent};
+use self::progress::{Progress, Progressing};
 use self::reader::Following;
 use self::report::EndFacts;
 pub(crate) use self::slices::Limits;
@@ -125,6 +128,10 @@ use crate::transition;
 
 /// A Run's state, in its folder.
 const RUN_FILE: &str = "run.sqlite";
+
+/// How often a report read of a Run another engine writes, whose owner did
+/// not answer it, reads the Run's file again for its end (ADR 0102).
+const REPORT_POLL: Duration = Duration::from_secs(1);
 
 /// The identity of the machine a Goodfetch home is on, in that home: what a
 /// Run bound to its machine records (ADR 0056).
@@ -193,6 +200,9 @@ pub(crate) struct RunsSetup {
     pub(crate) governor: Governor,
     /// What the composition's areas add to each Run's report (ADR 0102).
     pub(crate) report_parts: Vec<Arc<dyn ReportPart>>,
+    /// What the composition's areas add to each Run's progress from its
+    /// committed state (ADR 0102).
+    pub(crate) progress_parts: Vec<Arc<dyn ProgressPart>>,
     /// The Console's address, when this engine serves one (ADR 0031): each
     /// Run's report names its page there.
     pub(crate) console: Option<String>,
@@ -215,6 +225,19 @@ pub(crate) trait Forwarder: Send + Sync {
         run_id: &'a RunId,
         tasks: &'a TaskOwner,
     ) -> Pin<Box<dyn Future<Output = Option<RunReport>> + Send + 'a>>;
+
+    /// Asks the engine at `owner`, as a Client that needs `needs`, for the
+    /// read `method` with `params` of a Run it works (ADR 0102), its
+    /// blocking work under `tasks`, and answers what it answered: its
+    /// result, or the failure it answered; `None` when it did not answer.
+    fn read<'a>(
+        &'a self,
+        owner: &'a RunOwner,
+        needs: Product,
+        method: &'static str,
+        params: Value,
+        tasks: &'a TaskOwner,
+    ) -> Pin<Box<dyn Future<Output = Option<Result<Value, ErrorObject>>> + Send + 'a>>;
 }
 
 /// Writes a new Run's first rows, beside the engine's own, in the
@@ -601,6 +624,14 @@ pub enum RunError {
     /// This engine still runs the Run, so it is not discarded.
     #[error("the Run `{0}` is live")]
     Live(RunId),
+    /// The Run has no live writer and has not ended, so it has no report
+    /// (ADR 0102).
+    #[error("the Run `{0}` is interrupted")]
+    Interrupted(RunId),
+    /// The engine that works the Run answered a read forwarded to it with
+    /// this failure (ADR 0102).
+    #[error("the Run's owner answered `{}`", .0.data.code)]
+    Forwarded(Box<ErrorObject>),
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
@@ -665,6 +696,27 @@ impl RunError {
             WriteError::Source(error) => Self::of_state(run_id, folder, error),
         }
     }
+}
+
+/// What a progress read follows: a live Run's changes, or none for one
+/// this engine does not run, its reader, its composition's parts and the
+/// engine's clock.
+struct Followed {
+    changes: Option<watch::Receiver<Progressing>>,
+    reader: RunReader,
+    parts: Vec<Arc<dyn ProgressPart>>,
+    clock: Clock,
+}
+
+/// Where a read of a Run this engine does not run looks for the engine
+/// that does (ADR 0102).
+struct Located {
+    folder: PathBuf,
+    index: PathBuf,
+    version: ProductVersion,
+    reached_at: Option<RunOwner>,
+    forwarder: Arc<dyn Forwarder>,
+    tasks: Arc<TaskOwner>,
 }
 
 /// What an abort waits for: a Run this engine ends, or one whose writer
@@ -803,6 +855,8 @@ enum Command {
     Machine(oneshot::Sender<Result<String, RunError>>),
     SafeStop(RunId, StoppedBy, oneshot::Sender<Result<Waiting, RunError>>),
     Reader(RunId, oneshot::Sender<RunReader>),
+    Progress(RunId, oneshot::Sender<Followed>),
+    Locate(RunId, oneshot::Sender<Option<Located>>),
     Discard(RunId, oneshot::Sender<Result<(), RunError>>),
     Drain(oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
     Storage(Arc<StorageSample>),
@@ -905,6 +959,8 @@ struct Shared {
     _sampled: Held,
     /// The governor's last storage sample.
     storage: watch::Receiver<Arc<StorageSample>>,
+    /// Its progress (ADR 0102).
+    progress: Progress,
 }
 
 impl std::fmt::Debug for Run {
@@ -993,6 +1049,19 @@ impl Run {
     /// The engine's clock.
     pub fn clock(&self) -> Clock {
         self.clock
+    }
+
+    /// Shows `pause`, a Human pause waiting on one of its pages (ADR 0092),
+    /// in its progress until the handle answered ends or is dropped: its
+    /// beginning and its end each give a new value.
+    pub fn human_pause(&self, pause: HumanPause) -> PauseHeld {
+        self.shared.progress.pause(pause)
+    }
+
+    /// Sets the part `name` its kind of Run adds to its progress, such as a
+    /// crawl's `waiting` (ADR 0102): a new value when it changed.
+    pub fn set_progress_part(&self, name: &str, part: Value) {
+        self.shared.progress.set_part(name, part);
     }
 
     /// An `Entropy` of its own for one of the Run's owners, such as its
@@ -2218,6 +2287,184 @@ impl Runs {
         answered.await.map_err(|_| RunError::Stopped)
     }
 
+    /// The progress of the Run `run_id` (ADR 0102): without `after`, as it
+    /// is now; given `after`, the position of the value a reader last read,
+    /// the latest value after it, once a change comes, so the values in
+    /// between are coalesced. A live Run of this engine's is read as its
+    /// registry and driver hold it, with the parts its composition reads
+    /// from its committed state; any other from its run file, the last
+    /// value from here, `writer` as a reader's test of its writer lock
+    /// finds it, which never takes the lock.
+    ///
+    /// # Errors
+    ///
+    /// `NotFound` when no Run has this Run ID here, `Unavailable` when its
+    /// state cannot be read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future only stops waiting.
+    pub async fn progress(
+        &self,
+        run_id: RunId,
+        after: Option<u64>,
+    ) -> Result<RunProgress, RunError> {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Progress(run_id.clone(), answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        let Followed {
+            changes,
+            mut reader,
+            parts,
+            clock,
+        } = answered.await.map_err(|_| RunError::Stopped)?;
+        let Some(mut changes) = changes else {
+            let folder = reader.folder().to_owned();
+            let at = point_in_time(&clock);
+            return reader
+                .read(move |connection| {
+                    let writer = match test_writer(&folder) {
+                        Ok(Writer::Live) => RunWriter::Live,
+                        Ok(Writer::None) | Err(_) => RunWriter::Absent,
+                    };
+                    let mut progress = progress::committed(connection, writer, at)?;
+                    if let Some(progress) = &mut progress {
+                        progress::fill(&parts, connection, progress);
+                    }
+                    Ok(progress)
+                })
+                .await?
+                .ok_or(RunError::NotFound(run_id));
+        };
+        let value = loop {
+            let ready = {
+                let current = changes.borrow_and_update();
+                (current.last || after.is_none_or(|after| current.position() > after))
+                    .then(|| current.value(&run_id, point_in_time(&clock)))
+            };
+            if let Some(value) = ready {
+                break value;
+            }
+            if changes.changed().await.is_err() {
+                // The registry stopped with the Run live: nothing more
+                // comes from here.
+                let mut value = changes.borrow().value(&run_id, point_in_time(&clock));
+                value.last = true;
+                break value;
+            }
+        };
+        let unfilled = value.clone();
+        match reader
+            .read(move |connection| {
+                let mut value = value;
+                progress::fill(&parts, connection, &mut value);
+                Ok(value)
+            })
+            .await
+        {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                tracing::warn!(%error, run_id = %unfilled.run_id, "the Run's committed parts of its progress could not be read");
+                Ok(unfilled)
+            }
+        }
+    }
+
+    /// The report of the Run `run_id` (ADR 0102): at once for one that
+    /// ended, and at its end for a live one, which the read never ends; a
+    /// Run another engine still writes is read again from its run file
+    /// every [`REPORT_POLL`] until it ended.
+    ///
+    /// # Errors
+    ///
+    /// `NotFound` when no Run has this Run ID here, `Interrupted` when it
+    /// has no live writer and has not ended, `Unavailable` when its state
+    /// cannot be read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future only stops waiting.
+    pub async fn report(&self, run_id: RunId) -> Result<RunReport, RunError> {
+        loop {
+            match self.ended(run_id.clone()).await {
+                Err(RunError::NotFound(_)) => {}
+                ended => return ended,
+            }
+            let mut reader = self.reader(run_id.clone()).await?;
+            let folder = reader.folder().to_owned();
+            let (recorded, writer) = reader
+                .read(move |connection| {
+                    let recorded: i64 =
+                        connection.query_row("SELECT count(*) FROM run", [], |row| row.get(0))?;
+                    Ok((recorded > 0, test_writer(&folder).ok()))
+                })
+                .await?;
+            match (recorded, writer) {
+                (false, _) => return Err(RunError::NotFound(run_id)),
+                (true, Some(Writer::Live)) => self.clock().sleep(REPORT_POLL).await,
+                (true, _) => return Err(RunError::Interrupted(run_id)),
+            }
+        }
+    }
+
+    /// Reads `method` with `params` of the Run `run_id` through the engine
+    /// that works it (ADR 0102), when that is another engine, the owner
+    /// the Run index names while a reader's test finds its writer lock
+    /// held, reached as a Client that needs `needs`: its answer, or `None`
+    /// when this engine runs the Run, no engine does, or the owner did not
+    /// answer, for the read to go on here, from the Run's committed state.
+    ///
+    /// # Errors
+    ///
+    /// `Forwarded` with the failure the owner answered.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future only stops waiting.
+    pub async fn through_owner(
+        &self,
+        run_id: &RunId,
+        needs: Product,
+        method: &'static str,
+        params: Value,
+    ) -> Result<Option<Value>, RunError> {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Locate(run_id.clone(), answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        let Some(located) = answered.await.map_err(|_| RunError::Stopped)? else {
+            return Ok(None);
+        };
+        let Located {
+            folder,
+            index,
+            version,
+            reached_at,
+            forwarder,
+            tasks,
+        } = located;
+        let id = run_id.clone();
+        let owner = tasks
+            .blocking(move || -> Option<RunOwner> {
+                if test_writer(&folder).ok()? != Writer::Live {
+                    return None;
+                }
+                run_index::read(&index, &version, &id).ok()??.owner
+            })
+            .await;
+        let Some(owner) = owner.filter(|owner| Some(owner) != reached_at.as_ref()) else {
+            return Ok(None);
+        };
+        match forwarder.read(&owner, needs, method, params, &tasks).await {
+            Some(Ok(answer)) => Ok(Some(answer)),
+            Some(Err(failure)) => Err(RunError::Forwarded(Box::new(failure))),
+            None => Ok(None),
+        }
+    }
+
     /// Discards the Run `run_id` for good, so that nothing of it is left
     /// behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is
     /// overwritten and its run folder removed, in the per-install layout
@@ -2420,6 +2667,8 @@ struct Live {
     storage: Option<RunStorage>,
     /// The folders whose `low` level its report carries a warning for.
     warned_low: std::collections::BTreeSet<String>,
+    /// Its progress, which its readers follow (ADR 0102).
+    progress: Progress,
 }
 
 struct Registry {
@@ -2524,6 +2773,9 @@ impl Registry {
                 }
                 Command::Checkpointed(run_id, checkpoint) => {
                     if let Some(live) = self.live.get_mut(&run_id) {
+                        let time = checkpoint.time.clone();
+                        live.progress
+                            .change(|progressing| progressing.checkpoint_at = Some(time));
                         live.checkpoint = Some(*checkpoint);
                     }
                 }
@@ -2549,6 +2801,17 @@ impl Registry {
                 }
                 Command::Reader(run_id, answer) => {
                     let _ = answer.send(self.reader(&run_id));
+                }
+                Command::Progress(run_id, answer) => {
+                    let _ = answer.send(Followed {
+                        changes: self.live.get(&run_id).map(|live| live.progress.subscribe()),
+                        reader: self.reader(&run_id),
+                        parts: self.setup.progress_parts.clone(),
+                        clock: self.setup.clock,
+                    });
+                }
+                Command::Locate(run_id, answer) => {
+                    let _ = answer.send(self.locate(&run_id));
                 }
                 Command::Discard(run_id, answer) => self.discard(run_id, answer).await,
                 Command::Storage(sample) => self.storage(&sample).await,
@@ -2602,7 +2865,6 @@ impl Registry {
     async fn storage(&mut self, sample: &StorageSample) {
         let home = self.setup.home.root().to_owned();
         let temporary = std::env::temp_dir();
-        let mut changed = Vec::new();
         for live in self.live.values_mut() {
             let Some(run) = &live.run else {
                 continue;
@@ -2633,11 +2895,9 @@ impl Registry {
                 .map_or(StorageLevel::Normal, |storage| storage.level);
             if storage.level != was {
                 live.storage = Some(storage.clone());
-                changed.push((
-                    live.id.clone(),
-                    storage.clone(),
-                    live.progress_message.clone(),
-                ));
+                let carried = storage.clone();
+                live.progress
+                    .change(|progressing| progressing.storage = Some(carried));
             }
             if storage.level >= StorageLevel::Low && live.warned_low.insert(storage.folder.clone())
             {
@@ -2649,18 +2909,6 @@ impl Registry {
                     }
                 });
             }
-        }
-        for (run_id, storage, message) in changed {
-            let progress = RunProgress {
-                run_id: run_id.clone(),
-                lifecycle: Lifecycle::Running,
-                message,
-                storage: Some(storage),
-            };
-            self.setup
-                .events
-                .publish(&RUN_PROGRESS, Some(run_id.as_str()), &progress)
-                .await;
         }
     }
 
@@ -2804,9 +3052,18 @@ impl Registry {
                 report: waiters,
                 lock,
                 kind,
+                progress,
                 ..
             } = live;
             drop(lock);
+            progress.change(|progressing| {
+                if let Ended::Report(report) = &ended {
+                    progressing.lifecycle = report.lifecycle;
+                    progressing.stop_reason.clone_from(&report.stop_reason);
+                }
+                progressing.writer = RunWriter::Absent;
+                progressing.last = true;
+            });
             if let Ended::Report(report) = &ended {
                 self.setup.metrics.run_ended(kind, report);
             }
@@ -2837,6 +3094,22 @@ impl Registry {
             .get(&run_id)
             .and_then(|live| live.run.clone())
             .ok_or(RunError::NotFound(run_id))
+    }
+
+    /// Where a read of the Run `run_id` that this engine does not run
+    /// looks for the engine that does; `None` when this engine runs it.
+    fn locate(&self, run_id: &RunId) -> Option<Located> {
+        if self.live.contains_key(run_id) {
+            return None;
+        }
+        Some(Located {
+            folder: self.folder(run_id),
+            index: self.setup.home.run_index(&self.setup.version),
+            version: self.setup.version.clone(),
+            reached_at: self.setup.reached_at.clone(),
+            forwarder: Arc::clone(&self.setup.forwarder),
+            tasks: Arc::clone(&self.readers),
+        })
     }
 
     fn reader(&self, run_id: &RunId) -> RunReader {
@@ -3159,9 +3432,18 @@ impl Registry {
             })
             .await
             .map_err(|error| unavailable(error.to_string()))?;
+        let progress = self.progress(&run_id, Progressing::live(1, Lifecycle::Running, None));
         let live = Live {
             id: run_id.clone(),
-            run: Some(self.new_run(&run_id, &folder, state, connection, start.settings, keys)),
+            run: Some(self.new_run(
+                &run_id,
+                &folder,
+                state,
+                connection,
+                start.settings,
+                keys,
+                progress.clone(),
+            )),
             folder,
             kind: start.kind,
             needs: start.needs,
@@ -3180,6 +3462,7 @@ impl Registry {
             lifecycle: Lifecycle::Running,
             storage: None,
             warned_low: std::collections::BTreeSet::new(),
+            progress,
         };
         let row = self.index_row(&live, Lifecycle::Running, None);
         self.write_index(row).await;
@@ -3323,21 +3606,17 @@ impl Registry {
         if let Some(live) = self.live.get_mut(run_id) {
             live.progress_message = Some(message.clone());
         }
-        if let Some(live) = self.live.get(run_id) {
-            let row = self.index_row(live, Lifecycle::Running, None);
-            self.write_index(row).await;
-        }
-        let progress = RunProgress {
-            run_id: run_id.clone(),
-            lifecycle: Lifecycle::Running,
-            message: Some(message),
-            storage: self.live.get(run_id).and_then(|live| live.storage.clone()),
+        let Some(live) = self.live.get(run_id) else {
+            return Err(RunError::NotFound(run_id.clone()));
         };
-        self.setup
-            .events
-            .publish(&RUN_PROGRESS, Some(run_id.as_str()), &progress)
-            .await;
-        Ok(progress)
+        let row = self.index_row(live, Lifecycle::Running, None);
+        self.write_index(row).await;
+        let Some(live) = self.live.get(run_id) else {
+            return Err(RunError::NotFound(run_id.clone()));
+        };
+        live.progress
+            .change(|progressing| progressing.message = Some(message));
+        Ok(live.progress.subscribe().borrow().value(run_id, self.now()))
     }
 
     /// What it answers about the engine's health.
@@ -3364,6 +3643,7 @@ impl Registry {
         connection: Option<ConnectionId>,
         settings: Option<RunSettings>,
         keys: Keys,
+        progress: Progress,
     ) -> Run {
         let epoch = state.epoch();
         let share = settings
@@ -3392,12 +3672,26 @@ impl Registry {
                 governor: self.setup.governor.join(share),
                 _sampled: self.setup.governor.sample(folder.to_owned()),
                 storage: self.setup.governor.storage(),
+                progress,
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),
             settings: settings.map(Arc::new),
             entropy: Arc::new(tokio::sync::Mutex::new(self.setup.entropy.fork())),
         }
+    }
+
+    /// The progress of the live Run `run_id`, as `start` is, whose every
+    /// change goes out as `run.progress` (ADR 0102).
+    fn progress(&self, run_id: &RunId, start: Progressing) -> Progress {
+        let progress = Progress::new(start);
+        self.owner.spawn(progress::publish(
+            run_id.clone(),
+            progress.subscribe(),
+            self.setup.events.clone(),
+            self.setup.clock,
+        ));
+        progress
     }
 
     fn handle(&self, connection: Option<ConnectionId>) -> Runs {
@@ -3784,9 +4078,25 @@ impl Registry {
         let recorded = self.recorded(&run_id, &folder).await?;
         self.ended.remove(&run_id);
         self.unrecorded.remove(&run_id);
+        let progress_message = recorded
+            .progress_message
+            .as_deref()
+            .and_then(ProgressMessage::parse);
+        let progress = self.progress(
+            &run_id,
+            Progressing::live(state.epoch(), lifecycle, progress_message.clone()),
+        );
         let live = Live {
             id: run_id.clone(),
-            run: Some(self.new_run(&run_id, &folder, state, connection, settings, keys)),
+            run: Some(self.new_run(
+                &run_id,
+                &folder,
+                state,
+                connection,
+                settings,
+                keys,
+                progress.clone(),
+            )),
             folder,
             kind: recorded.kind,
             needs: recorded.needs,
@@ -3804,13 +4114,11 @@ impl Registry {
             lock: Arc::new(lock),
             connection,
             checkpoint: None,
-            progress_message: recorded
-                .progress_message
-                .as_deref()
-                .and_then(ProgressMessage::parse),
+            progress_message,
             lifecycle,
             storage: None,
             warned_low: std::collections::BTreeSet::new(),
+            progress,
         };
         let row = self.index_row(&live, lifecycle, None);
         self.write_index(row).await;
@@ -4439,6 +4747,7 @@ mod folder;
 mod import;
 pub mod lifecycle;
 pub mod outcome;
+mod progress;
 mod reader;
 mod reindex;
 mod report;

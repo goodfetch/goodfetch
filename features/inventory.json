@@ -550,6 +550,28 @@
       ]
     },
     {
+      "id": "command:run.progress",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:run.report",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:run.resume",
       "kind": "command",
       "area": 11,
@@ -1293,6 +1315,17 @@
     },
     {
       "id": "error:run_in_use",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:run_interrupted",
       "kind": "error",
       "area": 3,
       "milestone": null,
@@ -2782,6 +2815,28 @@
       "id": "operation:run.pause",
       "kind": "operation",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.progress",
+      "kind": "operation",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.report",
+      "kind": "operation",
+      "area": null,
       "milestone": null,
       "status": "active",
       "products": [

@@ -150,6 +150,13 @@ export type DownloadId = string;
  */
 export type EngineInstance = string;
 /**
+ * The engine's step that raised a Human pause.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EngineStep".
+ */
+export type EngineStep = "login_recovery" | "challenge_ladder";
+/**
  * The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
  * value, never an error, since a request is one among many.
  *
@@ -475,6 +482,23 @@ export type PageEventName =
  */
 export type PageId = string;
 /**
+ * Who raised a Human pause.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PauseOrigin".
+ */
+export type PauseOrigin =
+  | {
+      by: "program";
+    }
+  | {
+      by: "engine";
+      /**
+       * The step.
+       */
+      step: "login_recovery" | "challenge_ladder";
+    };
+/**
  * How long a period Limit counts before it starts again (ADR 0041).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -607,6 +631,13 @@ export type Tag = string;
  * @maxItems 16
  */
 export type Tags = Tag[];
+/**
+ * Whether an engine works a Run (ADR 0102).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunWriter".
+ */
+export type RunWriter = "live" | "none";
 /**
  * A Session's event a program listens to.
  *
@@ -2040,6 +2071,54 @@ export interface PrivateEndpoint {
    * The path of the file holding its token.
    */
   token_file: string;
+}
+/**
+ * A Human pause waiting for a person (ADR 0092).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HumanPause".
+ */
+export interface HumanPause {
+  /**
+   * When it ends unanswered: the first of `timeout.human_pause` and, in
+   * a scheduled run, its pause timeout; none when it waits without
+   * limit.
+   */
+  deadline?: PointInTime | null;
+  /**
+   * The page that waits.
+   */
+  page: string;
+  /**
+   * Whether the program or the engine raised it.
+   */
+  raised_by:
+    | {
+        by: "program";
+      }
+    | {
+        by: "engine";
+        /**
+         * The step.
+         */
+        step: "login_recovery" | "challenge_ladder";
+      };
+  /**
+   * Why, as the program or the engine said it.
+   */
+  reason?: string | null;
+  /**
+   * The Session whose page waits.
+   */
+  session: string;
+  /**
+   * A point in time in UTC, as RFC 3339.
+   */
+  since: string;
+  /**
+   * The condition that ends it by itself, as text.
+   */
+  until?: string | null;
 }
 /**
  * What `key_value_store.delete` answers once the key is gone.
@@ -3624,14 +3703,33 @@ export interface RunParams {
   run_id: string;
 }
 /**
- * A Run's progress as it is now (ADR 0102): what `run.progress` reports.
+ * A Run's progress as it is now (ADR 0102): what `run.progress` answers
+ * and the `run.progress` event carries.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "RunProgress".
  */
 export interface RunProgress {
   /**
-   * Where it is.
+   * A point in time in UTC, as RFC 3339.
+   */
+  at: string;
+  /**
+   * When its last Checkpoint was written, once one was.
+   */
+  checkpoint_at?: PointInTime | null;
+  /**
+   * Its run epoch (ADR 0003), which a resume or a migration advances.
+   */
+  epoch: number;
+  /**
+   * Whether it is the sequence's last value: the Run ended, or no
+   * engine this one reaches works it, so nothing more comes until a
+   * start with its Run ID resumes it.
+   */
+  last: boolean;
+  /**
+   * Where the Run is.
    */
   lifecycle: "running" | "stopped" | "finished" | "failed";
   /**
@@ -3639,14 +3737,49 @@ export interface RunProgress {
    */
   message?: ProgressMessage | null;
   /**
+   * Each Human pause waiting (ADR 0092).
+   */
+  pauses: HumanPause[];
+  /**
+   * Its place among the Run's progress values, which only goes up:
+   * `run.progress`'s `after` takes it.
+   */
+  position: number;
+  /**
    * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
   /**
+   * Why it stopped, once it did.
+   */
+  stop_reason?: StopReason | null;
+  /**
    * The worst storage level among the filesystems the Run writes to,
-   * once the Resource governor sampled them (ADR 0122).
+   * once one is above `normal` (ADR 0122).
    */
   storage?: RunStorage | null;
+  /**
+   * Whether an engine works it.
+   */
+  writer: "live" | "none";
+  [k: string]: unknown;
+}
+/**
+ * It could not take another Slice of a Limit, and stopped at its next
+ * safe point, resumable once the period starts again or a person
+ * raises the Limit (ADR 0041).
+ */
+export interface ReachedLimit1 {
+  kind: "limit";
+}
+/**
+ * A Limit flagged *must understand* that its engine cannot evaluate
+ * came to cover it when it charged, and it stopped at its next safe
+ * point, resumable by an engine that can (ADR 0041): the stop of the
+ * Error code `limit_not_understood`.
+ */
+export interface NotUnderstoodLimit1 {
+  kind: "limit_not_understood";
 }
 /**
  * The worst storage level among the filesystems a Run writes to, with
@@ -3668,6 +3801,24 @@ export interface RunStorage {
    * The level.
    */
   level: "normal" | "low" | "critical";
+}
+/**
+ * What `run.progress` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunProgressParams".
+ */
+export interface RunProgressParams {
+  /**
+   * The position of the value the reader last read: the answer is the
+   * latest value after it, once one comes. Absent, the Run's progress
+   * at once.
+   */
+  after?: number | null;
+  /**
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   */
+  run_id: string;
 }
 /**
  * What a Run states about itself when it ends (ADR 0102). A part no area
@@ -3770,23 +3921,6 @@ export interface RunReport {
    */
   weakened?: WeakenedSetting[];
   [k: string]: unknown;
-}
-/**
- * It could not take another Slice of a Limit, and stopped at its next
- * safe point, resumable once the period starts again or a person
- * raises the Limit (ADR 0041).
- */
-export interface ReachedLimit1 {
-  kind: "limit";
-}
-/**
- * A Limit flagged *must understand* that its engine cannot evaluate
- * came to cover it when it charged, and it stopped at its next safe
- * point, resumable by an engine that can (ADR 0041): the stop of the
- * Error code `limit_not_understood`.
- */
-export interface NotUnderstoodLimit1 {
-  kind: "limit_not_understood";
 }
 /**
  * An Effect a Run left uncertain (ADR 0106), until a person reconciles it.

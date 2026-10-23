@@ -39,7 +39,7 @@ use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
-use crate::runs::{Driver, ReportPart, Runs, RunsSetup};
+use crate::runs::{Driver, ProgressPart, ReportPart, Runs, RunsSetup};
 use crate::secrets::{self, Keychain};
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
@@ -61,6 +61,7 @@ pub struct Engine {
     politeness_tables: Vec<PolitenessTables>,
     drivers: BTreeMap<RunKind, Driver>,
     report_parts: Vec<Arc<dyn ReportPart>>,
+    progress_parts: Vec<Arc<dyn ProgressPart>>,
     gates: Option<Arc<dyn Gates>>,
     events: EventsOptions,
     console: Option<&'static ConsoleBuild>,
@@ -107,6 +108,7 @@ impl Engine {
             politeness_tables: composition.politeness_tables(),
             drivers: composition.drivers(),
             report_parts: composition.report_parts(),
+            progress_parts: composition.progress_parts(),
             gates: composition.admission_gates()?,
             events: EventsOptions::default(),
             console: composition.console(),
@@ -359,6 +361,7 @@ impl Engine {
                 tables: self.tables.clone(),
                 drivers: self.drivers.clone(),
                 report_parts: self.report_parts.clone(),
+                progress_parts: self.progress_parts.clone(),
                 console,
                 gates: self.gates.clone(),
                 politeness: dependencies.politeness,

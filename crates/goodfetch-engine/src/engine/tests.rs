@@ -16,6 +16,7 @@ mod daemon;
 mod discard;
 mod durability;
 mod events;
+mod following;
 mod governor;
 mod key_value_store;
 mod layout;

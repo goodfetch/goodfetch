@@ -97,10 +97,11 @@ apple-native-keyring-store = { workspace = true, features = ["keychain"] }
 
 # Ties an Attached engine to its parent and its children to itself through
 # kill-on-close Job Objects (ADR 0024), and gives the Resource governor its
-# Job object limit, memory notifications and footprints (ADR 0040).
+# Job object limit, memory notifications and footprints (ADR 0040), and a
+# volume's free space to the caller (ADR 0122).
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store.workspace = true
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization","Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Threading"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Threading"] }
 
 # Never used here: it turns on bindgen's `runtime` feature for sqlite-plugin's
 # build script, so that script loads libclang where the OS keeps it, as

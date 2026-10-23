@@ -8,6 +8,11 @@
 //! A certificate a domain's trust-on-first-use exception accepted is pinned
 //! by the SHA-256 of its `SubjectPublicKeyInfo` in the user's known-certificates
 //! store, one partition per person; `certs.list` reads the caller's pins.
+//! A pinned host that presents another key, or whose pin row the engine
+//! cannot read, stops with `certificate_changed` until a person accepts the
+//! new key with `certs.accept`; `certs.forget` removes a pin. Both are a
+//! person's answers, offered only in the Console and an interactive CLI
+//! prompt (ADRs 0011 and 0042).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -160,7 +165,107 @@ pub struct CertificatePin {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: Option<RunId>,
+    /// The SHA-256 of the key the host presented instead, which stopped it
+    /// with `certificate_changed`, as `sha256/` and its standard base64: the
+    /// key `certs.accept` pins in its place. None while no change waits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub changed_spki_sha256: Option<String>,
 }
+
+/// A pinned host stopped.
+pub const CERTIFICATE_CHANGED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "certificate_changed",
+    description: "A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt or the Console, which no agent, Recipe or `--json` command can do.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `certificate_changed` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CertificateChangedDetails {
+    /// The host, as the URL parser leaves it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub host: String,
+    /// The SHA-256 of the pinned key, as `sha256/` and its standard
+    /// base64; none when its pin row cannot be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub pinned_spki_sha256: Option<String>,
+    /// The SHA-256 of the key the host presented, written the same way.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub presented_spki_sha256: String,
+    /// What a person does to let the host through again.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
+/// What `certs.accept` takes: the host, and the changed key the person
+/// accepts, as `certs.list` shows it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CertsAcceptParams {
+    /// The pinned host, as the URL parser leaves it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub host: String,
+    /// The SHA-256 of the changed key, as `sha256/` and its standard base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub spki_sha256: String,
+}
+
+/// `certs.accept` (ADR 0042).
+pub const CERTS_ACCEPT: Operation = Operation {
+    name: "certs.accept",
+    description: "Pins the changed key that stopped a host with `certificate_changed` in place of its pin, in the caller's partition, and records the accepted change in the Audit log; answers the new pin. Refused unless the key is the change the store holds for the host. A person's answer: offered only in the Console and the interactive CLI prompt.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::PersonOnly,
+    params: schema_of::<CertsAcceptParams>,
+    result: schema_of::<CertificatePin>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `certs.forget` takes: the host.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CertsForgetParams {
+    /// The pinned host, as the URL parser leaves it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub host: String,
+}
+
+/// What `certs.forget` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CertsForgotten {
+    /// The host.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub host: String,
+    /// Whether the caller had a pin for it, now removed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub forgotten: bool,
+}
+
+/// `certs.forget` (ADR 0042).
+pub const CERTS_FORGET: Operation = Operation {
+    name: "certs.forget",
+    description: "Removes the caller's pin of a host, and any change waiting for it, so its next connection under trust on first use pins again; nothing else removes a pin. A person's answer: offered only in the Console and the interactive CLI prompt.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::PersonOnly,
+    params: schema_of::<CertsForgetParams>,
+    result: schema_of::<CertsForgotten>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
 
 /// What `certs.list` takes: nothing.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -194,10 +299,10 @@ pub const CERTS_LIST: Operation = Operation {
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[CERTS_LIST],
+    operations: &[CERTS_LIST, CERTS_ACCEPT, CERTS_FORGET],
     events: &[],
     handler_requests: &[],
-    error_codes: &[CERTIFICATE_INVALID],
+    error_codes: &[CERTIFICATE_INVALID, CERTIFICATE_CHANGED],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[TLS_TRUSTED_CAS, TLS_ACCEPT_INVALID_CERTS],

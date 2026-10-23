@@ -34,13 +34,9 @@ use crate::home::{Home, major_name};
 use crate::transport::LAUNCHD_SOCKETS;
 
 /// The deployment variables a service passes on to the Daemon it starts:
-/// where Goodfetch home and the Browser cache are, and where the logs go.
-pub const PASSED_VARIABLES: [&str; 4] = [
-    "GOODFETCH_BROWSERS_PATH",
-    "GOODFETCH_HOME",
-    "GOODFETCH_LOG",
-    "GOODFETCH_LOG_OUTPUT",
-];
+/// where Goodfetch home and the Browser cache are. Where its logs go is
+/// the `log.*` settings' (ADR 0122), which it reads from its home.
+pub const PASSED_VARIABLES: [&str; 2] = ["GOODFETCH_BROWSERS_PATH", "GOODFETCH_HOME"];
 
 /// How many hex digits of Goodfetch home's digest a service's name holds.
 const HOME_DIGITS: usize = 8;

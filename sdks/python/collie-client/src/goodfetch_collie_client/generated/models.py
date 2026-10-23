@@ -171,6 +171,43 @@ class BrowserName(StrEnum):
     """Safari."""
 
 
+class CertsAcceptParams(BaseModel):
+    """
+    What `certs.accept` takes: the host, and the changed key the person
+    accepts, as `certs.list` shows it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    host: str
+    """The pinned host, as the URL parser leaves it."""
+    spki_sha256: str
+    """The SHA-256 of the changed key, as `sha256/` and its standard base64."""
+
+
+class CertsForgetParams(BaseModel):
+    """What `certs.forget` takes: the host."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    host: str
+    """The pinned host, as the URL parser leaves it."""
+
+
+class CertsForgotten(BaseModel):
+    """What `certs.forget` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    forgotten: bool
+    """Whether the caller had a pin for it, now removed."""
+    host: str
+    """The host."""
+
+
 class CertsListParams(BaseModel):
     """What `certs.list` takes: nothing."""
 
@@ -1099,20 +1136,6 @@ class RunParams(BaseModel):
     """The Run's ID."""
 
 
-class RunProgress(BaseModel):
-    """A Run's progress as it is now (ADR 0102): what `run.progress` reports."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    lifecycle: Lifecycle
-    """Where it is."""
-    message: ProgressMessage | None = None
-    """The program's own status line, once it set one."""
-    run_id: RunId
-    """The Run's ID."""
-
-
 class RunResumeParams(BaseModel):
     """What `run.resume` takes."""
 
@@ -1611,6 +1634,24 @@ class StoppedBy(StrEnum):
     """The program, such as through `run.stop` (ADR 0102)."""
 
 
+class StorageLevel(StrEnum):
+    """A filesystem's storage level (ADR 0122), from the best to the worst."""
+
+    normal = "normal"
+    """It has room: nothing is shed."""
+    low = "low"
+    """
+    Its free space or inodes fell below `storage.low_free`: the Runs
+    writing to it shed what they can do without and carry
+    `storage_low`.
+    """
+    critical = "critical"
+    """
+    Its free space or inodes fell below `storage.critical_free`: every
+    Run with an essential write there stops resumably.
+    """
+
+
 class SubscriptionEnded(BaseModel):
     """
     What `events.subscribe` answers when its subscription ends without the
@@ -1864,6 +1905,12 @@ class CertificatePin(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    changed_spki_sha256: str | None = None
+    """
+    The SHA-256 of the key the host presented instead, which stopped it
+    with `certificate_changed`, as `sha256/` and its standard base64: the
+    key `certs.accept` pins in its place. None while no change waits.
+    """
     host: str
     """The host, as the URL parser leaves it."""
     pinned_at: PointInTime | None = None
@@ -2706,6 +2753,23 @@ class RunStarted(BaseModel):
     """Whether the start began it."""
 
 
+class RunStorage(BaseModel):
+    """
+    The worst storage level among the filesystems a Run writes to, with
+    that filesystem's folder and free space (ADR 0122).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    folder: str
+    """A folder the Run writes to on that filesystem."""
+    free_bytes: Annotated[int, Field(ge=0)]
+    """The space left on it to the engine's user, in bytes."""
+    level: StorageLevel
+    """The level."""
+
+
 class SessionRouteParams(BaseModel):
     """
     What `session.route` takes: the Session, and the URLs whose requests its
@@ -3143,9 +3207,12 @@ class NewSessionParams(BaseModel):
     """The Run."""
     settings: dict[str, Any] | None = None
     """
-    The Session's own settings, nested by key; `session.source` is
-    refused here with `setting_not_applicable`, as the call's own
-    `source` sets it.
+    The Session's own settings, nested by key: `filter_lists.ads`,
+    `.trackers`, `.annoyances`, `.first_party_scripts` and
+    `browser.block_resources` choose its pages' Clean-up rules over the
+    Run's. `session.source` is refused here with `setting_not_applicable`,
+    as the call's own `source` sets it, and so is any other key, which
+    only the Run sets.
     """
     source: SessionSource | None = None
     """
@@ -3186,6 +3253,25 @@ class Resync(BaseModel):
     )
     runs: list[RunAxes]
     """The axes of each Run the engine knows, live or ended."""
+
+
+class RunProgress(BaseModel):
+    """A Run's progress as it is now (ADR 0102): what `run.progress` reports."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    lifecycle: Lifecycle
+    """Where it is."""
+    message: ProgressMessage | None = None
+    """The program's own status line, once it set one."""
+    run_id: RunId
+    """The Run's ID."""
+    storage: RunStorage | None = None
+    """
+    The worst storage level among the filesystems the Run writes to,
+    once the Resource governor sampled them (ADR 0122).
+    """
 
 
 class RunStopping(BaseModel):

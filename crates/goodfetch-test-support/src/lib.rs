@@ -94,7 +94,8 @@ pub use cli::{
 pub use colour::{ColourError, ColourProperty};
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
 pub use crash_vfs::{
-    AfterCrashError, Crash, CrashKind, CrashVfs, CrashVfsError, CrashedFile, Landed, after_crash,
+    AfterCrashError, Crash, CrashKind, CrashVfs, CrashVfsError, CrashedFile, IoFault, Landed,
+    after_crash,
 };
 pub use daemon::{DAEMON_DEADLINE, Daemon, DaemonDescription, DaemonError};
 pub use description::{Description, schemas};

@@ -1,0 +1,45 @@
+! The consent-vendor entries of the Filter lists, held back (ADR 0047):
+! the rules that load or answer Consent prompts never act before the
+! Consent prompt runner and its wall test, which tickets A05-23 and A05-24
+! build; until then the build drops each line below, exactly as written,
+! from every embedded list. The vendors' telemetry entries stay (EasyPrivacy's
+! `||privacy-analytics-proxy.cookiebot.com^`, for example). The EasyList
+! Cookie List's own sections are left out of Fanboy Annoyance when the lists
+! are assembled. Goodfetch's own, under MIT.
+!
+! EasyPrivacy's "Consent/GDPR tracking" sections.
+/cmp/messaging.js
+/cmp3.js
+/slot_cmp.js
+/sourcepoint.js
+://a02342.
+||cb-mms.carbuyer.co.uk^
+||cmp.courrierinternational.com^
+||cmp.finn.no^
+||cmp.huffingtonpost.fr^
+||cmp.lavie.fr^
+||cmp.lemonde.fr^
+||cmp.lepoint.fr^
+||cmp.netzwelt.de^
+||cmp.nouvelobs.com^
+||cmp.tek.no^
+||cmp.telerama.fr^
+||d.sourcepoint.capitalfm.com^
+||fuse.forbes.com^
+||sourcepoint-mms.aetv.com^
+||sourcepoint-mms.history.com^
+||sourcepoint-mms.mylifetime.com^
+||trustarc.mgr.consensu.org/get?
+||vg247-uk.vg247.com^
+! Consent prompts' scripts and messages elsewhere in EasyPrivacy.
+-didomi.js
+/Quantcast/cmp_v2.js
+||consent.ghostery.com/v1.js
+||consent.trustarc.com/bannermsg?
+||consent.trustarc.com/noticemsg?
+||otg.mblycdn.com/bundles/cmp.js
+||tra.scds.pmdstatic.net/sourcepoint/
+||cmp.dreamlab.pl^
+||tags.cmp.tail.digital^
+! EasyList.
+/velvet_stack_cmp.js$script

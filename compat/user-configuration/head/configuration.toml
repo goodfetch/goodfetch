@@ -2,7 +2,13 @@ version = "0.1"
 lowest_minor = 0
 
 [settings.log]
+level = "example"
+output = "stdout"
 format = "text"
+
+[settings.log.file]
+max_size = 4
+max_files = 4
 
 [settings.otlp]
 traces_endpoint = "example"
@@ -45,6 +51,10 @@ ceiling = 4
 floor = 4
 ceiling = 4
 
+[settings.storage]
+low_free = 4
+critical_free = 4
+
 [settings.browser_cache]
 max_unused_age = 30000
 
@@ -63,6 +73,7 @@ accept_invalid_certs = { "example.test" = "example" }
 
 [settings.browser]
 headless = true
+block_resources = ["image"]
 
 [settings.run_state]
 location = "example"
@@ -97,6 +108,11 @@ refetch_domains = ["example"]
 denied_domains = ["example"]
 
 [settings.filter_lists]
+ads = true
+trackers = true
+annoyances = true
+first_party_scripts = true
+page_scriptlets = true
 extra = ["example"]
 
 [settings.session]

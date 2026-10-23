@@ -27,6 +27,7 @@ mod report;
 mod run;
 mod run_key;
 mod settings;
+mod storage;
 mod takeover;
 mod trace;
 mod usage;

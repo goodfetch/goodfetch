@@ -444,8 +444,6 @@ pub const DEPLOYMENT_VARIABLES: &[&str] = &[
     "GOODFETCH_DAEMON_DRAIN_GRACE",
     "GOODFETCH_FOXHOUND_ENGINE_PATH",
     "GOODFETCH_HOME",
-    "GOODFETCH_LOG",
-    "GOODFETCH_LOG_OUTPUT",
     "GOODFETCH_OPS_ADDRESS",
     "GOODFETCH_TEST_SEED",
     "GOODFETCH_TOKEN",
@@ -503,6 +501,10 @@ fn empty_list() -> Value {
 
 fn empty_table() -> Value {
     json!({})
+}
+
+fn no() -> Value {
+    Value::Bool(false)
 }
 
 fn yes() -> Value {
@@ -579,6 +581,66 @@ pub const FILTER_LISTS_EXTRA: Setting = Setting {
     description: "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
     kind: ValueKind::List(&ValueKind::Text),
     default: empty_list,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `filter_lists.ads` (ADR 0047).
+pub const FILTER_LISTS_ADS: Setting = Setting {
+    name: "filter_lists.ads",
+    description: "Whether a browser Session blocks ads by EasyList, as a blocker does: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `filter_lists.trackers` (ADR 0047).
+pub const FILTER_LISTS_TRACKERS: Setting = Setting {
+    name: "filter_lists.trackers",
+    description: "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `filter_lists.annoyances` (ADR 0047).
+pub const FILTER_LISTS_ANNOYANCES: Setting = Setting {
+    name: "filter_lists.annoyances",
+    description: "Whether a browser Session blocks page annoyances (social widgets, newsletter and notification prompts) by Fanboy Annoyance, its cookie sections left to the Consent prompt runner: on by default in every Access mode.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `filter_lists.first_party_scripts` (ADR 0047).
+pub const FILTER_LISTS_FIRST_PARTY_SCRIPTS: Setting = Setting {
+    name: "filter_lists.first_party_scripts",
+    description: "Whether a site's own scripts load whatever the Filter lists say: off by default.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `filter_lists.page_scriptlets` (ADR 0047).
+pub const FILTER_LISTS_PAGE_SCRIPTLETS: Setting = Setting {
+    name: "filter_lists.page_scriptlets",
+    description: "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
+    kind: ValueKind::Boolean,
+    default: no,
     clearable: false,
     authority: Authority::Every,
     weakens: None,
@@ -714,6 +776,11 @@ pub const ENTRIES: Entries = Entries {
         WALL_DOMAINS,
         WALL_REFETCH_DOMAINS,
         WALL_DENIED_DOMAINS,
+        FILTER_LISTS_ADS,
+        FILTER_LISTS_TRACKERS,
+        FILTER_LISTS_ANNOYANCES,
+        FILTER_LISTS_FIRST_PARTY_SCRIPTS,
+        FILTER_LISTS_PAGE_SCRIPTLETS,
         FILTER_LISTS_EXTRA,
         SESSION_SOURCE,
         SECRETS_BY_REFERENCE,

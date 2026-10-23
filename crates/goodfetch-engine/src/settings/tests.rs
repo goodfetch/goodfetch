@@ -436,6 +436,31 @@ fn a_key_reserved_to_lower_layers_refuses_a_wider_value_from_above(
     assert_eq!(refused.code(), "setting_locked");
 }
 
+/// Story 4-37 (ADR 0042): `any` is taken from configuration only: a Recipe
+/// and a run that list a domain with it are refused, whatever the lower
+/// layers set, and user and project configuration set it (positive
+/// control).
+/// Covers: story:4-37, setting:tls.accept_invalid_certs
+#[rstest]
+#[case::from_a_recipe(SettingsLayer::Recipe, false)]
+#[case::from_the_run(SettingsLayer::Run, false)]
+#[case::from_user_configuration(SettingsLayer::UserConfiguration, true)]
+#[case::from_project_configuration(SettingsLayer::ProjectConfiguration, true)]
+fn any_is_taken_from_configuration_only(#[case] layer: SettingsLayer, #[case] taken: bool) {
+    let any = json!({ "fixture.test": "any" });
+    let layers = only(layer, "tls.accept_invalid_certs", &any);
+
+    let resolved = resolve(&layers, Product::Foxhound, Product::Foxhound);
+
+    match resolved {
+        Ok(effective) => assert_eq!(
+            (taken, effective.value("tls.accept_invalid_certs")),
+            (true, &any)
+        ),
+        Err(refused) => assert_eq!((taken, refused.code()), (false, "setting_locked")),
+    }
+}
+
 /// Covers: story:3-90, setting:paid_fetch.domains, setting:paid_fetch.max_price_per_page, setting:consent.domains, setting:wall.domains, setting:wall.refetch_domains, setting:tls.accept_invalid_certs
 #[rstest]
 #[case::paid_fetch_domains_narrowed(

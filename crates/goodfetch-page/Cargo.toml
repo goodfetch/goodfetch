@@ -13,6 +13,7 @@ autobenches = false
 [dependencies]
 data-encoding.workspace = true
 goodfetch-cdp.workspace = true
+goodfetch-clean-up-rules.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-extractor.workspace = true
 goodfetch-protocol.workspace = true

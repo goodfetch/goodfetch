@@ -11,16 +11,28 @@
 //! decided is its [`SystemInfo`], which the engine sends as
 //! `engine.system_info` and records as metrics.
 //!
+//! At each sample it also reads, once per filesystem, every filesystem
+//! holding a folder it is asked to sample (ADR 0122): the run folders, the
+//! Goodfetch home and the engine's temporary folder, and any folder a Run
+//! writes to that its holder adds. Each is at a storage level, `normal`,
+//! `low` or `critical`, set by `storage.low_free` and
+//! `storage.critical_free`, read from the machine's layers at each sample;
+//! a level change is logged at warning, or at info on the way back. What
+//! it found is its [`StorageSample`], which the Runs act on.
+//!
 //! An engine samples only when its starter gives it the machine to read, as
 //! each Product's executable does; otherwise its governor holds each kind
-//! at its default ceiling, ADR 0004's fixed cap.
+//! at its default ceiling, ADR 0004's fixed cap, and reads no filesystem.
 
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::governor::{
     CRITICAL, Concurrency, CpuReading, KindConcurrency, LAST_RESORT_AFTER, MEMORY_ALLOWANCE,
     MemoryReading, PRESSURE, SAMPLE_INTERVAL, SystemInfo, WorkKind,
 };
+use goodfetch_protocol::storage::StorageLevel;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
@@ -30,10 +42,16 @@ use crate::tasks::TaskOwner;
 
 mod controller;
 mod shares;
+mod storage;
 mod system;
 
 pub use shares::{Permit, RunShare};
+pub use storage::{Filesystem, Held, StorageSample};
 pub use system::System;
+
+#[cfg(test)]
+pub(crate) use storage::DiskView;
+use storage::{Disks, Folders, Settled};
 
 use controller::{Bounds, Controller, Decision, Limits, Reading};
 use shares::Shares;
@@ -44,6 +62,11 @@ use system::{Inputs, SystemReading};
 pub struct Governor {
     shares: Shares,
     info: watch::Receiver<Option<SystemInfo>>,
+    /// Where it reads filesystems; none when it never samples.
+    disks: Option<Disks>,
+    folders: Folders,
+    storage: watch::Receiver<Arc<StorageSample>>,
+    settled: watch::Receiver<Settled>,
 }
 
 impl Governor {
@@ -55,6 +78,10 @@ impl Governor {
         let defaults = Limits::of(&defaults(&settings));
         let shares = Shares::new(defaults.bounds.map(|bounds| bounds.ceiling));
         let (sender, info) = watch::channel(None);
+        let (stored, storage) = watch::channel(Arc::new(StorageSample::default()));
+        let (settling, settled) = watch::channel(Settled::built_in());
+        let folders = Folders::default();
+        let disks = system.disks.clone();
         let sampler = Sampler {
             system,
             settings,
@@ -62,6 +89,9 @@ impl Governor {
             shares: shares.clone(),
             sender,
             blocking: owner.child(),
+            folders: folders.clone(),
+            stored,
+            settling,
         };
         let token = owner.token().clone();
         owner.spawn(async move {
@@ -70,7 +100,14 @@ impl Governor {
                 () = sampler.run() => {}
             }
         });
-        Self { shares, info }
+        Self {
+            shares,
+            info,
+            disks: Some(disks),
+            folders,
+            storage,
+            settled,
+        }
     }
 
     /// A governor that never samples: each kind stays at its default
@@ -82,7 +119,33 @@ impl Governor {
         Self {
             shares: Shares::new(ceilings),
             info: watch::channel(None).1,
+            disks: None,
+            folders: Folders::default(),
+            storage: watch::channel(Arc::new(StorageSample::default())).1,
+            settled: watch::channel(Settled::built_in()).1,
         }
+    }
+
+    /// Samples the filesystem holding `folder` from the next sample on,
+    /// until the answer drops (ADR 0122).
+    pub fn sample(&self, folder: PathBuf) -> Held {
+        self.folders.hold(folder)
+    }
+
+    /// What it found of the filesystems at its last storage sample, which
+    /// changes at each sample; empty before the first, or ever when it
+    /// never samples.
+    pub fn storage(&self) -> watch::Receiver<Arc<StorageSample>> {
+        self.storage.clone()
+    }
+
+    /// The level now of the filesystem holding `path`, a folder or a file
+    /// to write, under the settings of its last sample; none when it never
+    /// samples or the filesystem cannot be read. Blocking: run it under a
+    /// blocking policy.
+    pub fn storage_at(&self, path: &Path) -> Option<Filesystem> {
+        let settled = *self.settled.borrow();
+        self.disks.as_ref()?.at(path, &settled)
     }
 
     /// A Run joins with `share`, its `governor.run_share` in percent of
@@ -177,6 +240,12 @@ struct Sampler {
     sender: watch::Sender<Option<SystemInfo>>,
     /// Where the readings, which block, run.
     blocking: TaskOwner,
+    /// The folders whose filesystems it samples.
+    folders: Folders,
+    /// Where each storage sample goes.
+    stored: watch::Sender<Arc<StorageSample>>,
+    /// Where the storage settings of each sample go.
+    settling: watch::Sender<Settled>,
 }
 
 /// What the previous sample read, which the next one's CPU and Tokio
@@ -192,8 +261,10 @@ impl Sampler {
         let started = self.clock.now();
         let mut controller = Controller::new();
         let mut previous: Option<Previous> = None;
+        let mut levels: Vec<(Vec<PathBuf>, StorageLevel)> = Vec::new();
         loop {
             let settings = self.machine().await;
+            levels = self.sample_storage(&settings, &levels).await;
             let limits = Limits::of(&settings);
             let inputs = Inputs {
                 memory_allowance: settings.count(MEMORY_ALLOWANCE.name),
@@ -262,6 +333,43 @@ impl Sampler {
         }
     }
 
+    /// Samples the filesystems of the folders held now under `settings`,
+    /// sends what it found, and logs each change of level from `before`,
+    /// the levels of the previous sample's filesystems by their folders;
+    /// answers this sample's.
+    async fn sample_storage(
+        &self,
+        settings: &Resolved,
+        before: &[(Vec<PathBuf>, StorageLevel)],
+    ) -> Vec<(Vec<PathBuf>, StorageLevel)> {
+        let settled = Settled::of(settings);
+        let folders = self.folders.now();
+        let disks = self.system.disks.clone();
+        let sample = self
+            .blocking
+            .blocking(move || disks.sample(&folders, &settled))
+            .await;
+        for filesystem in &sample.filesystems {
+            let was = before
+                .iter()
+                .find(|(folders, _)| {
+                    folders
+                        .iter()
+                        .any(|folder| filesystem.folders.contains(folder))
+                })
+                .map_or(StorageLevel::Normal, |(_, level)| *level);
+            log_change(filesystem, was);
+        }
+        let levels = sample
+            .filesystems
+            .iter()
+            .map(|filesystem| (filesystem.folders.clone(), filesystem.level))
+            .collect();
+        self.settling.send_replace(settled);
+        self.stored.send_replace(Arc::new(sample));
+        levels
+    }
+
     /// The governor's settings from the machine's layers now; the built-in
     /// values when they cannot be read, as the warning logged says.
     async fn machine(&self) -> Resolved {
@@ -284,6 +392,34 @@ impl Sampler {
                 defaults(&self.settings)
             }
         }
+    }
+}
+
+/// Logs `filesystem`'s change of level from `was`: at warning when it got
+/// worse, at info on the way back.
+fn log_change(filesystem: &Filesystem, was: StorageLevel) {
+    let folder = filesystem
+        .folders
+        .first()
+        .map(|folder| folder.display().to_string())
+        .unwrap_or_default();
+    let (level, free) = (filesystem.level.as_str(), filesystem.free);
+    if filesystem.level > was {
+        tracing::warn!(
+            folder,
+            level,
+            free_bytes = free,
+            was = was.as_str(),
+            "a filesystem the Runs write to changed storage level"
+        );
+    } else if filesystem.level < was {
+        tracing::info!(
+            folder,
+            level,
+            free_bytes = free,
+            was = was.as_str(),
+            "a filesystem the Runs write to changed storage level"
+        );
     }
 }
 

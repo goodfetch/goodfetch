@@ -4,6 +4,7 @@
 //! cases are `delivery`'s, a page's formats cases `formats`'s, its route
 //! cases `routes`'s and a Run's Session cases `sessions`'.
 
+mod clean_up;
 mod delivery;
 mod fetch_edge;
 mod formats;
@@ -70,6 +71,8 @@ pub(crate) enum Case {
     KeyReachesAField,
     StillAmbiguous,
     NeverActionable,
+    /// A Clean-up case.
+    CleanUp(clean_up::Case),
     /// A route case.
     Route(routes::Case),
     /// A Session case.
@@ -159,8 +162,14 @@ impl Site {
 
 /// The Proving ground's host names that belong to no task and that a case
 /// reaches, which `resolve` maps too: the fetch edge's (ADR 0118), and the
-/// scope family's site and off-site host the route cases load.
-const NAMED_HOSTS: [&str; 3] = ["fetch-edge.test", "scope.test", "elsewhere.test"];
+/// scope family's site and off-site host the route cases load, and the
+/// Clean-up pages' host (ADR 0047).
+const NAMED_HOSTS: [&str; 4] = [
+    "fetch-edge.test",
+    "scope.test",
+    "elsewhere.test",
+    clean_up::HOST,
+];
 
 /// The host name of an `http` URL.
 fn host_of(url: &str) -> Option<&str> {
@@ -246,7 +255,8 @@ impl Case {
                 return fetch_edge::Case::from_id(id)
                     .map(Self::FetchEdge)
                     .or_else(|| routes::Case::from_id(id).map(Self::Route))
-                    .or_else(|| sessions::Case::from_id(id).map(Self::Session));
+                    .or_else(|| sessions::Case::from_id(id).map(Self::Session))
+                    .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp));
             }
         })
     }
@@ -263,28 +273,12 @@ impl Case {
     ) -> Result<(), Gone> {
         match self {
             Self::Hello => {
-                checks.check(
-                    format!(
-                        "the engine speaks the protocol's major {}",
-                        PROTOCOL_VERSION.major
-                    ),
-                    hello.protocol_version.major == PROTOCOL_VERSION.major,
-                );
+                speaks_the_protocol_major(hello, checks);
                 Ok(())
             }
             Self::EngineInfo => engine_info(connection, hello, checks),
-            Self::UnknownMethod => {
-                let id = connection.request(UNKNOWN_METHOD, &json!({}))?;
-                let answer = connection.answer(id)?.message;
-                refused_as(&answer, ProtocolFailure::MethodNotFound, checks);
-                Ok(())
-            }
-            Self::InvalidParams => {
-                let id = connection.request(ENGINE_INFO.name, &json!({ "unknown": true }))?;
-                let answer = connection.answer(id)?.message;
-                refused_as(&answer, ProtocolFailure::InvalidParams, checks);
-                Ok(())
-            }
+            Self::UnknownMethod => unknown_method(connection, checks),
+            Self::InvalidParams => invalid_params(connection, checks),
             Self::CancelInFlight => cancel_in_flight(connection, checks),
             Self::CancelAnswered => cancel_answered(connection, checks),
             Self::FabricatedHello => fabricated_hello(connection, target, hello, checks),
@@ -360,8 +354,33 @@ impl Case {
             Self::NeverActionable => guard::never_actionable(connection, site, checks),
             Self::Route(case) => case.run(connection, site, checks),
             Self::Session(case) => case.run(connection, site, checks),
+            Self::CleanUp(case) => case.run(connection, target, site, checks),
         }
     }
+}
+
+fn speaks_the_protocol_major(hello: &HelloResult, checks: &mut Checks) {
+    checks.check(
+        format!(
+            "the engine speaks the protocol's major {}",
+            PROTOCOL_VERSION.major
+        ),
+        hello.protocol_version.major == PROTOCOL_VERSION.major,
+    );
+}
+
+fn unknown_method(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
+    let id = connection.request(UNKNOWN_METHOD, &json!({}))?;
+    let answer = connection.answer(id)?.message;
+    refused_as(&answer, ProtocolFailure::MethodNotFound, checks);
+    Ok(())
+}
+
+fn invalid_params(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
+    let id = connection.request(ENGINE_INFO.name, &json!({ "unknown": true }))?;
+    let answer = connection.answer(id)?.message;
+    refused_as(&answer, ProtocolFailure::InvalidParams, checks);
+    Ok(())
 }
 
 fn engine_info(

@@ -2,7 +2,13 @@ version = "0.1"
 lowest_minor = 0
 
 [settings.log]
+level = "example"
+output = "stdout"
 format = "text"
+
+[settings.log.file]
+max_size = 4
+max_files = 4
 
 [settings.otlp]
 traces_endpoint = "example"
@@ -45,6 +51,10 @@ ceiling = 4
 floor = 4
 ceiling = 4
 
+[settings.storage]
+low_free = 4
+critical_free = 4
+
 [settings.browser_cache]
 max_unused_age = 30000
 
@@ -63,6 +73,7 @@ accept_invalid_certs = { "example.test" = "example" }
 
 [settings.browser]
 headless = true
+block_resources = ["image"]
 
 [settings.run_state]
 location = "example"
@@ -97,6 +108,11 @@ refetch_domains = ["example"]
 denied_domains = ["example"]
 
 [settings.filter_lists]
+ads = true
+trackers = true
+annoyances = true
+first_party_scripts = true
+page_scriptlets = true
 extra = ["example"]
 
 [settings.session]
@@ -168,7 +184,13 @@ write_ids_and_epochs = true
 report_guarantee_class = true
 
 [lock.log]
+level = "example"
+output = "stdout"
 format = "text"
+
+[lock.log.file]
+max_size = 4
+max_files = 4
 
 [lock.otlp]
 traces_endpoint = "example"
@@ -211,6 +233,10 @@ ceiling = 4
 floor = 4
 ceiling = 4
 
+[lock.storage]
+low_free = 4
+critical_free = 4
+
 [lock.browser_cache]
 max_unused_age = 30000
 
@@ -229,6 +255,7 @@ accept_invalid_certs = { "example.test" = "example" }
 
 [lock.browser]
 headless = true
+block_resources = ["image"]
 
 [lock.run_state]
 location = "example"
@@ -263,6 +290,11 @@ refetch_domains = ["example"]
 denied_domains = ["example"]
 
 [lock.filter_lists]
+ads = true
+trackers = true
+annoyances = true
+first_party_scripts = true
+page_scriptlets = true
 extra = ["example"]
 
 [lock.session]
@@ -333,6 +365,10 @@ chain_rpc_endpoints = { "example.test" = "example" }
 write_ids_and_epochs = true
 report_guarantee_class = true
 
+[cap.log.file]
+max_size = 4
+max_files = 4
+
 [cap.daemon]
 idle_timeout = 30000
 drain_grace = 30000
@@ -356,6 +392,10 @@ ceiling = 4
 [cap.governor.model_call]
 floor = 4
 ceiling = 4
+
+[cap.storage]
+low_free = 4
+critical_free = 4
 
 [cap.browser_cache]
 max_unused_age = 30000

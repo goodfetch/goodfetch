@@ -30,6 +30,10 @@ publish = false
 # Every shared dependency sits here with `default-features = false`; each
 # crate turns on what it uses (STYLE.md, Dependencies).
 [workspace.dependencies]
+# Brave's adblock-rust, unmodified (MPL-2.0, ADRs 0018 and 0047): the Filter
+# lists' network and cosmetic rules. Without its `single-thread` feature, so
+# one `Engine` is `Send + Sync` and every Session shares it (ADR 0047).
+adblock = { version = "0.13.3", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
 # The encrypted local file, `secretfile:` (spec #564): an age file encrypted
 # to an X25519 identity, read binary or armored.
 age = { version = "0.12.1", default-features = false, features = ["armor"] }
@@ -75,6 +79,9 @@ markup5ever_rcdom = { version = "0.38.0", default-features = false }
 # structure with pulldown-cmark, resolving its links with the url crate
 # below (ADR 0007).
 pulldown-cmark = { version = "0.13.4", default-features = false }
+# The embedded Clean-up rules, serialized and compressed at build time and
+# decompressed once when loaded (ADR 0057).
+zstd = { version = "0.14.0", default-features = false }
 # The OS generator that seeds `Entropy` in production (ADR 0059).
 getrandom = { version = "0.3.4", default-features = false }
 # The Feature scanner expands an rstest `#[files]` glob as rstest does
@@ -85,6 +92,8 @@ goodfetch-cdp = { path = "crates/goodfetch-cdp" }
 # Both executables' command line, which Foxhound's reaches without Collie's
 # executable crate (ADR 0090).
 goodfetch-cli = { path = "crates/goodfetch-cli" }
+# The Clean-up rules and their matching (spec #577, ADR 0047).
+goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
 # Foxhound's crawl; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-crawl = { path = "crates/foxhound/goodfetch-crawl" }

@@ -21,7 +21,9 @@ use goodfetch_protocol::checkpoint::{
 };
 use goodfetch_protocol::connection::StoppedBy;
 use goodfetch_protocol::formats::{Compatibility, Format};
-use goodfetch_protocol::run::{Checkpoint, Lifecycle};
+use goodfetch_protocol::run::{
+    Checkpoint, Lifecycle, RESOURCES_EXHAUSTED, Resource, ResourcesExhaustedDetails,
+};
 use goodfetch_protocol::run::{
     RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN, RUN_IN_USE,
     RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_SET_PROGRESS_MESSAGE, RUN_START, RUN_STATE_UNAVAILABLE,
@@ -50,7 +52,9 @@ use goodfetch_protocol::settings::{
 use crate::composition::{CallContext, CallError, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
-use crate::runs::{EndedBy, Forwarded, Resume, Resumed, RunError, Start, StartError, Started};
+use crate::runs::{
+    EndedBy, Forwarded, Resume, Resumed, RunError, Start, StartError, Started, StorageExhausted,
+};
 use crate::secrets::SecretError;
 use crate::settings::{Opening, Resolved, SettingsError};
 
@@ -208,6 +212,7 @@ pub fn start_error(error: StartError) -> CallError {
             }
         }
         StartError::Draining { run_id } => draining(run_id),
+        StartError::ResourcesExhausted(exhausted) => storage_exhausted(&exhausted),
         StartError::Secret(error) => secret_error(&error),
         StartError::Stopped => stopped(),
     }
@@ -405,6 +410,32 @@ pub fn settings_error(error: &SettingsError, identity: &Identity) -> CallError {
     }
 }
 
+/// `resources_exhausted` for a Run whose filesystem is at the `critical`
+/// storage level (ADR 0122): its folder, its free space and the setting,
+/// with a fix that names the folder to free or the setting to lower.
+fn storage_exhausted(exhausted: &StorageExhausted) -> CallError {
+    let folder = exhausted.folder.display().to_string();
+    let filesystem = &exhausted.filesystem;
+    CallError::new(
+        &RESOURCES_EXHAUSTED,
+        format!(
+            "The filesystem of `{folder}` has {} bytes free, below `storage.critical_free`: the Run `{}` cannot write there.",
+            filesystem.free, exhausted.run_id
+        ),
+        &ResourcesExhaustedDetails {
+            resource: Resource::Storage,
+            run_id: Some(exhausted.run_id.clone()),
+            path: Some(folder.clone()),
+            free_bytes: Some(filesystem.free),
+            limit: filesystem.limit.clone(),
+            fix: format!(
+                "Free space on the filesystem of `{folder}`, or lower `storage.critical_free`, then start the Run `{}` again.",
+                exhausted.run_id
+            ),
+        },
+    )
+}
+
 /// A failure only a bug in Goodfetch causes, such as a transition a Run's
 /// table refuses, already logged at `error` (ADR 0128).
 fn internal(message: String) -> CallError {
@@ -534,6 +565,7 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
             reference,
             wrapped_by,
         } => key_mismatch(run_id, &reference, wrapped_by),
+        RunError::ResourcesExhausted(exhausted) => storage_exhausted(&exhausted),
         RunError::Stopped => stopped(),
     }
 }

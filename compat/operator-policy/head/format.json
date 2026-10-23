@@ -391,6 +391,28 @@
             },
             "type": "object"
           },
+          "log": {
+            "additionalProperties": false,
+            "properties": {
+              "file": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_files": {
+                    "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. Read when the process starts; set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_size": {
+                    "description": "The size, in bytes, at which an engine process's log file rotates where `log.output` is `file`: 10 MiB. A file holds at most this much and one line more. Read when the process starts; set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
           "politeness": {
             "additionalProperties": false,
             "properties": {
@@ -514,6 +536,36 @@
             },
             "type": "object"
           },
+          "storage": {
+            "additionalProperties": false,
+            "properties": {
+              "critical_free": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `critical` storage level: every Run with an essential write on it stops resumably at its next safe point, with `resource: \"storage\"`, and a new Run whose run file would go there is refused with `resources_exhausted`. Unset, each filesystem takes the smaller of 1 GiB and 2 % of its size, and free inodes go by 2 %; `0` turns the level off, which the Run's report lists in `weakened`. Read again at every sample of the Resource governor; set in user configuration or an Operator policy only."
+              },
+              "low_free": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `low` storage level: its Runs go on, record no Run trace video, store no new Response cache entry, skip their periodic Checkpoints onto it, and carry the warning `storage_low`. Unset, each filesystem takes the smaller of 5 GiB and 10 % of its size, and free inodes go by 10 %; `0` turns the level off, which the Run's report lists in `weakened`. Read again at every sample of the Resource governor; set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
           "timeout": {
             "additionalProperties": false,
             "properties": {
@@ -592,6 +644,18 @@
           "browser": {
             "additionalProperties": false,
             "properties": {
+              "block_resources": {
+                "description": "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
+                "items": {
+                  "enum": [
+                    "image",
+                    "media",
+                    "font",
+                    "stylesheet"
+                  ]
+                },
+                "type": "array"
+              },
               "headless": {
                 "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
                 "type": "boolean"
@@ -896,12 +960,32 @@
           "filter_lists": {
             "additionalProperties": false,
             "properties": {
+              "ads": {
+                "description": "Whether a browser Session blocks ads by EasyList, as a blocker does: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                "type": "boolean"
+              },
+              "annoyances": {
+                "description": "Whether a browser Session blocks page annoyances (social widgets, newsletter and notification prompts) by Fanboy Annoyance, its cookie sections left to the Consent prompt runner: on by default in every Access mode.",
+                "type": "boolean"
+              },
               "extra": {
                 "description": "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
                 "items": {
                   "type": "string"
                 },
                 "type": "array"
+              },
+              "first_party_scripts": {
+                "description": "Whether a site's own scripts load whatever the Filter lists say: off by default.",
+                "type": "boolean"
+              },
+              "page_scriptlets": {
+                "description": "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
+                "type": "boolean"
+              },
+              "trackers": {
+                "description": "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                "type": "boolean"
               }
             },
             "type": "object"
@@ -1000,6 +1084,22 @@
           "log": {
             "additionalProperties": false,
             "properties": {
+              "file": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_files": {
+                    "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. Read when the process starts; set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_size": {
+                    "description": "The size, in bytes, at which an engine process's log file rotates where `log.output` is `file`: 10 MiB. A file holds at most this much and one line more. Read when the process starts; set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "format": {
                 "anyOf": [
                   {
@@ -1013,6 +1113,25 @@
                   }
                 ],
                 "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only."
+              },
+              "level": {
+                "description": "Which of its logs an engine process writes: `info`, the default, which logs state changes only (a Run started, resumed or stopped, a domain backing off, a storage level changing, a Daemon draining) and never one line per request, or any `tracing` filter directive, such as `warn` or `info,goodfetch::rpc=debug`. Read when the process starts; set in user configuration or an Operator policy only.",
+                "type": "string"
+              },
+              "output": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "stdout",
+                      "file",
+                      "none"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where an engine process writes its logs beside stderr: `stdout`, JSON lines for the platform to collect and rotate, `file`, JSON lines in its own files of the Goodfetch home's log folder, rotated at `log.file.max_size` and kept to `log.file.max_files`, or `none`. Unset, it is `stdout` under `daemon run`, `file` for every other Daemon and `none` for an Attached engine, whose logs go to its Client as log events; `stdout` on an Attached engine, whose stdout is its protocol, fails with `setting_not_applicable`. Read when the process starts; set in user configuration or an Operator policy only."
               }
             },
             "type": "object"
@@ -1687,6 +1806,36 @@
                   }
                 ],
                 "description": "Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users."
+              }
+            },
+            "type": "object"
+          },
+          "storage": {
+            "additionalProperties": false,
+            "properties": {
+              "critical_free": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `critical` storage level: every Run with an essential write on it stops resumably at its next safe point, with `resource: \"storage\"`, and a new Run whose run file would go there is refused with `resources_exhausted`. Unset, each filesystem takes the smaller of 1 GiB and 2 % of its size, and free inodes go by 2 %; `0` turns the level off, which the Run's report lists in `weakened`. Read again at every sample of the Resource governor; set in user configuration or an Operator policy only."
+              },
+              "low_free": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `low` storage level: its Runs go on, record no Run trace video, store no new Response cache entry, skip their periodic Checkpoints onto it, and carry the warning `storage_low`. Unset, each filesystem takes the smaller of 5 GiB and 10 % of its size, and free inodes go by 10 %; `0` turns the level off, which the Run's report lists in `weakened`. Read again at every sample of the Resource governor; set in user configuration or an Operator policy only."
               }
             },
             "type": "object"
@@ -1862,6 +2011,18 @@
           "browser": {
             "additionalProperties": false,
             "properties": {
+              "block_resources": {
+                "description": "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
+                "items": {
+                  "enum": [
+                    "image",
+                    "media",
+                    "font",
+                    "stylesheet"
+                  ]
+                },
+                "type": "array"
+              },
               "headless": {
                 "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
                 "type": "boolean"
@@ -2166,12 +2327,32 @@
           "filter_lists": {
             "additionalProperties": false,
             "properties": {
+              "ads": {
+                "description": "Whether a browser Session blocks ads by EasyList, as a blocker does: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                "type": "boolean"
+              },
+              "annoyances": {
+                "description": "Whether a browser Session blocks page annoyances (social widgets, newsletter and notification prompts) by Fanboy Annoyance, its cookie sections left to the Consent prompt runner: on by default in every Access mode.",
+                "type": "boolean"
+              },
               "extra": {
                 "description": "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
                 "items": {
                   "type": "string"
                 },
                 "type": "array"
+              },
+              "first_party_scripts": {
+                "description": "Whether a site's own scripts load whatever the Filter lists say: off by default.",
+                "type": "boolean"
+              },
+              "page_scriptlets": {
+                "description": "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
+                "type": "boolean"
+              },
+              "trackers": {
+                "description": "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                "type": "boolean"
               }
             },
             "type": "object"
@@ -2270,6 +2451,22 @@
           "log": {
             "additionalProperties": false,
             "properties": {
+              "file": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_files": {
+                    "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. Read when the process starts; set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_size": {
+                    "description": "The size, in bytes, at which an engine process's log file rotates where `log.output` is `file`: 10 MiB. A file holds at most this much and one line more. Read when the process starts; set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "format": {
                 "anyOf": [
                   {
@@ -2283,6 +2480,25 @@
                   }
                 ],
                 "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only."
+              },
+              "level": {
+                "description": "Which of its logs an engine process writes: `info`, the default, which logs state changes only (a Run started, resumed or stopped, a domain backing off, a storage level changing, a Daemon draining) and never one line per request, or any `tracing` filter directive, such as `warn` or `info,goodfetch::rpc=debug`. Read when the process starts; set in user configuration or an Operator policy only.",
+                "type": "string"
+              },
+              "output": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "stdout",
+                      "file",
+                      "none"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where an engine process writes its logs beside stderr: `stdout`, JSON lines for the platform to collect and rotate, `file`, JSON lines in its own files of the Goodfetch home's log folder, rotated at `log.file.max_size` and kept to `log.file.max_files`, or `none`. Unset, it is `stdout` under `daemon run`, `file` for every other Daemon and `none` for an Attached engine, whose logs go to its Client as log events; `stdout` on an Attached engine, whose stdout is its protocol, fails with `setting_not_applicable`. Read when the process starts; set in user configuration or an Operator policy only."
               }
             },
             "type": "object"
@@ -2957,6 +3173,36 @@
                   }
                 ],
                 "description": "Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users."
+              }
+            },
+            "type": "object"
+          },
+          "storage": {
+            "additionalProperties": false,
+            "properties": {
+              "critical_free": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `critical` storage level: every Run with an essential write on it stops resumably at its next safe point, with `resource: \"storage\"`, and a new Run whose run file would go there is refused with `resources_exhausted`. Unset, each filesystem takes the smaller of 1 GiB and 2 % of its size, and free inodes go by 2 %; `0` turns the level off, which the Run's report lists in `weakened`. Read again at every sample of the Resource governor; set in user configuration or an Operator policy only."
+              },
+              "low_free": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `low` storage level: its Runs go on, record no Run trace video, store no new Response cache entry, skip their periodic Checkpoints onto it, and carry the warning `storage_low`. Unset, each filesystem takes the smaller of 5 GiB and 10 % of its size, and free inodes go by 10 %; `0` turns the level off, which the Run's report lists in `weakened`. Read again at every sample of the Resource governor; set in user configuration or an Operator policy only."
               }
             },
             "type": "object"

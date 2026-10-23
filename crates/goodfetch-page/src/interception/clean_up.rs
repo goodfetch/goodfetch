@@ -12,7 +12,9 @@ use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::settings::{Resolved, Values};
 use goodfetch_engine::tasks::TaskOwner;
-use goodfetch_protocol::page::{BROWSER_BLOCK_RESOURCES, LIVE_VIEW_HIDING};
+use goodfetch_protocol::page::{
+    BROWSER_BLOCK_RESOURCES, BROWSER_SERVICE_WORKERS, LIVE_VIEW_HIDING,
+};
 use goodfetch_protocol::settings::{
     FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_FIRST_PARTY_SCRIPTS,
     FILTER_LISTS_TRACKERS,
@@ -60,14 +62,16 @@ impl CleanUp {
     }
 }
 
-/// The settings a Session's own `settings` may set: the Clean-up rules'
-/// choices, which its pages take over the Run's.
-pub(crate) const SESSION_KEYS: [&str; 6] = [
+/// The settings a Session's own `settings` may set, which its pages take
+/// over the Run's: the Clean-up rules' choices, and whether its sites'
+/// service workers run (ADR 0121).
+pub(crate) const SESSION_KEYS: [&str; 7] = [
     FILTER_LISTS_ADS.name,
     FILTER_LISTS_TRACKERS.name,
     FILTER_LISTS_ANNOYANCES.name,
     FILTER_LISTS_FIRST_PARTY_SCRIPTS.name,
     BROWSER_BLOCK_RESOURCES.name,
+    BROWSER_SERVICE_WORKERS.name,
     LIVE_VIEW_HIDING.name,
 ];
 

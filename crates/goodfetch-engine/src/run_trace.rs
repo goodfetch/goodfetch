@@ -6,6 +6,9 @@
 //! `page.request_failed`, so a refusal is never a timeout: a page's with its
 //! `PageRequest`, and one the engine's own HTTP client sent for the Run, which
 //! no page sent, with the URL, method and failure it knows (`RequestFailed`).
+//! A request a site's service worker sent itself, which belongs to no page,
+//! is recorded as `service_worker.request` whether it went on or was refused
+//! (ADR 0121).
 #![expect(
     clippy::disallowed_methods,
     reason = "the log appends to its file through the owner's blocking policy, never on an async worker"
@@ -17,8 +20,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use goodfetch_protocol::catalog::Event;
-use goodfetch_protocol::page::RequestFailed;
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
+use goodfetch_protocol::page::{RequestFailed, SERVICE_WORKER_REQUEST, ServiceWorkerRequest};
 
 use serde::Serialize;
 
@@ -69,8 +72,26 @@ impl RequestLog {
     ///
     /// Dropping the future never stops a line being written once it began.
     pub async fn record(&self, event: &Event, data: &impl Serialize) -> io::Result<()> {
+        self.record_line(event.name, data).await
+    }
+
+    /// Records a request a site's service worker sent itself, which no
+    /// page's event reports (ADR 0121), as `service_worker.request`.
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future never stops a line being written once it began.
+    pub async fn service_worker_request(&self, request: &ServiceWorkerRequest) -> io::Result<()> {
+        self.record_line(SERVICE_WORKER_REQUEST, request).await
+    }
+
+    async fn record_line(&self, name: &str, data: &impl Serialize) -> io::Result<()> {
         let mut line = serde_json::to_vec(&serde_json::json!({
-            "event": event.name,
+            "event": name,
             "data": data,
         }))?;
         line.push(b'\n');

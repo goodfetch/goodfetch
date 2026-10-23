@@ -36,6 +36,7 @@ mod takeover;
 mod trace;
 mod usage;
 mod versions;
+mod views;
 mod websocket;
 
 use std::time::Duration;

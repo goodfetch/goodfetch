@@ -3,10 +3,11 @@
 //! fetches, over HTTP and in the browser, whose fingerprints the server
 //! compares; a self-hosted bot probe in the manner of `BotD` and `CreepJS`; a
 //! probe of the debugging protocol's side effects; the version check; the
-//! block-detection corpus; and two pages no task names, which the engine's
-//! own tests read: the identity a page reads of its browser, every client
-//! hint asked for, and a 100 ms timer that reports whether a page behind
-//! another tab kept it (spec #577, ticket #696). Its answers name the build's age beside the
+//! block-detection corpus; and pages no task names, which the engine's own
+//! tests read: the identity a page reads of its browser, every client hint
+//! asked for, and a 100 ms timer that reports whether a page behind another
+//! tab kept it (spec #577, ticket #696); a page's events (#703); and a page
+//! a service worker controls (#707). Its answers name the build's age beside the
 //! Access dimensions a result was run under, so every result is reported per
 //! Fingerprint method, engine, Access mode and build age, against stock
 //! headless and headful Chrome as controls.
@@ -58,6 +59,17 @@ const PAGE_EVENTS: &str = "/page-events";
 const PAGE_EVENTS_DATA: [&str; 2] = ["/page-events/data.json", "/page-events/aborted"];
 /// The WebSocket the page events page opens.
 const PAGE_EVENTS_SOCKET: &str = "/page-events/socket";
+/// The service worker page and its worker's script.
+const SERVICE_WORKER: &str = "/service-worker/";
+const SERVICE_WORKER_SCRIPT: &str = "/service-worker/sw.js";
+/// The JSON calls the service worker page and its worker make.
+const SERVICE_WORKER_CALLS: [&str; 3] = [
+    "/service-worker/own.json",
+    "/service-worker/cached.json",
+    "/service-worker/network.json",
+];
+/// The path the service worker requests that EasyPrivacy blocks.
+const SERVICE_WORKER_TRACKER: &str = "/service-worker/js/adobe-analytics.js";
 
 /// The client hints the identity page asks for, beyond those a browser
 /// sends unasked, so the requests its script makes carry every one.
@@ -71,6 +83,8 @@ const CDP_PROBE_SCRIPT: &str = include_str!("../pages/access/cdp-probe.js");
 const IDENTITY_SCRIPT: &str = include_str!("../pages/access/identity.js");
 const TIMER_SCRIPT: &str = include_str!("../pages/access/timer.js");
 const PAGE_EVENTS_SCRIPT: &str = include_str!("../pages/access/page-events.js");
+const SERVICE_WORKER_PAGE_SCRIPT: &str = include_str!("../pages/access/service-worker.js");
+const SERVICE_WORKER_WORKER_SCRIPT: &str = include_str!("../pages/access/service-worker-sw.js");
 
 /// The generator places of the family's values: the family's own first, then
 /// 0 and the value's.
@@ -169,6 +183,22 @@ pub(crate) fn respond(
             ),
             None,
         ),
+        Method::GET if path == SERVICE_WORKER => (
+            Reply::html(page(
+                seed,
+                "service-worker",
+                &reporting(SERVICE_WORKER_PAGE_SCRIPT),
+            )),
+            None,
+        ),
+        Method::GET if path == SERVICE_WORKER_SCRIPT => {
+            (script_reply(SERVICE_WORKER_WORKER_SCRIPT), None)
+        }
+        Method::GET if SERVICE_WORKER_CALLS.contains(&path) => (
+            Reply::json(StatusCode::OK, &serde_json::json!({ "path": path })),
+            None,
+        ),
+        Method::GET if path == SERVICE_WORKER_TRACKER => (script_reply("void 0;\n"), None),
         Method::GET => (corpus::page(path).unwrap_or_else(Reply::not_found), None),
         Method::POST if path == "/reports" => match Report::parse(request.body) {
             Some(report) => (Reply::no_content(), Some(Recorded::Report(report))),
@@ -188,6 +218,16 @@ pub(crate) fn push(name: &str, method: &Method, path: &str) -> Option<Push> {
         && path == PAGE_EVENTS_SOCKET
         && (name == LOCAL_HOST || task::serves(name, HOST, TASKS)))
     .then_some(Push::Socket)
+}
+
+/// `script`, served as JavaScript.
+fn script_reply(script: &'static str) -> Reply {
+    Reply {
+        status: StatusCode::OK,
+        content_type: "text/javascript; charset=utf-8",
+        headers: Vec::new(),
+        body: script.into(),
+    }
 }
 
 /// A page of the family: its Record, and `more` after it.

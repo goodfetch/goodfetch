@@ -89,8 +89,10 @@ secretfile = []
 
 # Which of `governor`'s own modules may import which.
 [submodules.governor]
+browsers = ["ladder"]
 controller = []
-shares = []
+ladder = []
+shares = ["browsers", "ladder"]
 storage = []
 system = ["storage"]
 

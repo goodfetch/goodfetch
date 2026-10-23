@@ -792,6 +792,10 @@ class PageEventName(StrEnum):
     """`page.load`."""
     dom_content_loaded = "dom_content_loaded"
     """`page.dom_content_loaded`."""
+    crash = "crash"
+    """`page.crash`."""
+    close = "close"
+    """`page.close`."""
 
 
 class PageFormats(BaseModel):
@@ -1733,6 +1737,11 @@ class StoppedBy(StrEnum):
     """A Client, such as through `$/cancel`."""
     program = "program"
     """The program, such as through `run.stop` (ADR 0102)."""
+    browser = "browser"
+    """
+    The browser, outside every Client: a page's window closed there, or
+    the browser quit (ADR 0113).
+    """
 
 
 class StorageLevel(StrEnum):
@@ -2692,8 +2701,9 @@ class PageDownload(BaseModel):
 
 class PageFired(BaseModel):
     """
-    What `page.load` and `page.dom_content_loaded` report: the page whose
-    main frame's document fired the event.
+    What `page.load`, `page.dom_content_loaded`, `page.crash` and
+    `page.close` report: the page whose main frame's document fired the
+    event, or that crashed or closed.
     """
 
     model_config = ConfigDict(

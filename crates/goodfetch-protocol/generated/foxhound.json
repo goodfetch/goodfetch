@@ -3442,6 +3442,16 @@
           "const": "dom_content_loaded",
           "description": "`page.dom_content_loaded`.",
           "type": "string"
+        },
+        {
+          "const": "crash",
+          "description": "`page.crash`.",
+          "type": "string"
+        },
+        {
+          "const": "close",
+          "description": "`page.close`.",
+          "type": "string"
         }
       ]
     },
@@ -3466,7 +3476,7 @@
       "type": "object"
     },
     "PageFired": {
-      "description": "What `page.load` and `page.dom_content_loaded` report: the page whose\nmain frame's document fired the event.",
+      "description": "What `page.load`, `page.dom_content_loaded`, `page.crash` and\n`page.close` report: the page whose main frame's document fired the\nevent, or that crashed or closed.",
       "properties": {
         "page_id": {
           "$ref": "#/$defs/PageId",
@@ -6789,6 +6799,11 @@
           "const": "program",
           "description": "The program, such as through `run.stop` (ADR 0102).",
           "type": "string"
+        },
+        {
+          "const": "browser",
+          "description": "The browser, outside every Client: a page's window closed there, or\nthe browser quit (ADR 0113).",
+          "type": "string"
         }
       ]
     },
@@ -7682,6 +7697,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A bug in Goodfetch: an object such as a Session or a page received an event its state cannot receive. Report it with the object, the state and the event its details carry.",
+      "exit_code": null,
+      "group": "internal",
+      "json_rpc_class": -32007,
+      "name": "internal",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The attempt's lease ended before it committed: its handler answered after the lease's end, or the run file holds a later lease of its work item. Its outputs are discarded, and the commit of the work item's next attempt is the one that counts.",
       "exit_code": null,
       "group": "unavailable",
@@ -8186,10 +8211,34 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
+      "description": "The page closed: the engine closed it, or its window was closed in the browser outside every Client. Published while `page.on` listens to `close`, just before that call answers.",
+      "name": "page.close",
+      "payload": {
+        "$ref": "#/$defs/PageFired"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
       "description": "The page wrote a message to its console, `ConsoleMessage`: its type, text and location. Published while `page.on` listens to `console`, the only time the engine reads the page's console.",
       "name": "page.console",
       "payload": {
         "$ref": "#/$defs/ConsoleMessage"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "The page crashed: its renderer, or its browser's process, which exited abnormally. Its calls in flight raised `page_crashed`, and so does each later call. Published while `page.on` listens to `crash`.",
+      "name": "page.crash",
+      "payload": {
+        "$ref": "#/$defs/PageFired"
       },
       "product": "collie",
       "stability": "experimental"
@@ -9344,7 +9393,9 @@
         "web_socket.close",
         "page.load",
         "page.dom_content_loaded",
-        "page.download"
+        "page.download",
+        "page.crash",
+        "page.close"
       ],
       "kind": "event",
       "name": "page.on",
@@ -12642,6 +12693,13 @@
       "arrived_in": "0.1",
       "description": "Model tokens a run used, input and output (ADR 0101).",
       "name": "model_tokens",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Pages of a run that crashed: their renderer, or their browser's process (ADR 0040). A crash racing the page's close does not count.",
+      "name": "page_crashes",
       "product": "collie",
       "type": "usage_kind"
     },

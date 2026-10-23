@@ -208,6 +208,7 @@ fn by_name(by: goodfetch_protocol::connection::StoppedBy) -> &'static str {
     match by {
         goodfetch_protocol::connection::StoppedBy::Client => "Client",
         goodfetch_protocol::connection::StoppedBy::Program => "program",
+        goodfetch_protocol::connection::StoppedBy::Browser => "browser",
     }
 }
 

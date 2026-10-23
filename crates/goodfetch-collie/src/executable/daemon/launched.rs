@@ -612,6 +612,10 @@ fn give_place_to_the_pick(machine: &Machine<'_>) -> Option<ExitCode> {
 }
 
 #[cfg(not(unix))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "on Unix the pick serves in place, here the logon task always ends: one signature serves both"
+)]
 fn give_place_to_the_pick(machine: &Machine<'_>) -> Option<ExitCode> {
     let files = machine.files();
     let start = match files.start_lock() {

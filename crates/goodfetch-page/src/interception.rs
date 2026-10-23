@@ -40,6 +40,11 @@
 //! its reply that it ended. A handler that fails leaves its failure on its
 //! page, which the call waiting on the request, or else the next call on
 //! the page, raises ([`Interception::take_failure`]).
+//!
+//! A request the engine sends itself from a page's Session, as
+//! `page.request` does through the browser-fetch tier, passes steps 3 to 8
+//! as the page's Session chose them ([`Interception::engine_requests`]), never a
+//! route.
 #![expect(
     clippy::disallowed_types,
     reason = "routes are armed and answers delivered as their call arrives, before any `.await`: each lock guards one table or map for one operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -55,7 +60,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use goodfetch_cdp::generated::fetch;
-use goodfetch_clean_up_rules::matching::Choices;
+use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
 use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
@@ -66,7 +71,8 @@ use goodfetch_engine::settings::{RunSettings, Values};
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::route::{RouteId, UrlMatcher};
 use goodfetch_protocol::page::{
-    BROWSER_BLOCK_RESOURCES, BROWSER_SERVICE_WORKERS, PageId, SessionId,
+    BROWSER_BLOCK_RESOURCES, BROWSER_SERVICE_WORKERS, NAVIGATION_FAILED, NavigationFailedDetails,
+    PageId, SessionId,
 };
 use goodfetch_protocol::run::RunWarning;
 use goodfetch_protocol::run::warning::BLOCK_RESOURCES_VISIBLE;
@@ -131,7 +137,69 @@ pub(super) struct PageState {
     failure: Mutex<Option<CallError>>,
     /// The cosmetic rules its Session's Filter lists hold, when any is on.
     cosmetic: Option<Cosmetic>,
+    /// Steps 3 to 8 as its Session chose them, for the engine's own
+    /// requests from the Session.
+    engine_requests: EngineRequests,
 }
+
+/// Steps 3 to 8 of a page's pipeline, as its Session chose them, for a
+/// request the engine sends itself from the page's Session: the
+/// browser-fetch tier's, which `page.request` sends (ADRs 0020 and 0121).
+/// No route sees such a request, as none sees Playwright's
+/// `APIRequestContext`'s.
+#[derive(Clone)]
+pub(crate) struct EngineRequests {
+    policy: Policy,
+    blocking: steps::Blocking,
+}
+
+impl EngineRequests {
+    /// Steps 3 to 7 for the request `paused`, sent with `overrides`, and
+    /// step 8's command, which pauses its response; its source is its own
+    /// URL, since no document of the page sent it.
+    ///
+    /// # Errors
+    ///
+    /// `egress_refused` when the domain policy refuses it, and
+    /// `navigation_failed` naming `net::ERR_BLOCKED_BY_CLIENT` when the
+    /// Filter lists or `browser.block_resources` block it: it goes no
+    /// further, and its caller fails it.
+    pub(crate) fn send_on(
+        &self,
+        paused: &fetch::RequestPausedEvent,
+        overrides: &Overrides,
+    ) -> Result<fetch::ContinueRequestParams, CallError> {
+        let url = overrides.url.as_deref().unwrap_or(&paused.request.url);
+        let request = steps::Paused {
+            id: &paused.request_id,
+            url,
+            method: overrides
+                .method
+                .as_deref()
+                .unwrap_or(&paused.request.method),
+            overrides,
+            kind: ResourceKind::Xhr,
+            source_url: url,
+        };
+        match steps::send_on(&request, &self.policy, &self.blocking, true) {
+            Ok(steps::Sent::Continue(command)) => Ok(command),
+            Ok(steps::Sent::StandIn(_)) | Err(steps::Stopped::Blocked) => Err(CallError::new(
+                &NAVIGATION_FAILED,
+                format!(
+                    "{url} was blocked by the Session's Filter lists or `browser.block_resources`"
+                ),
+                &NavigationFailedDetails {
+                    url: url.to_owned(),
+                    error: Some(BLOCKED_BY_CLIENT.to_owned()),
+                },
+            )),
+            Err(steps::Stopped::Refused(refused)) => Err(refused.error()),
+        }
+    }
+}
+
+/// The browser's network error for a request a blocker failed.
+const BLOCKED_BY_CLIENT: &str = "net::ERR_BLOCKED_BY_CLIENT";
 
 /// The cosmetic rules a page's Session holds (ADR 0047): the embedded
 /// Filter lists, shared, and which of them its settings turn on; live
@@ -244,6 +312,10 @@ impl Interception {
                 session,
                 failure: Mutex::new(None),
                 cosmetic: clean_up.cosmetic.clone(),
+                engine_requests: EngineRequests {
+                    policy: policy.clone(),
+                    blocking: blocking.clone(),
+                },
             });
             tables.pages.insert(page_id.clone(), Arc::clone(&state));
             state
@@ -348,6 +420,10 @@ impl Interception {
                     session: routes,
                     failure: Mutex::new(None),
                     cosmetic: None,
+                    engine_requests: EngineRequests {
+                        policy: policy.clone(),
+                        blocking: blocking.clone(),
+                    },
                 });
                 let context = Arc::new(PageContext::new(
                     worker,
@@ -446,6 +522,20 @@ impl Interception {
         answer: Answer,
     ) -> Result<impl Future<Output = Result<Reply, CallError>> + use<>, CallError> {
         self.shared.answers.deliver(route_id, answer)
+    }
+
+    /// Steps 3 to 8 of the page `page_id`'s pipeline, for a request the
+    /// engine sends itself from its Session.
+    ///
+    /// # Errors
+    ///
+    /// `closed` for a page the interception does not hold.
+    pub(crate) fn engine_requests(&self, page_id: &PageId) -> Result<EngineRequests, CallError> {
+        lock(&self.shared.tables)
+            .pages
+            .get(page_id)
+            .map(|state| state.engine_requests.clone())
+            .ok_or_else(|| closed(Scope::Page(page_id)))
     }
 
     /// The failure a handler left on the page `page_id` for its next call,

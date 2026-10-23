@@ -7,11 +7,21 @@
 //! answer the browser's `Fetch.authRequired`; a SOCKS5 proxy's, which
 //! Chromium cannot give, go through the loopback [`relay`] the Session
 //! opens. [`party`] tells the proxy's own failures from the site's.
+//!
+//! A Session whose `proxy.provider` names a Proxy provider gets its one
+//! proxy from the provider's driver ([`crate::proxy_provider`]) instead,
+//! behind a loopback relay that charges every byte to its Run under the
+//! proxy's kind; `proxy.server` and `proxy.provider` together are refused.
 
 mod party;
 mod relay;
 
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
+use std::time::Duration;
+
+use tokio::sync::Mutex;
+use tokio::time::Instant;
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::dns::{Dns, HostMapping, Resolution, ResolverConfiguration, Route};
@@ -19,15 +29,19 @@ use goodfetch_engine::run::secret_error;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::Resolved;
+use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::page::proxy::{
-    PROXY_AUTH_FAILED, PROXY_BYPASS, PROXY_PASSWORD, PROXY_SERVER, PROXY_UNAVAILABLE,
-    PROXY_USERNAME, ProxyAuthFailedDetails, ProxyScheme, ProxyServer, ProxyUnavailableDetails,
+    CountryCode, PROXY_AUTH_FAILED, PROXY_BYPASS, PROXY_COUNTRY, PROXY_KIND, PROXY_PASSWORD,
+    PROXY_PROVIDER, PROXY_PROVIDERS, PROXY_SERVER, PROXY_STICKY_LIFETIME, PROXY_UNAVAILABLE,
+    PROXY_USERNAME, ProxyAuthFailedDetails, ProxyKind, ProxyProviderConfiguration, ProxyScheme,
+    ProxyServer, ProxyUnavailableDetails,
 };
 use goodfetch_protocol::settings::{NETWORK_RESOLVE, SETTING_INVALID, SettingInvalidDetails};
 use secrecy::SecretString;
 
 pub(crate) use self::party::{Answer, Party, party, proxy_error};
-use self::relay::Relay;
+use self::relay::{Mode, Relay};
+use crate::proxy_provider::{Chosen, ProxyDriver, ProxyUsage, Refusal, Wanted, list, priced};
 
 /// The rule that sends loopback through the proxy too, as Playwright does,
 /// so a Session's every request takes its proxy.
@@ -39,8 +53,35 @@ pub(crate) struct SessionProxy {
     bypass: Option<String>,
     username: Option<String>,
     password: Option<SecretString>,
-    /// The loopback relay of a SOCKS5 proxy with credentials.
+    /// The loopback relay of a SOCKS5 proxy with credentials, and of every
+    /// proxy a Proxy provider gave.
     relay: Option<Relay>,
+    /// What a Proxy provider gave, if one did.
+    provided: Option<Provided>,
+}
+
+/// The proxy a Proxy provider gave a Session, for its life.
+struct Provided {
+    chosen: Chosen,
+    /// What its bytes are charged to.
+    usage: Arc<ProxyUsage>,
+    /// When the Session opened, on its Run's clock.
+    opened: Instant,
+    /// Whether the Run was warned that the Session outlived its sticky
+    /// lifetime.
+    warned: Mutex<bool>,
+}
+
+/// Where a Session opens among its Run's, for its proxy.
+pub(crate) struct Opening<'a> {
+    /// The Session's ID, which a provider's sticky username names.
+    pub(crate) session: &'a SessionId,
+    /// Its position among the Run's Sessions, from 1, which picks its
+    /// provider's server in turn.
+    pub(crate) ordinal: u64,
+    /// The currencies of the currency Limits on `proxy_bytes` that hold
+    /// the Run, which a provider's price must be in.
+    pub(crate) currencies: &'a [String],
 }
 
 impl std::fmt::Debug for SessionProxy {
@@ -50,6 +91,72 @@ impl std::fmt::Debug for SessionProxy {
             .field("server", &self.server.to_string())
             .field("username", &self.username)
             .finish_non_exhaustive()
+    }
+}
+
+/// `setting_invalid` for `key`, set at `settings`' layer for it, because of
+/// `reason`.
+fn invalid(settings: &Resolved, key: &str, reason: String) -> CallError {
+    CallError::new(
+        &SETTING_INVALID,
+        format!("`{key}` is refused: {reason}"),
+        &SettingInvalidDetails {
+            key: key.to_owned(),
+            layer: settings.get(key).map(|effective| effective.layer),
+            reason,
+        },
+    )
+}
+
+/// `setting_invalid` for what a Proxy provider's driver refused.
+fn refused(settings: &Resolved, refusal: &Refusal) -> CallError {
+    let names = |items: Vec<String>| {
+        if items.is_empty() {
+            "none".to_owned()
+        } else {
+            items.join(", ")
+        }
+    };
+    match refusal {
+        Refusal::KindNotOffered {
+            provider,
+            asked,
+            offered,
+        } => invalid(
+            settings,
+            PROXY_KIND.name,
+            format!(
+                "the Proxy provider `{provider}` offers no `{asked}` proxy; it offers {}",
+                names(offered.iter().map(ToString::to_string).collect())
+            ),
+        ),
+        Refusal::CountryNotOffered {
+            provider,
+            asked,
+            kind,
+            offered,
+        } => invalid(
+            settings,
+            PROXY_COUNTRY.name,
+            format!(
+                "the Proxy provider `{provider}` offers no `{kind}` proxy in `{asked}`; it offers {}",
+                names(offered.iter().map(ToString::to_string).collect())
+            ),
+        ),
+        Refusal::Empty { provider } => invalid(
+            settings,
+            PROXY_PROVIDERS.name,
+            format!(
+                "the Proxy provider `{provider}` offers no proxy: give `proxy.providers.{provider}.servers` in configuration"
+            ),
+        ),
+        Refusal::Unpriced { provider, currency } => invalid(
+            settings,
+            PROXY_PROVIDERS.name,
+            format!(
+                "a currency Limit on `proxy_bytes` in {currency} holds the Run, and the Proxy provider `{provider}` has no price in {currency}: set `proxy.providers.{provider}.price`, such as `5 {currency}` per GB, in configuration"
+            ),
+        ),
     }
 }
 
@@ -77,10 +184,31 @@ impl SessionProxy {
     /// password without a username, the Secret provider's codes when the
     /// password does not resolve, and `proxy_unavailable` when the relay
     /// cannot open or a SOCKS5 proxy's host has no address.
-    pub(crate) async fn open(settings: &Resolved, run: &Run) -> Result<Option<Self>, CallError> {
+    pub(crate) async fn open(
+        settings: &Resolved,
+        run: &Run,
+        opening: &Opening<'_>,
+    ) -> Result<Option<Self>, CallError> {
         let text = |key: &str| settings.value(key).as_str().map(str::to_owned);
         let username = text(PROXY_USERNAME.name);
         let reference = settings.secret_reference(PROXY_PASSWORD.name);
+        if let Some(provider) = text(PROXY_PROVIDER.name) {
+            let also = [PROXY_SERVER.name, PROXY_USERNAME.name, PROXY_PASSWORD.name]
+                .into_iter()
+                .find(|key| !settings.value(key).is_null());
+            if let Some(also) = also {
+                return Err(invalid(
+                    settings,
+                    PROXY_PROVIDER.name,
+                    format!(
+                        "the Session resolves both `{also}` and `proxy.provider`: a Session's one proxy is either `proxy.server`, with `proxy.username` and `proxy.password`, or a Proxy provider's, whose credentials are `proxy.providers.{provider}.username` and `.password`"
+                    ),
+                ));
+            }
+            return Self::provided(settings, run, opening, &provider)
+                .await
+                .map(Some);
+        }
         let Some(server) = text(PROXY_SERVER.name) else {
             if username.is_some() {
                 return Err(needs(PROXY_USERNAME.name, PROXY_SERVER.name));
@@ -118,7 +246,11 @@ impl SessionProxy {
             (Some(username), true) => {
                 let address = address_of(&server, settings, run).await?;
                 let password = password.clone().unwrap_or_else(|| SecretString::from(""));
-                let relay = Relay::open(run, address, username.clone(), password)
+                let mode = Mode::Socks5 {
+                    username: username.clone(),
+                    password,
+                };
+                let relay = Relay::open(run, address, mode, None)
                     .await
                     .map_err(|error| unavailable(&server, "", &error.to_string()))?;
                 Some(relay)
@@ -131,7 +263,127 @@ impl SessionProxy {
             username,
             password,
             relay,
+            provided: None,
         }))
+    }
+
+    /// The proxy the Proxy provider `name` gives the Session `opening`
+    /// names, as `settings` ask: its password resolved now, and the relay
+    /// that charges its bytes opened now.
+    async fn provided(
+        settings: &Resolved,
+        run: &Run,
+        opening: &Opening<'_>,
+        name: &str,
+    ) -> Result<Self, CallError> {
+        let configuration = settings
+            .value(PROXY_PROVIDERS.name)
+            .get(name)
+            .map(ProxyProviderConfiguration::read)
+            .transpose()
+            .expect("invariant: `proxy.providers`' entries were checked against their kind")
+            .unwrap_or_default();
+        let driver = match name {
+            list::NAME => ProxyDriver::new(list::NAME, Box::new(list::List::new(&configuration))),
+            _ => {
+                return Err(invalid(
+                    settings,
+                    PROXY_PROVIDER.name,
+                    format!("no Proxy provider is named `{name}`: the built-in one is `list`"),
+                ));
+            }
+        };
+        let wanted = Wanted {
+            kind: settings
+                .value(PROXY_KIND.name)
+                .as_str()
+                .and_then(ProxyKind::named),
+            country: settings
+                .value(PROXY_COUNTRY.name)
+                .as_str()
+                .map(CountryCode::parse)
+                .transpose()
+                .expect("invariant: `proxy.country`'s value was checked against its kind"),
+            sticky_lifetime: settings
+                .value(PROXY_STICKY_LIFETIME.name)
+                .as_u64()
+                .map(Duration::from_millis),
+        };
+        let chosen = driver
+            .choose(&wanted, &opening.session.0, opening.ordinal)
+            .map_err(|refusal| refused(settings, &refusal))?;
+        let currencies: Vec<&str> = opening.currencies.iter().map(String::as_str).collect();
+        let price = priced(driver.name(), &currencies, configuration.price.as_ref())
+            .map_err(|refusal| refused(settings, &refusal))?;
+        let password = match (&chosen.username, &configuration.password) {
+            (Some(_), Some(reference)) => {
+                let purpose = Purpose {
+                    placeholder: PROXY_PROVIDERS.name,
+                    domain: Some(&chosen.server.host),
+                    domains: &[],
+                    layer: settings
+                        .get(PROXY_PROVIDERS.name)
+                        .map(|effective| effective.layer),
+                    run_id: Some(run.id()),
+                };
+                Some(
+                    run.secrets()
+                        .resolve(reference, &purpose)
+                        .await
+                        .map_err(|error| secret_error(&error))?,
+                )
+            }
+            _ => None,
+        };
+        let address = address_of(&chosen.server, settings, run).await?;
+        let mode = match (&chosen.username, chosen.server.scheme.is_socks()) {
+            (Some(username), true) => Mode::Socks5 {
+                username: username.clone(),
+                password: password.clone().unwrap_or_else(|| SecretString::from("")),
+            },
+            (_, socks) => Mode::AsItIs { http: !socks },
+        };
+        let usage = Arc::new(ProxyUsage::new(run.clone(), chosen.kind, price));
+        let relay = Relay::open(run, address, mode, Some(Arc::clone(&usage)))
+            .await
+            .map_err(|error| unavailable(&chosen.server, "", &error.to_string()))?;
+        Ok(Self {
+            server: chosen.server.clone(),
+            bypass: settings
+                .value(PROXY_BYPASS.name)
+                .as_str()
+                .map(str::to_owned),
+            username: chosen.username.clone(),
+            password,
+            relay: Some(relay),
+            provided: Some(Provided {
+                chosen,
+                usage,
+                opened: run.clock().now(),
+                warned: Mutex::new(false),
+            }),
+        })
+    }
+
+    /// Warns `run`, once, when the Session `session` outlived its
+    /// provider's sticky lifetime, so its exit may have changed
+    /// (`proxy_exit_may_change`).
+    pub(crate) async fn warn_if_outlived(&self, run: &Run, session: &SessionId) {
+        let Some(provided) = &self.provided else {
+            return;
+        };
+        let lived = run.clock().now().saturating_duration_since(provided.opened);
+        let Some(warning) = provided.chosen.exit_warning(&session.0, lived) else {
+            return;
+        };
+        let mut warned = provided.warned.lock().await;
+        if std::mem::replace(&mut *warned, true) {
+            return;
+        }
+        drop(warned);
+        if let Err(error) = run.warn(warning).await {
+            tracing::warn!(%error, "the warning that a Session's proxy exit may change was not kept");
+        }
     }
 
     /// The `proxyServer` the browser context takes: the relay's address for
@@ -139,7 +391,12 @@ impl SessionProxy {
     /// `socks5h`, whose SOCKS5 proxies resolve every name they are given.
     pub(crate) fn browser_server(&self) -> String {
         if let Some(relay) = &self.relay {
-            return format!("socks5://{}", relay.address());
+            let scheme = if self.server.scheme.is_socks() {
+                "socks5"
+            } else {
+                "http"
+            };
+            return format!("{scheme}://{}", relay.address());
         }
         match self.server.scheme {
             ProxyScheme::Socks5h => ProxyServer {
@@ -221,6 +478,13 @@ impl SessionProxy {
     /// `proxy_auth_failed` when the proxy refused the relay's credentials,
     /// `proxy_unavailable` otherwise.
     pub(crate) fn failure(&self, url: &str, error: &str) -> Option<CallError> {
+        if let Some(refusal) = self
+            .provided
+            .as_ref()
+            .and_then(|provided| provided.usage.refusal())
+        {
+            return Some(refusal.clone());
+        }
         if party(Answer::Failure { error }) != Party::Proxy {
             return None;
         }

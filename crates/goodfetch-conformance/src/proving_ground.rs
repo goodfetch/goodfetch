@@ -56,6 +56,30 @@ pub struct NetworkFixtures {
     pub proxies: std::collections::BTreeMap<String, String>,
 }
 
+/// A Secret canary the Proving ground planted (ADR 0067): its value, the
+/// task whose login flow uses it, and the account that logs in there.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct PlantedCanary {
+    /// Its ID among the Proving ground's plants.
+    pub id: String,
+    /// The task of its login flow, such as `canaries/3`.
+    pub task: String,
+    /// The fake secret.
+    pub value: String,
+    /// The account its flow logs in with, when it has one.
+    #[serde(default)]
+    pub account: Option<CanaryAccount>,
+}
+
+/// The account a canary's login flow logs in with.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct CanaryAccount {
+    /// Its username.
+    pub username: String,
+    /// Its password.
+    pub password: String,
+}
+
 /// A result submitted to the oracle: the task, the status the tool reported
 /// and the Records it found, each in the task's family's own shape.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -175,6 +199,25 @@ impl ProvingGround {
                 .send_json(serde_json::json!({ "step": step })),
         )
         .map(drop)
+    }
+
+    /// Plants a Secret canary of `kind`, such as `session_cookie`, through
+    /// its login flow (`POST /canaries`, ADR 0067): the Proving ground draws
+    /// the value and records every request that carries it.
+    ///
+    /// # Errors
+    ///
+    /// When the Proving ground cannot be reached, refuses the kind or
+    /// answers no plant.
+    pub fn plant_canary(&self, kind: &str) -> Result<PlantedCanary, ProvingGroundError> {
+        let url = format!("http://{}/canaries", self.address);
+        let body = Self::answer(
+            &url,
+            self.agent
+                .post(&url)
+                .send_json(serde_json::json!({ "kind": kind })),
+        )?;
+        serde_json::from_str(&body).map_err(|source| ProvingGroundError::Unreadable { url, source })
     }
 
     /// The oracle's answer for a submitted result.

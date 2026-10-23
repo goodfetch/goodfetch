@@ -48,6 +48,9 @@ const PAGE_CASES: &str = include_str!("../../../conformance/page/cases.toml");
 /// The delivery suite's case list, embedded the same way.
 const DELIVERY_CASES: &str = include_str!("../../../conformance/delivery/cases.toml");
 
+/// The reset gate's case list, embedded the same way.
+const RESET_CASES: &str = include_str!("../../../conformance/reset/cases.toml");
+
 /// A protocol suite: its declared case list, and the Product whose
 /// executable it runs on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,6 +84,12 @@ impl ProtocolSuite {
     /// leases, on Foxhound's executable.
     pub fn delivery() -> Self {
         Self::read(DELIVERY_CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/reset/cases.toml`: ADR 0001's reset gate, a discarded
+    /// Run leaving none of its state or secrets behind.
+    pub fn reset() -> Self {
+        Self::read(RESET_CASES).expect("invariant: the embedded case list is valid")
     }
 
     /// Reads a protocol suite's case list.

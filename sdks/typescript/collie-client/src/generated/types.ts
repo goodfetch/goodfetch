@@ -2750,6 +2750,44 @@ export interface PageRequest1 {
   url: string;
 }
 /**
+ * What `page.request` takes: the page whose Session sends the request, and
+ * the request.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageRequestParams".
+ */
+export interface PageRequestParams {
+  /**
+   * Headers set over those the browser sends, each name matched without
+   * regard to case.
+   */
+  headers?: {
+    [k: string]: string;
+  } | null;
+  /**
+   * How many redirects it follows, from 0, which answers the 3xx itself,
+   * to 19, the default; past its count it raises `too_many_redirects`,
+   * and a count above 19 is refused with `setting_invalid`.
+   */
+  max_redirects?: number | null;
+  /**
+   * Its method; `GET` when absent.
+   */
+  method?: string | null;
+  /**
+   * The page.
+   */
+  page_id: string;
+  /**
+   * Its body, in Base64.
+   */
+  post_data?: string | null;
+  /**
+   * The URL.
+   */
+  url: string;
+}
+/**
  * What `page.route` takes: the page, and the URLs whose requests its
  * handler answers.
  *
@@ -2873,6 +2911,22 @@ export interface Locator3 {
    * A CSS selector, which also matches inside open shadow roots.
    */
   selector: string;
+}
+/**
+ * The bytes a Run sent and received through proxies of one proxy kind.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProxyKindBytes".
+ */
+export interface ProxyKindBytes {
+  /**
+   * The bytes.
+   */
+  bytes: number;
+  /**
+   * The proxy kind, such as `residential`.
+   */
+  kind: string;
 }
 /**
  * The Limit a Run cannot take more of: what `limit_reached` details, and
@@ -3289,6 +3343,18 @@ export interface RunCheckpointing {
   run_id: string;
 }
 /**
+ * What `run.discard` answers: the Run it discarded (ADRs 0001 and 0036).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunDiscarded".
+ */
+export interface RunDiscarded {
+  /**
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   */
+  run_id: string;
+}
+/**
  * What `run.migrating` carries.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -3544,6 +3610,16 @@ export interface RunUsage {
    * The bytes it sent and received through a proxy.
    */
   proxy_bytes: number;
+  /**
+   * The bytes it sent and received through a Proxy provider's proxies,
+   * by proxy kind (ADR 0021), cheapest kind first.
+   */
+  proxy_bytes_by_kind?: ProxyKindBytes[];
+  /**
+   * The price of those bytes, by currency, at each provider's configured
+   * price (ADR 0101).
+   */
+  proxy_price?: UsageAmount[];
   /**
    * The requests it sent.
    */
@@ -3817,6 +3893,16 @@ export interface RunUsage1 {
    * The bytes it sent and received through a proxy.
    */
   proxy_bytes: number;
+  /**
+   * The bytes it sent and received through a Proxy provider's proxies,
+   * by proxy kind (ADR 0021), cheapest kind first.
+   */
+  proxy_bytes_by_kind?: ProxyKindBytes[];
+  /**
+   * The price of those bytes, by currency, at each provider's configured
+   * price (ADR 0101).
+   */
+  proxy_price?: UsageAmount[];
   /**
    * The requests it sent.
    */

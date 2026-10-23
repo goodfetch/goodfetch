@@ -23,6 +23,7 @@
 //! from it.
 
 use std::collections::HashSet;
+use std::hash::{BuildHasherDefault, DefaultHasher};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use goodfetch_protocol::egress::{
@@ -70,9 +71,16 @@ struct PrivateRange {
 #[derive(Clone, Debug, Default)]
 struct Entries {
     every_host: bool,
-    domains: HashSet<Box<str>>,
-    addresses: HashSet<IpAddr>,
+    domains: HashSet<Box<str>, FixedKeys>,
+    addresses: HashSet<IpAddr, FixedKeys>,
 }
+
+/// The hasher of a domain list's sets, with the same keys in every process.
+/// The default one takes keys from the OS in each process, so the work of a
+/// lookup changed from one process to the next (randomness outside the
+/// Entropy handle, ADR 0059). Its entries come from the Session's settings
+/// and a lookup inserts nothing, so known keys let no page lengthen a probe.
+type FixedKeys = BuildHasherDefault<DefaultHasher>;
 
 /// An entry of a domain list that is no host.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]

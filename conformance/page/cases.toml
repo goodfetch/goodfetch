@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #707, #708, #713, #715 and #717;
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #706, #707, #708, #713, #715 and #717;
 # spec #580, ticket #783): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "15"
+version = "16"
 
 [[capability]]
 name = "sessions.default"
@@ -340,3 +340,44 @@ covers = ["story:5-49", "operation:session.route", "operation:page.route", "even
 [[capability.case]]
 id = "with-service-workers-blocked-register-rejects-natively-and-the-pages-calls-reach-its-route"
 covers = ["story:5-50", "setting:browser.service_workers", "operation:run.new_session", "operation:page.route"]
+
+[[capability]]
+name = "page_request"
+
+[[capability.case]]
+id = "page-request-answers-a-429-as-a-response-and-keeps-its-body"
+covers = ["story:5-44", "operation:page.request", "operation:response.body"]
+
+[[capability.case]]
+id = "cookies-a-page-sets-are-sent-by-page-request-and-the-next-navigation-of-its-session-alone"
+covers = ["story:5-44", "operation:page.request", "operation:run.new_session", "operation:session.new_page"]
+
+[[capability.case]]
+id = "page-request-passes-the-pages-domain-policy"
+covers = ["story:5-44", "operation:page.request", "error:egress_refused"]
+
+[[capability.case]]
+id = "no-service-worker-answers-a-page-request"
+covers = ["story:5-44", "operation:page.request", "operation:response.body"]
+
+[[capability]]
+name = "page_request.fetch_edge"
+
+[[capability.case]]
+id = "page-request-follows-its-max-redirects-and-refuses-a-count-above-19"
+covers = ["story:5-45", "operation:page.request", "error:too_many_redirects", "error:setting_invalid"]
+
+[[capability.case]]
+id = "a-page-requests-cut-body-raises-response-truncated"
+covers = ["story:5-45", "operation:page.request", "operation:response.body", "error:response_truncated"]
+
+[[capability]]
+name = "page_request.decoding"
+
+[[capability.case]]
+id = "page-request-keeps-the-bytes-of-a-shift-jis-text-and-of-json-after-a-bom"
+covers = ["story:5-47", "operation:page.request", "operation:response.body"]
+
+[[capability.case]]
+id = "a-page-request-whose-content-coding-fails-to-decode-raises-navigation-failed"
+covers = ["story:5-47", "operation:page.request", "error:navigation_failed"]

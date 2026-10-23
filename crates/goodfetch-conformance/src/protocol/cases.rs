@@ -1,10 +1,11 @@
 //! The exchanges the protocol and page suites' case IDs name, each judged
 //! against what `goodfetch-protocol` says the protocol is: its JSON-RPC
 //! failures, its Error codes and its operations' types. A crawl's delivery
-//! cases are `delivery`'s, a page's formats cases `formats`'s and its
-//! route cases `routes`'s.
+//! cases are `delivery`'s, a page's formats cases `formats`'s, its route
+//! cases `routes`'s and its events and bodies cases `events`'s.
 
 mod delivery;
+mod events;
 mod fetch_edge;
 mod formats;
 mod guard;
@@ -71,6 +72,8 @@ pub(crate) enum Case {
     NeverActionable,
     /// A route case.
     Route(routes::Case),
+    /// A page events or bodies case.
+    Events(events::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -242,7 +245,8 @@ impl Case {
             _ => {
                 return fetch_edge::Case::from_id(id)
                     .map(Self::FetchEdge)
-                    .or_else(|| routes::Case::from_id(id).map(Self::Route));
+                    .or_else(|| routes::Case::from_id(id).map(Self::Route))
+                    .or_else(|| events::Case::from_id(id).map(Self::Events));
             }
         })
     }
@@ -355,6 +359,7 @@ impl Case {
             Self::StillAmbiguous => guard::still_ambiguous(connection, site, checks),
             Self::NeverActionable => guard::never_actionable(connection, site, checks),
             Self::Route(case) => case.run(connection, site, checks),
+            Self::Events(case) => case.run(connection, site, checks),
         }
     }
 }

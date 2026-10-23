@@ -132,6 +132,8 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("locator.fill", Offer::Command),
             ("locator.press", Offer::Command),
             ("response.body", Offer::Command),
+            ("session.pages", Offer::Command),
+            ("page.close", Offer::Command),
             ("run.start", Offer::Command),
             ("run.finish", Offer::Command),
             ("run.stop", Offer::Command),

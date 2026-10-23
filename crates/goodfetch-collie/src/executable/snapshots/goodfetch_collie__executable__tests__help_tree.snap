@@ -827,17 +827,19 @@ Calls the catalog's `key_value_store` operations
 Usage: goodfetch-collie key-value-store [OPTIONS] <COMMAND>
 
 Commands:
-  get     Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it
-  set     Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`
-  delete  Removes a key from a live Run's Key-value store and answers whether it existed
-  keys    Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock
+  get        Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it
+  set        Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`
+  get-bytes  Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock
+  set-bytes  Commits bytes with their content type for a key in a live Run's Key-value store, replacing what it held: the last commit wins. Bytes over 1 MiB are kept as a file in the Run's folder, which its Checkpoints carry
+  delete     Removes a key from a live Run's Key-value store and answers whether it existed
+  keys       Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
 $ goodfetch-collie key-value-store get --help
-Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it
+Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it
 
 Usage: goodfetch-collie key-value-store get [OPTIONS] --key <KEY> --run-id <RUN_ID>
 
@@ -860,6 +862,32 @@ Options:
       --json             Prints the result as JSON
       --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help             Print help
+
+$ goodfetch-collie key-value-store get-bytes --help
+Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock
+
+Usage: goodfetch-collie key-value-store get-bytes [OPTIONS] --key <KEY> --run-id <RUN_ID>
+
+Options:
+      --key <KEY>        The key
+      --run-id <RUN_ID>  The Run whose store it is
+      --json             Prints the result as JSON
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
+
+$ goodfetch-collie key-value-store set-bytes --help
+Commits bytes with their content type for a key in a live Run's Key-value store, replacing what it held: the last commit wins. Bytes over 1 MiB are kept as a file in the Run's folder, which its Checkpoints carry
+
+Usage: goodfetch-collie key-value-store set-bytes [OPTIONS] --content <CONTENT> --content-type <CONTENT_TYPE> --key <KEY> --run-id <RUN_ID>
+
+Options:
+      --content <CONTENT>            The bytes, in Base64
+      --content-type <CONTENT_TYPE>  Their content type, such as `image/png`
+      --key <KEY>                    The key
+      --run-id <RUN_ID>              The Run whose store it is
+      --json                         Prints the result as JSON
+      --color <WHEN>                 When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                         Print help
 
 $ goodfetch-collie key-value-store delete --help
 Removes a key from a live Run's Key-value store and answers whether it existed

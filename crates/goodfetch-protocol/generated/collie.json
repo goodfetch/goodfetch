@@ -1462,6 +1462,49 @@
         }
       ]
     },
+    "KeyValueStoreBytes": {
+      "description": "Bytes the store holds for a key, with their content type.",
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/KeyValueStoreContent",
+          "arrived_in": "0.1",
+          "description": "The bytes, in Base64."
+        },
+        "content_type": {
+          "arrived_in": "0.1",
+          "description": "Their content type, as `set_bytes` gave it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "content",
+        "content_type"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreBytesValue": {
+      "description": "What `key_value_store.get_bytes` answers: the key's committed bytes, or\nnull when the key is absent.",
+      "properties": {
+        "bytes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyValueStoreBytes"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The bytes and their content type, or null for an absent key."
+        }
+      },
+      "type": "object"
+    },
+    "KeyValueStoreContent": {
+      "contentEncoding": "base64",
+      "description": "Bytes the Key-value store keeps, in Base64 (RFC 4648, with padding).",
+      "type": "string"
+    },
     "KeyValueStoreDeleted": {
       "description": "What `key_value_store.delete` answers once the key is gone.",
       "properties": {
@@ -1546,6 +1589,43 @@
     },
     "KeyValueStoreSet": {
       "description": "What `key_value_store.set` answers once the value is committed.",
+      "type": "object"
+    },
+    "KeyValueStoreSetBytesParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.set_bytes` takes: the Run, the key, and the bytes\nwith their content type.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "content": {
+          "$ref": "#/$defs/KeyValueStoreContent",
+          "arrived_in": "0.1",
+          "description": "The bytes, in Base64."
+        },
+        "content_type": {
+          "arrived_in": "0.1",
+          "description": "Their content type, such as `image/png`.",
+          "type": "string"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        }
+      },
+      "required": [
+        "run_id",
+        "key",
+        "content",
+        "content_type"
+      ],
       "type": "object"
     },
     "KeyValueStoreSetParams": {
@@ -6446,7 +6526,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused.",
+      "description": "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The details name the key and say which was refused.",
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -7397,7 +7477,7 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
-      "description": "Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.",
+      "description": "Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it.",
       "events": [],
       "kind": "round_trip",
       "name": "key_value_store.get",
@@ -7408,6 +7488,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/KeyValueStoreValue"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.get_bytes",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreKeyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreBytesValue"
       },
       "stability": "experimental"
     },
@@ -7441,6 +7540,25 @@
       "name": "key_value_store.set",
       "params": {
         "$ref": "#/$defs/KeyValueStoreSetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreSet"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Commits bytes with their content type for a key in a live Run's Key-value store, replacing what it held: the last commit wins. Bytes over 1 MiB are kept as a file in the Run's folder, which its Checkpoints carry.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.set_bytes",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreSetBytesParams"
       },
       "product": "collie",
       "reach": "all_surfaces",

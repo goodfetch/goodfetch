@@ -517,6 +517,11 @@ class HttpMethod(RootModel[str]):
     """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
 
 
+class KeyValueStoreContent(RootModel[str]):
+    root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
+    """Bytes the Key-value store keeps, in Base64 (RFC 4648, with padding)."""
+
+
 class KeyValueStoreDeleted(BaseModel):
     """What `key_value_store.delete` answers once the key is gone."""
 
@@ -2593,6 +2598,31 @@ class HelloResult(BaseModel):
     """The protocol version the engine speaks."""
 
 
+class KeyValueStoreBytes(BaseModel):
+    """Bytes the store holds for a key, with their content type."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    content: KeyValueStoreContent
+    """The bytes, in Base64."""
+    content_type: str
+    """Their content type, as `set_bytes` gave it."""
+
+
+class KeyValueStoreBytesValue(BaseModel):
+    """
+    What `key_value_store.get_bytes` answers: the key's committed bytes, or
+    null when the key is absent.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    bytes: KeyValueStoreBytes | None = None
+    """The bytes and their content type, or null for an absent key."""
+
+
 class KeyValueStoreKey(BaseModel):
     """What `$/key` carries: the next key of the store a call lists."""
 
@@ -2631,6 +2661,25 @@ class KeyValueStoreKeysParams(BaseModel):
     )
     prefix: str | None = None
     """The prefix of the keys it sends; every key when left out."""
+    run_id: RunId
+    """The Run whose store it is."""
+
+
+class KeyValueStoreSetBytesParams(BaseModel):
+    """
+    What `key_value_store.set_bytes` takes: the Run, the key, and the bytes
+    with their content type.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: KeyValueStoreContent
+    """The bytes, in Base64."""
+    content_type: str
+    """Their content type, such as `image/png`."""
+    key: str
+    """The key."""
     run_id: RunId
     """The Run whose store it is."""
 

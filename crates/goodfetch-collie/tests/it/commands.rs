@@ -407,6 +407,36 @@ fn key_value_store_get_answers_null_for_a_key_never_set() {
     );
 }
 
+/// Bytes read from the store of a Run no engine holds: a key never set
+/// answers null.
+///
+/// Covers: command:key-value-store.get-bytes
+#[test]
+fn key_value_store_get_bytes_answers_null_for_a_key_never_set() {
+    let env = TestEnv::new();
+    start(&env, "first");
+
+    let checked = cli(&env, COLLIE)
+        .args([
+            "key-value-store",
+            "get-bytes",
+            "--run-id",
+            "first",
+            "--key",
+            "logo",
+            "--json",
+        ])
+        .json("KeyValueStoreBytesValue")
+        .unwrap();
+
+    assert_eq!(
+        (checked.output.exit, &checked.documents[0]),
+        (Some(0), &json!({ "bytes": null })),
+        "{}",
+        checked.output
+    );
+}
+
 /// A store nothing was written to sends no key.
 ///
 /// Covers: command:key-value-store.keys
@@ -441,6 +471,11 @@ fn key_value_store_keys_sends_none_from_a_store_never_written() {
 #[case::set(&["set", "--value", "1"], "key_value_store.set")]
 /// Covers: command:key-value-store.delete
 #[case::delete(&["delete"], "key_value_store.delete")]
+/// Covers: command:key-value-store.set-bytes
+#[case::set_bytes(
+    &["set-bytes", "--content", "aGk=", "--content-type", "text/plain"],
+    "key_value_store.set_bytes"
+)]
 fn a_key_value_store_write_to_a_run_no_engine_holds_fails_with_run_not_found(
     #[case] command: &[&str],
     #[case] operation: &str,

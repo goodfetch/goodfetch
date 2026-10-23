@@ -623,3 +623,32 @@ fn a_slow_reader_holds_the_page_events_stream_and_reads_one_event_per_credit() {
         "{events:?}"
     );
 }
+
+/// `response body` through the command generated from the catalog: no
+/// engine holds the page it names, so the call fails with `closed`.
+/// Covers: command:response.body
+#[test]
+fn response_body_of_a_page_no_engine_holds_fails_with_closed() {
+    let env = TestEnv::new();
+    let checked = goodfetch_test_support::cli(&env, env!("CARGO_BIN_EXE_goodfetch-collie"))
+        .args([
+            "response",
+            "body",
+            "--page-id",
+            "page-1",
+            "--request-id",
+            "1.1",
+            "--json",
+        ])
+        .json("CommandFailed")
+        .unwrap();
+
+    assert_eq!(
+        (
+            checked.output.exit,
+            checked.documents[0]["error"]["code"].clone(),
+            checked.documents[0]["error"]["operation"].clone(),
+        ),
+        (Some(3), json!("closed"), json!("response.body"))
+    );
+}

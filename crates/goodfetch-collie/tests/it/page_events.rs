@@ -546,3 +546,61 @@ fn a_blocked_an_aborted_and_a_failed_request_each_fail_as_playwright_reports_the
         "{failed:?} {logged:?}"
     );
 }
+
+/// A page's events travel under the subscription's credits (ADR 0024): a
+/// subscriber that grants none holds its stream, so the page loads and
+/// its events wait unsent; each credit then sends one event, in the order
+/// of their positions, and the rest follow once it grants them.
+/// Covers: story:5-48, operation:page.on, operation:events.subscribe, event:page.request
+#[test]
+fn a_slow_reader_holds_the_page_events_stream_and_reads_one_event_per_credit() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let (mut exchange, page) = page_of(&env, &proving_ground, "credits", &Map::new());
+    let url = proving_ground.url("access.test", "/page-events");
+
+    let subscription = exchange.request("events.subscribe", &json!({}));
+    exchange.listen(&page, "request");
+    let went = exchange.call("page.goto", &json!({ "page_id": page, "url": url }));
+    let held = exchange.events.len();
+    let mut batches = Vec::new();
+    for _ in 0..2 {
+        exchange.notify("$/credit", &json!({ "id": subscription, "credits": 1 }));
+        let before = exchange.events.len();
+        while exchange.events.len() == before {
+            let _ = exchange.read();
+        }
+        batches.push(exchange.events.len() - before);
+    }
+    exchange.notify(
+        "$/credit",
+        &json!({ "id": subscription, "credits": CREDITS }),
+    );
+    exchange.until("page.request", |request| {
+        request["url"]
+            .as_str()
+            .is_some_and(|url| url.contains("nowhere.invalid"))
+    });
+    let positions: Vec<u64> = exchange
+        .events
+        .iter()
+        .filter_map(|event| event["position"].as_u64())
+        .collect();
+    let requested = urls(&exchange.data("page.request"));
+    let events = exchange.events.clone();
+    let _ = exchange.call("run.finish", &json!({ "run_id": "credits" }));
+    let _ = exchange.engine.finish();
+
+    assert_eq!(
+        (
+            went["result"]["response"]["status"].clone(),
+            held,
+            batches,
+            positions.windows(2).all(|pair| pair[0] < pair[1]),
+            requested.first().cloned(),
+            requested.len() >= 6,
+        ),
+        (json!(200), 0, vec![1, 1], true, Some(url), true),
+        "{events:?}"
+    );
+}

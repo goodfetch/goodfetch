@@ -89,6 +89,11 @@ server = "http://proxy.example:3128"
 bypass = "example"
 username = "example"
 password = "env:EXAMPLE"
+provider = "example"
+kind = "datacenter"
+country = "US"
+sticky_lifetime = 30000
+providers = { "example.test" = { endpoint = "http://proxy.example:8000", password = "env:PROXY_PASSWORD", price = "5 USD", servers = [{ country = "US", kind = "datacenter", server = "http://203.0.113.7:3128" }], username = "account" } }
 
 [settings.run_state]
 location = "example"

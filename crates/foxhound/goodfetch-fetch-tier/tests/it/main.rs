@@ -7,6 +7,7 @@
 )]
 
 mod conformance_gate;
+mod fetch_edge;
 mod transport_failures;
 
 use goodfetch_engine::clock::Clock;

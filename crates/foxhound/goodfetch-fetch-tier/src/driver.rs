@@ -17,11 +17,13 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::Refused;
 use goodfetch_engine::settings::Resolved;
-use goodfetch_protocol::page::{NAVIGATION_FAILED, NavigationFailedDetails};
+use goodfetch_protocol::page::{
+    NAVIGATION_FAILED, NavigationFailedDetails, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
+};
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use url::Url;
 
-use crate::decoding;
+use crate::decoding::{self, DecodingFailed};
 
 /// One hop of a fetch: one request as it leaves.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -252,12 +254,14 @@ pub async fn fetch(
             .within(clock, "first_byte", transport.send(hop))
             .await?
             .map_err(|failure| failure.error(url))?;
+        let expected = content_length(&sent.headers);
         let mut body = Vec::new();
+        // Any failure once the head arrived cuts the body (ADR 0118).
         while let Some(chunk) = sent
             .body
             .chunk()
             .await
-            .map_err(|failure| failure.error(url))?
+            .map_err(|_| truncated(url, body.len(), expected))?
         {
             body.extend_from_slice(&chunk);
         }
@@ -266,8 +270,11 @@ pub async fn fetch(
             .iter()
             .filter(|(name, _)| name == "content-encoding")
             .map(|(_, value)| value.as_str());
-        let body = decoding::decode(codings, body)
-            .map_err(|_| TransportFailure::ContentDecodingFailed.error(url))?;
+        let received = body.len();
+        let body = decoding::decode(codings, body).map_err(|failed| match failed {
+            DecodingFailed::Cut => truncated(url, received, expected),
+            DecodingFailed::Corrupt => TransportFailure::ContentDecodingFailed.error(url),
+        })?;
         let content_type = sent
             .headers
             .iter()
@@ -287,4 +294,29 @@ pub async fn fetch(
         .navigation
         .within(clock, "navigation", whole)
         .await?
+}
+
+/// The length an answer's `Content-Length` declares, if it declares one.
+fn content_length(headers: &[(String, String)]) -> Option<u64> {
+    headers
+        .iter()
+        .find(|(name, _)| name == "content-length")
+        .and_then(|(_, value)| value.trim().parse().ok())
+}
+
+/// `response_truncated` for the body of `url`, which broke off after
+/// `received` bytes, as sent, of the `expected` its `Content-Length`
+/// declared (ADR 0118): retryable, and never handed to a handler.
+fn truncated(url: &str, received: usize, expected: Option<u64>) -> CallError {
+    let received = u64::try_from(received).unwrap_or(u64::MAX);
+    let of = expected.map_or_else(String::new, |expected| format!(" of {expected}"));
+    CallError::new(
+        &RESPONSE_TRUNCATED,
+        format!("The body of {url} broke off after {received} bytes{of}."),
+        &ResponseTruncatedDetails {
+            url: url.to_owned(),
+            received,
+            expected,
+        },
+    )
 }

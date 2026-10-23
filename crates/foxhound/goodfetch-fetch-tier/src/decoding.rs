@@ -7,15 +7,20 @@
 //! deflate stream's end are ignored. A body that does not decode as
 //! labelled fails, and so does a text body that still starts as a gzip or
 //! zstd stream once decoded: one compressed once more than labelled (ADR
-//! 0119). The charset order of a document's text is #764's; telling a cut
-//! compressed stream (`response_truncated`) from a corrupt one is the cut
-//! bodies ticket's.
+//! 0119). A stream that ends before its end is told from a corrupt one: the
+//! body was cut, which the driver fails with `response_truncated` (ADR
+//! 0118). The charset order of a document's text is #764's.
 
 use std::io::Read as _;
 
-/// A body that did not decode as its codings say.
+/// Why a body did not decode as its codings say.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct DecodingFailed;
+pub(crate) enum DecodingFailed {
+    /// It is no stream of its coding.
+    Corrupt,
+    /// Its stream stops before its end: the body was cut (ADR 0118).
+    Cut,
+}
 
 /// A content coding the engine decodes.
 #[derive(Clone, Copy, Debug)]
@@ -39,24 +44,81 @@ impl Coding {
         }
     }
 
-    fn decode(self, body: &[u8]) -> std::io::Result<Vec<u8>> {
+    /// `body` decoded; a stream of this coding that ends early is
+    /// [`DecodingFailed::Cut`], anything else that does not decode
+    /// [`DecodingFailed::Corrupt`].
+    fn decode(self, body: &[u8]) -> Result<Vec<u8>, DecodingFailed> {
         let mut out = Vec::new();
-        match self {
-            Self::Gzip => {
-                flate2::read::GzDecoder::new(body).read_to_end(&mut out)?;
+        let read = match self {
+            // A body too short for gzip's header is cut only once it opens
+            // as a gzip stream.
+            Self::Gzip if !body.starts_with(&GZIP_MAGIC) => Err(DecodingFailed::Corrupt),
+            Self::Gzip => flate2::read::GzDecoder::new(body)
+                .read_to_end(&mut out)
+                .map_err(failure),
+            Self::Deflate if has_zlib_header(body) => flate2::read::ZlibDecoder::new(body)
+                .read_to_end(&mut out)
+                .map_err(failure),
+            Self::Deflate => flate2::read::DeflateDecoder::new(body)
+                .read_to_end(&mut out)
+                .map_err(failure),
+            Self::Brotli => return brotli(body),
+            Self::Zstd => return zstd::stream::decode_all(body).map_err(failure),
+        };
+        read.map(|_| out)
+    }
+}
+
+/// The two bytes a gzip stream opens with (RFC 1952).
+const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+
+/// What a decoder's `error` means: a stream that ended early is cut.
+fn failure(error: std::io::Error) -> DecodingFailed {
+    match error.kind() {
+        std::io::ErrorKind::UnexpectedEof => DecodingFailed::Cut,
+        _ => DecodingFailed::Corrupt,
+    }
+}
+
+/// `body` decoded as Brotli (RFC 7932), through the decoder's stream
+/// interface, which tells a stream that wants more input, a cut one, from
+/// an invalid one; its reader reports both alike. Bytes after the stream's
+/// end are invalid, as the reader holds them.
+fn brotli(body: &[u8]) -> Result<Vec<u8>, DecodingFailed> {
+    use brotli_decompressor::{BrotliDecompressStream, BrotliResult, BrotliState, StandardAlloc};
+
+    let mut state = BrotliState::new(
+        StandardAlloc::default(),
+        StandardAlloc::default(),
+        StandardAlloc::default(),
+    );
+    let mut out = Vec::new();
+    let mut buffer = vec![0; 64 * 1024];
+    let mut available_in = body.len();
+    let mut input_offset = 0;
+    let mut written = 0;
+    loop {
+        let mut available_out = buffer.len();
+        let mut output_offset = 0;
+        let result = BrotliDecompressStream(
+            &mut available_in,
+            &mut input_offset,
+            body,
+            &mut available_out,
+            &mut output_offset,
+            &mut buffer,
+            &mut written,
+            &mut state,
+        );
+        out.extend_from_slice(&buffer[..output_offset]);
+        match result {
+            BrotliResult::NeedsMoreOutput => {}
+            BrotliResult::ResultSuccess if available_in == 0 => return Ok(out),
+            BrotliResult::NeedsMoreInput => return Err(DecodingFailed::Cut),
+            BrotliResult::ResultSuccess | BrotliResult::ResultFailure => {
+                return Err(DecodingFailed::Corrupt);
             }
-            Self::Deflate if has_zlib_header(body) => {
-                flate2::read::ZlibDecoder::new(body).read_to_end(&mut out)?;
-            }
-            Self::Deflate => {
-                flate2::read::DeflateDecoder::new(body).read_to_end(&mut out)?;
-            }
-            Self::Brotli => {
-                brotli_decompressor::Decompressor::new(body, 4096).read_to_end(&mut out)?;
-            }
-            Self::Zstd => out = zstd::stream::decode_all(body)?,
         }
-        Ok(out)
     }
 }
 
@@ -120,9 +182,10 @@ pub(crate) fn decode<'a>(
     if named.is_empty() {
         return Ok(body);
     }
-    named.iter().rev().try_fold(body, |body, coding| {
-        coding.decode(&body).map_err(|_| DecodingFailed)
-    })
+    named
+        .iter()
+        .rev()
+        .try_fold(body, |body, coding| coding.decode(&body))
 }
 
 #[cfg(test)]

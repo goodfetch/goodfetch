@@ -22,8 +22,8 @@
 //! - runs a snippet the snippet table classes in the main world there,
 //!   through `DOM.resolveNode`, which resolves into the frame's main world,
 //!   and `Runtime.callFunctionOn`;
-//! - sets the document's hiding sheet, made with `CSS.createStyleSheet`,
-//!   which no `document.styleSheets` lists;
+//! - sets its part of the document's hiding sheet, the one live hiding
+//!   writes too ([`Sheets`]), which no `document.styleSheets` lists;
 //! - records what it did with each prompt in the Run trace.
 //!
 //! The Decision provider (area 9's) and the wall test (A05-24) are not
@@ -40,7 +40,7 @@ use std::time::Duration;
 
 use goodfetch_cdp::SessionId as TargetSession;
 use goodfetch_cdp::Subscription;
-use goodfetch_cdp::generated::{css, dom, page, runtime, target};
+use goodfetch_cdp::generated::{dom, page, runtime, target};
 use goodfetch_clean_up_rules::consent::{self as bundle, Runner, World};
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
@@ -55,6 +55,7 @@ use self::log::ConsentLog;
 use self::messages::{ANSWER, BINDING, Message, RESTART, START};
 use crate::driver::{GUARD_WORLD, PageDriver};
 use crate::guard::{self, Element, Readiness};
+use crate::hiding::{Part, Sheets};
 
 /// How long the runner's click may wait for its target to be ready.
 const CLICK_WINDOW: Duration = Duration::from_secs(3);
@@ -85,7 +86,8 @@ impl Consent {
     /// Starts the Consent prompt runner on the page `page_id`, which
     /// `driver` drives for `run`, unless the Run's `consent.handling` is
     /// off: the bundle in the guard's world of every frame from the next
-    /// document on, out-of-process iframes attached as they appear.
+    /// document on, out-of-process iframes attached as they appear, hiding
+    /// through the page's `sheets`.
     ///
     /// # Errors
     ///
@@ -95,6 +97,7 @@ impl Consent {
         page_id: &PageId,
         driver: &PageDriver,
         run: &Run,
+        sheets: &Arc<Sheets>,
     ) -> Result<(), CallError> {
         let on = run
             .settings()
@@ -121,7 +124,7 @@ impl Consent {
                 driver.session().clone(),
                 driver.main_frame().clone(),
             )),
-            styling: Mutex::new(()),
+            sheets: Arc::clone(sheets),
             log: ConsentLog::new(run.owner().child(), run.folder(), page_id.clone()),
         });
         let session = driver.session().clone();
@@ -141,15 +144,15 @@ impl Consent {
     }
 }
 
-/// One page's runner: its driver, its frames and its log.
+/// One page's runner: its driver, its frames, its hiding sheets and its
+/// log.
 struct Shared {
     driver: PageDriver,
     run: Run,
     clock: Clock,
     runner: Arc<Runner>,
     frames: Mutex<Frames>,
-    /// Held while one document's hiding sheet changes.
-    styling: Mutex<()>,
+    sheets: Arc<Sheets>,
     log: ConsentLog,
 }
 
@@ -211,12 +214,14 @@ async fn react(shared: &Arc<Shared>, session: &TargetSession, event: &goodfetch_
             shared.run.clone().spawn(attach(shared, parent, attached));
         }
     } else if let Some(detached) = event.read::<target::DetachedFromTargetEvent>() {
-        shared
-            .frames
-            .lock()
-            .await
-            .forget_session(&TargetSession(detached.session_id));
+        let detached = TargetSession(detached.session_id);
+        shared.frames.lock().await.forget_session(&detached);
+        shared.sheets.forget_session(&detached).await;
     } else if let Some(navigated) = event.read::<page::FrameNavigatedEvent>() {
+        shared
+            .sheets
+            .navigated(session, &navigated.frame.id, &navigated.frame.loader_id)
+            .await;
         let shared = Arc::clone(shared);
         let session = session.clone();
         shared.run.clone().spawn(async move {
@@ -240,6 +245,10 @@ async fn react(shared: &Arc<Shared>, session: &TargetSession, event: &goodfetch_
             .lock()
             .await
             .forget_frame(session, &detached.frame_id);
+        shared
+            .sheets
+            .forget_frame(session, &detached.frame_id)
+            .await;
     } else if let Some(called) = event.read::<runtime::BindingCalledEvent>()
         && called.name == BINDING
     {
@@ -345,7 +354,11 @@ async fn answer(shared: &Shared, frame: &Frame, message: Message) {
             (id, json!(ran))
         }
         Message::Sheet { id, text } => {
-            if let Err(failure) = sheet(shared, frame, text).await {
+            if let Err(failure) = shared
+                .sheets
+                .set(&frame.session, &frame.id, Part::Consent, text)
+                .await
+            {
                 tracing::debug!(%failure, "the Consent prompt runner's hiding sheet was not set");
             }
             (id, json!(true))
@@ -400,7 +413,7 @@ async fn click(shared: &Shared, frame: &Frame, handle: u64) -> bool {
                 let Ok((dx, dy)) = offset(shared, &chain).await else {
                     return false;
                 };
-                let lifted = lift(shared, frame).await;
+                shared.sheets.lift(&frame.session, &frame.id).await;
                 let reached =
                     chain.is_empty() || reach(shared, &element, (x + dx, y + dy), end).await;
                 let pressed = if reached {
@@ -415,7 +428,7 @@ async fn click(shared: &Shared, frame: &Frame, handle: u64) -> bool {
                     && tokio::time::timeout(GRACE, guard::landed_on(driver, &element))
                         .await
                         .unwrap_or(true);
-                restore(shared, lifted).await;
+                shared.sheets.restore().await;
                 drop(gesture);
                 if landed {
                     return true;
@@ -508,88 +521,6 @@ async fn offset(
         y += model.content.get(1).copied().unwrap_or_default();
     }
     Ok((x, y))
-}
-
-/// Empties every hiding sheet of the page but `frame`'s while a click in a
-/// frame other than the page's own goes in, so no hidden owner swallows
-/// it; answers what to put back.
-async fn lift(shared: &Shared, frame: &Frame) -> Vec<(TargetSession, String, String)> {
-    let lifted = shared.frames.lock().await.sheets_but(frame);
-    for (session, sheet, _) in &lifted {
-        let _ = shared
-            .driver
-            .command_on(
-                session,
-                &css::SetStyleSheetTextParams {
-                    style_sheet_id: sheet.clone(),
-                    text: String::new(),
-                },
-            )
-            .await;
-    }
-    lifted
-}
-
-/// Puts back the sheets [`lift`] emptied.
-async fn restore(shared: &Shared, lifted: Vec<(TargetSession, String, String)>) {
-    for (session, sheet, text) in lifted {
-        let _ = shared
-            .driver
-            .command_on(
-                &session,
-                &css::SetStyleSheetTextParams {
-                    style_sheet_id: sheet,
-                    text,
-                },
-            )
-            .await;
-    }
-}
-
-/// Sets the hiding sheet of `frame`'s document to `text`, made on first use
-/// in each document, its target's DOM and CSS agents enabled first.
-async fn sheet(shared: &Shared, frame: &Frame, text: String) -> Result<(), goodfetch_cdp::Failure> {
-    let driver = &shared.driver;
-    // One sheet change at a time; the frames themselves are locked only
-    // between commands, never across one.
-    let _styling = shared.styling.lock().await;
-    let (enable, existing) = {
-        let mut frames = shared.frames.lock().await;
-        (frames.style(&frame.session), frames.sheet(frame))
-    };
-    if enable {
-        driver
-            .command_on(&frame.session, &dom::EnableParams::default())
-            .await?;
-        driver
-            .command_on(&frame.session, &css::EnableParams {})
-            .await?;
-    }
-    let sheet = if let Some(sheet) = existing {
-        sheet
-    } else {
-        driver
-            .command_on(
-                &frame.session,
-                &css::CreateStyleSheetParams {
-                    frame_id: frame.id.clone(),
-                    force: Some(true),
-                },
-            )
-            .await?
-            .style_sheet_id
-    };
-    driver
-        .command_on(
-            &frame.session,
-            &css::SetStyleSheetTextParams {
-                style_sheet_id: sheet.clone(),
-                text: text.clone(),
-            },
-        )
-        .await?;
-    shared.frames.lock().await.set_sheet(frame, sheet, text);
-    Ok(())
 }
 
 /// Runs `code` in `frame`'s main world with `Runtime` off: the guard's

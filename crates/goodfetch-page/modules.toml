@@ -1,6 +1,6 @@
 # Which of goodfetch-page's top-level modules may import which (ADR 0126).
 [modules]
-consent = ["driver", "guard"]
+consent = ["driver", "guard", "hiding"]
 driver = ["errors", "launch", "proxy", "trace"]
 errors = []
 guard = ["driver", "hiding"]

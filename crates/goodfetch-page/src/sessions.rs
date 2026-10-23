@@ -72,7 +72,7 @@ use self::lifecycle::{
 use crate::consent::Consent;
 use crate::driver::PageDriver;
 use crate::errors::{cancelled, invalid_transition};
-use crate::hiding::{Hiding, PageHiding};
+use crate::hiding::{Hiding, PageHiding, Sheets};
 use crate::interception::{Interception, SESSION_KEYS};
 use crate::page_events::{self, PageEvents, Refusals};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
@@ -366,9 +366,12 @@ impl Sessions {
             .interception
             .start(&page, session, &driver, &run, &open.settings, refusals)
             .await?;
+        // Live hiding and the Consent prompt runner share each document's
+        // one hiding sheet.
+        let sheets = Arc::new(Sheets::new(driver.clone()));
         let hiding = match self
             .hiding
-            .start(&page, session, &driver, &run, &clean_up)
+            .start(&page, session, &driver, &run, &clean_up, &sheets)
             .await
         {
             Ok(hiding) => hiding,
@@ -379,7 +382,7 @@ impl Sessions {
                 return Err(error);
             }
         };
-        if let Err(error) = self.consent.start(&page, &driver, &run).await {
+        if let Err(error) = self.consent.start(&page, &driver, &run, &sheets).await {
             self.events.close(std::slice::from_ref(&page));
             self.interception
                 .close(std::slice::from_ref(&page), session);

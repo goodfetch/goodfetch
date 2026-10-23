@@ -513,6 +513,20 @@
             },
             "type": "object"
           },
+          "live_view": {
+            "additionalProperties": false,
+            "properties": {
+              "hiding": {
+                "description": "Whether a Session's pages hide, on the live page, the elements the Filter lists' cosmetic rules match: `auto` (the default) and `always` hide them through a style sheet the site cannot see on Chromium, in every frame and every new document; `off` leaves the live page as served. When the guard finds an action's target hidden, it lifts the rule for the Session and acts. Extracted content has the elements removed whatever this says.",
+                "enum": [
+                  "auto",
+                  "off",
+                  "always"
+                ]
+              }
+            },
+            "type": "object"
+          },
           "log": {
             "additionalProperties": false,
             "properties": {

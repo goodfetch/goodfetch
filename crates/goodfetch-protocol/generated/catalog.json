@@ -2860,6 +2860,26 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "allow",
+      "description": "Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.",
+      "name": "browser.service_workers",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "allow",
+          "block"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "machine",
       "clearable": true,
       "default": 2592000000,

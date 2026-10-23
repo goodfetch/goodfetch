@@ -2897,8 +2897,12 @@ class RouteHandleParams(BaseModel):
     The id of the `page.route` or `session.route` call whose handler is
     asked.
     """
-    page_id: PageId
-    """The page that sent the request."""
+    page_id: PageId | None = None
+    """
+    The page that sent the request; none for a request a site's service
+    worker sent itself, which belongs to no page and reaches only
+    Session routes (ADR 0121).
+    """
     request: RouteRequest
     """The request."""
     route_id: RouteId
@@ -3487,7 +3491,8 @@ class NewSessionParams(BaseModel):
     The Session's own settings, nested by key: `filter_lists.ads`,
     `.trackers`, `.annoyances`, `.first_party_scripts`,
     `browser.block_resources` and `live_view.hiding` choose its pages'
-    Clean-up rules over the Run's. `session.source` is refused here with `setting_not_applicable`,
+    Clean-up rules over the Run's, and `browser.service_workers` whether
+    a site's service workers run in them. `session.source` is refused here with `setting_not_applicable`,
     as the call's own `source` sets it, and so is any other key, which
     only the Run sets.
     """

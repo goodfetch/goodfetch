@@ -15,14 +15,18 @@ use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::Policy;
+use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::jsonrpc::ErrorData;
+use goodfetch_protocol::page::events::RequestFailure;
 use goodfetch_protocol::page::route::{
     AbortReason, PAGE_HANDLER_FAILED, PageHandler, PageHandlerFailedDetails, ROUTE_HANDLE,
     RouteFetched, RouteHandleParams, RouteHandled, RouteId, RouteRequest,
 };
-use goodfetch_protocol::page::{NAVIGATION_FAILED, NavigationFailedDetails, PageId};
+use goodfetch_protocol::page::{
+    NAVIGATION_FAILED, NavigationFailedDetails, PageId, ServiceWorkerRequest, SessionId,
+};
 use secrecy::ExposeSecret as _;
 use tokio::sync::oneshot;
 
@@ -33,10 +37,33 @@ use super::{PageState, lock};
 use crate::driver::PageDriver;
 use crate::page_events::Refusals;
 
-/// What the pipeline of one page holds.
+/// Whose requests a pipeline holds.
+pub(crate) enum Sender {
+    /// A page's.
+    Page(PageId),
+    /// A site's service worker's, which belongs to no page, of the Session
+    /// `session`: each one is recorded in the Run trace's request `log`
+    /// (ADR 0121).
+    ServiceWorker {
+        session: SessionId,
+        log: Arc<RequestLog>,
+    },
+}
+
+impl Sender {
+    /// The page, when a page sends the requests.
+    fn page_id(&self) -> Option<&PageId> {
+        match self {
+            Self::Page(page_id) => Some(page_id),
+            Self::ServiceWorker { .. } => None,
+        }
+    }
+}
+
+/// What the pipeline of one page, or of one service worker, holds.
 pub(super) struct PageContext {
     driver: PageDriver,
-    page_id: PageId,
+    sender: Sender,
     state: Arc<PageState>,
     answers: Answers,
     policy: Policy,
@@ -90,7 +117,7 @@ impl PageContext {
     )]
     pub(super) fn new(
         driver: PageDriver,
-        page_id: PageId,
+        sender: Sender,
         state: Arc<PageState>,
         answers: Answers,
         policy: Policy,
@@ -100,7 +127,7 @@ impl PageContext {
     ) -> Self {
         Self {
             driver,
-            page_id,
+            sender,
             state,
             answers,
             policy,
@@ -294,7 +321,8 @@ impl PageContext {
 
     /// Runs one paused request through the pipeline.
     async fn intercept(&self, paused: fetch::RequestPausedEvent) {
-        let navigation = paused.resource_type == network::ResourceType::Document
+        let navigation = self.sender.page_id().is_some()
+            && paused.resource_type == network::ResourceType::Document
             && &paused.frame_id == self.driver.main_frame();
         let mut held = Held {
             paused,
@@ -328,7 +356,7 @@ impl PageContext {
         let params = RouteHandleParams {
             id: route.call.clone(),
             route_id: route_id.clone(),
-            page_id: self.page_id.clone(),
+            page_id: self.sender.page_id().cloned(),
             request: held.view(),
         };
         let Ok(mut sent) = route
@@ -530,8 +558,12 @@ impl PageContext {
             source_url: &source,
         };
         let command = match steps::send_on(&paused, &self.policy, &self.blocking, fetch) {
-            Ok(steps::Sent::Continue(command)) => command,
+            Ok(steps::Sent::Continue(command)) => {
+                self.trace_service_worker(held, None);
+                command
+            }
             Ok(steps::Sent::StandIn(stand_in)) => {
+                self.trace_service_worker(held, None);
                 if let Err(failure) = self.driver.command(&stand_in).await {
                     tracing::debug!(
                         ?failure,
@@ -600,11 +632,42 @@ impl PageContext {
 
     /// Leaves `refusal` for `held`'s failure to carry, before the browser
     /// fails it: the Run trace records it unless the request is the
-    /// navigation's, which raises it.
+    /// navigation's, which raises it. A service worker's request, which no
+    /// page's event reports, is recorded refused at once.
     fn leave_refusal(&self, held: &Held, refusal: ErrorData) {
-        if let Some(network_id) = &held.paused.network_id {
+        if matches!(self.sender, Sender::ServiceWorker { .. }) {
+            self.trace_service_worker(
+                held,
+                Some(RequestFailure {
+                    error_text: BLOCKED_BY_CLIENT.to_owned(),
+                    error: Some(refusal),
+                }),
+            );
+        } else if let Some(network_id) = &held.paused.network_id {
             self.refusals.leave(network_id, refusal, !held.navigation);
         }
+    }
+
+    /// Records `held`, a service worker's own request, in the Run trace,
+    /// sent on or refused with `failure` (ADR 0121); a page's request is
+    /// its page's events'.
+    fn trace_service_worker(&self, held: &Held, failure: Option<RequestFailure>) {
+        let Sender::ServiceWorker { session, log } = &self.sender else {
+            return;
+        };
+        let request = ServiceWorkerRequest {
+            session_id: session.clone(),
+            url: held.url().to_owned(),
+            method: held.method().to_owned(),
+            resource_type: resource_type(held.paused.resource_type),
+            failure,
+        };
+        let log = Arc::clone(log);
+        self.run.spawn(async move {
+            if let Err(error) = log.service_worker_request(&request).await {
+                tracing::warn!(%error, "the Run trace did not take a service worker's request");
+            }
+        });
     }
 
     /// Answers the request `id` with `fulfillment`.

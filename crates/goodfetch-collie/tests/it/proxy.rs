@@ -185,12 +185,16 @@ enum Failing {
     WrongPassword,
 }
 
-/// Covers: story:5-88, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server, setting:proxy.username, setting:proxy.password
+/// Covers: story:5-88, setting:proxy.server, setting:proxy.username, setting:proxy.password
 #[cfg(unix)]
 #[rstest]
+/// Covers: error:proxy_unavailable
 #[case::a_refused_tunnel(Failing::RefusedTunnel, "proxy_unavailable", true)]
+/// Covers: error:proxy_unavailable
 #[case::a_proxy_that_is_down(Failing::Down, "proxy_unavailable", true)]
+/// Covers: error:proxy_auth_failed
 #[case::no_credentials(Failing::NoCredentials, "proxy_auth_failed", false)]
+/// Covers: error:proxy_auth_failed
 #[case::a_wrong_password(Failing::WrongPassword, "proxy_auth_failed", false)]
 fn a_failing_proxy_raises_a_proxy_error_never_navigation_failed(
     #[case] failing: Failing,
@@ -398,16 +402,19 @@ fn a_host_proxy_bypass_names_is_reached_without_the_proxy() {
     );
 }
 
-/// Covers: story:5-89, operation:session.new_page, operation:run.new_page, operation:page.goto
+/// Covers: story:5-89
 #[rstest]
+/// Covers: operation:session.new_page
 #[case::a_pages_own_proxy(
     "session.new_page",
     json!({ "session_id": "per-page.session-1", "proxy": { "server": "http://127.0.0.1:3128" } })
 )]
+/// Covers: operation:run.new_page
 #[case::a_pages_own_settings(
     "run.new_page",
     json!({ "run_id": "per-page", "settings": { "proxy": { "server": "http://127.0.0.1:3128" } } })
 )]
+/// Covers: operation:page.goto
 #[case::a_requests_own_proxy(
     "page.goto",
     json!({ "page_id": "page-1", "url": "http://scope.test/", "proxy": { "server": "http://127.0.0.1:3128" } })

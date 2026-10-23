@@ -13,6 +13,8 @@
 //! 0121). Every page reports itself focused, so one behind another tab of
 //! its Session keeps its timers (ADR 0085's question), and a headless
 //! browser's pages show the identity it shows with a window (`identity`).
+//! Each browser attaches the engine to its service workers before they run
+//! (`service_workers`; ADR 0121).
 
 mod carry;
 mod encoding;
@@ -20,6 +22,7 @@ mod ending;
 mod identity;
 
 mod navigation;
+mod service_workers;
 mod targets;
 mod world;
 
@@ -47,6 +50,7 @@ use self::encoding::{encoding_of, encoding_read, isolated_world};
 pub(crate) use self::ending::Lost;
 pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
+pub(crate) use self::service_workers::{OnServiceWorker, ServiceWorkers};
 use crate::errors::{
     Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects, truncated,
 };
@@ -85,6 +89,8 @@ pub(crate) struct Browser {
     process: Option<u32>,
     /// Cancelled once the engine closes it, so its exit is not a loss.
     closing: CancellationToken,
+    /// Its service workers, which it attaches the engine to (ADR 0121).
+    service_workers: Arc<service_workers::ServiceWorkerChoices>,
 }
 
 impl Browser {
@@ -233,6 +239,7 @@ impl Connect for LocalBrowser {
                     identity: None,
                     process: launched.process,
                     closing: self.stopping.clone(),
+                    service_workers: Arc::default(),
                 };
                 // The first answer says the browser is up.
                 let version = browser
@@ -241,6 +248,7 @@ impl Connect for LocalBrowser {
                 if launched.headless {
                     browser.identity = Some(identity::read(&browser, &version.user_agent).await?);
                 }
+                service_workers::start(&browser, &self.run).await?;
                 Ok(browser)
             })
             .await
@@ -337,7 +345,7 @@ impl<B: Connect> SessionDriver<B> {
                 None,
                 &target::CreateTargetParams {
                     url: "about:blank".to_owned(),
-                    browser_context_id: Some(context),
+                    browser_context_id: Some(context.clone()),
                     left: None,
                     top: None,
                     width: None,
@@ -407,6 +415,7 @@ impl<B: Connect> SessionDriver<B> {
             browser,
             session,
             proxy: self.proxy.clone(),
+            context,
             frame,
             navigation_timeout,
             started: Arc::new(watch::Sender::new(0)),
@@ -433,6 +442,8 @@ pub(crate) struct PageDriver {
     session: TargetSession,
     /// Its Session's proxy, if it has one.
     proxy: Option<Arc<SessionProxy>>,
+    /// Its Session's browser context.
+    context: browser::BrowserContextID,
     /// The page's main frame.
     frame: page::FrameId,
     navigation_timeout: Duration,

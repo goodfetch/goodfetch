@@ -12,7 +12,9 @@
 //! raised by the navigation waiting on its request, or else by the page's
 //! next call. A page's events are published while `page.on` listens to
 //! them, and `response.body` and `page.wait_for_request_finished` read its
-//! responses' bodies (`page_events`).
+//! responses' bodies (`page_events`). `page.request` sends a request from
+//! the page's Session through the browser-fetch tier (`browser_fetch`) and
+//! keeps its response's body for `response.body`.
 
 use std::collections::BTreeMap;
 
@@ -20,11 +22,13 @@ use goodfetch_engine::browser_cache::PinnedArtifact;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
+use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::events::{
     PAGE_ON, PAGE_WAIT_FOR_REQUEST_FINISHED, PageOnEnded, PageOnParams, RESPONSE_BODY,
     ResponseBodyParams, WaitForRequestFinishedParams,
 };
+use goodfetch_protocol::page::request::{MAX_REDIRECTS, PAGE_REQUEST, PageRequestParams};
 use goodfetch_protocol::page::route::UrlMatcher;
 use goodfetch_protocol::page::route::{
     PAGE_ROUTE, PageRouteParams, ROUTE_ABORT, ROUTE_CONTINUE, ROUTE_FALLBACK, ROUTE_FETCH,
@@ -39,13 +43,15 @@ use goodfetch_protocol::page::{
     Acted, ClickParams, FillParams, FormatsParams, GotoParams, LOCATOR_CLICK, LOCATOR_FILL,
     LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_DOWNLOAD, PAGE_FORMATS, PAGE_GO_BACK,
     PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageDownload, PageFormats, PageId, PageParams,
-    PressParams, RUN_NEW_PAGE, WaitUntil,
+    PageResponse, PressParams, RUN_NEW_PAGE, WaitUntil,
 };
+use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
 
+use crate::browser_fetch;
 use crate::driver::{Arrived, Destination};
 use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
-use crate::page_events;
+use crate::page_events::{self, Requested};
 use crate::sessions::{self, OpenPage, PageEvent, Sessions};
 use crate::trace;
 use crate::url_pattern::UrlPattern;
@@ -73,7 +79,59 @@ pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
     let contribution = with_session_handlers(contribution, &pages.sessions);
     let contribution = with_locator_handlers(contribution, &pages);
     let contribution = with_event_handlers(contribution, &pages.events);
-    with_route_handlers(contribution, &pages.interception)
+    let contribution = with_route_handlers(contribution, &pages.interception);
+    with_request_handler(contribution, &pages)
+}
+
+/// Adds the handler of `page.request`.
+fn with_request_handler(contribution: Contribution, pages: &Pages) -> Contribution {
+    let requesting = pages.clone();
+    contribution.with_handler(Handler::new(
+        &PAGE_REQUEST,
+        move |params: PageRequestParams, context: CallContext| {
+            let pages = requesting.clone();
+            async move { pages.request(params, context.surface()).await }
+        },
+    ))
+}
+
+/// The count of redirects `page.request` follows, `max_redirects` or its
+/// default; `setting_invalid` above the browser-fetch tier's count, its
+/// option spelled for `surface` (ADR 0118).
+fn redirect_count(max_redirects: Option<u32>, surface: Surface) -> Result<u32, CallError> {
+    let count = max_redirects.unwrap_or(MAX_REDIRECTS);
+    if count <= MAX_REDIRECTS {
+        return Ok(count);
+    }
+    let option = max_redirects_option(surface);
+    Err(CallError::new(
+        &SETTING_INVALID,
+        format!(
+            "`{option}` is {count}, above {MAX_REDIRECTS}: the browser-fetch tier that sends `page.request` follows at most {MAX_REDIRECTS} redirects"
+        ),
+        &SettingInvalidDetails {
+            key: option.to_owned(),
+            layer: Some(SettingsLayer::Run),
+            reason: format!(
+                "{count} is above {MAX_REDIRECTS}, the most redirects a request follows"
+            ),
+        },
+    ))
+}
+
+/// `page.request`'s count of redirects, in `surface`'s spelling.
+fn max_redirects_option(surface: Surface) -> &'static str {
+    match surface {
+        Surface::SdkTypescript => "maxRedirects",
+        Surface::SdkPython
+        | Surface::Rust
+        | Surface::Cli
+        | Surface::Mcp
+        | Surface::Console
+        | Surface::Cloud
+        | Surface::BrowserHost
+        | Surface::Worker => "max_redirects",
+    }
 }
 
 /// Adds the handlers of `page.on`, each listening from when its call
@@ -517,6 +575,55 @@ impl Pages {
             )
             .await?;
         Ok(Acted {})
+    }
+
+    /// Sends the request `params` names from its page's Session, through
+    /// the browser-fetch tier, from a page of the Session the engine opens
+    /// for it and closes after it, and answers its response, whose body the
+    /// page's events keep, whole or as cut, for `response.body`; its errors
+    /// are spelled for `surface`.
+    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_REQUEST.name, run_id = tracing::field::Empty, url.origin = goodfetch_engine::log::origin(&params.url)))]
+    async fn request(
+        &self,
+        params: PageRequestParams,
+        surface: Surface,
+    ) -> Result<PageResponse, CallError> {
+        let max_redirects = redirect_count(params.max_redirects, surface)?;
+        let page = self.open(&params.page_id).await?;
+        tracing::Span::current().record("run_id", page.run.id().as_str());
+        let steps = self.interception.engine_requests(&params.page_id)?;
+        let events = self.events.get(&params.page_id)?;
+        let request = browser_fetch::Request {
+            url: &params.url,
+            method: params.method.as_deref(),
+            headers: params.headers.as_ref(),
+            post_data: params.post_data.as_deref(),
+            max_redirects,
+            option: max_redirects_option(surface),
+        };
+        let (driver, in_browser) = self.sessions.engine_page(&page.session).await?;
+        let fetched = browser_fetch::send(&driver, &steps, &request).await;
+        driver.close().await;
+        drop(in_browser);
+        let fetched = fetched?;
+        let kept = match fetched.body {
+            browser_fetch::Body::Whole(bytes) => {
+                let handle = page.run.store_body(bytes).await.map_err(|error| {
+                    CallError::protocol(
+                        ProtocolFailure::InternalError,
+                        format!("the response's body was not kept in the Run's folder: {error}"),
+                    )
+                })?;
+                Requested::Whole(handle)
+            }
+            browser_fetch::Body::Cut { received, expected } => Requested::Cut {
+                url: fetched.response.url.clone(),
+                received,
+                expected,
+            },
+        };
+        events.keep_requested(fetched.response.request_id.clone(), kept);
+        Ok(fetched.response)
     }
 
     /// The open page `page_id`, or `closed`; a failure a route's handler

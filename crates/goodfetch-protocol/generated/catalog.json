@@ -2046,6 +2046,25 @@
     {
       "arrived_in": "0.1",
       "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.request",
+      "params": {
+        "$ref": "#/$defs/PageRequestParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/PageResponse"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
       "description": "Routes the page's requests whose URL matches to the program, armed when the call arrives: the call stays in flight, and for each such request the engine sends `route.handle`, which the handler answers with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. Page routes come before Session routes, later routes first, and the first answer wins; a handler that ends without one falls back, and past the last route the request goes on to the network, so an unanswered route never stalls a request. What a route sends on still passes the domain policy. Cancelling the call removes the route; a handler that fails ends it with `page_handler_failed`.",

@@ -541,6 +541,29 @@ impl Sessions {
             .await
     }
 
+    /// Opens a page of the open Session `session` that the engine drives
+    /// itself, apart from the Session's pages: no call names it, no route
+    /// or event of theirs sees it, and it holds no admission of the
+    /// governor's. The browser-fetch tier sends `page.request` from one,
+    /// in the Session's browser context, so its cookies are the Session's
+    /// (ADR 0020). Its caller closes it; `closed` when the Session is.
+    pub(crate) async fn engine_page(
+        &self,
+        session: &SessionId,
+    ) -> Result<(PageDriver, InBrowser), CallError> {
+        let open = self
+            .state
+            .lock()
+            .await
+            .sessions
+            .get(session)
+            .cloned()
+            .ok_or_else(|| session_closed(session))?;
+        open.life.call().await?;
+        let (navigation_timeout, _) = timeouts(&open.run);
+        open.seat.new_page(navigation_timeout).await
+    }
+
     /// The page `page_id` this engine holds; `page_crashed` again for a
     /// crashed one a close released, else `closed`.
     pub(crate) async fn page(&self, page_id: &PageId) -> Result<OpenPage, CallError> {

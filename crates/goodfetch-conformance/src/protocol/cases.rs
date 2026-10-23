@@ -3,7 +3,8 @@
 //! failures, its Error codes and its operations' types. A crawl's delivery
 //! cases are `delivery`'s, a page's formats cases `formats`'s, its route
 //! cases `routes`'s, a Run's Session cases `sessions`', their proxy cases
-//! `proxies`' and its events and bodies cases `events`'s.
+//! `proxies`', its events and bodies cases `events`'s and its
+//! `page.request` cases `page_request`'s.
 
 mod clean_up;
 mod consent;
@@ -14,6 +15,7 @@ mod formats;
 mod guard;
 mod launch;
 mod navigation;
+mod page_request;
 mod proxies;
 mod routes;
 mod service_workers;
@@ -88,6 +90,8 @@ pub(crate) enum Case {
     Events(events::Case),
     /// A service worker case.
     ServiceWorker(service_workers::Case),
+    /// A `page.request` case.
+    PageRequest(page_request::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -288,7 +292,8 @@ impl Case {
                     .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp))
                     .or_else(|| events::Case::from_id(id).map(Self::Events))
                     .or_else(|| consent::Case::from_id(id).map(Self::Consent))
-                    .or_else(|| service_workers::Case::from_id(id).map(Self::ServiceWorker));
+                    .or_else(|| service_workers::Case::from_id(id).map(Self::ServiceWorker))
+                    .or_else(|| page_request::Case::from_id(id).map(Self::PageRequest));
             }
         })
     }
@@ -333,6 +338,7 @@ impl Case {
                 navigation::superseded(connection, site, checks)
             }
             Self::FetchEdge(case) => case.run(connection, site, checks),
+            Self::PageRequest(case) => case.run(connection, site, checks),
             Self::MarkdownMatchesTheOracle => {
                 formats::markdown_matches_the_oracle(connection, site, checks)
             }

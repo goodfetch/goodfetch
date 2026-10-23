@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "8"
+version = "9"
 
 [[capability]]
 name = "sessions.default"
@@ -192,7 +192,7 @@ name = "clean_up.filter_lists"
 
 [[capability.case]]
 id = "ads-and-trackers-fail-as-blocked-by-client-and-the-sites-own-content-loads"
-covers = ["story:5-94", "setting:filter_lists.ads", "setting:filter_lists.trackers", "error:navigation_failed"]
+covers = ["story:5-94", "setting:filter_lists.ads", "setting:filter_lists.trackers", "setting:filter_lists.annoyances", "setting:filter_lists.first_party_scripts", "error:navigation_failed"]
 
 [[capability.case]]
 id = "a-redirect-stand-in-keeps-a-page-that-calls-a-blocked-tracker-working"

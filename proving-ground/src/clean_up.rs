@@ -9,8 +9,9 @@
 //!
 //! - `/ads`: its own style sheet, script and photo, which load; an ad image
 //!   (`/img/top-ad-sidebar.gif`, EasyList's `-ad-sidebar.$image`) and a
-//!   tracker (`/js/adobe-analytics.js`, EasyPrivacy's `/adobe-analytics.js`),
-//!   which a blocker blocks.
+//!   tracker (`/js/adobe-analytics.js`, EasyPrivacy's `/adobe-analytics.js`)
+//!   and an annoyance (`/js/copy_text.js`, Fanboy Annoyance's
+//!   `/copy_text.js`), which a blocker blocks.
 //! - `/challenge`: Akamai's (`/akam/13/…`) and HUMAN's (`/perimeterx/…`)
 //!   first-party sensors, which EasyPrivacy blocks and the never-block list
 //!   keeps loading, Cloudflare's challenge platform script and logo, and the
@@ -43,6 +44,7 @@ const ADS: &str = "<!DOCTYPE html>
 <link rel=\"stylesheet\" href=\"/css/site.css\">
 <script src=\"/js/site.js\"></script>
 <script src=\"/js/adobe-analytics.js\"></script>
+<script src=\"/js/copy_text.js\"></script>
 </head>
 <body>
 <main>

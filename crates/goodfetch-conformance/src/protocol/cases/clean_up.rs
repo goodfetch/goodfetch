@@ -31,9 +31,12 @@ const BLOCKED_BY_CLIENT: &str = "net::ERR_BLOCKED_BY_CLIENT";
 
 /// The `/ads` page's own subresources, which load.
 const OWN: [&str; 3] = ["/css/site.css", "/js/site.js", "/img/photo.gif"];
-/// The `/ads` page's ad (EasyList) and tracker (EasyPrivacy).
+/// The `/ads` page's ad (EasyList), tracker (EasyPrivacy) and annoyance
+/// (Fanboy Annoyance); the tracker and the annoyance are the site's own
+/// scripts.
 const AD: &str = "/img/top-ad-sidebar.gif";
 const TRACKER: &str = "/js/adobe-analytics.js";
+const ANNOYANCE: &str = "/js/copy_text.js";
 /// A document EasyList blocks wherever it is (`/page/bouncy.php?$document`).
 const BLOCKED_DOCUMENT: &str = "/page/bouncy.php?id=1";
 /// The `/challenge` page's anti-bot sensors and challenge files, which the
@@ -187,10 +190,12 @@ fn lines(file: &Path) -> Vec<Value> {
 }
 
 /// By default the `/ads` page's own style sheet, script and photo load and
-/// its ad and tracker do not, each recorded in the Run trace as failed with
-/// `net::ERR_BLOCKED_BY_CLIENT`; a document a Filter list blocks fails its
-/// navigation with it; with `filter_lists.ads` and `.trackers` off, the ad
-/// and the tracker load.
+/// its ad, tracker and annoyance do not, each recorded in the Run trace as
+/// failed with `net::ERR_BLOCKED_BY_CLIENT`; a document a Filter list
+/// blocks fails its navigation with it; with `filter_lists.ads`,
+/// `.trackers` and `.annoyances` off, all three load; with
+/// `filter_lists.first_party_scripts` on, the site's own tracker and
+/// annoyance scripts load and its ad image stays blocked.
 fn blocked(
     connection: &mut Connection,
     target: &EngineTarget,
@@ -201,7 +206,7 @@ fn blocked(
     let Some(page) = open(connection, site, run_id, &json!({}), checks)? else {
         return finish(connection, run_id).map(drop);
     };
-    let (own, blocked) = (counts(site, OWN), counts(site, [AD, TRACKER]));
+    let (own, blocked) = (counts(site, OWN), counts(site, [AD, TRACKER, ANNOYANCE]));
     let (url, answer) = visit(connection, site, &page, "/ads")?;
     answered(&answer, "the `goto` to the ads page", &url, 200, checks);
     checks.check(
@@ -212,8 +217,8 @@ fn blocked(
             .all(|(after, before)| *after == before + 1),
     );
     checks.check(
-        "neither its ad nor its tracker reached the Proving ground",
-        counts(site, [AD, TRACKER]) == blocked,
+        "neither its ad, its tracker nor its annoyance reached the Proving ground",
+        counts(site, [AD, TRACKER, ANNOYANCE]) == blocked,
     );
     let (_, answer) = visit(connection, site, &page, BLOCKED_DOCUMENT)?;
     failed_with(
@@ -228,7 +233,7 @@ fn blocked(
     );
     finish(connection, run_id)?;
     let trace = run_trace(target, run_id);
-    for path in [AD, TRACKER] {
+    for path in [AD, TRACKER, ANNOYANCE] {
         checks.check(
             format!("the Run trace records {path} failed as `{BLOCKED_BY_CLIENT}`"),
             trace.iter().any(|line| {
@@ -242,16 +247,36 @@ fn blocked(
     }
 
     let run_id = "conformance-clean-up-lists-off";
-    let off = json!({ "filter_lists": { "ads": false, "trackers": false } });
+    let off = json!({ "filter_lists": { "ads": false, "trackers": false, "annoyances": false } });
     let Some(page) = open(connection, site, run_id, &off, checks)? else {
         return finish(connection, run_id).map(drop);
     };
-    let before = counts(site, [AD, TRACKER]);
+    let before = counts(site, [AD, TRACKER, ANNOYANCE]);
     let (url, answer) = visit(connection, site, &page, "/ads")?;
     answered(&answer, "the `goto` with the lists off", &url, 200, checks);
     checks.check(
-        "with `filter_lists.ads` and `.trackers` off, the ad and the tracker load",
-        counts(site, [AD, TRACKER]) == before.map(|count| count + 1),
+        "with `filter_lists.ads`, `.trackers` and `.annoyances` off, all three load",
+        counts(site, [AD, TRACKER, ANNOYANCE]) == before.map(|count| count + 1),
+    );
+    finish(connection, run_id)?;
+
+    let run_id = "conformance-clean-up-first-party-scripts";
+    let first_party = json!({ "filter_lists": { "first_party_scripts": true } });
+    let Some(page) = open(connection, site, run_id, &first_party, checks)? else {
+        return finish(connection, run_id).map(drop);
+    };
+    let before = counts(site, [AD, TRACKER, ANNOYANCE]);
+    let (url, answer) = visit(connection, site, &page, "/ads")?;
+    answered(
+        &answer,
+        "the `goto` with the site's own scripts allowed",
+        &url,
+        200,
+        checks,
+    );
+    checks.check(
+        "with `filter_lists.first_party_scripts` on, the site's own tracker and annoyance load and its ad does not",
+        counts(site, [AD, TRACKER, ANNOYANCE]) == [before[0], before[1] + 1, before[2] + 1],
     );
     finish(connection, run_id).map(drop)
 }

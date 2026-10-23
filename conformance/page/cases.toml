@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #708, #713 and #715;
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #708, #713, #715 and #717;
 # spec #580, ticket #783): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "12"
+version = "13"
 
 [[capability]]
 name = "sessions.default"
@@ -298,3 +298,34 @@ covers = ["story:5-98", "operation:locator.click"]
 [[capability.case]]
 id = "live-hiding-off-leaves-the-page-as-served-and-always-hides"
 covers = ["story:5-98", "setting:live_view.hiding"]
+
+[[capability]]
+name = "clean_up.consent"
+
+[[capability.case]]
+id = "prompts-modelled-on-each-vendor-are-refused-through-trusted-clicks"
+covers = ["story:5-100", "setting:consent.handling"]
+
+[[capability.case]]
+id = "a-prompt-no-rule-knows-is-refused-in-twelve-languages-in-the-page-and-in-a-cross-origin-frame"
+covers = ["story:5-100"]
+
+[[capability.case]]
+id = "a-prompt-that-appears-late-or-on-a-route-change-is-refused"
+covers = ["story:5-100"]
+
+[[capability.case]]
+id = "a-prompt-with-no-refusal-that-leaves-the-content-readable-is-hidden"
+covers = ["story:5-100"]
+
+[[capability.case]]
+id = "the-pages-own-click-hook-never-sees-the-runners-clicks-and-no-autoconsent-element-is-left"
+covers = ["story:5-100"]
+
+[[capability.case]]
+id = "runtime-is-never-enabled-and-a-snippets-world-is-as-the-snippet-table-says"
+covers = ["story:5-100"]
+
+[[capability.case]]
+id = "consent-handling-off-leaves-prompts-alone"
+covers = ["story:5-100", "setting:consent.handling"]

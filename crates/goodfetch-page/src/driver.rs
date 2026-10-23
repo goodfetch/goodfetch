@@ -18,6 +18,7 @@ mod carry;
 mod identity;
 
 mod navigation;
+mod targets;
 mod world;
 
 use std::sync::Arc;
@@ -448,6 +449,7 @@ impl<B: Connect> SessionDriver<B> {
             navigation_timeout,
             started: Arc::new(watch::Sender::new(0)),
             turn: Arc::new(Mutex::new(None)),
+            gesture: Arc::new(Mutex::new(())),
         })
     }
 }
@@ -479,6 +481,9 @@ pub(crate) struct PageDriver {
     /// command to its last, and waiters take it in arrival order. It keeps
     /// the guard's world in the current document, once one was made.
     turn: Arc<Mutex<Option<runtime::ExecutionContextId>>>,
+    /// The page's pointer, held from a check that arms the guard's listener
+    /// to its disarm, so no two gestures interleave (`targets`).
+    gesture: Arc<Mutex<()>>,
 }
 
 /// A gesture's turn on its page: its commands, sent while no other
@@ -521,37 +526,7 @@ impl Turn<'_> {
     /// Moves the pointer to (`x`, `y`) in the page's viewport and clicks
     /// there with its left button: input the page receives as trusted.
     pub(crate) async fn click(&mut self, x: f64, y: f64) -> Result<(), CallError> {
-        for (kind, button, buttons) in [
-            (input::DispatchMouseEventType::MouseMoved, None, None),
-            (
-                input::DispatchMouseEventType::MousePressed,
-                Some(input::MouseButton::Left),
-                Some(1),
-            ),
-            (
-                input::DispatchMouseEventType::MouseReleased,
-                Some(input::MouseButton::Left),
-                Some(0),
-            ),
-        ] {
-            let params = input::DispatchMouseEventParams {
-                r#type: kind,
-                x,
-                y,
-                modifiers: None,
-                timestamp: None,
-                button,
-                buttons,
-                click_count: button.map(|_| 1),
-                force: None,
-                tangential_pressure: None,
-                tilt_x: None,
-                tilt_y: None,
-                twist: None,
-                delta_x: None,
-                delta_y: None,
-                pointer_type: None,
-            };
+        for params in targets::pointer_click(x, y) {
             self.page
                 .browser
                 .send(Some(&self.page.session), &params, &self.call)

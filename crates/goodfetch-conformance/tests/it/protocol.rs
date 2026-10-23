@@ -248,6 +248,51 @@ fn the_scripted_engine_as_a_daemon_playing_the_suite_is_proved_in_every_capabili
     assert_eq!(outcomes(&document), PROVED);
 }
 
+/// The Daemon's token, which the harness sends in `hello`, never reaches the
+/// document: a Release cell uploads it with its JUnit files, and its secret
+/// scan refused it there (ADR 0067). The evidence keeps the message, the
+/// token's value redacted.
+///
+/// Covers: story:2-50
+#[test]
+fn a_daemons_token_reaches_no_document_and_its_hello_keeps_the_rest() {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed());
+    let proving_ground = ProvingGround::local(copy.address());
+    let target = scripted(&env, "conforming-daemon.json", EngineMode::Daemon);
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::embedded(), &target, &proving_ground).unwrap();
+
+    let written = serde_json::to_string(&ResultDocument::Conformance(document.clone())).unwrap();
+    let sent_tokens: Vec<Value> = sent(&env)
+        .into_iter()
+        .filter(|message| message["method"] == "hello")
+        .map(|hello| hello["params"]["token"].clone())
+        .collect();
+    let kept_tokens: Vec<Value> = document
+        .capabilities()
+        .iter()
+        .flat_map(CapabilityResult::cases)
+        .flat_map(|case| case.facts().entries.iter())
+        .flat_map(|entry| entry.evidence.messages.iter())
+        .filter(|kept| kept["from"] == "client" && kept["message"]["method"] == "hello")
+        .map(|kept| kept["message"]["params"]["token"].clone())
+        .collect();
+    assert_eq!(
+        (
+            written.contains("scripted-daemon-token"),
+            sent_tokens.first(),
+            kept_tokens.first(),
+        ),
+        (
+            false,
+            Some(&json!("scripted-daemon-token")),
+            Some(&json!("[redacted]")),
+        )
+    );
+}
+
 /// The suite unchanged against Collie's executable, given by path, as an
 /// Attached engine and as a Daemon.
 ///

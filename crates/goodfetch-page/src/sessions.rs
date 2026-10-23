@@ -48,6 +48,7 @@ use goodfetch_protocol::settings::{
 use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
 
+use crate::consent::Consent;
 use crate::driver::PageDriver;
 use crate::hiding::{Hiding, PageHiding};
 use crate::interception::{Interception, SESSION_KEYS};
@@ -88,6 +89,8 @@ pub(crate) struct Sessions {
     state: Arc<Mutex<State>>,
     pins: Vec<PinnedArtifact>,
     interception: Interception,
+    /// The Consent prompt runner every page starts.
+    consent: Consent,
     hiding: Hiding,
     /// Each open page's events, which calls reach as they arrive.
     events: page_events::Table,
@@ -200,6 +203,7 @@ impl Sessions {
             state: Arc::new(Mutex::new(State::default())),
             pins,
             interception,
+            consent: Consent::default(),
             hiding: Hiding::default(),
             events,
         }
@@ -341,6 +345,12 @@ impl Sessions {
                 return Err(error);
             }
         };
+        if let Err(error) = self.consent.start(&page, &driver, &run).await {
+            self.events.close(std::slice::from_ref(&page));
+            self.interception
+                .close(std::slice::from_ref(&page), session);
+            return Err(error);
+        }
         let mut state = self.state.lock().await;
         if !state.sessions.contains_key(session) {
             drop(state);

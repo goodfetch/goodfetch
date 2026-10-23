@@ -321,3 +321,13 @@ fn the_cpu_time_is_the_engines_user_and_system_time() {
 
     assert_eq!(reading.cpu_time, Duration::from_secs(2));
 }
+
+/// The browser pool's reading of one browser: the process it names and its
+/// descendants, from the OS itself (ADR 0040's per-browser cap).
+#[test]
+fn the_footprint_of_a_running_process_counts_its_memory_and_of_a_gone_one_nothing() {
+    let own = super::footprint_of(std::process::id());
+    let gone = super::footprint_of(u32::MAX);
+
+    assert_eq!((own > MIB, gone), (true, 0));
+}

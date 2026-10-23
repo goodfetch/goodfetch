@@ -11,6 +11,7 @@ mod attached;
 mod audit;
 #[cfg(unix)]
 mod background_traffic;
+mod browser_pool;
 mod browsers;
 mod certs;
 #[cfg(target_os = "macos")]

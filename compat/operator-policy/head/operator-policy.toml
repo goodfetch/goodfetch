@@ -51,6 +51,12 @@ ceiling = 4
 floor = 4
 ceiling = 4
 
+[settings.governor.browser]
+contexts_per_process = 4
+recycle_pages = 4
+recycle_idle = 30000
+memory_cap = 4
+
 [settings.storage]
 low_free = 4
 critical_free = 4
@@ -233,6 +239,12 @@ ceiling = 4
 floor = 4
 ceiling = 4
 
+[lock.governor.browser]
+contexts_per_process = 4
+recycle_pages = 4
+recycle_idle = 30000
+memory_cap = 4
+
 [lock.storage]
 low_free = 4
 critical_free = 4
@@ -392,6 +404,12 @@ ceiling = 4
 [cap.governor.model_call]
 floor = 4
 ceiling = 4
+
+[cap.governor.browser]
+contexts_per_process = 4
+recycle_pages = 4
+recycle_idle = 30000
+memory_cap = 4
 
 [cap.storage]
 low_free = 4

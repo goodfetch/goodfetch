@@ -484,6 +484,17 @@
       ]
     },
     {
+      "id": "command:run.new-session",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:run.pause",
       "kind": "command",
       "area": 11,
@@ -553,6 +564,28 @@
       "id": "command:sample.echo",
       "kind": "command",
       "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:session.close",
+      "kind": "command",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:session.new-page",
+      "kind": "command",
+      "area": null,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2252,6 +2285,17 @@
       ]
     },
     {
+      "id": "operation:run.new_session",
+      "kind": "operation",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:run.outcomes",
       "kind": "operation",
       "area": 3,
@@ -2351,6 +2395,28 @@
       "id": "operation:sample.echo",
       "kind": "operation",
       "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:session.close",
+      "kind": "operation",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:session.new_page",
+      "kind": "operation",
+      "area": null,
       "milestone": null,
       "status": "active",
       "products": [

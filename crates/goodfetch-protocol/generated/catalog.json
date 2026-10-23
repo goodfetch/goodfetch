@@ -2008,6 +2008,25 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. The Run's first Session launches its browser, so a missing browser build raises its code from this call.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.new_session",
+      "params": {
+        "$ref": "#/$defs/NewSessionParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SessionOpened"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": true,
       "class": "read",
       "deprecated": null,
@@ -2205,6 +2224,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleEchoResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "session.close",
+      "params": {
+        "$ref": "#/$defs/SessionParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SessionClosed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Opens a page in the Session, with its cookies and storage. Once the Session is closed, it raises `closed`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "session.new_page",
+      "params": {
+        "$ref": "#/$defs/SessionParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageOpened"
       },
       "stability": "experimental"
     },

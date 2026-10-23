@@ -1281,9 +1281,37 @@ class SeedBatch(BaseModel):
     """The seeds, in order."""
 
 
+class SessionClosed(BaseModel):
+    """What `session.close` answers once the Session is closed."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class SessionId(RootModel[str]):
     root: str
     """A Session of a Run, named by the engine when it opens it."""
+
+
+class SessionOpened(BaseModel):
+    """What `run.new_session` answers: the Session it opened."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    session_id: SessionId
+    """The Session."""
+
+
+class SessionParams(BaseModel):
+    """What `session.new_page` and `session.close` take: the Session."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    session_id: SessionId
+    """The Session."""
 
 
 class SetLogLevelParams(BaseModel):
@@ -2247,6 +2275,16 @@ class NewPageParams(BaseModel):
     """The Run."""
 
 
+class NewSessionParams(BaseModel):
+    """What `run.new_session` takes: the Run whose Session it opens."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    run_id: RunId
+    """The Run."""
+
+
 class NothingDone1(BaseModel):
     """The start found the Run ended."""
 
@@ -2294,8 +2332,8 @@ class PageDownload(BaseModel):
 
 class PageOpened(BaseModel):
     """
-    What `run.new_page` answers: the page, and the Session it belongs to,
-    which `page.session()` returns.
+    What `run.new_page` and `session.new_page` answer: the page, and the
+    Session it belongs to, which `page.session()` returns.
     """
 
     model_config = ConfigDict(
@@ -2304,7 +2342,7 @@ class PageOpened(BaseModel):
     page_id: PageId
     """The page."""
     session_id: SessionId
-    """Its Session: the Run's default Session."""
+    """Its Session: the Run's default Session for `run.new_page`."""
 
 
 class PageRouteParams(BaseModel):

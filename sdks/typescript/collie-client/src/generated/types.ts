@@ -2062,6 +2062,18 @@ export interface NewPageParams {
   run_id: string;
 }
 /**
+ * What `run.new_session` takes: the Run whose Session it opens.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NewSessionParams".
+ */
+export interface NewSessionParams {
+  /**
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   */
+  run_id: string;
+}
+/**
  * A Limit flagged *must understand* that a Run's engine cannot evaluate,
  * as the Run stopped for it names it (ADR 0041): its scope, Usage kind,
  * currency and period as the ledger holds them.
@@ -2176,8 +2188,8 @@ export interface PageFormats {
   url: string;
 }
 /**
- * What `run.new_page` answers: the page, and the Session it belongs to,
- * which `page.session()` returns.
+ * What `run.new_page` and `session.new_page` answer: the page, and the
+ * Session it belongs to, which `page.session()` returns.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "PageOpened".
@@ -2188,7 +2200,7 @@ export interface PageOpened {
    */
   page_id: string;
   /**
-   * Its Session: the Run's default Session.
+   * Its Session: the Run's default Session for `run.new_page`.
    */
   session_id: string;
 }
@@ -3403,6 +3415,37 @@ export interface SeedBatch {
    * The seeds, in order.
    */
   seeds?: Seed[];
+}
+/**
+ * What `session.close` answers once the Session is closed.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionClosed".
+ */
+export interface SessionClosed {}
+/**
+ * What `run.new_session` answers: the Session it opened.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionOpened".
+ */
+export interface SessionOpened {
+  /**
+   * The Session.
+   */
+  session_id: string;
+}
+/**
+ * What `session.new_page` and `session.close` take: the Session.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionParams".
+ */
+export interface SessionParams {
+  /**
+   * The Session.
+   */
+  session_id: string;
 }
 /**
  * What `session.route` takes: the Session, and the URLs whose requests its

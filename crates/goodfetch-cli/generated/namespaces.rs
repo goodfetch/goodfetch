@@ -27,6 +27,11 @@
         about: "Calls the catalog's `run` operations",
     },
     Namespace {
+        name: "session",
+        spelled: "session",
+        about: "Calls the catalog's `session` operations",
+    },
+    Namespace {
         name: "page",
         spelled: "page",
         about: "Calls the catalog's `page` operations",

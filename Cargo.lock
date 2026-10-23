@@ -1527,6 +1527,7 @@ dependencies = [
  "regex",
  "regex-syntax",
  "rstest",
+ "rusqlite",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

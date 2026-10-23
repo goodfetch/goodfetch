@@ -74,7 +74,8 @@ fn serve_first_prints_the_address_of_each_network_fixture() {
             "mobile",
             "open",
             "refusing_tunnels",
-            "residential"
+            "residential",
+            "socks5"
         ]
     );
     assert!(

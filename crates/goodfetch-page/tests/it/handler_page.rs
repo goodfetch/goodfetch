@@ -221,6 +221,19 @@ impl Program {
             .any(|request| request["host"] == json!(host) && request["target"] == json!(path))
     }
 
+    /// What the scripts of the page at `page` (its path and query) last
+    /// reported to the Proving ground for `check`.
+    pub(crate) fn reported(&self, page: &str, check: &str) -> Option<String> {
+        self.proving_ground
+            .observations()
+            .expect("the Proving ground answers")["reports"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .rfind(|report| report["page"] == json!(page) && report["check"] == json!(check))
+            .and_then(|report| report["observed"].as_str().map(str::to_owned))
+    }
+
     /// The lines of the Run trace's request log so far.
     pub(crate) fn request_log(&self) -> Vec<Value> {
         let file = self
@@ -239,12 +252,18 @@ impl Program {
 }
 
 /// Waits until `holds` is true, as the browser acts after a call answered.
-pub(crate) async fn settled(mut holds: impl FnMut() -> bool) {
+pub(crate) async fn settled(holds: impl FnMut() -> bool) {
+    settled_or(holds, String::new).await;
+}
+
+/// Waits until `holds` is true, failing with what `seen` says it saw.
+pub(crate) async fn settled_or(mut holds: impl FnMut() -> bool, seen: impl Fn() -> String) {
     let until = Instant::now() + SETTLE_DEADLINE;
     while !holds() {
         assert!(
             Instant::now() < until,
-            "not settled within {SETTLE_DEADLINE:?}"
+            "not settled within {SETTLE_DEADLINE:?}: {}",
+            seen()
         );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }

@@ -184,6 +184,19 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
         if event.read::<page::LoadEventFiredEvent>().is_some() {
             // The navigation's last hop ends with the page's `load`.
             drop(lock(&context.permit).take());
+            if let Some(page_id) = context.sender.page_id() {
+                context.state.pending.ended(page_id);
+            }
+            continue;
+        }
+        if let Some(started) = event.read::<page::FrameStartedNavigatingEvent>() {
+            if let Some(page_id) = context.sender.page_id()
+                && &started.frame_id == context.driver.main_frame()
+                && started.navigation_type
+                    != page::FrameStartedNavigatingNavigationType::SameDocument
+            {
+                context.state.pending.started(page_id, &started.url);
+            }
             continue;
         }
         if let Some(failed) = event.read::<network::LoadingFailedEvent>() {
@@ -613,9 +626,12 @@ impl PageContext {
             Ok(steps::Sent::Continue(command)) => {
                 // Step 6: the page's navigation gate; its lease check is
                 // asked before the command that sends the request on.
-                if held.navigation
-                    && let Err(refusal) = self.admit(held).await
-                {
+                let admitted = if held.navigation {
+                    self.admit(held).await
+                } else {
+                    self.admit_for_worker(held).await
+                };
+                if let Err(refusal) = admitted {
                     return Err(self.gate_refused(held, &refusal).await);
                 }
                 self.trace_service_worker(held, None);
@@ -681,6 +697,31 @@ impl PageContext {
         };
         if let Some(permit) = self.driver.admit(&navigation).await? {
             *lock(&self.permit) = Some((network_id, permit));
+        }
+        Ok(())
+    }
+
+    /// Asks the navigation gate to admit `held`, a service worker's request,
+    /// when it carries a navigation pending on a page of its Session: one to
+    /// that navigation's URL, fragment removed, in `navigate` mode or any
+    /// other. Its permit is the navigation's, held until the page's `load`.
+    /// Any other request is admitted at once.
+    async fn admit_for_worker(&self, held: &Held) -> Result<(), Refusal> {
+        if !matches!(self.sender, Sender::ServiceWorker { .. })
+            || self.driver.value().gate().is_none()
+        {
+            return Ok(());
+        }
+        let Some(page) = self.state.pending.take(held.url()) else {
+            return Ok(());
+        };
+        let navigation = Navigation {
+            url: held.url().to_owned(),
+            method: held.method().to_owned(),
+            kind: NavigationKind::ServiceWorker,
+        };
+        if let Some(permit) = self.driver.admit(&navigation).await? {
+            self.state.pending.hold(&page, permit);
         }
         Ok(())
     }

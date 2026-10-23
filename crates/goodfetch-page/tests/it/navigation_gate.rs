@@ -18,7 +18,7 @@ use goodfetch_protocol::page::SitePreference;
 use goodfetch_recording_gate::RecordingGate;
 use serde_json::{Map, Value, json};
 
-use crate::handler_page::{Program, settled, with_handler_page};
+use crate::handler_page::{Program, settled, settled_or, with_handler_page};
 
 /// The navigation test whose page links to `/b`.
 const HISTORY: &str = "2.navigation.test";
@@ -51,7 +51,11 @@ async fn admitted_by(
 ) -> Vec<(String, NavigationKind)> {
     let from = gate.admitted().len();
     step(program).await;
-    settled(|| gate.admitted().len() >= from + count).await;
+    settled_or(
+        || gate.admitted().len() >= from + count,
+        || format!("admitted {:?}", gate.admitted()),
+    )
+    .await;
     admitted_since(gate, from)
 }
 
@@ -445,6 +449,39 @@ fn the_response_observer_receives_each_kept_response_with_its_body_a_service_wor
                     8
                 ),
             ]
+        );
+    });
+}
+
+/// A service worker's request carrying a navigation of a page it controls
+/// takes that navigation's permit, the gate asked once, as a service
+/// worker's: its `navigate`-mode request (`pass`) and its `cors` refetch of
+/// the pending navigation's URL (`refetch`) alike; the page's own
+/// interception never sees the navigation the worker answers.
+/// Covers: operation:page.reload
+#[rstest::rstest]
+#[case::its_navigate_mode_request("pass")]
+#[case::its_refetch_of_a_pending_navigation("refetch")]
+fn a_service_workers_request_carrying_a_navigation_is_admitted_once(#[case] navigations: &str) {
+    let gate = RecordingGate::new();
+    with_handler_page(&gate, Map::new(), async |program| {
+        let page = format!("/service-worker/?navigations={navigations}");
+        program.goto("access.localhost", &page).await;
+        settled_or(
+            || program.reported(&page, "controlled").as_deref() == Some("true"),
+            || format!("{:?}", program.reported(&page, "register")),
+        )
+        .await;
+        let reloaded = admitted_by(&gate, program, 1, async |program| {
+            let answer = program.on_page("page.reload", json!({})).await;
+            assert!(answer.get("result").is_some(), "{answer}");
+        })
+        .await;
+        settled(|| gate.released().iter().any(|url| url.contains(&page))).await;
+
+        assert_eq!(
+            reloaded,
+            vec![("/service-worker/".to_owned(), NavigationKind::ServiceWorker)]
         );
     });
 }

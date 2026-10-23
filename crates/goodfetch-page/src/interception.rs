@@ -52,6 +52,7 @@
 
 mod answers;
 mod clean_up;
+mod navigations;
 mod pipeline;
 mod routes;
 mod steps;
@@ -83,6 +84,7 @@ use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
 use self::clean_up::CleanUp;
 pub(crate) use self::clean_up::SESSION_KEYS;
+use self::navigations::Pending;
 use self::pipeline::{Observing, PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
@@ -125,6 +127,9 @@ struct Shared {
 struct Tables {
     pages: BTreeMap<PageId, Arc<PageState>>,
     sessions: BTreeMap<SessionId, Arc<RouteTable>>,
+    /// Each Session's pending navigations, which its service workers'
+    /// requests may carry.
+    pending: BTreeMap<SessionId, Arc<Pending>>,
     /// The Sessions whose Run was warned that `browser.block_resources`
     /// shows.
     warned: BTreeSet<SessionId>,
@@ -141,6 +146,8 @@ pub(super) struct PageState {
     /// Steps 3 to 8 as its Session chose them, for the engine's own
     /// requests from the Session.
     engine_requests: EngineRequests,
+    /// Its Session's pending navigations.
+    pending: Arc<Pending>,
 }
 
 /// Steps 3 to 8 of a page's pipeline, as its Session chose them, for a
@@ -309,10 +316,12 @@ impl Interception {
         }
         let state = {
             let mut tables = lock(&self.shared.tables);
+            let pending = Arc::clone(tables.pending.entry(session.clone()).or_default());
             let session = Arc::clone(tables.sessions.entry(session.clone()).or_default());
             let state = Arc::new(PageState {
                 routes: Arc::default(),
                 session,
+                pending,
                 failure: Mutex::new(None),
                 cosmetic: clean_up.cosmetic.clone(),
                 engine_requests: EngineRequests {
@@ -387,21 +396,32 @@ impl Interception {
         // browser does.
         let shared = Arc::clone(&self.shared);
         let (session, proxy, run) = (session.clone(), page.proxy_handle(), run.clone());
+        // A worker's requests take its Session's pages' value: their gate
+        // admits the navigations the worker carries.
+        let value = page.value().clone();
         Arc::new(move |worker: PageDriver, gone: CancellationToken| {
-            let (shared, session, proxy, run) = (
+            let (shared, session, proxy, run, value) = (
                 Arc::clone(&shared),
                 session.clone(),
                 proxy.clone(),
                 run.clone(),
+                value.clone(),
             );
             let (policy, blocking, observing) =
                 (policy.clone(), blocking.clone(), observing.clone());
             Box::pin(async move {
-                let Some(routes) = lock(&shared.tables).sessions.get(&session).cloned() else {
-                    return false;
+                let (routes, pending) = {
+                    let tables = lock(&shared.tables);
+                    let Some(routes) = tables.sessions.get(&session).cloned() else {
+                        return false;
+                    };
+                    (
+                        routes,
+                        tables.pending.get(&session).cloned().unwrap_or_default(),
+                    )
                 };
                 let log = Arc::new(RequestLog::new(run.owner().child(), run.folder()));
-                let worker = worker.with_proxy(proxy);
+                let worker = worker.with_proxy(proxy).with_value(value, run.clock());
                 let events = worker.events().await;
                 let enabled = worker
                     .opening_command(&fetch::EnableParams {
@@ -419,6 +439,7 @@ impl Interception {
                 let state = Arc::new(PageState {
                     routes: Arc::default(),
                     session: routes,
+                    pending,
                     failure: Mutex::new(None),
                     cosmetic: None,
                     engine_requests: EngineRequests {
@@ -559,6 +580,7 @@ impl Interception {
         if let Some(table) = tables.sessions.remove(session) {
             table.close();
         }
+        tables.pending.remove(session);
     }
 }
 

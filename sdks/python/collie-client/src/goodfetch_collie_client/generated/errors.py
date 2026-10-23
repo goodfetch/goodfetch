@@ -546,6 +546,14 @@ class SettingUnknownError(ProgramError):
         super().__init__(message, code="setting_unknown", group="program", retryable=False)
 
 
+class SitePreferencesRefusedError(RefusedError):
+    """The site's preferences refused the navigation or the request before it left, or refused the document once its response arrived, leaving the page on a blank document: its robots.txt disallows the URL (`robots_txt`), its `Crawl-delay` asks for more than the crawl allows (`crawl_delay`), or a use signal it sends refuses the crawl's Purpose (`use_signals`). Only a crawl handler's page asks a site's preferences; a page a program opens never raises it. The details name the URL and the reason."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="site_preferences_refused", group="refused", retryable=False)
+
+
 class TargetNotUniqueError(PageError):
     """The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator."""
 
@@ -640,6 +648,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "setting_locked": SettingLockedError,
     "setting_not_applicable": SettingNotApplicableError,
     "setting_unknown": SettingUnknownError,
+    "site_preferences_refused": SitePreferencesRefusedError,
     "target_not_unique": TargetNotUniqueError,
     "too_many_redirects": TooManyRedirectsError,
     "upgrade_source_unsupported": UpgradeSourceUnsupportedError,

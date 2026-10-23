@@ -807,6 +807,12 @@ export interface CancelParams {
  */
 export interface CertificatePin {
   /**
+   * The SHA-256 of the key the host presented instead, which stopped it
+   * with `certificate_changed`, as `sha256/` and its standard base64: the
+   * key `certs.accept` pins in its place. None while no change waits.
+   */
+  changed_spki_sha256?: string | null;
+  /**
    * The host, as the URL parser leaves it.
    */
   host: string;
@@ -825,6 +831,51 @@ export interface CertificatePin {
    * which stops the host as a changed key.
    */
   spki_sha256?: string | null;
+}
+/**
+ * What `certs.accept` takes: the host, and the changed key the person
+ * accepts, as `certs.list` shows it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CertsAcceptParams".
+ */
+export interface CertsAcceptParams {
+  /**
+   * The pinned host, as the URL parser leaves it.
+   */
+  host: string;
+  /**
+   * The SHA-256 of the changed key, as `sha256/` and its standard base64.
+   */
+  spki_sha256: string;
+}
+/**
+ * What `certs.forget` takes: the host.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CertsForgetParams".
+ */
+export interface CertsForgetParams {
+  /**
+   * The pinned host, as the URL parser leaves it.
+   */
+  host: string;
+}
+/**
+ * What `certs.forget` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CertsForgotten".
+ */
+export interface CertsForgotten {
+  /**
+   * Whether the caller had a pin for it, now removed.
+   */
+  forgotten: boolean;
+  /**
+   * The host.
+   */
+  host: string;
 }
 /**
  * What `certs.list` takes: nothing.
@@ -2198,9 +2249,12 @@ export interface NewSessionParams {
    */
   run_id: string;
   /**
-   * The Session's own settings, nested by key; `session.source` is
-   * refused here with `setting_not_applicable`, as the call's own
-   * `source` sets it.
+   * The Session's own settings, nested by key: `filter_lists.ads`,
+   * `.trackers`, `.annoyances`, `.first_party_scripts` and
+   * `browser.block_resources` choose its pages' Clean-up rules over the
+   * Run's. `session.source` is refused here with `setting_not_applicable`,
+   * as the call's own `source` sets it, and so is any other key, which
+   * only the Run sets.
    */
   settings?: {
     [k: string]: unknown;

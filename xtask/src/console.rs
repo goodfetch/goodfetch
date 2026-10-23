@@ -39,6 +39,9 @@ const PAGE: &str = "index.html";
 /// The routes of the package's screens (ADR 0072), which the build folder
 /// keeps as they are, uncompressed, for the executable to serve the page at.
 const ROUTES: &str = "routes.json";
+/// pnpm's program. On Windows, npm installs it as the `pnpm.cmd` shim, which
+/// a process finds only by that name: a bare name is searched as `.exe`.
+const PNPM: &str = if cfg!(windows) { "pnpm.cmd" } else { "pnpm" };
 
 #[derive(clap::Subcommand)]
 pub(crate) enum Command {
@@ -73,7 +76,7 @@ pub(crate) fn build(root: &Path) -> Result<()> {
     std::fs::create_dir_all(&target).with_context(|| format!("creating {}", target.display()))?;
     let staging = tempfile::tempdir_in(&target).context("creating the build's own folder")?;
     let built = staging.path().join("built");
-    let status = Process::new("pnpm")
+    let status = Process::new(PNPM)
         .arg("--dir")
         .arg(root.join(PACKAGE))
         .args(["run", "build", "--outDir"])

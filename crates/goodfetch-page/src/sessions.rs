@@ -49,17 +49,17 @@ use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
 
 use crate::driver::PageDriver;
-use crate::interception::Interception;
+use crate::interception::{Interception, SESSION_KEYS};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
 
 /// What the page crate adds to every run file: each Session the Run opened,
 /// by its position among them, whether it is the Run's default Session,
-/// whether it is closed, and its identity seed, its 64 bits as SQLite's
-/// signed integer.
+/// whether it is closed, its own settings, as a JSON object by key, and its
+/// identity seed, its 64 bits as SQLite's signed integer.
 pub(crate) const TABLES: RunStateTables = RunStateTables {
     name: "page-sessions",
     statements: &[
-        "CREATE TABLE IF NOT EXISTS page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, identity_seed INTEGER NOT NULL) STRICT",
+        "CREATE TABLE IF NOT EXISTS page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL) STRICT",
     ],
 };
 
@@ -109,6 +109,8 @@ struct Session {
     position: u32,
     /// Its seat in its Run's browser pool.
     seat: Seat,
+    /// Its own settings, which its pages take over the Run's.
+    settings: Values,
 }
 
 /// One open page.
@@ -194,7 +196,7 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<SessionOpened, CallError> {
         let run = live(&params.run_id, context).await?;
-        own_settings(&params.settings, context)?;
+        let settings = own_settings(&params.settings, &run, context)?;
         opening_source(&run, params.source)?;
         let (position, seat) = {
             let mut state = self.state.lock().await;
@@ -203,7 +205,8 @@ impl Sessions {
             (runs.last, runs.pool.seat(Placement::Shared))
         };
         seat.open().await?;
-        self.record(&run, position, false, context).await?;
+        self.record(&run, position, false, &settings, context)
+            .await?;
         let session = session_id(run.id(), position);
         self.state.lock().await.sessions.insert(
             session.clone(),
@@ -211,6 +214,7 @@ impl Sessions {
                 run,
                 position,
                 seat,
+                settings,
             }),
         );
         self.interception.open_session(&session);
@@ -248,7 +252,8 @@ impl Sessions {
                     runs.default = Some(runs.last);
                     let position = runs.last;
                     let seat = runs.pool.seat(Placement::Shared);
-                    self.record(&run, position, true, context).await?;
+                    self.record(&run, position, true, &Values::default(), context)
+                        .await?;
                     let session = session_id(run.id(), position);
                     state.sessions.insert(
                         session.clone(),
@@ -256,6 +261,7 @@ impl Sessions {
                             run: run.clone(),
                             position,
                             seat,
+                            settings: Values::default(),
                         }),
                     );
                     self.interception.open_session(&session);
@@ -286,7 +292,7 @@ impl Sessions {
             PageId(format!("page-{}", state.opened_pages))
         };
         self.interception
-            .start(&page, session, &driver, &run)
+            .start(&page, session, &driver, &run, &open.settings)
             .await?;
         let mut state = self.state.lock().await;
         if !state.sessions.contains_key(session) {
@@ -429,13 +435,14 @@ impl Sessions {
                 .state()
                 .read(|connection| {
                     let mut statement = connection.prepare(
-                        "SELECT position, is_default, closed FROM page_sessions ORDER BY position",
+                        "SELECT position, is_default, closed, settings FROM page_sessions ORDER BY position",
                     )?;
                     let rows = statement.query_map([], |row| {
                         Ok((
                             row.get::<_, u32>(0)?,
                             row.get::<_, bool>(1)?,
                             row.get::<_, bool>(2)?,
+                            row.get::<_, String>(3)?,
                         ))
                     })?;
                     rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -459,7 +466,7 @@ impl Sessions {
                 default: None,
                 closed: BTreeSet::new(),
             };
-            for (position, is_default, closed) in recorded {
+            for (position, is_default, closed, settings) in recorded {
                 runs.last = runs.last.max(position);
                 if is_default {
                     runs.default = Some(position);
@@ -467,6 +474,7 @@ impl Sessions {
                 if closed {
                     runs.closed.insert(position);
                 } else {
+                    let settings = recorded_settings(&settings, run, context)?;
                     let session = session_id(run.id(), position);
                     self.interception.open_session(&session);
                     state.sessions.insert(
@@ -475,6 +483,7 @@ impl Sessions {
                             run: run.clone(),
                             position,
                             seat: pool.seat(Placement::Shared),
+                            settings,
                         }),
                     );
                 }
@@ -526,22 +535,31 @@ impl Sessions {
         });
     }
 
-    /// Records the Session at `position` of `run` in its run state, with
-    /// the identity seed it draws from the Run's `Entropy`.
+    /// Records the Session at `position` of `run`, with its own `settings`
+    /// and the identity seed it draws from the Run's `Entropy`, in its run
+    /// state.
     async fn record(
         &self,
         run: &Run,
         position: u32,
         is_default: bool,
+        settings: &Values,
         context: &CallContext,
     ) -> Result<(), CallError> {
+        let settings = Value::Object(
+            settings
+                .keys()
+                .filter_map(|key| Some((key.to_owned(), settings.get(key)?.clone())))
+                .collect(),
+        )
+        .to_string();
         let seed = i64::from_le_bytes(run.fork_entropy().await.next_u64().to_le_bytes());
         run.state()
             .write(move |connection| {
                 connection
                     .execute(
-                        "INSERT INTO page_sessions (position, is_default, closed, identity_seed) VALUES (?1, ?2, 0, ?3)",
-                        rusqlite::params![position, is_default, seed],
+                        "INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed) VALUES (?1, ?2, 0, ?3, ?4)",
+                        rusqlite::params![position, is_default, settings, seed],
                     )
                     .map(drop)
             })
@@ -550,13 +568,19 @@ impl Sessions {
     }
 }
 
-/// Refuses every key of a Session's own `settings` with
-/// `setting_not_applicable`: `session.source`, which the call's own `source`
-/// sets (ADRs 0083 and 0092), first; any other, since no setting takes
+/// Reads a Session's own `settings` (ADRs 0083 and 0092): the Clean-up
+/// rules' keys, which its pages take over the Run's (ADR 0047), and
+/// `setting_locked` for one the Run's layers lock. Any other key is
+/// refused with `setting_not_applicable`: `session.source`, which the
+/// call's own `source` sets, first; any other, since no other setting takes
 /// effect on one Session apart from the Run's yet, so none is ignored.
-fn own_settings(settings: &Map<String, Value>, context: &CallContext) -> Result<(), CallError> {
+fn own_settings(
+    settings: &Map<String, Value>,
+    run: &Run,
+    context: &CallContext,
+) -> Result<Values, CallError> {
     if settings.is_empty() {
-        return Ok(());
+        return Ok(Values::default());
     }
     let values = Values::read(SettingsLayer::Run, settings, context.identity().product)
         .map_err(|error| settings_error(&error, context.identity()))?;
@@ -568,20 +592,56 @@ fn own_settings(settings: &Map<String, Value>, context: &CallContext) -> Result<
     } else {
         values
             .keys()
-            .next()
+            .find(|key| !SESSION_KEYS.contains(key))
             .map(|key| (key, "set it on the Run, whose Sessions all take it"))
     };
-    match refused {
-        Some((key, fix)) => Err(settings_error(
+    if let Some((key, fix)) = refused {
+        return Err(settings_error(
             &SettingsError::NotApplicable {
                 key: key.to_owned(),
                 layer: SettingsLayer::Run,
                 fix: fix.to_owned(),
             },
             context.identity(),
-        )),
-        None => Ok(()),
+        ));
     }
+    let locked = values.keys().find_map(|key| {
+        let effective = run.settings()?.resolved().get(key)?;
+        effective.locked_by.map(|layer| SettingLimit {
+            key: key.to_owned(),
+            value: effective.value.clone(),
+            layer,
+        })
+    });
+    match locked {
+        Some(limit) => Err(settings_error(
+            &SettingsError::Locked {
+                key: limit.key.clone(),
+                layer: SettingsLayer::Run,
+                fix: format!(
+                    "leave `{}` out of the Session's settings: the `{}` layer locks it for the Run",
+                    limit.key,
+                    limit.layer.as_str()
+                ),
+                limit,
+            },
+            context.identity(),
+        )),
+        None => Ok(values),
+    }
+}
+
+/// The own settings `recorded`, as the run state of `run` holds them, of a
+/// Session reopened from it.
+fn recorded_settings(
+    recorded: &str,
+    run: &Run,
+    context: &CallContext,
+) -> Result<Values, CallError> {
+    let nested: Map<String, Value> =
+        serde_json::from_str(recorded).map_err(|error| unavailable(run, &error, context))?;
+    Values::read(SettingsLayer::Run, &nested, context.identity().product)
+        .map_err(|error| unavailable(run, &error, context))
 }
 
 /// Checks the Session source a Session of `run` opens from: `own`, the

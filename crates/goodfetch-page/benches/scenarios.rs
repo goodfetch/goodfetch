@@ -25,14 +25,18 @@ mod check;
     dead_code,
     reason = "no route of the scenario answers, so no override is merged"
 )]
-mod steps;
+pub(crate) mod steps;
 #[path = "../src/driver/world.rs"]
 mod world;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_cdp::{Connection, Framer};
+use goodfetch_clean_up_rules::matching::Choices;
+use goodfetch_clean_up_rules::never_block::NeverBlock;
+use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::egress::Policy;
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_test_support::runtime;
@@ -128,23 +132,38 @@ const ROUTES: [&str; 8] = [
     "**/ads/**",
 ];
 
-/// The `index`th request the browser end pauses: a page's documents, every
-/// tenth to a host the policy does not list.
+/// The `index`th request the browser end pauses, as a page's requests
+/// mix: of every ten, one document to a host the policy does not list,
+/// two of the site's documents, a tracker script and an ad image the
+/// embedded Filter lists block, and the site's own scripts, style sheets
+/// and images, which go on.
 fn paused(index: usize) -> Vec<u8> {
-    let host = if index.is_multiple_of(10) {
-        "tracker.example.test".to_owned()
-    } else {
-        format!("site-{}.example.test", index % 100)
+    let site = format!("site-{}.example.test", index % 100);
+    let (url, resource_type) = match index % 10 {
+        0 => (
+            format!("https://tracker.example.test/shelf/{index}/items?page=2"),
+            "Document",
+        ),
+        1 | 2 => (
+            format!("https://{site}/shelf/{index}/items?page=2"),
+            "Document",
+        ),
+        3 => (format!("https://{site}/js/adobe-analytics.js"), "Script"),
+        4 => (format!("https://{site}/img/top-ad-sidebar.gif"), "Image"),
+        5 | 6 => (format!("https://{site}/static/{index}/app.js"), "Script"),
+        7 => (format!("https://{site}/static/site.css"), "Stylesheet"),
+        _ => (format!("https://{site}/media/{index}/photo.avif"), "Image"),
     };
     let mut bytes = serde_json::to_vec(&json!({
         "method": "Fetch.requestPaused",
         "params": {
             "requestId": format!("interception-job-{index}.0"),
             "request": {
-                "url": format!("https://{host}/shelf/{index}/items?page=2"),
+                "url": url,
                 "method": "GET",
                 "headers": {
                     "Accept": "text/html,application/xhtml+xml",
+                    "Referer": format!("https://{site}/"),
                     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/156.0.0.0",
                     "Upgrade-Insecure-Requests": "1",
                 },
@@ -152,7 +171,7 @@ fn paused(index: usize) -> Vec<u8> {
                 "referrerPolicy": "strict-origin-when-cross-origin",
             },
             "frameId": "8D5B4C2A9E1F",
-            "resourceType": "Document",
+            "resourceType": resource_type,
         },
     }))
     .expect("invariant: an event encodes");
@@ -209,9 +228,27 @@ async fn sent<C: goodfetch_cdp::Command>(connection: &Connection, command: &C) {
         .expect("invariant: the browser end answers every command");
 }
 
-/// `count` paused requests through the pipeline; returns how many it sent
-/// on.
-pub(crate) fn intercept(count: usize) -> usize {
+/// The interception scenario's step 4, its setup, outside the measured
+/// work: the embedded Filter lists loaded once and every list on, as by
+/// default, with nothing in `browser.block_resources`.
+pub(crate) fn filter_lists(count: usize) -> (usize, steps::Blocking) {
+    let lists = FilterLists::embedded().expect("invariant: the embedded Filter lists load");
+    let blocking = steps::Blocking {
+        never_block: Arc::new(NeverBlock::new()),
+        lists: Some(Arc::new(lists)),
+        choices: Choices {
+            ads: true,
+            trackers: true,
+            annoyances: true,
+            ..Choices::default()
+        },
+    };
+    (count, blocking)
+}
+
+/// `count` paused requests through the pipeline under `blocking`'s step
+/// 4; returns how many it sent on.
+pub(crate) fn intercept(count: usize, blocking: &steps::Blocking) -> usize {
     let routes: Vec<UrlPattern> = ROUTES
         .iter()
         .map(|glob| UrlPattern::glob(glob).expect("invariant: the globs read"))
@@ -240,17 +277,35 @@ pub(crate) fn intercept(count: usize) -> usize {
                         continue;
                     }
                     let overrides = steps::Overrides::default();
-                    if let Ok(command) =
-                        steps::send_on(&paused.request_id, url, &overrides, &policy, false)
-                    {
-                        sent(&connection, &command).await;
-                        sent_on += 1;
-                    } else {
-                        let failed = fetch::FailRequestParams {
-                            request_id: paused.request_id.clone(),
-                            error_reason: network::ErrorReason::BlockedByClient,
-                        };
-                        sent(&connection, &failed).await;
+                    let source = paused
+                        .request
+                        .headers
+                        .get("Referer")
+                        .and_then(Value::as_str)
+                        .unwrap_or(url);
+                    let request = steps::Paused {
+                        id: &paused.request_id,
+                        url,
+                        method: &paused.request.method,
+                        overrides: &overrides,
+                        kind: steps::kind(paused.resource_type, true),
+                        source_url: source,
+                    };
+                    match steps::send_on(&request, &policy, blocking, false) {
+                        Ok(steps::Sent::Continue(command)) => {
+                            sent(&connection, &command).await;
+                            sent_on += 1;
+                        }
+                        Ok(steps::Sent::StandIn(stand_in)) => {
+                            sent(&connection, &stand_in).await;
+                        }
+                        Err(_) => {
+                            let failed = fetch::FailRequestParams {
+                                request_id: paused.request_id.clone(),
+                                error_reason: network::ErrorReason::BlockedByClient,
+                            };
+                            sent(&connection, &failed).await;
+                        }
                     }
                 }
                 drop(connection);

@@ -352,6 +352,14 @@
     "CertificatePin": {
       "description": "One pin of the known-certificates store, as `certs.list` answers it and\nas the store's rows hold it: a host whose certificate was accepted on\nfirst use, and the key it must keep presenting.",
       "properties": {
+        "changed_spki_sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the key the host presented instead, which stopped it\nwith `certificate_changed`, as `sha256/` and its standard base64: the\nkey `certs.accept` pins in its place. None while no change waits.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "host": {
           "arrived_in": "0.1",
           "description": "The host, as the URL parser leaves it.",
@@ -392,6 +400,70 @@
       },
       "required": [
         "host"
+      ],
+      "type": "object"
+    },
+    "CertsAcceptParams": {
+      "additionalProperties": false,
+      "description": "What `certs.accept` takes: the host, and the changed key the person\naccepts, as `certs.list` shows it.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The pinned host, as the URL parser leaves it.",
+          "type": "string"
+        },
+        "spki_sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the changed key, as `sha256/` and its standard base64.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "spki_sha256"
+      ],
+      "type": "object"
+    },
+    "CertsForgetParams": {
+      "additionalProperties": false,
+      "description": "What `certs.forget` takes: the host.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The pinned host, as the URL parser leaves it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host"
+      ],
+      "type": "object"
+    },
+    "CertsForgotten": {
+      "description": "What `certs.forget` answers.",
+      "properties": {
+        "forgotten": {
+          "arrived_in": "0.1",
+          "description": "Whether the caller had a pin for it, now removed.",
+          "type": "boolean"
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The host.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "forgotten"
       ],
       "type": "object"
     },
@@ -1902,7 +1974,7 @@
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "The Session's own settings, nested by key; `session.source` is\nrefused here with `setting_not_applicable`, as the call's own\n`source` sets it.",
+          "description": "The Session's own settings, nested by key: `filter_lists.ads`,\n`.trackers`, `.annoyances`, `.first_party_scripts` and\n`browser.block_resources` choose its pages' Clean-up rules over the\nRun's. `session.source` is refused here with `setting_not_applicable`,\nas the call's own `source` sets it, and so is any other key, which\nonly the Run sets.",
           "type": "object"
         },
         "source": {
@@ -5058,6 +5130,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt or the Console, which no agent, Recipe or `--json` command can do.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "certificate_changed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A host's certificate failed verification and no exception covers its domain, so nothing was sent to it. The details name the host, the failure (`expired`, `not_yet_valid`, `unknown_issuer`, `name_mismatch`, `self_signed`, `revoked`, or another failure as text) and, in `fix`, the setting that makes an exception for that domain.",
       "exit_code": null,
       "group": "page",
@@ -6110,6 +6192,44 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Pins the changed key that stopped a host with `certificate_changed` in place of its pin, in the caller's partition, and records the accepted change in the Audit log; answers the new pin. Refused unless the key is the change the store holds for the host. A person's answer: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "certs.accept",
+      "params": {
+        "$ref": "#/$defs/CertsAcceptParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/CertificatePin"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Removes the caller's pin of a host, and any change waiting for it, so its next connection under trust on first use pins again; nothing else removes a pin. A person's answer: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "certs.forget",
+      "params": {
+        "$ref": "#/$defs/CertsForgetParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/CertsForgotten"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "read",
       "deprecated": null,
       "description": "Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key.",
@@ -7106,6 +7226,31 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": [],
+      "description": "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
+      "name": "browser.block_resources",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "enum": [
+            "image",
+            "media",
+            "font",
+            "stylesheet"
+          ]
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": true,
       "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
       "name": "browser.headless",
@@ -7383,6 +7528,40 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": true,
+      "description": "Whether a browser Session blocks ads by EasyList, as a blocker does: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+      "name": "filter_lists.ads",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether a browser Session blocks page annoyances (social widgets, newsletter and notification prompts) by Fanboy Annoyance, its cookie sections left to the Consent prompt runner: on by default in every Access mode.",
+      "name": "filter_lists.annoyances",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": [],
       "description": "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
       "name": "filter_lists.extra",
@@ -7396,6 +7575,57 @@
           "type": "string"
         },
         "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Whether a site's own scripts load whatever the Filter lists say: off by default.",
+      "name": "filter_lists.first_party_scripts",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
+      "name": "filter_lists.page_scriptlets",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+      "name": "filter_lists.trackers",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
       },
       "weakens": false
     },
@@ -8609,6 +8839,13 @@
       "arrived_in": "0.1",
       "description": "The baseline a comparison needs was unavailable.",
       "name": "baseline_unavailable",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's `browser.block_resources` blocks loads a site can see missing, which few people block.",
+      "name": "block_resources_visible",
       "product": "collie",
       "type": "run_warning_code"
     },

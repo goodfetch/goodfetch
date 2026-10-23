@@ -11,6 +11,8 @@ use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Instrument, Metric,
     MetricLabel, ProtocolVersion, Setting, Stability, ValueKind, schema_of,
 };
+use crate::page::PageId;
+use crate::settings::SettingLimit;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -326,6 +328,22 @@ pub const PAGE_MEMORY_EXCEEDED: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// What `page_memory_exceeded` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PageMemoryExceededDetails {
+    /// The page the governor ended.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub page_id: PageId,
+    /// What it held when measured, in bytes: its JavaScript heap and the
+    /// buffers it held.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub memory: u64,
+    /// `governor.browser.page_memory_cap`, with its value and layer (ADR
+    /// 0079).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: SettingLimit,
+}
 
 /// How loaded the engine is, as its governor judges it.
 #[derive(

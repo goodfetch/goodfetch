@@ -4757,6 +4757,17 @@
       ]
     },
     {
+      "id": "setting:consent.handling",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:console.address",
       "kind": "setting",
       "area": 12,

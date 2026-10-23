@@ -9,6 +9,7 @@
 //! interfaces without reaching its internals (STYLE.md, reason 2); it never
 //! names a Foxhound type.
 
+mod consent;
 mod driver;
 mod errors;
 mod guard;

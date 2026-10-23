@@ -9,9 +9,7 @@ set = "clean-up-rules"
 # EasyList, EasyPrivacy and Fanboy Annoyance are `rules/easylist.txt`,
 # `rules/easyprivacy.txt` and `rules/fanboy-annoyance.txt`, each assembled
 # from its template at the pinned commit by expanding every `%include%`
-# line, Fanboy Annoyance's `easylist_cookie/` includes left out (ADR 0047);
-# the build drops the consent-vendor entries `rules/consent-held-back.txt`
-# names. Their licence is GPLv3+ or CC BY-SA 3.0+, credited to "The
+# line, Fanboy Annoyance's `easylist_cookie/` includes left out (ADR 0047). Their licence is GPLv3+ or CC BY-SA 3.0+, credited to "The
 # EasyList authors" (https://easylist.to/pages/licence.html); the compiled
 # form is an adaptation under CC BY-SA.
 
@@ -51,4 +49,17 @@ name = "DuckDuckGo's tracker surrogates"
 version = "2575c6e058fb02420399fe459418319af2fb93a7"
 license = "Apache-2.0 AND MPL-2.0"
 source = "https://github.com/duckduckgo/tracker-surrogates/tree/2575c6e058fb02420399fe459418319af2fb93a7/surrogates"
+use = "unmodified"
+
+# `consent/autoconsent/`: autoconsent's CommonJS library and heuristics
+# (`dist/autoconsent.cjs.js`, `dist/heuristics.cjs.js`), its compact rules
+# (`rules/compact-rules.json`) and its LICENSE, unmodified from the npm
+# package (integrity sha512-nxPJ53k7PsgtZndm+vGAxkfGCXPXTDJZOWzsUdJDhebKWtTAjAFlS1nVmp0x5p5XuO730/6Vy+uVyxVcpmzWdQ==,
+# commit 39dba9ea267ce98037a4cec7fea38abfc50b3d3d); the build bundles them with
+# Goodfetch's own runner and snippet table (ADR 0048).
+[[input]]
+name = "autoconsent"
+version = "16.52.0"
+license = "MPL-2.0"
+source = "https://registry.npmjs.org/@duckduckgo/autoconsent/-/autoconsent-16.52.0.tgz"
 use = "unmodified"

@@ -69,6 +69,7 @@ pub(crate) use self::lifecycle::PageEvent;
 use self::lifecycle::{
     Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
 };
+use crate::consent::Consent;
 use crate::driver::PageDriver;
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
@@ -110,6 +111,8 @@ pub(crate) struct Sessions {
     state: Arc<Mutex<State>>,
     pins: Vec<PinnedArtifact>,
     interception: Interception,
+    /// The Consent prompt runner every page starts.
+    consent: Consent,
     hiding: Hiding,
     /// Each open page's events, which calls reach as they arrive.
     events: page_events::Table,
@@ -218,6 +221,7 @@ impl Sessions {
             state: Arc::new(Mutex::new(State::default())),
             pins,
             interception,
+            consent: Consent::default(),
             hiding: Hiding::default(),
             events,
         }
@@ -375,6 +379,12 @@ impl Sessions {
                 return Err(error);
             }
         };
+        if let Err(error) = self.consent.start(&page, &driver, &run).await {
+            self.events.close(std::slice::from_ref(&page));
+            self.interception
+                .close(std::slice::from_ref(&page), session);
+            return Err(error);
+        }
         let mut state = self.state.lock().await;
         if !state.sessions.contains_key(session) {
             drop(state);

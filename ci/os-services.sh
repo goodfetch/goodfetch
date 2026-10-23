@@ -45,7 +45,10 @@
 #     later), ci/apparmor/goodfetch-test-unshare gives them to that copy
 #     only, as Chromium's docs do for Chrome (ADR 0049): no sysctl changes,
 #     and /usr/bin/unshare stays restricted. The setup fails unless the copy
-#     maps this user to root in a user namespace of its own.
+#     maps this user to root in a user namespace of its own. Where it
+#     restricts them, ci/apparmor/goodfetch-chrome-for-testing gives them
+#     to the pinned Chrome for Testing build too, whose sandbox needs them:
+#     without it, every browser a test launched aborted at its start.
 #   - Linux also: systemd's user manager, which `daemon install`'s tests
 #     register services with for real in the Pre-merge suite (spec #213). A
 #     host booted with systemd keeps the user's manager running through
@@ -82,17 +85,20 @@ as_root() {
 # name the same path.
 TEST_UNSHARE=/usr/local/libexec/goodfetch-test-tools/unshare
 
-# Installs the tests' `unshare`, with its AppArmor profile where AppArmor
-# restricts unprivileged user namespaces, and checks that it maps this user
-# to root in a user namespace of its own.
+# Installs the tests' `unshare`, with its AppArmor profile and Chrome for
+# Testing's where AppArmor restricts unprivileged user namespaces, and checks
+# that it maps this user to root in a user namespace of its own.
 setup_user_namespaces() {
   local parser restricted=/proc/sys/kernel/apparmor_restrict_unprivileged_userns refused
   as_root install -d -m 0755 "$(dirname "$TEST_UNSHARE")"
   as_root install -m 0755 "$(command -v unshare)" "$TEST_UNSHARE"
   parser=$(PATH="$PATH:/usr/sbin:/sbin" command -v apparmor_parser || true)
   if [[ "$(cat "$restricted" 2>/dev/null)" == 1 && -n "$parser" ]]; then
-    as_root install -m 0644 "$root/ci/apparmor/goodfetch-test-unshare" /etc/apparmor.d/goodfetch-test-unshare
-    as_root "$parser" --replace /etc/apparmor.d/goodfetch-test-unshare
+    local profile
+    for profile in goodfetch-test-unshare goodfetch-chrome-for-testing; do
+      as_root install -m 0644 "$root/ci/apparmor/$profile" "/etc/apparmor.d/$profile"
+      as_root "$parser" --replace "/etc/apparmor.d/$profile"
+    done
   fi
   if ! refused=$("$TEST_UNSHARE" --user --map-root-user true 2>&1); then
     echo "error: $TEST_UNSHARE cannot map $(id -un) to root in a user namespace ($refused); where AppArmor restricts unprivileged user namespaces, ci/apparmor/goodfetch-test-unshare gives them to it, which needs apparmor_parser" >&2

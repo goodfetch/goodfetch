@@ -315,12 +315,11 @@ impl Reader {
     ) {
         let kind = match opening.r#type {
             page::DialogType::Alert => DialogType::Alert,
-            page::DialogType::Confirm => DialogType::Confirm,
             page::DialogType::Prompt => DialogType::Prompt,
             page::DialogType::Beforeunload => DialogType::BeforeUnload,
-            // A kind this protocol revision did not list: answered with
+            // A kind this protocol revision did not list is answered with
             // the default of a dialog that asks the program something.
-            page::DialogType::Unlisted => DialogType::Confirm,
+            page::DialogType::Confirm | page::DialogType::Unlisted => DialogType::Confirm,
         };
         let dialog = Dialog {
             kind,

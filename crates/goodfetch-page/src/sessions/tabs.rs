@@ -13,7 +13,6 @@
 //! a page the program opens does, paused in the browser meanwhile.
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 use goodfetch_cdp::generated::target;
 use goodfetch_engine::events::Events;
@@ -52,13 +51,43 @@ pub(super) struct Adopting {
     pub(super) observer: Option<Arc<dyn ResponseObserver>>,
 }
 
+/// How many calls listen to a Session's `page` event.
+#[derive(Default)]
+pub(super) struct PageListeners(
+    #[expect(
+        clippy::disallowed_types,
+        reason = "one counter read and changed alone, never with a lock or across an `.await`, so there is no interleaving to test under loom (ADR 0060)"
+    )]
+    std::sync::atomic::AtomicUsize,
+);
+
+impl PageListeners {
+    /// Whether any call listens.
+    fn any(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Relaxed) > 0
+    }
+}
+
 /// The guard that counts one listener of a Session's `page` event while it
 /// lives.
 struct Listening(Arc<Session>);
 
+impl Listening {
+    fn new(session: Arc<Session>) -> Self {
+        session
+            .page_listeners
+            .0
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self(session)
+    }
+}
+
 impl Drop for Listening {
     fn drop(&mut self) {
-        self.0.page_listeners.fetch_sub(1, Ordering::Relaxed);
+        self.0
+            .page_listeners
+            .0
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -155,7 +184,7 @@ impl Sessions {
         state.pages.insert(page.clone(), opened.clone());
         drop(state);
         self.watch(page.clone(), opened, Arc::clone(&open), browser);
-        if open.page_listeners.load(Ordering::Relaxed) > 0 {
+        if open.page_listeners.any() {
             stream
                 .publish(
                     &SESSION_PAGE,
@@ -258,7 +287,7 @@ impl Sessions {
             .filter(|(_, page)| &page.session == session)
             .map(|(page_id, _)| page_id.clone())
             .collect();
-        pages.sort_by_key(|page| opening_number(page));
+        pages.sort_by_key(opening_number);
         Ok(SessionPages { pages })
     }
 
@@ -270,8 +299,7 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<SessionOnEnded, CallError> {
         let open = self.session(session, context).await?;
-        open.page_listeners.fetch_add(1, Ordering::Relaxed);
-        let listening = Listening(Arc::clone(&open));
+        let listening = Listening::new(Arc::clone(&open));
         tokio::select! {
             () = open.life.ended() => {}
             () = open.run.cancellation().cancelled() => {}

@@ -532,9 +532,9 @@ fn a_popup_takes_its_openers_gate_and_lease_check() {
             assert!(clicked.get("result").is_some(), "{clicked}");
         })
         .await;
-        let opener = program.page.clone();
+        let opener_page = program.page.clone();
         program
-            .until_event("page.popup", |popup| popup["page_id"] == json!(opener))
+            .until_event("page.popup", |popup| popup["page_id"] == json!(opener_page))
             .await;
         let popup = program.events("page.popup")[0]["popup"]["page_id"].clone();
 

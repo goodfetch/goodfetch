@@ -47,17 +47,20 @@ use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::events::{
-    BODY_UNAVAILABLE, BodyUnavailableDetails, ConsoleLocation, ConsoleMessage, PAGE_CONSOLE,
-    PAGE_DOM_CONTENT_LOADED, PAGE_LOAD, PAGE_PAGE_ERROR, PAGE_REQUEST, PAGE_REQUEST_FAILED,
-    PAGE_REQUEST_FINISHED, PAGE_RESPONSE, PAGE_WEB_SOCKET, PageEventName, PageExchange, PageFired,
-    PageRequest, PageWebSocket, RequestFailure, WEB_SOCKET_CLOSE, WEB_SOCKET_FRAME_RECEIVED,
-    WEB_SOCKET_FRAME_SENT, WebError, WebSocketClosed, WebSocketFrame,
+    BODY_UNAVAILABLE, BodyUnavailableDetails, PAGE_CONSOLE, PAGE_DOM_CONTENT_LOADED, PAGE_LOAD,
+    PAGE_PAGE_ERROR, PAGE_REQUEST, PAGE_REQUEST_FAILED, PAGE_REQUEST_FINISHED, PAGE_RESPONSE,
+    PAGE_WEB_SOCKET, PageEventName, PageExchange, PageFired, PageRequest, PageWebSocket,
+    RequestFailure, WEB_SOCKET_CLOSE, WEB_SOCKET_FRAME_RECEIVED, WEB_SOCKET_FRAME_SENT,
+    WebSocketClosed, WebSocketFrame,
 };
 use goodfetch_protocol::page::{
     BodyHandle, PageId, PageResponse, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
 };
 use tokio::sync::{Notify, oneshot, watch};
 
+mod runtime_values;
+
+use self::runtime_values::{console_message, web_error};
 use crate::driver::{PageDriver, response_of};
 use crate::url_pattern::UrlPattern;
 
@@ -924,93 +927,5 @@ fn frame_of(
             reason = "the browser gives an opcode, a small integer, as a JSON number"
         )]
         binary: frame.opcode == 2.0,
-    }
-}
-
-/// A console call as Playwright's `ConsoleMessage`.
-fn console_message(page_id: &PageId, called: &runtime::ConsoleAPICalledEvent) -> ConsoleMessage {
-    let kind = serde_json::to_value(called.r#type)
-        .ok()
-        .and_then(|name| name.as_str().map(str::to_owned))
-        .unwrap_or_else(|| "log".to_owned());
-    let text = called
-        .args
-        .iter()
-        .map(described)
-        .collect::<Vec<_>>()
-        .join(" ");
-    let location = called
-        .stack_trace
-        .as_ref()
-        .and_then(|stack| stack.call_frames.first())
-        .map_or_else(
-            || ConsoleLocation {
-                url: String::new(),
-                line_number: 0,
-                column_number: 0,
-            },
-            |frame| ConsoleLocation {
-                url: frame.url.clone(),
-                line_number: u64::try_from(frame.line_number).unwrap_or_default(),
-                column_number: u64::try_from(frame.column_number).unwrap_or_default(),
-            },
-        );
-    ConsoleMessage {
-        page_id: page_id.clone(),
-        kind,
-        text,
-        location,
-    }
-}
-
-/// An argument of a console call as its text: a primitive's value, any
-/// other value as the browser describes it.
-fn described(argument: &runtime::RemoteObject) -> String {
-    match &argument.value {
-        Some(serde_json::Value::String(text)) => text.clone(),
-        Some(value) if !value.is_object() && !value.is_array() => value.to_string(),
-        _ => argument
-            .unserializable_value
-            .clone()
-            .or_else(|| argument.description.clone())
-            .unwrap_or_else(|| {
-                serde_json::to_value(argument.r#type)
-                    .ok()
-                    .and_then(|kind| kind.as_str().map(str::to_owned))
-                    .unwrap_or_default()
-            }),
-    }
-}
-
-/// An uncaught exception as Playwright's `WebError`: an error's name and
-/// message from its description's first line, a thrown value that is no
-/// error as `Error` with its value as the message.
-fn web_error(page_id: &PageId, details: &runtime::ExceptionDetails) -> WebError {
-    let thrown = details.exception.as_ref();
-    let is_error =
-        thrown.is_some_and(|thrown| thrown.subtype == Some(runtime::RemoteObjectSubtype::Error));
-    let description = thrown.and_then(|thrown| thrown.description.clone());
-    if is_error && let Some(description) = description {
-        let name = thrown
-            .and_then(|thrown| thrown.class_name.clone())
-            .unwrap_or_else(|| "Error".to_owned());
-        let first = description.lines().next().unwrap_or_default();
-        let message = first
-            .strip_prefix(&format!("{name}: "))
-            .or_else(|| (first == name).then_some(""))
-            .unwrap_or(first)
-            .to_owned();
-        return WebError {
-            page_id: page_id.clone(),
-            name,
-            message,
-            stack: Some(description),
-        };
-    }
-    WebError {
-        page_id: page_id.clone(),
-        name: "Error".to_owned(),
-        message: thrown.map_or_else(|| details.text.clone(), described),
-        stack: None,
     }
 }

@@ -169,7 +169,7 @@ struct Session {
     /// Its one proxy, if it has one.
     proxy: Option<Arc<SessionProxy>>,
     /// How many calls listen to its `page` event.
-    page_listeners: std::sync::atomic::AtomicUsize,
+    page_listeners: tabs::PageListeners,
 }
 
 /// What every Session this engine opens is: a fresh one a program opened,
@@ -284,7 +284,7 @@ impl Sessions {
             settings: settings.clone(),
             life: life.clone(),
             proxy,
-            page_listeners: std::sync::atomic::AtomicUsize::new(0),
+            page_listeners: tabs::PageListeners::default(),
         });
         self.state
             .lock()
@@ -353,7 +353,7 @@ impl Sessions {
                             settings: Values::default(),
                             life: SessionLife::new(session.clone(), FRESH, SessionState::Open),
                             proxy,
-                            page_listeners: std::sync::atomic::AtomicUsize::new(0),
+                            page_listeners: tabs::PageListeners::default(),
                         }),
                     );
                     self.interception.open_session(&session);
@@ -678,7 +678,7 @@ impl Sessions {
                             settings,
                             life: SessionLife::new(session, FRESH, SessionState::Open),
                             proxy,
-                            page_listeners: std::sync::atomic::AtomicUsize::new(0),
+                            page_listeners: tabs::PageListeners::default(),
                         }),
                     );
                 }

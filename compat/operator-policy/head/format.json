@@ -657,6 +657,28 @@
                 "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
                 "type": "string"
               },
+              "content_address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the Daemon serves the Console's content origin, which shows scraped HTML, screenshots, DOM snapshots and page bodies, as `host:port`. None by default: the Console's host on a free port, or, when `console.content_public_url` is set, the Console's own listener, which tells the two origins apart by the `Host` each request names. Set in user configuration or an Operator policy only."
+              },
+              "content_public_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only."
+              },
               "sign_in": {
                 "additionalProperties": false,
                 "properties": {
@@ -1531,6 +1553,28 @@
               "address": {
                 "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
                 "type": "string"
+              },
+              "content_address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the Daemon serves the Console's content origin, which shows scraped HTML, screenshots, DOM snapshots and page bodies, as `host:port`. None by default: the Console's host on a free port, or, when `console.content_public_url` is set, the Console's own listener, which tells the two origins apart by the `Host` each request names. Set in user configuration or an Operator policy only."
+              },
+              "content_public_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only."
               },
               "sign_in": {
                 "additionalProperties": false,

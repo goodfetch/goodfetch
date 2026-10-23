@@ -975,6 +975,17 @@
       ]
     },
     {
+      "id": "error:internal",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:lease_lost",
       "kind": "error",
       "area": 3,
@@ -1500,7 +1511,29 @@
       ]
     },
     {
+      "id": "event:page.close",
+      "kind": "event",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "event:page.console",
+      "kind": "event",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "event:page.crash",
       "kind": "event",
       "area": 5,
       "milestone": null,

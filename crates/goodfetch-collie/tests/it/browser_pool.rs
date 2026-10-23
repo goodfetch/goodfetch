@@ -101,8 +101,10 @@ fn is_dump(file: &std::path::Path) -> bool {
 
 /// A renderer of a browser the pool launched, crashed on purpose through
 /// Chromium's own `chrome://crash`, writes its dump into the folder the
-/// test's environment names, where teardown would fail the test (#373).
-/// Covers: operation:page.goto
+/// test's environment names, where teardown would fail the test (#373),
+/// and the navigation it crashed under raises `page_crashed` (spec #594's
+/// P10), not the `navigation_failed` of the load the browser abandoned.
+/// Covers: operation:page.goto, story:5-27
 #[cfg(unix)]
 #[test]
 fn a_crashed_renderer_of_a_pooled_browser_writes_its_dump_in_the_tests_crash_dump_folder() {
@@ -117,7 +119,7 @@ fn a_crashed_renderer_of_a_pooled_browser_writes_its_dump_in_the_tests_crash_dum
         &json!({ "run_id": "crash" }),
     ));
 
-    let _ = call(
+    let crashed = call(
         &mut engine,
         3,
         "page.goto",
@@ -132,9 +134,12 @@ fn a_crashed_renderer_of_a_pooled_browser_writes_its_dump_in_the_tests_crash_dum
     }
 
     assert_eq!(
-        dumps.iter().filter(|file| is_dump(file)).count(),
-        1,
-        "{dumps:?}"
+        (
+            dumps.iter().filter(|file| is_dump(file)).count(),
+            crashed["error"]["data"]["code"].clone()
+        ),
+        (1, json!("page_crashed")),
+        "{dumps:?} {crashed}"
     );
 }
 
@@ -342,6 +347,40 @@ fn an_idle_browser_closes_and_the_next_session_gets_a_new_one() {
         ((stored, stored_again), (while_open, once_idle, relaunched)),
         ((json!(200), json!(200)), (1, 0, 1))
     );
+}
+
+/// A browser is not idle while a Session is seated in it or opens a page
+/// there: with `governor.browser.recycle_idle` shorter than any launch,
+/// each Session still gets its page instead of a browser recycled before
+/// the page opens, again and again.
+/// Covers: story:3-62, setting:governor.browser.recycle_idle, operation:session.new_page
+#[cfg(unix)]
+#[test]
+fn a_browser_launching_for_a_session_is_not_idle_before_its_page_opens() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "launching",
+        &pool(json!({ "recycle_idle": 1 })),
+        |_| {},
+    );
+
+    let session = new_session(&mut engine, 2, "launching");
+    let page = page_in(&mut engine, 3, &session);
+    let stored = store(&mut engine, 4, &proving_ground, &page, "launching");
+    let _ = call(
+        &mut engine,
+        5,
+        "run.finish",
+        &json!({ "run_id": "launching" }),
+    );
+    let _ = engine.finish();
+
+    assert_eq!(stored, json!(200));
 }
 
 /// The identity seed of each Session the Run's run state keeps, by its

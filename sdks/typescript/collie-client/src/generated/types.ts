@@ -441,7 +441,9 @@ export type PageEventName =
   | "response"
   | "web_socket"
   | "load"
-  | "dom_content_loaded";
+  | "dom_content_loaded"
+  | "crash"
+  | "close";
 /**
  * A page of a Run, named by the engine when it opens it.
  *
@@ -538,7 +540,7 @@ export type StopReason =
       /**
        * Who stopped it.
        */
-      by: "client" | "program";
+      by: "client" | "program" | "browser";
       kind: "abort";
     }
   | {
@@ -602,7 +604,7 @@ export type StartedAs = "new" | "existing" | "resumed";
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "StoppedBy".
  */
-export type StoppedBy = "client" | "program";
+export type StoppedBy = "client" | "program" | "browser";
 /**
  * A filesystem's storage level (ADR 0122), from the best to the worst.
  *
@@ -2590,8 +2592,9 @@ export interface PageResponse1 {
   url: string;
 }
 /**
- * What `page.load` and `page.dom_content_loaded` report: the page whose
- * main frame's document fired the event.
+ * What `page.load`, `page.dom_content_loaded`, `page.crash` and
+ * `page.close` report: the page whose main frame's document fired the
+ * event, or that crashed or closed.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "PageFired".
@@ -2655,7 +2658,9 @@ export interface PageOnParams {
     | "response"
     | "web_socket"
     | "load"
-    | "dom_content_loaded";
+    | "dom_content_loaded"
+    | "crash"
+    | "close";
   /**
    * The page.
    */
@@ -3279,7 +3284,7 @@ export interface RunAborting {
   /**
    * Who aborts it.
    */
-  by: "client" | "program";
+  by: "client" | "program" | "browser";
   /**
    * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
@@ -3776,7 +3781,7 @@ export interface RunStopping {
         /**
          * Who stopped it.
          */
-        by: "client" | "program";
+        by: "client" | "program" | "browser";
         kind: "abort";
       }
     | {

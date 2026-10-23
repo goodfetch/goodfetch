@@ -11,6 +11,9 @@
 
 use goodfetch_cdp::{Failure, Refusal};
 use goodfetch_engine::CallError;
+use goodfetch_protocol::connection::{
+    CALL_CANCELLED, CallCancelledDetails, ClosedValue, INTERNAL, InternalDetails, StoppedBy,
+};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{
     BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails, NAVIGATION_FAILED,
@@ -110,6 +113,65 @@ pub(crate) fn renderer_crashed() -> CallError {
         &PAGE_CRASHED,
         "the page's renderer crashed",
         &PageCrashedDetails { browser_exit: None },
+    )
+}
+
+/// `page_crashed` for a page whose browser's process exited abnormally,
+/// `exit` saying how when it was seen.
+pub(crate) fn browser_crashed(exit: Option<BrowserExit>) -> CallError {
+    CallError::new(
+        &PAGE_CRASHED,
+        "the page's browser exited abnormally",
+        &PageCrashedDetails {
+            browser_exit: Some(exit.unwrap_or(BrowserExit {
+                code: None,
+                signal: None,
+            })),
+        },
+    )
+}
+
+/// `call_cancelled` for a call in flight that `by` stopped by closing
+/// `closed` under it (ADR 0113).
+pub(crate) fn cancelled(by: StoppedBy, closed: ClosedValue) -> CallError {
+    let message = match (by, closed) {
+        (StoppedBy::Browser, ClosedValue::Page) => {
+            "the page's window was closed in the browser, outside every Client: open a page and act again"
+        }
+        (StoppedBy::Browser, _) => "the page's browser quit, and its Session ended with it",
+        (_, ClosedValue::Session) => "the page's Session was closed while the call was in flight",
+        (_, _) => "the page was closed while the call was in flight",
+    };
+    CallError::new(
+        &CALL_CANCELLED,
+        message,
+        &CallCancelledDetails {
+            by,
+            closed: Some(closed),
+        },
+    )
+}
+
+/// `internal` for an event the table of `object` refused in a state that
+/// cannot receive it, which only a bug causes (ADRs 0079 and 0128): logged
+/// at `error` with the object, the state and the event.
+pub(crate) fn invalid_transition(object: &str, state: &str, event: &str) -> CallError {
+    tracing::error!(
+        object,
+        state,
+        event,
+        "an invalid transition was refused: only a bug in Goodfetch causes it"
+    );
+    CallError::new(
+        &INTERNAL,
+        format!(
+            "the {object}'s table refused the event {event} in the state {state}: a bug in Goodfetch, please report it"
+        ),
+        &InternalDetails {
+            object: object.to_owned(),
+            state: state.to_owned(),
+            event: event.to_owned(),
+        },
     )
 }
 

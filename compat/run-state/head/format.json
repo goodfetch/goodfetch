@@ -563,6 +563,11 @@
             "const": "program",
             "description": "The program, such as through `run.stop` (ADR 0102).",
             "type": "string"
+          },
+          {
+            "const": "browser",
+            "description": "The browser, outside every Client: a page's window closed there, or\nthe browser quit (ADR 0113).",
+            "type": "string"
           }
         ]
       },

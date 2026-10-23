@@ -143,8 +143,12 @@ struct Shared {
     state: Mutex<State>,
     /// Woken whenever a request ends or the page goes.
     changed: Notify,
-    /// Whether the page went, closed or with its Run.
+    /// Whether its target's events ended: the page left, or its browser's
+    /// connection did; its waiters and body reads answer then.
     gone: watch::Sender<bool>,
+    /// Whether the page left the engine, closed or with its Run: its
+    /// listeners' calls answer then, and a crash leaves them listening.
+    closed: watch::Sender<bool>,
 }
 
 #[derive(Default)]
@@ -235,8 +239,8 @@ impl Listening {
                 .opening_command(&runtime::EnableParams {})
                 .await?;
         }
-        let mut gone = self.shared.gone.subscribe();
-        let _ = gone.wait_for(|gone| *gone).await;
+        let mut closed = self.shared.closed.subscribe();
+        let _ = closed.wait_for(|closed| *closed).await;
         Ok(())
     }
 }
@@ -266,6 +270,7 @@ impl PageEvents {
             state: Mutex::new(State::default()),
             changed: Notify::new(),
             gone: watch::Sender::new(false),
+            closed: watch::Sender::new(false),
         });
         run.spawn(read(subscription, Arc::clone(&shared)));
         Self { shared }
@@ -292,10 +297,26 @@ impl PageEvents {
         )
     }
 
+    /// Publishes `event`, the page's `page.crash` or `page.close`, when a
+    /// call listens to `name`.
+    pub(crate) async fn publish_end(&self, name: PageEventName, event: &'static Event) {
+        let listening = lock(&self.shared.state).listening.contains_key(&name);
+        if listening {
+            let fired = PageFired {
+                page_id: self.shared.page_id.clone(),
+            };
+            self.shared
+                .events
+                .publish(event, Some(&self.shared.page_id.0), &fired)
+                .await;
+        }
+    }
+
     /// The page went: every listener's and waiter's call answers.
     pub(crate) fn close(&self) {
         lock(&self.shared.state).waiters.clear();
         self.shared.gone.send_replace(true);
+        self.shared.closed.send_replace(true);
         self.shared.changed.notify_waiters();
     }
 

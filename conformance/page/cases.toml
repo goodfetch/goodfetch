@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702 and #713;
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #713 and #715;
 # spec #580, ticket #783): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "9"
+version = "10"
 
 [[capability]]
 name = "sessions.default"
@@ -234,3 +234,22 @@ name = "clean_up.block_resources"
 [[capability.case]]
 id = "block-resources-blocks-its-kinds-before-every-navigation-and-warns-once"
 covers = ["story:5-96", "setting:browser.block_resources", "error:setting_invalid"]
+
+[[capability]]
+name = "clean_up.hiding"
+
+[[capability.case]]
+id = "hidden-text-is-absent-from-extracted-output-in-shadow-roots-too-and-a-large-removal-is-flagged"
+covers = ["story:5-98", "operation:page.formats"]
+
+[[capability.case]]
+id = "the-hiding-sheet-hides-in-every-frame-and-is-absent-from-document-style-sheets"
+covers = ["story:5-98", "setting:live_view.hiding"]
+
+[[capability.case]]
+id = "a-click-on-a-target-a-hidden-element-covers-lifts-the-rule-for-the-session-and-lands"
+covers = ["story:5-98", "operation:locator.click"]
+
+[[capability.case]]
+id = "live-hiding-off-leaves-the-page-as-served-and-always-hides"
+covers = ["story:5-98", "setting:live_view.hiding"]

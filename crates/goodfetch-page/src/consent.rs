@@ -14,7 +14,11 @@
 //!   check and arm, trusted input at the point in the page's viewport, and
 //!   its disarm, holding the page's pointer so no locator action's gesture
 //!   comes between; for a frame's element, every other frame's hiding is
-//!   lifted for the click, so a hidden owner never swallows it;
+//!   lifted for the click, so a hidden owner never swallows it, and the
+//!   press waits until the pointer, moved there, reaches the element in its
+//!   frame, since the browser sends another process's frame its input by
+//!   where the page last drew it, which the lifting changes only once the
+//!   page drew again;
 //! - runs a snippet the snippet table classes in the main world there,
 //!   through `DOM.resolveNode`, which resolves into the frame's main world,
 //!   and `Runtime.callFunctionOn`;
@@ -61,6 +65,14 @@ const SLICE: Duration = Duration::from_millis(500);
 /// How long past its own wait a frame's guard world may take to answer
 /// before the frame counts as gone.
 const GRACE: Duration = Duration::from_secs(2);
+
+/// The longest a frame's guard world waits for one move of the pointer to
+/// reach a click's target before the engine moves it again.
+const MOVE_WAIT: Duration = Duration::from_millis(100);
+
+/// The watch, in a frame's guard world, of whether the pointer reaches a
+/// click's target there.
+const POINTER: &str = include_str!("consent/pointer.js");
 
 /// The engine's runner bundle, decompressed on the first page that needs
 /// it, through a blocking task of that page's Run (ADR 0060), then shared.
@@ -389,10 +401,17 @@ async fn click(shared: &Shared, frame: &Frame, handle: u64) -> bool {
                     return false;
                 };
                 let lifted = lift(shared, frame).await;
-                let pressed = driver.press(x + dx, y + dy).await;
+                let reached =
+                    chain.is_empty() || reach(shared, &element, (x + dx, y + dy), end).await;
+                let pressed = if reached {
+                    driver.press(x + dx, y + dy).await
+                } else {
+                    Ok(())
+                };
                 // A frame gone with the click never answers the disarm: the
                 // click landed, as when its document went away.
-                let landed = pressed.is_ok()
+                let landed = reached
+                    && pressed.is_ok()
                     && tokio::time::timeout(GRACE, guard::landed_on(driver, &element))
                         .await
                         .unwrap_or(true);
@@ -404,6 +423,43 @@ async fn click(shared: &Shared, frame: &Frame, handle: u64) -> bool {
             }
             Readiness::Waiting => {}
             Readiness::Gone => return false,
+        }
+    }
+}
+
+/// Moves the pointer to (`x`, `y`) of the page's viewport until a move reaches
+/// `element` in its frame, within `end`; whether one did. The browser routes
+/// each move as it would route a press, so a press that follows one goes
+/// where it went.
+async fn reach(
+    shared: &Shared,
+    element: &Element<'_>,
+    (x, y): (f64, f64),
+    end: tokio::time::Instant,
+) -> bool {
+    let driver = &shared.driver;
+    let watch = |wait: Duration| {
+        let argument = json!({
+            "handle": element.handle,
+            "wait": u64::try_from(wait.as_millis()).unwrap_or(u64::MAX),
+        });
+        tokio::time::timeout(
+            wait + GRACE,
+            driver.call_in(element.session, element.context, POINTER, argument),
+        )
+    };
+    if !matches!(watch(Duration::ZERO).await, Ok(Ok(Value::String(seen))) if seen != "gone") {
+        return false;
+    }
+    loop {
+        let remaining = end.saturating_duration_since(shared.clock.now());
+        if remaining.is_zero() || driver.move_pointer(x, y).await.is_err() {
+            return false;
+        }
+        match watch(remaining.min(MOVE_WAIT)).await {
+            Ok(Ok(Value::String(seen))) if seen == "over" => return true,
+            Ok(Ok(Value::String(seen))) if seen != "gone" => {}
+            _ => return false,
         }
     }
 }

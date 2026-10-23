@@ -180,7 +180,7 @@ fn bound() -> Contribution {
                     .write(|connection| {
                         connection
                             .execute(
-                                "INSERT INTO page_sessions (position, is_default, closed) VALUES (1, 1, 0), (2, 0, 1)",
+                                "INSERT INTO page_sessions (position, is_default, closed, identity_seed) VALUES (1, 1, 0, 6178731391398722387), (2, 0, 1, -2937466112876520115)",
                                 [],
                             )
                             .map(drop)

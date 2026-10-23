@@ -6,13 +6,15 @@ guard = ["driver"]
 interception = ["driver", "url_pattern"]
 launch = []
 pages = ["driver", "guard", "interception", "sessions"]
-sessions = ["driver", "interception"]
+pool = ["driver", "trace"]
+sessions = ["driver", "interception", "pool"]
 robots_txt = []
 trace = []
 url_pattern = []
 
 # Which of `driver`'s own modules may import which.
 [submodules.driver]
+carry = ["world"]
 identity = []
 navigation = []
 world = []
@@ -23,6 +25,10 @@ answers = ["steps"]
 pipeline = ["answers", "routes", "steps"]
 routes = []
 steps = []
+
+# Which of `pool`'s own modules may import which.
+[submodules.pool]
+rules = []
 
 # Which of `launch`'s own modules may import which.
 [submodules.launch]

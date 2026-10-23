@@ -1,14 +1,17 @@
 //! The engine's Sessions and their pages (spec #577, ticket #697; ADRs
 //! 0021, 0078, 0092 and 0102). Each Session is its own browser context, with
-//! its own cookies and storage, in the one browser the engine launches for
-//! its Run (ADR 0037 / SA-09, SA-10): the Run's default Session, which its
+//! its own cookies and storage, in a browser of its Run's browser pool
+//! (`pool`; ADR 0037 / SA-09, SA-10): the Run's default Session, which its
 //! first `run.new_page` opens with the Run's settings and every later one
 //! shares, and the Sessions `run.new_session` opens. A Session is `Open`
 //! once opened and `Closed` once `session.close` closed it: its pages and
 //! its context close, its pages' admissions go back to the Resource
 //! governor, and a later call on it or one of its pages raises `closed`,
 //! while closing it again changes nothing. Each page holds one admission of
-//! the governor's `browser_page` kind while it is open (ADR 0040).
+//! the governor's `browser_page` kind while it is open (ADR 0040). Each
+//! Session draws its identity seed from the Run's `Entropy` when it opens,
+//! kept in run state for the Fingerprint method that seeds a browser with
+//! it, so recycling never changes it (ADRs 0040 and 0059).
 //!
 //! The Run's state keeps each Session it opened and whether it is closed, so
 //! a start resuming the Run under its ID, in this engine or another, finds
@@ -16,7 +19,7 @@
 //! Run reopens them from its run state, each making its browser context
 //! again on its next page. A Session's ID names its Run, so a call naming a
 //! Session of a Run this engine has not reached yet reaches it. When the
-//! Run stops, its Sessions, its pages and its browser go with it.
+//! Run stops, its Sessions, its pages and its browsers go with it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -45,16 +48,18 @@ use goodfetch_protocol::settings::{
 use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
 
-use crate::driver::{LocalBrowser, PageDriver, SessionDriver};
+use crate::driver::PageDriver;
 use crate::interception::Interception;
+use crate::pool::{InBrowser, Placement, Pool, Seat};
 
 /// What the page crate adds to every run file: each Session the Run opened,
-/// by its position among them, whether it is the Run's default Session, and
-/// whether it is closed.
+/// by its position among them, whether it is the Run's default Session,
+/// whether it is closed, and its identity seed, its 64 bits as SQLite's
+/// signed integer.
 pub(crate) const TABLES: RunStateTables = RunStateTables {
     name: "page-sessions",
     statements: &[
-        "CREATE TABLE IF NOT EXISTS page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL) STRICT",
+        "CREATE TABLE IF NOT EXISTS page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, identity_seed INTEGER NOT NULL) STRICT",
     ],
 };
 
@@ -88,8 +93,8 @@ struct State {
 
 /// A live Run's Sessions.
 struct RunSessions {
-    /// The browser its Sessions share, launched by the first that needs it.
-    browser: Arc<LocalBrowser>,
+    /// Its browsers, which its Sessions share.
+    pool: Pool,
     /// The highest position a Session of the Run took.
     last: u32,
     /// The position of its default Session, once opened.
@@ -102,7 +107,8 @@ struct RunSessions {
 struct Session {
     run: Run,
     position: u32,
-    driver: SessionDriver<Arc<LocalBrowser>>,
+    /// Its seat in its Run's browser pool.
+    seat: Seat,
 }
 
 /// One open page.
@@ -119,6 +125,8 @@ pub(crate) struct OpenPage {
     /// Its admission of the governor's `browser_page` kind, given back once
     /// the page leaves and no call holds it.
     _admission: Arc<Permit>,
+    /// Its place among its browser's open pages, left at the same moment.
+    _in_browser: Arc<InBrowser>,
 }
 
 /// The ID of the Session at `position` of the Run `run`.
@@ -188,14 +196,13 @@ impl Sessions {
         let run = live(&params.run_id, context).await?;
         own_settings(&params.settings, context)?;
         opening_source(&run, params.source)?;
-        let (position, browser) = {
+        let (position, seat) = {
             let mut state = self.state.lock().await;
             let runs = self.reach(&mut state, &run, context).await?;
             runs.last += 1;
-            (runs.last, Arc::clone(&runs.browser))
+            (runs.last, runs.pool.seat(Placement::Shared))
         };
-        let driver = SessionDriver::new(browser);
-        driver.open().await?;
+        seat.open().await?;
         self.record(&run, position, false, context).await?;
         let session = session_id(run.id(), position);
         self.state.lock().await.sessions.insert(
@@ -203,7 +210,7 @@ impl Sessions {
             Arc::new(Session {
                 run,
                 position,
-                driver,
+                seat,
             }),
         );
         self.interception.open_session(&session);
@@ -240,7 +247,7 @@ impl Sessions {
                     runs.last += 1;
                     runs.default = Some(runs.last);
                     let position = runs.last;
-                    let browser = Arc::clone(&runs.browser);
+                    let seat = runs.pool.seat(Placement::Shared);
                     self.record(&run, position, true, context).await?;
                     let session = session_id(run.id(), position);
                     state.sessions.insert(
@@ -248,7 +255,7 @@ impl Sessions {
                         Arc::new(Session {
                             run: run.clone(),
                             position,
-                            driver: SessionDriver::new(browser),
+                            seat,
                         }),
                     );
                     self.interception.open_session(&session);
@@ -272,7 +279,7 @@ impl Sessions {
         let run = open.run.clone();
         let (navigation_timeout, action_timeout) = timeouts(&run);
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
-        let driver = open.driver.new_page(navigation_timeout).await?;
+        let (driver, in_browser) = open.seat.new_page(navigation_timeout).await?;
         let page = {
             let mut state = self.state.lock().await;
             state.opened_pages += 1;
@@ -297,6 +304,7 @@ impl Sessions {
                 driver,
                 action_timeout,
                 _admission: Arc::new(admission),
+                _in_browser: Arc::new(in_browser),
             },
         );
         Ok(PageOpened {
@@ -343,7 +351,7 @@ impl Sessions {
             pages
         };
         self.interception.close(&pages, session);
-        open.driver.close().await;
+        open.seat.close().await;
         let position = open.position;
         open.run
             .state()
@@ -434,7 +442,7 @@ impl Sessions {
                 })
                 .await
                 .map_err(|error| unavailable(run, &error, context))?;
-            let browser = Arc::new(LocalBrowser::new(
+            let pool = Pool::new(
                 run.clone(),
                 context.runs().home().clone(),
                 Pins {
@@ -444,9 +452,9 @@ impl Sessions {
                     },
                     artifacts: self.pins.clone(),
                 },
-            ));
+            );
             let mut runs = RunSessions {
-                browser: Arc::clone(&browser),
+                pool: pool.clone(),
                 last: 0,
                 default: None,
                 closed: BTreeSet::new(),
@@ -466,7 +474,7 @@ impl Sessions {
                         Arc::new(Session {
                             run: run.clone(),
                             position,
-                            driver: SessionDriver::new(Arc::clone(&browser)),
+                            seat: pool.seat(Placement::Shared),
                         }),
                     );
                 }
@@ -518,7 +526,8 @@ impl Sessions {
         });
     }
 
-    /// Records the Session at `position` of `run` in its run state.
+    /// Records the Session at `position` of `run` in its run state, with
+    /// the identity seed it draws from the Run's `Entropy`.
     async fn record(
         &self,
         run: &Run,
@@ -526,12 +535,13 @@ impl Sessions {
         is_default: bool,
         context: &CallContext,
     ) -> Result<(), CallError> {
+        let seed = i64::from_le_bytes(run.fork_entropy().await.next_u64().to_le_bytes());
         run.state()
             .write(move |connection| {
                 connection
                     .execute(
-                        "INSERT INTO page_sessions (position, is_default, closed) VALUES (?1, ?2, 0)",
-                        rusqlite::params![position, is_default],
+                        "INSERT INTO page_sessions (position, is_default, closed, identity_seed) VALUES (?1, ?2, 0, ?3)",
+                        rusqlite::params![position, is_default, seed],
                     )
                     .map(drop)
             })

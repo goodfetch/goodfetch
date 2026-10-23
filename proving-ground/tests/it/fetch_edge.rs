@@ -412,7 +412,7 @@ fn refresh_stubs_name_their_targets() {
 }
 
 /// The bodies `page.request`'s decoding cases read (ADR 0119): text in
-/// Shift_JIS, labelled so, and JSON after a UTF-8 BOM.
+/// `Shift_JIS`, labelled so, and JSON after a UTF-8 BOM.
 #[test]
 fn a_shift_jis_text_and_a_json_body_after_a_bom_are_served_as_their_bytes() {
     let proving_ground = ProvingGround::start(SEED);

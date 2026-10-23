@@ -20,7 +20,7 @@
 //! - `ipv6.fetch-edge.test` serves the pages on IPv4; the Proving ground's
 //!   IPv6 loopback address on its port drops every connection attempt.
 //! - `/text/shift-jis` and `/json/bom` are the bodies `page.request`'s
-//!   decoding cases read (ADR 0119): text in Shift_JIS, labelled so, and
+//!   decoding cases read (ADR 0119): text in `Shift_JIS`, labelled so, and
 //!   JSON after a UTF-8 BOM.
 
 use std::fmt::Write as _;

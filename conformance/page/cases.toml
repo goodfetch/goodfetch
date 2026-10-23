@@ -336,3 +336,25 @@ name = "page_request"
 [[capability.case]]
 id = "page-request-answers-a-429-as-a-response-and-keeps-its-body"
 covers = ["story:5-44", "operation:page.request", "operation:response.body"]
+
+[[capability]]
+name = "page_request.fetch_edge"
+
+[[capability.case]]
+id = "page-request-follows-its-max-redirects-and-refuses-a-count-above-19"
+covers = ["story:5-45", "operation:page.request", "error:too_many_redirects", "error:setting_invalid"]
+
+[[capability.case]]
+id = "a-page-requests-cut-body-raises-response-truncated"
+covers = ["story:5-45", "operation:page.request", "operation:response.body", "error:response_truncated"]
+
+[[capability]]
+name = "page_request.decoding"
+
+[[capability.case]]
+id = "page-request-keeps-the-bytes-of-a-shift-jis-text-and-of-json-after-a-bom"
+covers = ["story:5-47", "operation:page.request", "operation:response.body"]
+
+[[capability.case]]
+id = "a-page-request-whose-content-coding-fails-to-decode-raises-navigation-failed"
+covers = ["story:5-47", "operation:page.request", "error:navigation_failed"]

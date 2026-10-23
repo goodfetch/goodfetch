@@ -23,18 +23,41 @@ use goodfetch_test_support::TestEnv;
 const TEST_UNSHARE: &str = "/usr/local/libexec/goodfetch-test-tools/unshare";
 
 /// Mounts the tmpfs over the folder `$1` of `$2` bytes, its files copied in
-/// first, then runs the rest of the arguments.
-const MOUNT: &str = "set -e; folder=\"$1\"; size=\"$2\"; shift 2; \
+/// first, keeping its subfolder `$3`, unless empty, on the folder's own
+/// filesystem through a bind mount moved back over it, then runs the rest of
+/// the arguments.
+const MOUNT: &str = "set -e; folder=\"$1\"; size=\"$2\"; kept=\"$3\"; shift 3; \
+    if [ -n \"$kept\" ]; then mkdir -p \"$folder/$kept\" \"$folder.kept\"; \
+    mount --bind \"$folder/$kept\" \"$folder.kept\"; fi; \
     cp -a \"$folder\" \"$folder.seed\"; \
     mount -t tmpfs -o \"size=$size\" tmpfs \"$folder\"; \
     cp -a \"$folder.seed/.\" \"$folder\"; rm -rf \"$folder.seed\"; \
+    if [ -n \"$kept\" ]; then mkdir -p \"$folder/$kept\"; \
+    mount --move \"$folder.kept\" \"$folder/$kept\"; rmdir \"$folder.kept\"; fi; \
     exec \"$@\"";
+
+/// The Goodfetch home's folder of the engine's JSON log, which the test's
+/// teardown copies into its exercise record (TESTING.md, Feature coverage).
+const LOG_FOLDER: &str = "logs";
 
 /// A command that runs `program` with a tmpfs of `size` bytes over
 /// `folder`, which holds what `folder` held, in a user and mount namespace
 /// of its own. It fails the test at once, naming the restriction, when
 /// that `unshare` cannot map the test's user to root.
 pub(crate) fn mounted(env: &TestEnv, folder: &Path, size: u64, program: &str) -> Command {
+    mounted_keeping(env, folder, size, program, "")
+}
+
+/// A command that runs `program` with a tmpfs of `size` bytes over the
+/// test's Goodfetch home, as [`mounted`] does, but its `logs` folder kept on
+/// the test's own disk: the engine's JSON log outlives the tmpfs and is never
+/// refused by the full filesystem, so the test's exercise record shows what
+/// the engine dispatched (ADR 0072).
+pub(crate) fn mounted_home(env: &TestEnv, size: u64, program: &str) -> Command {
+    mounted_keeping(env, env.home(), size, program, LOG_FOLDER)
+}
+
+fn mounted_keeping(env: &TestEnv, folder: &Path, size: u64, program: &str, kept: &str) -> Command {
     let unshare = if Path::new(TEST_UNSHARE).exists() {
         TEST_UNSHARE
     } else {
@@ -67,6 +90,7 @@ pub(crate) fn mounted(env: &TestEnv, folder: &Path, size: u64, program: &str) ->
         ])
         .arg(folder)
         .arg(size.to_string())
+        .arg(kept)
         .arg(program);
     command
 }

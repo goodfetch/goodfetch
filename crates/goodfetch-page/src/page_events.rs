@@ -611,10 +611,10 @@ fn failed_request(
     let Some(tracked) = state.requests.get_mut(&failed.request_id) else {
         return;
     };
-    tracked.ended = Some(Ended::Failed(failed.error_text.clone()));
+    tracked.ended = Some(Ended::Failed(error_text(&failed.error_text).to_owned()));
     let mut request = tracked.request.clone();
     request.failure = Some(RequestFailure {
-        error_text: failed.error_text.clone(),
+        error_text: error_text(&failed.error_text).to_owned(),
         error: refusal.as_ref().map(|(error, _)| error.clone()),
     });
     if let Some((_, true)) = refusal {
@@ -633,6 +633,17 @@ fn failed_request(
         &request,
     );
 }
+
+/// A failed request's network error as the page would see it: the
+/// browser marks a request its debugging client failed with a suffix,
+/// `net::ERR_BLOCKED_BY_CLIENT.Inspector` for the interception's block,
+/// which no blocker in a person's browser gives.
+fn error_text(error: &str) -> &str {
+    error.strip_suffix(INSPECTOR).unwrap_or(error)
+}
+
+/// The suffix of a network error the browser's debugging client caused.
+const INSPECTOR: &str = ".Inspector";
 
 /// The events of WebSockets, of the main frame's document and of the
 /// `Runtime` domain.

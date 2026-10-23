@@ -56,6 +56,15 @@ impl<'env> Exchange<'env> {
     /// Takes in one message: the events of a batch, or else the message.
     fn read(&mut self) -> Option<Value> {
         let message = self.engine.next().expect("the engine answered");
+        if message["method"] == json!("route.handle") {
+            // The harness's route aborts every request it is asked about,
+            // then ends.
+            let route_id = message["params"]["route_id"].clone();
+            self.request("route.abort", &json!({ "route_id": route_id }));
+            self.engine
+                .send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": {} }));
+            return None;
+        }
         if message["method"] == json!("$/events") {
             self.events.extend(
                 message["params"]["events"]
@@ -429,5 +438,111 @@ fn a_kept_body_reads_whole_a_dropped_one_is_unavailable_and_a_cut_one_is_truncat
             json!(cut),
         ),
         "{finished} {kept} {document_body} {dropped} {cut_went} {cut_body}"
+    );
+}
+
+/// The lines of the Run trace's request log.
+fn request_log(env: &TestEnv, run_id: &str) -> Vec<Value> {
+    let file = env
+        .home()
+        .join("0.0")
+        .join("runs")
+        .join(run_id)
+        .join("trace")
+        .join("requests.jsonl");
+    std::fs::read_to_string(file)
+        .unwrap_or_default()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+/// A request the domain policy blocked, one a route aborted and one whose
+/// host does not resolve are each a `page.request_failed` carrying the
+/// browser's error as Playwright's `request.failure()` gives it, the
+/// blocked one also its Error code, which the Run trace records since no
+/// call waited on it; a finished request carries no failure.
+/// Covers: story:5-48, operation:page.on, event:page.request_failed, event:page.request_finished, error:egress_refused
+#[test]
+fn a_blocked_an_aborted_and_a_failed_request_each_fail_as_playwright_reports_them() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut settings = Map::new();
+    settings.insert(
+        "egress".to_owned(),
+        json!({ "allowed_domains": ["access.test", "nowhere.invalid"] }),
+    );
+    let (mut exchange, page) = page_of(&env, &proving_ground, "failures", &settings);
+    let url = proving_ground.url("access.test", "/page-events");
+
+    exchange.subscribe();
+    exchange.listen(&page, "request_failed");
+    exchange.listen(&page, "request_finished");
+    exchange.request(
+        "page.route",
+        &json!({ "page_id": page, "url": { "kind": "glob", "pattern": "**/page-events/aborted" } }),
+    );
+    exchange.call("page.goto", &json!({ "page_id": page, "url": url }));
+    exchange.until("page.request_failed", |request| {
+        request["url"]
+            .as_str()
+            .is_some_and(|url| url.contains("nowhere.invalid"))
+    });
+    let failed = exchange.data("page.request_failed");
+    let finished = exchange.data("page.request_finished");
+    let _ = exchange.call("run.finish", &json!({ "run_id": "failures" }));
+    let _ = exchange.engine.finish();
+
+    let failure_of = |part: &str| {
+        failed
+            .iter()
+            .find(|request| {
+                request["url"]
+                    .as_str()
+                    .is_some_and(|url| url.contains(part))
+            })
+            .map(|request| request["failure"].clone())
+            .unwrap_or_default()
+    };
+    let blocked = failure_of("elsewhere.test");
+    let logged = request_log(&env, "failures");
+    assert_eq!(
+        (
+            blocked["error_text"].clone(),
+            blocked["error"]["code"].clone(),
+            blocked["error"]["rule"].clone(),
+            failure_of("/page-events/aborted"),
+            failure_of("nowhere.invalid"),
+            finished.iter().any(|request| request["url"]
+                .as_str()
+                .is_some_and(|url| url.ends_with("/page-events/data.json"))
+                && request.get("failure").is_none()),
+            logged
+                .iter()
+                .map(|line| (
+                    line["event"].clone(),
+                    line["data"]["page_id"].clone(),
+                    line["data"]["url"]
+                        .as_str()
+                        .is_some_and(|url| url.contains("elsewhere.test")),
+                    line["data"]["failure"]["error"]["code"].clone(),
+                ))
+                .collect::<Vec<_>>(),
+        ),
+        (
+            json!("net::ERR_BLOCKED_BY_CLIENT"),
+            json!("egress_refused"),
+            json!("domain_policy"),
+            json!({ "error_text": "net::ERR_FAILED" }),
+            json!({ "error_text": "net::ERR_NAME_NOT_RESOLVED" }),
+            true,
+            vec![(
+                json!("page.request_failed"),
+                json!(page),
+                true,
+                json!("egress_refused")
+            )],
+        ),
+        "{failed:?} {logged:?}"
     );
 }

@@ -15,7 +15,8 @@
 //! blocks its address, so its Session pool holds a Session retired by the
 //! escalation and its domain's proxy tier; and a Run its
 //! program drives, under an Operator policy and with a setting that
-//! weakens a guarantee, whose Key-value store keeps a cursor and whose run
+//! weakens a guarantee, whose Key-value store keeps a cursor, a note in its
+//! row and an archive over 1 MiB as a kept file, and whose run
 //! state holds its data key wrapped, which `run.abort` stops; and a Run
 //! bound to a
 //! Browser host and holding to a Clean-up rules digest, started through a
@@ -112,6 +113,18 @@ fn scenario() -> Vec<Value> {
             11,
             "key_value_store.set",
             json!({ "run_id": "aborted", "key": "cursor", "value": { "page": 2, "seen": [1, null] } }),
+        ),
+        call(
+            13,
+            "key_value_store.set_bytes",
+            json!({ "run_id": "aborted", "key": "note", "content": "aGk=", "content_type": "text/plain" }),
+        ),
+        // 1,048,578 zero bytes, a multiple of 3 just over 1 MiB, are this
+        // Base64 with no padding: kept as a file the row references.
+        call(
+            14,
+            "key_value_store.set_bytes",
+            json!({ "run_id": "aborted", "key": "archive", "content": "A".repeat(1_398_104), "content_type": "application/octet-stream" }),
         ),
         call(12, "compat.keyed", json!({ "run_id": "aborted" })),
         call(4, "run.abort", json!({ "run_id": "aborted" })),

@@ -373,6 +373,54 @@ class DaemonStopping(BaseModel):
     """How many live Runs it stops, each resumable from its own state."""
 
 
+class DialogAnswered(BaseModel):
+    """What an answer to a dialog answers once the page closed the dialog."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class DialogHandled(BaseModel):
+    """
+    What the handler replies to `dialog.handle` once it ended; a failure
+    reply says it failed.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class DialogId(RootModel[str]):
+    root: str
+    """One dialog a handler answers, which `dialog.*` names."""
+
+
+class DialogType(StrEnum):
+    """A dialog's kind, as Playwright's `dialog.type()` names it."""
+
+    alert = "alert"
+    """`alert()`."""
+    confirm = "confirm"
+    """`confirm()`."""
+    prompt = "prompt"
+    """`prompt()`."""
+    beforeunload = "beforeunload"
+    """
+    A `beforeunload` handler that asks to stay: raised by a navigation,
+    or by `page.close` with `run_before_unload`.
+    """
+
+
+class DialogsEnded(BaseModel):
+    """What `page.on_dialog` answers when its page closes."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class DownloadId(RootModel[str]):
     root: str
     """
@@ -515,6 +563,11 @@ class HttpBody(RootModel[str]):
 class HttpMethod(RootModel[str]):
     root: Annotated[str, Field(pattern="^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")]
     """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
+
+
+class KeyValueStoreContent(RootModel[str]):
+    root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
+    """Bytes the Key-value store keeps, in Base64 (RFC 4648, with padding)."""
 
 
 class KeyValueStoreDeleted(BaseModel):
@@ -810,6 +863,14 @@ class PageBodyRead(BaseModel):
     """The body's size in bytes."""
 
 
+class PageClosed(BaseModel):
+    """What `page.close` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class PageEventName(StrEnum):
     """
     A page's event a program listens to, by its words (ADR 0099): each
@@ -838,6 +899,8 @@ class PageEventName(StrEnum):
     """`page.crash`."""
     close = "close"
     """`page.close`."""
+    popup = "popup"
+    """`page.popup`."""
 
 
 class PageFormats(BaseModel):
@@ -866,6 +929,19 @@ class PageFormats(BaseModel):
 class PageId(RootModel[str]):
     root: str
     """A page of a Run, named by the engine when it opens it."""
+
+
+class PageOnDialogParams(BaseModel):
+    """
+    What `page.on_dialog` takes: the page whose dialogs its handler
+    answers.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
 
 
 class PageOnEnded(BaseModel):
@@ -1518,9 +1594,39 @@ class SessionClosed(BaseModel):
     )
 
 
+class SessionEventName(StrEnum):
+    """A Session's event a program listens to."""
+
+    page = "page"
+    """`session.page`."""
+
+
 class SessionId(RootModel[str]):
     root: str
     """A Session of a Run, named by the engine when it opens it."""
+
+
+class SessionOnEnded(BaseModel):
+    """
+    What `session.on` answers when its Session goes, closed or with its
+    Run.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class SessionOnParams(BaseModel):
+    """What `session.on` takes: the Session and the event listened to."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: SessionEventName
+    """The event."""
+    session_id: SessionId
+    """The Session."""
 
 
 class SessionOpened(BaseModel):
@@ -1531,6 +1637,19 @@ class SessionOpened(BaseModel):
     )
     session_id: SessionId
     """The Session."""
+
+
+class SessionPages(BaseModel):
+    """
+    What `session.pages` answers: the Session's open pages, in the order
+    they opened.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    pages: list[PageId]
+    """The pages."""
 
 
 class SessionParams(BaseModel):
@@ -2392,6 +2511,61 @@ class DaemonStatus(BaseModel):
     """Its Product version."""
 
 
+class Dialog(BaseModel):
+    """A dialog as its handler sees it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    default_value: str
+    """A prompt's default value; empty for any other kind."""
+    message: str
+    """Its message."""
+    type: DialogType
+    """Its kind."""
+
+
+class DialogAcceptParams(BaseModel):
+    """What `dialog.accept` takes: the dialog, and a prompt's text."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dialog_id: DialogId
+    """The dialog."""
+    prompt_text: str | None = None
+    """The text a prompt returns; its default value when absent."""
+
+
+class DialogDismissParams(BaseModel):
+    """What `dialog.dismiss` takes: the dialog."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dialog_id: DialogId
+    """The dialog."""
+
+
+class DialogHandleParams(BaseModel):
+    """
+    What `dialog.handle` gives the handler: the dialog, named by the ID its
+    answer passes.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    dialog: Dialog
+    """The dialog."""
+    dialog_id: DialogId
+    """The dialog, which an answer names."""
+    id: RequestId
+    """The id of the `page.on_dialog` call whose handler is asked."""
+    page_id: PageId
+    """The page that opened it."""
+
+
 class DownloadProgress(BaseModel):
     """What `browser_cache.download_progress` reports."""
 
@@ -2593,6 +2767,31 @@ class HelloResult(BaseModel):
     """The protocol version the engine speaks."""
 
 
+class KeyValueStoreBytes(BaseModel):
+    """Bytes the store holds for a key, with their content type."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    content: KeyValueStoreContent
+    """The bytes, in Base64."""
+    content_type: str
+    """Their content type, as `set_bytes` gave it."""
+
+
+class KeyValueStoreBytesValue(BaseModel):
+    """
+    What `key_value_store.get_bytes` answers: the key's committed bytes, or
+    null when the key is absent.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    bytes: KeyValueStoreBytes | None = None
+    """The bytes and their content type, or null for an absent key."""
+
+
 class KeyValueStoreKey(BaseModel):
     """What `$/key` carries: the next key of the store a call lists."""
 
@@ -2631,6 +2830,25 @@ class KeyValueStoreKeysParams(BaseModel):
     )
     prefix: str | None = None
     """The prefix of the keys it sends; every key when left out."""
+    run_id: RunId
+    """The Run whose store it is."""
+
+
+class KeyValueStoreSetBytesParams(BaseModel):
+    """
+    What `key_value_store.set_bytes` takes: the Run, the key, and the bytes
+    with their content type.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: KeyValueStoreContent
+    """The bytes, in Base64."""
+    content_type: str
+    """Their content type, such as `image/png`."""
+    key: str
+    """The key."""
     run_id: RunId
     """The Run whose store it is."""
 
@@ -2766,6 +2984,24 @@ class PageBodyParams(BaseModel):
     """The Run whose folder holds it."""
 
 
+class PageCloseParams(BaseModel):
+    """
+    What `page.close` takes: the page, and whether its `beforeunload`
+    handlers run.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    run_before_unload: bool | None = None
+    """
+    Runs the page's `beforeunload` handlers first, whose dialog goes to
+    the page's dialog handlers; false when absent.
+    """
+
+
 class PageDownload(BaseModel):
     """
     What `page.download` reports: a navigation of a page that the browser
@@ -2810,6 +3046,21 @@ class PageOpened(BaseModel):
     """The page."""
     session_id: SessionId
     """Its Session: the Run's default Session for `run.new_page`."""
+
+
+class PagePopup(BaseModel):
+    """
+    What `page.popup` reports: the page that opened a popup, and the
+    popup, a page of the same Session.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    page_id: PageId
+    """The opener."""
+    popup: PageOpened
+    """The popup."""
 
 
 class PageRequest(BaseModel):

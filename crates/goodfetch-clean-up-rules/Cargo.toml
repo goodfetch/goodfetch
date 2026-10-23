@@ -23,6 +23,8 @@ zstd.workspace = true
 adblock.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The embedded part's digest, by the Browser cache's tree rule (ADR 0024).
+sha2.workspace = true
 toml.workspace = true
 zstd.workspace = true
 

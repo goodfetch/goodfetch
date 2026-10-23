@@ -71,6 +71,13 @@ fn main() {
         )
         .expect("invariant: writing to a String cannot fail");
     }
+    writeln!(
+        embedded,
+        "/// The digest of the embedded part's files, by the Browser cache's tree rule.\n\
+         const EMBEDDED_DIGEST_OF_BUILD: &str = {:?};",
+        embedded_digest(&manifest)
+    )
+    .expect("invariant: writing to a String cannot fail");
     write(&out, "embedded.rs", &embedded);
     write(
         &out,
@@ -83,6 +90,38 @@ fn main() {
         &stand_ins(&manifest, &read(&manifest, ALIASES)),
     );
     consent::bundle(&manifest, &out);
+}
+
+/// The embedded part's files under `rules/`, as a version of the Clean-up
+/// rules holds them: its manifest and the lists it names.
+const EMBEDDED_FILES: [&str; 5] = [
+    "brave-unbreak.txt",
+    "easylist.txt",
+    "easyprivacy.txt",
+    "fanboy-annoyance.txt",
+    "manifest.json",
+];
+
+/// The digest of the embedded part's files, `sha256:<hex>`, by the Browser
+/// cache's tree rule (ADR 0024): SHA-256 over, for each file in the order of
+/// its path, the path, a NUL, `f`, a NUL, the SHA-256 of its bytes and a
+/// newline.
+fn embedded_digest(manifest: &Path) -> String {
+    use sha2::{Digest as _, Sha256};
+    let mut tree = Sha256::new();
+    for name in EMBEDDED_FILES {
+        let bytes = std::fs::read(manifest.join("rules").join(name))
+            .unwrap_or_else(|error| panic!("invariant: the crate carries rules/{name}: {error}"));
+        tree.update(name.as_bytes());
+        tree.update([0, b'f', 0]);
+        tree.update(Sha256::digest(&bytes));
+        tree.update(b"\n");
+    }
+    let mut digest = String::from("sha256:");
+    for byte in tree.finalize() {
+        write!(digest, "{byte:02x}").expect("invariant: writing to a String cannot fail");
+    }
+    digest
 }
 
 /// `size` as a Rust literal with `_` between each group of three digits.

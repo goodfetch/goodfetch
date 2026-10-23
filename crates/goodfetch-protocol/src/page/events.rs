@@ -56,6 +56,8 @@ pub enum PageEventName {
     Crash,
     /// `page.close`.
     Close,
+    /// `page.popup`.
+    Popup,
 }
 
 /// What `page.on` takes: the page and the event listened to.
@@ -441,6 +443,7 @@ pub const PAGE_ON: Operation = Operation {
         &PAGE_DOWNLOAD,
         &PAGE_CRASH,
         &PAGE_CLOSE,
+        &super::tabs::PAGE_POPUP,
     ],
     cancellable: true,
     stability: Stability::Experimental,

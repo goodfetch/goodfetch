@@ -1,0 +1,115 @@
+{
+  "name": "clean-up-rules",
+  "schema": {
+    "$defs": {
+      "CleanUpRulesManifest": {
+        "description": "One version of the Clean-up rules, as its `manifest.json` says.",
+        "properties": {
+          "expires_at": {
+            "arrived_in": "0.1",
+            "default": null,
+            "description": "When a newer version should replace it, in RFC 3339: a daily\nversion's 14 days, an upstream one's shortest declared expiry; none\nfor the embedded part and a release's.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "format_version": {
+            "$ref": "#/$defs/ProtocolVersion",
+            "arrived_in": "0.1",
+            "description": "The version of this format the manifest was written in."
+          },
+          "lists": {
+            "$ref": "#/$defs/RulesLists",
+            "arrived_in": "0.1",
+            "description": "The file of each Filter list, beside the manifest."
+          },
+          "published_at": {
+            "arrived_in": "0.1",
+            "description": "When its lists were taken from their authors, in RFC 3339: the date\nProvenance names, from which a Run report counts its 14 days.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/RulesSource",
+            "arrived_in": "0.1",
+            "description": "Where the version comes from."
+          }
+        },
+        "required": [
+          "format_version",
+          "source",
+          "published_at",
+          "lists"
+        ],
+        "type": "object"
+      },
+      "ProtocolVersion": {
+        "description": "A version `major.minor` (ADR 0030).",
+        "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+        "type": "string"
+      },
+      "RulesLists": {
+        "description": "The file of each Filter list a version holds, by the setting that turns\nit on, with Brave's unbreak list, which applies whichever are on.",
+        "properties": {
+          "ads": {
+            "arrived_in": "0.1",
+            "description": "`filter_lists.ads`: EasyList.",
+            "type": "string"
+          },
+          "annoyances": {
+            "arrived_in": "0.1",
+            "description": "`filter_lists.annoyances`: Fanboy Annoyance, without its cookie\nsections.",
+            "type": "string"
+          },
+          "trackers": {
+            "arrived_in": "0.1",
+            "description": "`filter_lists.trackers`: EasyPrivacy.",
+            "type": "string"
+          },
+          "unbreak": {
+            "arrived_in": "0.1",
+            "description": "Brave's unbreak list.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ads",
+          "trackers",
+          "annoyances",
+          "unbreak"
+        ],
+        "type": "object"
+      },
+      "RulesSource": {
+        "description": "Where a version of the Clean-up rules comes from (ADR 0047).",
+        "oneOf": [
+          {
+            "const": "embedded",
+            "description": "The part every executable embeds.",
+            "type": "string"
+          },
+          {
+            "const": "release",
+            "description": "The full version a release pins by digest.",
+            "type": "string"
+          },
+          {
+            "const": "daily",
+            "description": "The opt-in daily channel.",
+            "type": "string"
+          },
+          {
+            "const": "upstream",
+            "description": "The Filter lists fetched from their authors' URLs.",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "$ref": "#/$defs/CleanUpRulesManifest"
+  },
+  "storage": "json",
+  "version": "0.1"
+}

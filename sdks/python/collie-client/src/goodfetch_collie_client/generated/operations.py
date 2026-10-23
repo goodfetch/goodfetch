@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, DownloadSaveAsParams, DownloadSaved, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageExchange, PageFormats, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRequestParams, PageResponse, PageRouteParams, PressParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOpened, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForRequestFinishedParams
+from .models import Acted, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRequestParams, PageResponse, PageRouteParams, PressParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForRequestFinishedParams
 
 
 class AsyncCaller(Protocol):
@@ -78,6 +78,20 @@ class AsyncCollieOperations:
         """Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed."""
         return DaemonStopping.model_construct(**_fields(await self._caller.call("daemon.stop", params)))
 
+    async def dialog_accept(self, params: DialogAcceptParams) -> DialogAnswered:
+        """Answers a dialog by accepting it, a prompt with `prompt_text`, or else its default value; it answers once the page closed the dialog.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DialogAnswered.model_construct(**_fields(await self._caller.call("dialog.accept", params)))
+
+    async def dialog_dismiss(self, params: DialogDismissParams) -> DialogAnswered:
+        """Answers a dialog by dismissing it, as its Cancel button does; it answers once the page closed the dialog.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DialogAnswered.model_construct(**_fields(await self._caller.call("dialog.dismiss", params)))
+
     async def download_save_as(self, params: DownloadSaveAsParams) -> DownloadSaved:
         """Saves a Download's file, which the engine keeps with its Run, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
 
@@ -104,11 +118,18 @@ class AsyncCollieOperations:
         return KeyValueStoreDeleted.model_construct(**_fields(await self._caller.call("key_value_store.delete", params)))
 
     async def key_value_store_get(self, params: KeyValueStoreKeyParams) -> KeyValueStoreValue:
-        """Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.
+        """Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return KeyValueStoreValue.model_construct(**_fields(await self._caller.call("key_value_store.get", params)))
+
+    async def key_value_store_get_bytes(self, params: KeyValueStoreKeyParams) -> KeyValueStoreBytesValue:
+        """Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreBytesValue.model_construct(**_fields(await self._caller.call("key_value_store.get_bytes", params)))
 
     async def key_value_store_keys(self, params: KeyValueStoreKeysParams) -> KeyValueStoreKeysEnded:
         """Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock.
@@ -123,6 +144,13 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return KeyValueStoreSet.model_construct(**_fields(await self._caller.call("key_value_store.set", params)))
+
+    async def key_value_store_set_bytes(self, params: KeyValueStoreSetBytesParams) -> KeyValueStoreSet:
+        """Commits bytes with their content type for a key in a live Run's Key-value store, replacing what it held: the last commit wins. Bytes over 1 MiB are kept as a file in the Run's folder, which its Checkpoints carry.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreSet.model_construct(**_fields(await self._caller.call("key_value_store.set_bytes", params)))
 
     async def locator_click(self, params: ClickParams) -> Acted:
         """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.
@@ -151,6 +179,13 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageBodyRead.model_construct(**_fields(await self._caller.call("page.body", params)))
+
+    async def page_close(self, params: PageCloseParams) -> PageClosed:
+        """Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageClosed.model_construct(**_fields(await self._caller.call("page.close", params)))
 
     async def page_formats(self, params: FormatsParams) -> PageFormats:
         """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
@@ -186,6 +221,13 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageOnEnded.model_construct(**_fields(await self._caller.call("page.on", params)))
+
+    async def page_on_dialog(self, params: PageOnDialogParams) -> DialogsEnded:
+        """Hands the page's JavaScript dialogs to the program, armed when the call arrives: Playwright's `page.on('dialog')`. The call stays in flight, and for each dialog the engine sends `dialog.handle`, which the handler answers with `dialog.accept` or `dialog.dismiss`. Later handlers come first and the first answer wins; a handler that ends without one falls through, and past the last one, or with none, an `alert`, `confirm` or `prompt` is dismissed and a `beforeunload` dialog accepted, so a handler that answers nothing never stalls the page. Cancelling the call removes the handler; a handler that fails ends it with `page_handler_failed`, the dialog getting its default.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DialogsEnded.model_construct(**_fields(await self._caller.call("page.on_dialog", params)))
 
     async def page_reload(self, params: PageParams) -> Navigated:
         """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
@@ -372,6 +414,20 @@ class AsyncCollieOperations:
         """
         return PageOpened.model_construct(**_fields(await self._caller.call("session.new_page", params)))
 
+    async def session_on(self, params: SessionOnParams) -> SessionOnEnded:
+        """Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return SessionOnEnded.model_construct(**_fields(await self._caller.call("session.on", params)))
+
+    async def session_pages(self, params: SessionParams) -> SessionPages:
+        """Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return SessionPages.model_construct(**_fields(await self._caller.call("session.pages", params)))
+
     async def session_route(self, params: SessionRouteParams) -> RouteEnded:
         """Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes.
 
@@ -438,6 +494,20 @@ class CollieOperations:
         """Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed."""
         return DaemonStopping.model_construct(**_fields(self._caller.call("daemon.stop", params)))
 
+    def dialog_accept(self, params: DialogAcceptParams) -> DialogAnswered:
+        """Answers a dialog by accepting it, a prompt with `prompt_text`, or else its default value; it answers once the page closed the dialog.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DialogAnswered.model_construct(**_fields(self._caller.call("dialog.accept", params)))
+
+    def dialog_dismiss(self, params: DialogDismissParams) -> DialogAnswered:
+        """Answers a dialog by dismissing it, as its Cancel button does; it answers once the page closed the dialog.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DialogAnswered.model_construct(**_fields(self._caller.call("dialog.dismiss", params)))
+
     def download_save_as(self, params: DownloadSaveAsParams) -> DownloadSaved:
         """Saves a Download's file, which the engine keeps with its Run, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
 
@@ -464,11 +534,18 @@ class CollieOperations:
         return KeyValueStoreDeleted.model_construct(**_fields(self._caller.call("key_value_store.delete", params)))
 
     def key_value_store_get(self, params: KeyValueStoreKeyParams) -> KeyValueStoreValue:
-        """Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.
+        """Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return KeyValueStoreValue.model_construct(**_fields(self._caller.call("key_value_store.get", params)))
+
+    def key_value_store_get_bytes(self, params: KeyValueStoreKeyParams) -> KeyValueStoreBytesValue:
+        """Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreBytesValue.model_construct(**_fields(self._caller.call("key_value_store.get_bytes", params)))
 
     def key_value_store_keys(self, params: KeyValueStoreKeysParams) -> KeyValueStoreKeysEnded:
         """Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock.
@@ -483,6 +560,13 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return KeyValueStoreSet.model_construct(**_fields(self._caller.call("key_value_store.set", params)))
+
+    def key_value_store_set_bytes(self, params: KeyValueStoreSetBytesParams) -> KeyValueStoreSet:
+        """Commits bytes with their content type for a key in a live Run's Key-value store, replacing what it held: the last commit wins. Bytes over 1 MiB are kept as a file in the Run's folder, which its Checkpoints carry.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreSet.model_construct(**_fields(self._caller.call("key_value_store.set_bytes", params)))
 
     def locator_click(self, params: ClickParams) -> Acted:
         """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.
@@ -511,6 +595,13 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageBodyRead.model_construct(**_fields(self._caller.call("page.body", params)))
+
+    def page_close(self, params: PageCloseParams) -> PageClosed:
+        """Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageClosed.model_construct(**_fields(self._caller.call("page.close", params)))
 
     def page_formats(self, params: FormatsParams) -> PageFormats:
         """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
@@ -546,6 +637,13 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageOnEnded.model_construct(**_fields(self._caller.call("page.on", params)))
+
+    def page_on_dialog(self, params: PageOnDialogParams) -> DialogsEnded:
+        """Hands the page's JavaScript dialogs to the program, armed when the call arrives: Playwright's `page.on('dialog')`. The call stays in flight, and for each dialog the engine sends `dialog.handle`, which the handler answers with `dialog.accept` or `dialog.dismiss`. Later handlers come first and the first answer wins; a handler that ends without one falls through, and past the last one, or with none, an `alert`, `confirm` or `prompt` is dismissed and a `beforeunload` dialog accepted, so a handler that answers nothing never stalls the page. Cancelling the call removes the handler; a handler that fails ends it with `page_handler_failed`, the dialog getting its default.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DialogsEnded.model_construct(**_fields(self._caller.call("page.on_dialog", params)))
 
     def page_reload(self, params: PageParams) -> Navigated:
         """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
@@ -731,6 +829,20 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageOpened.model_construct(**_fields(self._caller.call("session.new_page", params)))
+
+    def session_on(self, params: SessionOnParams) -> SessionOnEnded:
+        """Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return SessionOnEnded.model_construct(**_fields(self._caller.call("session.on", params)))
+
+    def session_pages(self, params: SessionParams) -> SessionPages:
+        """Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return SessionPages.model_construct(**_fields(self._caller.call("session.pages", params)))
 
     def session_route(self, params: SessionRouteParams) -> RouteEnded:
         """Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes.

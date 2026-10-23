@@ -31,6 +31,7 @@ mod identity;
 
 mod navigation;
 mod permit_waits;
+mod popups;
 mod service_workers;
 mod targets;
 mod world;
@@ -62,6 +63,7 @@ pub(crate) use self::ending::Lost;
 pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
 use self::permit_waits::PermitWaits;
+pub(crate) use self::popups::OnPopup;
 pub(crate) use self::service_workers::{OnServiceWorker, ServiceWorkers};
 use crate::errors::{
     Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects, truncated,
@@ -104,6 +106,8 @@ pub(crate) struct Browser {
     closing: CancellationToken,
     /// Its service workers, which it attaches the engine to (ADR 0121).
     service_workers: Arc<service_workers::ServiceWorkerChoices>,
+    /// What each browser context does with the popups its pages open.
+    popups: Arc<popups::Popups>,
     /// The lease check of the page this connection drives, asked before
     /// each command it sends; none on the browser's own connection and on
     /// a page whose value has none (ADR 0087).
@@ -272,6 +276,7 @@ impl Connect for LocalBrowser {
                     process: launched.process,
                     closing: self.stopping.clone(),
                     service_workers: Arc::default(),
+                    popups: Arc::default(),
                     lease: None,
                 };
                 // The first answer says the browser is up.
@@ -407,43 +412,7 @@ impl<B: Connect> SessionDriver<B> {
             )
             .await?;
         let session = TargetSession(attached.session_id);
-        browser
-            .send(
-                Some(&session),
-                &emulation::SetFocusEmulationEnabledParams { enabled: true },
-                &opening,
-            )
-            .await?;
-        if let Some(identity) = &browser.identity {
-            browser
-                .send(Some(&session), &identity.command(), &opening)
-                .await?;
-        }
-        browser
-            .send(Some(&session), &page::EnableParams::default(), &opening)
-            .await?;
-        browser
-            .send(
-                Some(&session),
-                &page::SetLifecycleEventsEnabledParams { enabled: true },
-                &opening,
-            )
-            .await?;
-        browser
-            .send(Some(&session), &network::EnableParams::default(), &opening)
-            .await?;
-        browser
-            .send(
-                Some(&session),
-                &page::AddScriptToEvaluateOnNewDocumentParams {
-                    source: GUARD_MARKER.to_owned(),
-                    world_name: Some(GUARD_WORLD.to_owned()),
-                    include_command_line_api: None,
-                    run_immediately: Some(true),
-                },
-                &opening,
-            )
-            .await?;
+        prepare(&browser, &session).await?;
         Ok(PageDriver {
             browser,
             session,
@@ -459,6 +428,52 @@ impl<B: Connect> SessionDriver<B> {
             waits: None,
         })
     }
+}
+
+/// Prepares the page target `browser` attached on `session` for the
+/// engine, before it runs anything of its own: it reports itself focused,
+/// shows its browser's identity, reports its frames' lifecycle and its
+/// network, and holds the guard's world's marker.
+async fn prepare(browser: &Browser, session: &TargetSession) -> Result<(), CallError> {
+    let opening = browser.opening();
+    browser
+        .send(
+            Some(session),
+            &emulation::SetFocusEmulationEnabledParams { enabled: true },
+            &opening,
+        )
+        .await?;
+    if let Some(identity) = &browser.identity {
+        browser
+            .send(Some(session), &identity.command(), &opening)
+            .await?;
+    }
+    browser
+        .send(Some(session), &page::EnableParams::default(), &opening)
+        .await?;
+    browser
+        .send(
+            Some(session),
+            &page::SetLifecycleEventsEnabledParams { enabled: true },
+            &opening,
+        )
+        .await?;
+    browser
+        .send(Some(session), &network::EnableParams::default(), &opening)
+        .await?;
+    browser
+        .send(
+            Some(session),
+            &page::AddScriptToEvaluateOnNewDocumentParams {
+                source: GUARD_MARKER.to_owned(),
+                world_name: Some(GUARD_WORLD.to_owned()),
+                include_command_line_api: None,
+                run_immediately: Some(true),
+            },
+            &opening,
+        )
+        .await?;
+    Ok(())
 }
 
 /// A page's document as it stands, serialized once.
@@ -760,6 +775,26 @@ impl PageDriver {
         {
             tracing::debug!(%failure, "the engine's page was gone already");
         }
+    }
+
+    /// Asks the page to close as a person closing its tab does: its
+    /// `beforeunload` handlers run first, and it closes once they let it.
+    ///
+    /// # Errors
+    ///
+    /// The code of `operation` when the page cannot be asked.
+    pub(crate) async fn close_running_before_unload(
+        &self,
+        operation: &'static str,
+    ) -> Result<(), CallError> {
+        self.browser
+            .send(
+                Some(&self.session),
+                &page::CloseParams {},
+                &Call::Action { operation },
+            )
+            .await
+            .map(drop)
     }
 
     /// The events of the page's target, from when this answers.

@@ -298,6 +298,50 @@ fn content_settings(settings: Option<&Resolved>) -> ContentSettings {
     }
 }
 
+/// Whether `url` is a bare `http` or `https` origin, with at most one
+/// closing slash: a host of ASCII letters, digits, hyphens and dots, or a
+/// bracketed IPv6 address, and an optional port. The Console's policy
+/// frames this text, so nothing else may pass: no wildcard, path, query,
+/// user, space or `;`. A host beyond ASCII is given as its Punycode.
+fn bare_origin(url: &str) -> bool {
+    let Some(rest) = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+    else {
+        return false;
+    };
+    let authority = rest.strip_suffix('/').unwrap_or(rest);
+    let (host_is_bare, port) = if let Some(bracketed) = authority.strip_prefix('[') {
+        let Some((address, after)) = bracketed.split_once(']') else {
+            return false;
+        };
+        let is_address = !address.is_empty()
+            && address
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.');
+        let port = if after.is_empty() {
+            None
+        } else {
+            let Some(port) = after.strip_prefix(':') else {
+                return false;
+            };
+            Some(port)
+        };
+        (is_address, port)
+    } else {
+        let (host, port) = authority.rsplit_once(':').unzip();
+        let host = host.unwrap_or(authority);
+        let is_name = host.split('.').all(|label| {
+            !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        });
+        (is_name, port)
+    };
+    host_is_bare
+        && port.is_none_or(|port| {
+            port.chars().all(|c| c.is_ascii_digit()) && port.parse::<u16>().is_ok()
+        })
+}
+
 /// The Console's content origin (ADR 0031), beside the Console listening
 /// at `console`: its own listener at `console.content_address` when set;
 /// else, with `console.content_public_url`, the Console's listener, which
@@ -307,13 +351,11 @@ fn content_settings(settings: Option<&Resolved>) -> ContentSettings {
 /// Console then serves without it.
 async fn start_content(console: SocketAddr, settings: &ContentSettings) -> Option<ContentOrigin> {
     let public = match settings.public_url.as_deref() {
-        Some(url) if url.starts_with("http://") || url.starts_with("https://") => {
-            Some(url.trim_end_matches('/').to_owned())
-        }
+        Some(url) if bare_origin(url) => Some(url.trim_end_matches('/').to_owned()),
         Some(url) => {
             tracing::error!(
                 url,
-                "`console.content_public_url` is no `http` or `https` origin, so the Console shows no Run's files; set it to an origin such as `https://content.example.com`, then run `daemon restart`"
+                "`console.content_public_url` is no bare `http` or `https` origin (no path, query, user or wildcard), so the Console shows no Run's files; set it to an origin such as `https://content.example.com`, then run `daemon restart`"
             );
             return None;
         }

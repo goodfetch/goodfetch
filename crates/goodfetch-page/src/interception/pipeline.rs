@@ -21,7 +21,7 @@ use goodfetch_cdp::Subscription;
 use goodfetch_cdp::generated::{fetch, network, page};
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
-use goodfetch_engine::egress::Policy;
+use goodfetch_engine::egress::{Policy, Refused, RequestKind};
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::CLOSED;
@@ -38,6 +38,7 @@ use secrecy::ExposeSecret as _;
 use tokio::sync::oneshot;
 
 use super::answers::{Answer, Answers, Fulfillment, Reply, already_handled};
+use super::hops;
 use super::routes::Route;
 use super::steps::{self, Blocking, Overrides, Stopped, entries};
 use super::{PageState, lock};
@@ -204,6 +205,20 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
             {
                 context.state.pending.started(page_id, &started.url);
             }
+            continue;
+        }
+        // A navigation the page schedules to a scheme no request may use
+        // sends no request the interception pauses: it is refused here.
+        let scheduled = event
+            .read::<page::FrameScheduledNavigationEvent>()
+            .map(|scheduled| (scheduled.frame_id, scheduled.url))
+            .or_else(|| {
+                event
+                    .read::<page::FrameRequestedNavigationEvent>()
+                    .map(|requested| (requested.frame_id, requested.url))
+            });
+        if let Some((frame_id, url)) = scheduled {
+            context.scheduled(&frame_id, &url);
             continue;
         }
         if let Some(failed) = event.read::<network::LoadingFailedEvent>() {
@@ -628,6 +643,7 @@ impl PageContext {
             overrides: &held.overrides,
             kind: steps::kind(held.paused.resource_type, held.navigation),
             source_url: &source,
+            egress: self.egress_kind(held),
         };
         let command = match steps::send_on(&paused, &self.policy, &self.blocking, fetch) {
             Ok(steps::Sent::Continue(command)) => {
@@ -756,8 +772,52 @@ impl PageContext {
         site_preferences_refused(url, refusal)
     }
 
+    /// How step 3 judges `held`: a hop of the main frame's navigation while
+    /// a navigation call that may load a `file:` URL goes on as that call's,
+    /// any other request as the page's own.
+    fn egress_kind(&self, held: &Held) -> RequestKind {
+        match *lock(&self.state.files) {
+            Some(navigator) if held.navigation => RequestKind::Navigation(navigator),
+            _ => RequestKind::Page,
+        }
+    }
+
+    /// Refuses the navigation the page scheduled for its frame `frame_id`
+    /// to `url`, when its scheme is one no request may use: the browser
+    /// sends no request for it, and the call waiting on the page's
+    /// navigation, or else its next call, raises the refusal.
+    fn scheduled(&self, frame_id: &page::FrameId, url: &str) {
+        if self.sender.page_id().is_none() || frame_id != self.driver.main_frame() {
+            return;
+        }
+        if let Some(refused) = hops::scheduled(url, &self.policy) {
+            tracing::debug!(%refused, "the page scheduled a navigation the egress policy refuses");
+            self.state.leave(refused.error());
+        }
+    }
+
+    /// Refuses the redirect paused at `paused`, whose `Location` names a
+    /// scheme no request may use, as step 3 refuses a request: it fails
+    /// carrying the refusal, which the navigation waiting on it raises, or
+    /// else the Run trace records.
+    async fn refuse_redirect(&self, paused: &fetch::RequestPausedEvent, refused: &Refused) {
+        let navigation = self.sender.page_id().is_some()
+            && paused.resource_type == network::ResourceType::Document
+            && &paused.frame_id == self.driver.main_frame();
+        if let Some(network_id) = &paused.network_id {
+            self.refusals
+                .leave(network_id, refused.failure(), !navigation);
+        }
+        if navigation {
+            self.state.leave(refused.error());
+        }
+        self.fail(&paused.request_id, network::ErrorReason::BlockedByClient)
+            .await;
+    }
+
     /// Acts on the response paused at `paused`, which no `fetch` waits for:
-    /// a main-frame document's goes on once the page's navigation gate
+    /// a redirect to a scheme no request may use is refused; a main-frame
+    /// document's goes on once the page's navigation gate
     /// judged it, and on its refusal the page is left on a blank document,
     /// the navigation call waiting on it raising the refusal; any other
     /// response goes on as it came.
@@ -769,6 +829,15 @@ impl PageContext {
             .response_status_code
             .and_then(|status| u16::try_from(status).ok())
             .unwrap_or_default();
+        if let Some(refused) = hops::redirect(
+            &paused.request.url,
+            status,
+            paused.response_headers.as_deref().unwrap_or_default(),
+            &self.policy,
+        ) {
+            self.refuse_redirect(paused, &refused).await;
+            return;
+        }
         let gate = self
             .driver
             .value()

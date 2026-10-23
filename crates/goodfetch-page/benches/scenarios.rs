@@ -37,7 +37,7 @@ use goodfetch_cdp::{Connection, Framer};
 use goodfetch_clean_up_rules::matching::Choices;
 use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_clean_up_rules::rules::FilterLists;
-use goodfetch_engine::egress::Policy;
+use goodfetch_engine::egress::{Policy, RequestKind};
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
@@ -290,6 +290,7 @@ pub(crate) fn intercept(count: usize, blocking: &steps::Blocking) -> usize {
                         overrides: &overrides,
                         kind: steps::kind(paused.resource_type, true),
                         source_url: source,
+                        egress: RequestKind::Page,
                     };
                     match steps::send_on(&request, &policy, blocking, false) {
                         Ok(steps::Sent::Continue(command)) => {

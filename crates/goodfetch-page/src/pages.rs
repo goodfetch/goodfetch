@@ -7,7 +7,10 @@
 //! as it opens, and `page.close` closes one. A locator action reaches its
 //! page's driver through the guard, under the Run's `timeout.action`. A
 //! navigation the browser turns into a download answers no response and
-//! publishes `page.download` on the engine's event stream. Every page is
+//! publishes `page.download` on the engine's event stream. `page.goto`
+//! judges its URL's scheme first: a `file:` URL only for the program's own
+//! code, a `javascript:` URL only in a frame the domain policy allows, no
+//! other scheme but HTTP's and `about:blank` (`egress::navigation`). Every page is
 //! under the interception from its opening: `page.route` and
 //! `session.route` arm their routes there, `route.*` answer the requests
 //! those routes hold, and a failure a route's handler left on a page is
@@ -26,7 +29,7 @@ use std::sync::Arc;
 
 use goodfetch_engine::browser_cache::PinnedArtifact;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::events::Events;
+use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -479,7 +482,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             &params.page_id,
                             Destination::Url(&params.url),
                             params.wait_until.unwrap_or_default(),
-                            context.events(),
+                            &context,
                         )
                         .await
                 }
@@ -495,7 +498,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             &params.page_id,
                             Destination::Reload,
                             WaitUntil::Load,
-                            context.events(),
+                            &context,
                         )
                         .await
                 }
@@ -511,7 +514,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             &params.page_id,
                             Destination::Back,
                             WaitUntil::Load,
-                            context.events(),
+                            &context,
                         )
                         .await
                 }
@@ -527,7 +530,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             &params.page_id,
                             Destination::Forward,
                             WaitUntil::Load,
-                            context.events(),
+                            &context,
                         )
                         .await
                 }
@@ -607,16 +610,22 @@ struct Pages {
 }
 
 impl Pages {
-    /// Navigates the page `page_id` to `destination`, answering once its
-    /// document reached the state `wait_until` names; a download it turns
-    /// into is published on `events`.
+    /// Navigates the page `page_id` to `destination` for the call
+    /// `context`, answering once its document reached the state
+    /// `wait_until` names; a download it turns into is published on the
+    /// call's events. A URL is judged by its scheme first (ADRs 0017, 0056
+    /// and 0089): a `file:` URL is loaded only for the program's own code
+    /// or the CLI on an engine without accounts, a `javascript:` URL runs
+    /// only in a main frame whose document's origin the domain policy
+    /// allows, and any other scheme but HTTP's and `about:blank` is
+    /// refused with `egress_refused`.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %page_id.0, operation = destination.operation(), run_id = tracing::field::Empty, url.origin = tracing::field::Empty))]
     async fn navigate(
         &self,
         page_id: &PageId,
         destination: Destination<'_>,
         wait_until: WaitUntil,
-        events: &Events,
+        context: &CallContext,
     ) -> Result<Navigated, CallError> {
         let span = tracing::Span::current();
         if let Destination::Url(url) = destination {
@@ -624,6 +633,28 @@ impl Pages {
         }
         let page = self.open(page_id).await?;
         span.record("run_id", page.run.id().as_str());
+        let navigator = Navigator {
+            acting_for_model: context.surface().acts_for_model(),
+            recipe_run: page
+                .run
+                .settings()
+                .is_some_and(|settings| settings.resolved().recipe_run()),
+            // No engine serves accounts before area 12's: a person's own
+            // engine serves the program's own code alone (`runs::CALLER`).
+            accounts: false,
+        };
+        if let Destination::Url(url) = destination
+            && egress::navigation(url, navigator).map_err(|refused| refused.error())?
+                == egress::Destination::JavaScript
+        {
+            let document = page.driver.document_url().await?;
+            self.interception
+                .judge_javascript(page_id, url, &document)?;
+        }
+        let _files = navigator
+            .reads_files()
+            .then(|| self.interception.allow_files(page_id, navigator));
+        let events = context.events();
         let navigated = page
             .life
             .call(

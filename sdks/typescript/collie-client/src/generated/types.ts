@@ -3286,6 +3286,18 @@ export interface RunCheckpointing {
   run_id: string;
 }
 /**
+ * What `run.discard` answers: the Run it discarded (ADRs 0001 and 0036).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunDiscarded".
+ */
+export interface RunDiscarded {
+  /**
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   */
+  run_id: string;
+}
+/**
  * What `run.migrating` carries.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

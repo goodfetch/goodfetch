@@ -402,7 +402,7 @@ pub(crate) fn epoch_of(path: &Path) -> Option<u64> {
     u64::try_from(epoch).ok()
 }
 
-fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
+pub(crate) fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
     RunStateError::Sqlite {
         path: path.to_owned(),
         message: error.to_string(),

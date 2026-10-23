@@ -87,7 +87,7 @@ mod tests {
     use crate::catalog::Product;
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 55] = [
+    const COLLIE: [&str; 56] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -126,6 +126,7 @@ mod tests {
         "run.abort",
         "run.usage",
         "run.set_progress_message",
+        "run.discard",
         "run.checkpoint",
         "run.pause",
         "run.migrate",

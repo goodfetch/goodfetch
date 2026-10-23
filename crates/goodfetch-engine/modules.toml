@@ -87,7 +87,8 @@ secretfile = []
 [submodules.governor]
 controller = []
 shares = []
-system = []
+storage = []
+system = ["storage"]
 
 # Which of `console`'s own modules may import which.
 [submodules.console]

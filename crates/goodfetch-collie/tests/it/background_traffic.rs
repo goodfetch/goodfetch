@@ -49,7 +49,7 @@ fn launch_profile(env: &TestEnv, run_id: &str) -> PathBuf {
         .join("runs")
         .join(run_id)
         .join("browser-profiles")
-        .join("default")
+        .join("1")
 }
 
 /// Writes Chromium's proxy preference, naming `proxy`, into the browser's

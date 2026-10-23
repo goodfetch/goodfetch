@@ -133,7 +133,13 @@ impl Proc<'_> {
     /// The PSS of the engine, `self`, and every descendant, in bytes; a
     /// process that ended meanwhile counts nothing.
     pub(super) fn footprint(&self) -> u64 {
-        let mut found = vec!["self".to_owned()];
+        self.footprint_from("self")
+    }
+
+    /// The PSS of `process`, as `/proc` names it, and every descendant, in
+    /// bytes.
+    pub(super) fn footprint_from(&self, process: &str) -> u64 {
+        let mut found = vec![process.to_owned()];
         let mut total = 0;
         while let Some(process) = found.pop() {
             total += self.pss(&process);

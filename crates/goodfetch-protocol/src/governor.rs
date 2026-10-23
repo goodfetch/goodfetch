@@ -100,6 +100,14 @@ fn one_hundred() -> serde_json::Value {
     serde_json::json!(100)
 }
 
+fn eight() -> serde_json::Value {
+    serde_json::json!(8)
+}
+
+fn five_minutes() -> serde_json::Value {
+    serde_json::json!(300_000)
+}
+
 /// `governor.http.floor`.
 pub const HTTP_FLOOR: Setting = Setting {
     name: "governor.http.floor",
@@ -239,6 +247,54 @@ pub const RUN_SHARE: Setting = Setting {
     kind: ValueKind::Count,
     default: one_hundred,
     clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `governor.browser.contexts_per_process` (ADR 0040, SA-09).
+pub const BROWSER_CONTEXTS_PER_PROCESS: Setting = Setting {
+    name: "governor.browser.contexts_per_process",
+    description: "How many of a Run's Sessions share one browser process, each in a browser context of its own: 8. The Run's next Session past it gets a process of its own; Sessions of different Runs never share one.",
+    kind: ValueKind::Count,
+    default: eight,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `governor.browser.recycle_pages` (ADR 0040).
+pub const BROWSER_RECYCLE_PAGES: Setting = Setting {
+    name: "governor.browser.recycle_pages",
+    description: "How many pages a browser opens before it is recycled: 100. Recycled, it opens no new page, closes once its pages are done and is replaced, each of its Sessions keeping its cookies and storage.",
+    kind: ValueKind::Count,
+    default: one_hundred,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `governor.browser.recycle_idle` (ADR 0040).
+pub const BROWSER_RECYCLE_IDLE: Setting = Setting {
+    name: "governor.browser.recycle_idle",
+    description: "How long a browser may hold no open page before it closes, each of its Sessions keeping its cookies and storage for the browser that replaces it: 5 minutes.",
+    kind: ValueKind::Duration,
+    default: five_minutes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `governor.browser.memory_cap` (ADR 0040).
+pub const BROWSER_MEMORY_CAP: Setting = Setting {
+    name: "governor.browser.memory_cap",
+    description: "The memory, in bytes, of a browser and its processes past which it is recycled; unset by default, when the cap is twice what the browser used once it had opened its first page.",
+    kind: ValueKind::Count,
+    default: unset,
+    clearable: true,
     authority: Authority::Every,
     weakens: None,
     arrived_in: ARRIVED_IN,
@@ -462,7 +518,7 @@ pub const PRESSURE_SOURCE: Metric = Metric {
 };
 
 /// Every setting of the governor, each under `governor.`.
-pub const SETTINGS: [Setting; 12] = [
+pub const SETTINGS: [Setting; 16] = [
     HTTP_FLOOR,
     HTTP_CEILING,
     BROWSER_PAGE_FLOOR,
@@ -475,6 +531,10 @@ pub const SETTINGS: [Setting; 12] = [
     SAMPLE_INTERVAL,
     LAST_RESORT_AFTER,
     RUN_SHARE,
+    BROWSER_CONTEXTS_PER_PROCESS,
+    BROWSER_RECYCLE_PAGES,
+    BROWSER_RECYCLE_IDLE,
+    BROWSER_MEMORY_CAP,
 ];
 
 /// Every entry this module defines.

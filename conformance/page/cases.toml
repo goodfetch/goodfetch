@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #708, #713 and #715;
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #707, #708, #713 and #715;
 # spec #580, ticket #783): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "12"
+version = "13"
 
 [[capability]]
 name = "sessions.default"
@@ -298,3 +298,14 @@ covers = ["story:5-98", "operation:locator.click"]
 [[capability.case]]
 id = "live-hiding-off-leaves-the-page-as-served-and-always-hides"
 covers = ["story:5-98", "setting:live_view.hiding"]
+
+[[capability]]
+name = "page_states.service_workers"
+
+[[capability.case]]
+id = "a-service-workers-own-requests-pass-the-domain-policy-the-filter-lists-and-session-routes-never-a-page-route"
+covers = ["story:5-49", "operation:session.route", "operation:page.route", "event:page.request", "event:page.response", "error:egress_refused"]
+
+[[capability.case]]
+id = "with-service-workers-blocked-register-rejects-natively-and-the-pages-calls-reach-its-route"
+covers = ["story:5-50", "setting:browser.service_workers", "operation:run.new_session", "operation:page.route"]

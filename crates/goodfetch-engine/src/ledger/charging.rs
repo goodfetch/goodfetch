@@ -55,6 +55,9 @@ pub struct Counted {
     /// The change: a charge or a reservation adds, a settlement below its
     /// worst case takes the rest off.
     pub delta: i64,
+    /// The part of the kind it is counted under too, such as a proxy kind
+    /// of `proxy_bytes`, if it has one.
+    pub part: Option<String>,
 }
 
 impl Counted {
@@ -63,6 +66,7 @@ impl Counted {
             usage_kind: usage_kind.to_owned(),
             currency: currency.map(str::to_owned),
             delta,
+            part: None,
         }
     }
 }

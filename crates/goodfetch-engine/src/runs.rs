@@ -1331,6 +1331,36 @@ impl Run {
         .map(drop)
     }
 
+    /// Charges `amount` of `usage_kind` as [`Run::charge`] does, and counts
+    /// it under `part` of the kind in the Run's Usage, such as the proxy
+    /// kind of `proxy_bytes` (ADR 0021), in the same run-state write.
+    ///
+    /// # Errors
+    ///
+    /// As [`Run::charge`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Run::charge`]'s.
+    pub async fn charge_part(
+        &self,
+        usage_kind: &str,
+        part: &str,
+        amount: u64,
+    ) -> Result<(), ChargeError> {
+        let (kind, part) = (usage_kind.to_owned(), part.to_owned());
+        self.charged(move |charging, now| {
+            charging.charge(&kind, amount, now).map(|mut charged| {
+                if let Some(counted) = &mut charged.counted {
+                    counted.part = Some(part);
+                }
+                ((), charged)
+            })
+        })
+        .await
+        .map(drop)
+    }
+
     /// Reserves `worst`, the worst case of a cost the Run is about to pay
     /// in `currency`, such as a model call or a paid solve, against every
     /// Limit on `usage_kind` in that currency that holds it (ADR 0041):
@@ -1429,11 +1459,20 @@ impl Run {
                     self.state
                         .write(move |connection| {
                             slices::journal(connection, epoch, &journaled.used, uncapped)?;
-                            match &journaled.counted {
-                                Some(counted) => report::count(
+                            let Some(counted) = &journaled.counted else {
+                                return Ok(());
+                            };
+                            report::count(
+                                connection,
+                                &counted.usage_kind,
+                                counted.currency.as_deref(),
+                                counted.delta,
+                            )?;
+                            match &counted.part {
+                                Some(part) => report::count_part(
                                     connection,
                                     &counted.usage_kind,
-                                    counted.currency.as_deref(),
+                                    part,
                                     counted.delta,
                                 ),
                                 None => Ok(()),

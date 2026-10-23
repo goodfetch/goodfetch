@@ -392,3 +392,119 @@ fn a_proxy_per_page_or_per_request_is_refused(#[case] method: &str, #[case] para
         "{refused}"
     );
 }
+
+/// The files under `folder`, at any depth, whose bytes hold `secret`.
+fn files_holding(folder: &std::path::Path, secret: &str) -> Vec<std::path::PathBuf> {
+    let mut holding = Vec::new();
+    let mut folders = vec![folder.to_owned()];
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(&folder).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                folders.push(path);
+            } else if std::fs::read(&path).is_ok_and(|bytes| {
+                bytes
+                    .windows(secret.len())
+                    .any(|window| window == secret.as_bytes())
+            }) {
+                holding.push(path);
+            }
+        }
+    }
+    holding
+}
+
+/// Covers: story:5-88, setting:proxy.server, setting:proxy.username, setting:proxy.password
+#[cfg(unix)]
+#[rstest]
+#[case::socks5("socks5")]
+#[case::socks5h("socks5h")]
+fn a_socks5_proxys_credentials_reach_it_through_the_sessions_loopback_relay_and_nowhere_else(
+    #[case] scheme: &str,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let credentials = proving_ground
+        .description()
+        .fixtures
+        .proxy_credentials
+        .clone();
+    let proxy = proxy_settings(
+        &proving_ground,
+        scheme,
+        "socks5",
+        Some(&credentials.username),
+    );
+    let mut engine = started_through(
+        &env,
+        &cache,
+        &proving_ground,
+        "relayed",
+        proxy,
+        &credentials.password,
+    );
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "relayed" }),
+    ));
+    let navigated = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({
+            "page_id": page.page_id,
+            "url": proving_ground.url("scope.test", "/storage?mark=relayed"),
+        }),
+    );
+    let arguments = crate::page::browser_command_lines(&env);
+    let _ = call(
+        &mut engine,
+        4,
+        "run.finish",
+        &json!({ "run_id": "relayed" }),
+    );
+    let (_, stderr) = engine.finish_with_stderr();
+
+    let port = proving_ground
+        .url("scope.test", "")
+        .rsplit(':')
+        .next()
+        .unwrap()
+        .to_owned();
+    let relays: Vec<Value> = proving_ground.observations().unwrap()["relays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|relay| relay["proxy"] == json!("socks5"))
+        .map(|relay| json!([relay["target"], relay["username"], relay["outcome"]]))
+        .collect();
+    assert_eq!(
+        (
+            &navigated["result"]["response"]["status"],
+            relays.first(),
+            arguments.is_empty(),
+            arguments
+                .iter()
+                .any(|line| line.contains(&credentials.password)),
+            stderr.contains(&credentials.password),
+            files_holding(env.home(), &credentials.password),
+        ),
+        (
+            &json!(200),
+            Some(&json!([
+                format!("scope.test:{port}"),
+                credentials.username,
+                "relayed"
+            ])),
+            false,
+            false,
+            false,
+            Vec::<std::path::PathBuf>::new(),
+        ),
+        "{navigated}"
+    );
+}

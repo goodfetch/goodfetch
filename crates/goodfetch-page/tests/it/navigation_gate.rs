@@ -12,7 +12,8 @@
 use std::time::Duration;
 
 use goodfetch_engine::lease::LeaseEnded;
-use goodfetch_page::page_value::NavigationKind;
+use goodfetch_page::page_value::{Kept, NavigationKind};
+use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::page::SitePreference;
 use goodfetch_recording_gate::RecordingGate;
 use serde_json::{Map, Value, json};
@@ -106,6 +107,8 @@ fn the_gate_admits_each_main_frame_navigation_and_each_hop_once() {
         .await;
         // Nothing more was asked once each settled.
         let total = gate.admitted().len();
+        // A page whose Session registered no response observer keeps none.
+        assert_eq!(gate.observed(), Vec::new());
 
         assert_eq!(
             (
@@ -388,6 +391,60 @@ fn a_permit_wait_counts_against_no_timeout_and_holds_the_lease() {
                     Some("/held-request".to_owned())
                 ],
             )
+        );
+    });
+}
+
+/// The response observer Foxhound registers receives each response the
+/// engine observes whose URL its patterns match, with its body cut at its
+/// byte cap, a service worker's own included; one that matches nothing is
+/// never passed to it.
+/// Covers: operation:page.goto
+#[test]
+fn the_response_observer_receives_each_kept_response_with_its_body_a_service_workers_included() {
+    let gate = RecordingGate::new();
+    gate.observe(Kept {
+        urls: vec![
+            UrlPattern::glob("**/effects.js").unwrap(),
+            UrlPattern::glob("**/network.json*").unwrap(),
+        ],
+        byte_cap: 8,
+    });
+    with_handler_page(&gate, Map::new(), async |program| {
+        program.goto(HISTORY, "/").await;
+        program
+            .goto("access.localhost", "/service-worker/?case=observed")
+            .await;
+        let from_worker = |gate: &RecordingGate| {
+            gate.observed()
+                .iter()
+                .any(|observed| observed.url.contains("/network.json"))
+        };
+        settled(|| from_worker(&gate)).await;
+        let observed: Vec<(Option<String>, u16, bool, usize)> = gate
+            .observed()
+            .into_iter()
+            .map(|observed| {
+                (
+                    path_of(Some(&observed.url)),
+                    observed.status,
+                    observed.from_service_worker,
+                    observed.body.len(),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            observed,
+            vec![
+                (Some("/effects.js".to_owned()), 200, false, 8),
+                (
+                    Some("/service-worker/network.json".to_owned()),
+                    200,
+                    true,
+                    8
+                ),
+            ]
         );
     });
 }

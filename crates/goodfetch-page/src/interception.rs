@@ -83,11 +83,12 @@ use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
 use self::clean_up::CleanUp;
 pub(crate) use self::clean_up::SESSION_KEYS;
-use self::pipeline::{PageContext, Sender};
+use self::pipeline::{Observing, PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
 use crate::driver::{OnServiceWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
+use crate::page_value::ResponseObserver;
 use crate::proxy::SessionProxy;
 use crate::url_pattern::UrlPattern;
 
@@ -249,9 +250,10 @@ impl Interception {
     /// drives for `run`, under the interception: every request of its
     /// target is paused and passes the pipeline from now on, its Clean-up
     /// rules chosen by `own`, the Session's own settings, over the Run's,
-    /// each refusal left in `refusals` for the request's failure to carry.
-    /// It answers what the Session chose of the Clean-up rules beside its
-    /// requests' blocking.
+    /// each refusal left in `refusals` for the request's failure to carry,
+    /// each response `observer` keeps passed to it, a service worker's of
+    /// the Session included. It answers what the Session chose of the
+    /// Clean-up rules beside its requests' blocking.
     ///
     /// # Errors
     ///
@@ -270,6 +272,7 @@ impl Interception {
         run: &Run,
         own: &Values,
         refusals: Refusals,
+        observer: Option<Arc<dyn ResponseObserver>>,
     ) -> Result<PageCleanUp, CallError> {
         let policy = match run.settings() {
             Some(settings) => Policy::of(settings.resolved()),
@@ -321,20 +324,8 @@ impl Interception {
             state
         };
         let events = driver.events().await;
-        let mut patterns = vec![fetch::RequestPattern {
-            url_pattern: Some("*".to_owned()),
-            resource_type: None,
-            request_stage: Some(fetch::RequestStage::Request),
-        }];
-        // A page with a navigation gate pauses its documents' responses
-        // too, so the gate judges each before the page renders it.
-        if driver.value().gate().is_some() {
-            patterns.push(fetch::RequestPattern {
-                url_pattern: Some("*".to_owned()),
-                resource_type: Some(network::ResourceType::Document),
-                request_stage: Some(fetch::RequestStage::Response),
-            });
-        }
+        let observing = observer.map(Observing::of);
+        let patterns = patterns(driver.value().gate().is_some(), observing.is_some());
         driver
             .opening_command(&fetch::EnableParams {
                 patterns: Some(patterns),
@@ -355,6 +346,7 @@ impl Interception {
                     run,
                     policy.clone(),
                     blocking.clone(),
+                    observing.clone(),
                 )),
             };
         // Chosen before the page loads anything, so no worker of its sites
@@ -368,6 +360,7 @@ impl Interception {
             policy,
             blocking,
             refusals,
+            observing,
             run.clone(),
         ));
         run.spawn(pipeline::dispatch(events, context));
@@ -387,6 +380,7 @@ impl Interception {
         run: &Run,
         policy: Policy,
         blocking: steps::Blocking,
+        observing: Option<Observing>,
     ) -> OnServiceWorker {
         // The browser keeps this choice, so it holds no driver of the
         // browser and nothing that must end with the Run before the
@@ -400,7 +394,8 @@ impl Interception {
                 proxy.clone(),
                 run.clone(),
             );
-            let (policy, blocking) = (policy.clone(), blocking.clone());
+            let (policy, blocking, observing) =
+                (policy.clone(), blocking.clone(), observing.clone());
             Box::pin(async move {
                 let Some(routes) = lock(&shared.tables).sessions.get(&session).cloned() else {
                     return false;
@@ -410,11 +405,7 @@ impl Interception {
                 let events = worker.events().await;
                 let enabled = worker
                     .opening_command(&fetch::EnableParams {
-                        patterns: Some(vec![fetch::RequestPattern {
-                            url_pattern: Some("*".to_owned()),
-                            resource_type: None,
-                            request_stage: Some(fetch::RequestStage::Request),
-                        }]),
+                        patterns: Some(patterns(false, observing.is_some())),
                         handle_auth_requests: worker
                             .proxy()
                             .is_some_and(SessionProxy::answers_authentication)
@@ -443,6 +434,7 @@ impl Interception {
                     policy,
                     blocking,
                     Refusals::default(),
+                    observing,
                     run.clone(),
                 ));
                 run.spawn(async move {
@@ -568,6 +560,28 @@ impl Interception {
             table.close();
         }
     }
+}
+
+/// What a target's requests pause at: every request before it leaves, a
+/// document's response too under a navigation gate, which judges it before
+/// the page renders it, and every response for a response observer, which
+/// keeps the ones it matches.
+fn patterns(gated: bool, observed: bool) -> Vec<fetch::RequestPattern> {
+    let stage = |resource_type, request_stage| fetch::RequestPattern {
+        url_pattern: Some("*".to_owned()),
+        resource_type,
+        request_stage: Some(request_stage),
+    };
+    let mut patterns = vec![stage(None, fetch::RequestStage::Request)];
+    if observed {
+        patterns.push(stage(None, fetch::RequestStage::Response));
+    } else if gated {
+        patterns.push(stage(
+            Some(network::ResourceType::Document),
+            fetch::RequestStage::Response,
+        ));
+    }
+    patterns
 }
 
 /// `closed` for a page or Session the interception does not hold.

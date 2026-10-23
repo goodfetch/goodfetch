@@ -372,7 +372,15 @@ impl Sessions {
         self.events.insert(page.clone(), events);
         let clean_up = self
             .interception
-            .start(&page, session, &driver, &run, &open.settings, refusals)
+            .start(
+                &page,
+                session,
+                &driver,
+                &run,
+                &open.settings,
+                refusals,
+                self.hooks.observer(run.id(), session),
+            )
             .await?;
         let hiding = match self
             .hiding

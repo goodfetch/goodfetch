@@ -37,7 +37,10 @@ use super::{PageState, lock};
 use crate::driver::PageDriver;
 use crate::errors::{site_preferences_failure, site_preferences_refused};
 use crate::page_events::Refusals;
-use crate::page_value::{DocumentResponse, Navigation, NavigationKind, Permit, Refusal};
+use crate::page_value::{
+    DocumentResponse, Kept, Navigation, NavigationKind, ObservedResponse, Permit, Refusal,
+    ResponseObserver,
+};
 
 /// Whose requests a pipeline holds.
 pub(crate) enum Sender {
@@ -72,6 +75,8 @@ pub(super) struct PageContext {
     blocking: Blocking,
     /// The refusals the page's requests then carry.
     refusals: Refusals,
+    /// The response observer its Session registered, and what it keeps.
+    observing: Option<Observing>,
     run: Run,
     /// The requests a `fetch` sent on, waiting for their response to be
     /// paused, by the interception's ID.
@@ -130,6 +135,7 @@ impl PageContext {
         policy: Policy,
         blocking: Blocking,
         refusals: Refusals,
+        observing: Option<Observing>,
         run: Run,
     ) -> Self {
         Self {
@@ -140,12 +146,34 @@ impl PageContext {
             policy,
             blocking,
             refusals,
+            observing,
             run,
             responses: Mutex::new(BTreeMap::new()),
             document: Mutex::new(String::new()),
             authenticated: Mutex::new(Authenticated::default()),
             permit: Mutex::new(None),
         }
+    }
+}
+
+/// A response observer and what it keeps, read once when its page opened
+/// (ADR 0110).
+#[derive(Clone)]
+pub(crate) struct Observing {
+    observer: Arc<dyn ResponseObserver>,
+    kept: Kept,
+}
+
+impl Observing {
+    /// `observer`, keeping what it says it keeps now.
+    pub(crate) fn of(observer: Arc<dyn ResponseObserver>) -> Self {
+        let kept = observer.kept();
+        Self { observer, kept }
+    }
+
+    /// Whether it keeps the response to `url`.
+    fn keeps(&self, url: &str) -> bool {
+        self.kept.urls.iter().any(|pattern| pattern.matches(url))
     }
 }
 
@@ -689,11 +717,18 @@ impl PageContext {
             .response_status_code
             .and_then(|status| u16::try_from(status).ok())
             .unwrap_or_default();
-        let gate = self.driver.value().gate().filter(|_| document);
-        let Some(gate) = gate.filter(|_| !(300..400).contains(&status)) else {
+        let gate = self
+            .driver
+            .value()
+            .gate()
+            .filter(|_| document && !(300..400).contains(&status));
+        let observing = self.observing.as_ref().filter(|observing| {
+            paused.response_status_code.is_some() && observing.keeps(&paused.request.url)
+        });
+        if gate.is_none() && observing.is_none() {
             self.continue_response(&paused.request_id).await;
             return;
-        };
+        }
         let body = self.body(&paused.request_id).await;
         let headers: Vec<(String, String)> = paused
             .response_headers
@@ -701,6 +736,20 @@ impl PageContext {
             .flatten()
             .map(|header| (header.name.to_ascii_lowercase(), header.value.clone()))
             .collect();
+        if let Some(observing) = observing {
+            let observed = ObservedResponse {
+                url: &paused.request.url,
+                status,
+                headers: &headers,
+                from_service_worker: matches!(self.sender, Sender::ServiceWorker { .. }),
+            };
+            let cut = body.len().min(observing.kept.byte_cap);
+            observing.observer.on_response(&observed, &body[..cut]);
+        }
+        let Some(gate) = gate else {
+            self.continue_response(&paused.request_id).await;
+            return;
+        };
         let response = DocumentResponse {
             url: &paused.request.url,
             status,

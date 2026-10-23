@@ -20,8 +20,14 @@ use crate::env::TestEnv;
 use crate::process::{Process, ReportedAddressError, reported_address_within};
 use crate::tools::{Tool, ToolsError, tools};
 
-/// How long `serve` has to print its first line: it makes a leaf
-/// certificate for every host name before it does.
+/// How long `serve` has to print its first line, which it writes once its
+/// listeners are bound. Its start takes about 0.3 s in a debug build, 1 s
+/// with fourteen started at once on a loaded host, most of it the 250 ms
+/// that fill the IPv6 blackhole's queue (it builds no bomb body and signs no
+/// leaf certificate before it). The bound only catches a `serve` that hangs:
+/// the line is awaited as it is written, never polled, so a wait ends as soon
+/// as `serve` is ready, and a hang fails with this error well inside
+/// nextest's slow timeout rather than as an unnamed test timeout (ADR 0064).
 pub const PROVING_GROUND_DEADLINE: Duration = Duration::from_secs(30);
 
 /// The file name of the certificate authority, in its instance's folder.

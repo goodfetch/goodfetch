@@ -20,6 +20,8 @@ use crate::catalog::{
     Product, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
 
+pub mod session_source;
+
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// The layers settings resolve through, lowest first (ADRs 0028 and 0083).
@@ -188,6 +190,34 @@ pub const SETTING_NOT_APPLICABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// A capability this engine cannot provide where it was asked for (ADR
+/// 0083).
+pub const CAPABILITY_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "capability_unavailable",
+    description: "A capability this engine cannot provide where a setting asks for it, such as a Session opening from a Session source of a kind this engine does not read: the details name the setting, the layer that set it and what it asked for, and its fix names the value that does without it.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `capability_unavailable` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CapabilityUnavailableDetails {
+    /// The setting that asks for it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key: String,
+    /// The layer that set it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub layer: SettingsLayer,
+    /// What it asks for, such as a Session source's kind.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub kind: String,
+    /// The value that does without it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
 
 /// What `setting_not_applicable` details.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -475,6 +505,10 @@ fn empty_table() -> Value {
     json!({})
 }
 
+fn no() -> Value {
+    Value::Bool(false)
+}
+
 fn yes() -> Value {
     Value::Bool(true)
 }
@@ -555,11 +589,71 @@ pub const FILTER_LISTS_EXTRA: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `filter_lists.ads` (ADR 0047).
+pub const FILTER_LISTS_ADS: Setting = Setting {
+    name: "filter_lists.ads",
+    description: "Whether a browser Session blocks ads by EasyList, as a blocker does: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `filter_lists.trackers` (ADR 0047).
+pub const FILTER_LISTS_TRACKERS: Setting = Setting {
+    name: "filter_lists.trackers",
+    description: "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `filter_lists.annoyances` (ADR 0047).
+pub const FILTER_LISTS_ANNOYANCES: Setting = Setting {
+    name: "filter_lists.annoyances",
+    description: "Whether a browser Session blocks page annoyances (social widgets, newsletter and notification prompts) by Fanboy Annoyance, its cookie sections left to the Consent prompt runner: on by default in every Access mode.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `filter_lists.first_party_scripts` (ADR 0047).
+pub const FILTER_LISTS_FIRST_PARTY_SCRIPTS: Setting = Setting {
+    name: "filter_lists.first_party_scripts",
+    description: "Whether a site's own scripts load whatever the Filter lists say: off by default.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `filter_lists.page_scriptlets` (ADR 0047).
+pub const FILTER_LISTS_PAGE_SCRIPTLETS: Setting = Setting {
+    name: "filter_lists.page_scriptlets",
+    description: "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `session.source` (ADR 0056).
 pub const SESSION_SOURCE: Setting = Setting {
     name: "session.source",
-    description: "Where a Session's login comes from. A Recipe never sets or locks it; it may only expose it to its users.",
-    kind: ValueKind::Text,
+    description: "Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users.",
+    kind: ValueKind::Shape(&session_source::SESSION_SOURCE_SHAPE),
     default: null,
     clearable: true,
     authority: Authority::NotByRecipe,
@@ -674,6 +768,7 @@ pub const ENTRIES: Entries = Entries {
         SETTING_INVALID,
         SETTING_NOT_APPLICABLE,
         SETTING_LOCKED,
+        CAPABILITY_UNAVAILABLE,
     ],
     plugin_kinds: &[],
     metrics: &[],
@@ -683,6 +778,11 @@ pub const ENTRIES: Entries = Entries {
         WALL_DOMAINS,
         WALL_REFETCH_DOMAINS,
         WALL_DENIED_DOMAINS,
+        FILTER_LISTS_ADS,
+        FILTER_LISTS_TRACKERS,
+        FILTER_LISTS_ANNOYANCES,
+        FILTER_LISTS_FIRST_PARTY_SCRIPTS,
+        FILTER_LISTS_PAGE_SCRIPTLETS,
         FILTER_LISTS_EXTRA,
         SESSION_SOURCE,
         SECRETS_BY_REFERENCE,

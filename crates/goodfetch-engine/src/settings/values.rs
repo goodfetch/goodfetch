@@ -57,6 +57,11 @@ impl Values {
     pub fn get(&self, key: &str) -> Option<&Value> {
         self.applied.get(key)
     }
+
+    /// The keys it sets and applies, in order.
+    pub fn keys(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.applied.keys().copied()
+    }
 }
 
 fn walk(

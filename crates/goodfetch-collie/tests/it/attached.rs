@@ -87,10 +87,10 @@ impl<'env> Attached<'env> {
     /// Kills the engine (`kill -9`) and waits for it to end, as a power cut
     /// or a crash ends it.
     #[cfg_attr(
-        not(target_os = "linux"),
+        not(unix),
         expect(
             dead_code,
-            reason = "only the LazyFS power cut, on Linux, kills the engine"
+            reason = "only the LazyFS power cut, on Linux, and the Sessions' resume, on Unix, kill the engine"
         )
     )]
     pub(crate) fn kill(self) {

@@ -7,7 +7,7 @@
 //! element a locator matches, through the guard (ADR 0019); and the Error
 //! codes a page's browser, its navigations, its locators and the URL
 //! patterns its calls pass fail with. Its `route` module holds the page's
-//! and the Session's routes.
+//! and the Session's routes, and its `session` module a Run's own Sessions.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -15,6 +15,10 @@
 //! `page.body`, which sends it in `$/chunk` notifications, one per credit
 //! the Client grants the call with `$/credit`, and answers once the last
 //! chunk is sent.
+//!
+//! Size: one catalog module, the contract of a Run's pages: their
+//! operations, Error codes and `browser.*` settings, kept whole so each
+//! entry sits beside the others it is listed with.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -33,11 +37,13 @@ use crate::run::RunId;
 use crate::settings::SettingLimit;
 
 pub mod route;
+pub mod session;
 
 use self::route::{
     PAGE_HANDLER_FAILED, PAGE_ROUTE, ROUTE_ABORT, ROUTE_ALREADY_HANDLED, ROUTE_CONTINUE,
     ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL, ROUTE_HANDLE, SESSION_ROUTE,
 };
+use self::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -162,14 +168,14 @@ pub struct NewPageParams {
     pub run_id: RunId,
 }
 
-/// What `run.new_page` answers: the page, and the Session it belongs to,
-/// which `page.session()` returns.
+/// What `run.new_page` and `session.new_page` answer: the page, and the
+/// Session it belongs to, which `page.session()` returns.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PageOpened {
     /// The page.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub page_id: PageId,
-    /// Its Session: the Run's default Session.
+    /// Its Session: the Run's default Session for `run.new_page`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub session_id: SessionId,
 }
@@ -772,6 +778,26 @@ fn headless() -> serde_json::Value {
     serde_json::Value::Bool(true)
 }
 
+/// The resource kinds `browser.block_resources` takes, a closed list (ADR
+/// 0117).
+pub const BLOCKABLE_RESOURCES: &[&str] = &["image", "media", "font", "stylesheet"];
+
+/// `browser.block_resources` (ADRs 0047 and 0117; spec #577).
+pub const BROWSER_BLOCK_RESOURCES: Setting = Setting {
+    name: "browser.block_resources",
+    description: "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
+    kind: ValueKind::List(&ValueKind::Choice(BLOCKABLE_RESOURCES)),
+    default: no_resources,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn no_resources() -> serde_json::Value {
+    serde_json::Value::Array(Vec::new())
+}
+
 /// A format asked for as `true`: with its default options.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Asked;
@@ -946,6 +972,9 @@ pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[
         RUN_NEW_PAGE,
+        RUN_NEW_SESSION,
+        SESSION_NEW_PAGE,
+        SESSION_CLOSE,
         PAGE_GOTO,
         PAGE_RELOAD,
         PAGE_GO_BACK,
@@ -981,7 +1010,7 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[BROWSER_HEADLESS],
+    settings: &[BROWSER_HEADLESS, BROWSER_BLOCK_RESOURCES],
     hook_stages: &[],
     shared_type_values: &[],
 };

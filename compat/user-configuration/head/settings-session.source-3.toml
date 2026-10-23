@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings.session]
+source = { domain = "example.com", header = "id=1", kind = "cookie_header" }

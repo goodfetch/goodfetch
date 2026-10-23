@@ -37,7 +37,36 @@ pub enum ValueKind {
     Optional(&'static ValueKind),
     /// A Secret reference, `provider:rest`, never a value (ADR 0015).
     SecretReference,
+    /// A value of a shape the protocol defines once as a type, such as
+    /// `session.source`'s tagged union (ADR 0056).
+    Shape(&'static ValueShape),
 }
+
+/// A shape of values the protocol defines once as a type: its name, what
+/// checks a value against it, its JSON Schema with nothing referenced
+/// outside it, and values of it that together give each of its fields a
+/// value, for the corpora that need them.
+#[derive(Debug)]
+pub struct ValueShape {
+    /// The type's name.
+    pub name: &'static str,
+    /// Whether `value` is of the shape, or what is wrong with it.
+    pub check: fn(&Value) -> Result<(), String>,
+    /// Its JSON Schema, every subschema inline.
+    pub schema: fn() -> Value,
+    /// Values of it, the first the most common, that together give each of
+    /// its fields a value.
+    pub examples: fn() -> Vec<Value>,
+}
+
+/// Two shapes are one when they name one type.
+impl PartialEq for ValueShape {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Eq for ValueShape {}
 
 impl ValueKind {
     /// Whether `value` is of this kind, or what is wrong with it.
@@ -84,6 +113,7 @@ impl ValueKind {
                 )),
                 None => Err("expected a Secret reference such as `env:NAME`".to_owned()),
             },
+            Self::Shape(shape) => (shape.check)(value),
         }
     }
 
@@ -150,6 +180,7 @@ impl ValueKind {
                 "pattern": REFERENCE_PATTERN,
                 "description": "A Secret reference, such as `env:NAME`.",
             }),
+            Self::Shape(shape) => (shape.schema)(),
         }
     }
 }

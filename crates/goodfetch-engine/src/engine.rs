@@ -40,6 +40,7 @@ use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::runs::{Driver, ReportPart, Runs, RunsSetup};
+use crate::secrets::{self, Keychain};
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use crate::transition::{
@@ -87,6 +88,10 @@ pub struct Dependencies {
     /// The engine's environment map, which `main` reads once (ADR 0083)
     /// and `env:` Secret references resolve in.
     pub environment: BTreeMap<OsString, OsString>,
+    /// The OS keychain `keychain:` Secret references resolve in, whose
+    /// absence makes the encrypted local file `run_state.key_reference`'s
+    /// default: `Keychain::os()` in `main`, absent in most tests.
+    pub keychain: Keychain,
 }
 
 impl Engine {
@@ -158,7 +163,8 @@ impl Engine {
     }
 
     /// Serves `connection` until it ends, its tasks those of `owner`, its
-    /// calls reaching the Runs of `runs` and the event stream `events`.
+    /// calls reaching the Runs of `runs` and the event stream `events`, on
+    /// `clock`.
     ///
     /// # Cancel safety
     ///
@@ -169,6 +175,7 @@ impl Engine {
         owner: &TaskOwner,
         runs: Runs,
         events: Events,
+        clock: Clock,
     ) {
         rpc::serve(
             Arc::clone(&self.dispatch),
@@ -177,6 +184,7 @@ impl Engine {
             runs,
             events,
             Access::Attached(None),
+            clock,
         )
         .await;
     }
@@ -221,6 +229,7 @@ impl Engine {
                     listener,
                     url,
                     sign_in,
+                    content,
                 },
             ) => {
                 let sign_ins = SignInDriver::new(SignIns {
@@ -243,6 +252,9 @@ impl Engine {
                             major_name(&self.identity().product_version)
                         ),
                         sockets: opened_sockets,
+                        runs: runs.clone(),
+                        clock,
+                        content,
                     },
                     owner.child(),
                 ));
@@ -296,10 +308,15 @@ impl Engine {
     ) -> (Runs, Events) {
         let instance = EngineInstance::new(format!("{:016x}", dependencies.entropy.next_u64()));
         let events = Events::start(self.events, instance, owner);
-        let settings = Settings::new(
+        let keychain = dependencies.keychain.clone();
+        let settings = Settings::with_host(
             SettingsFiles::of(&dependencies.home, &self.identity().product_version),
             self.identity().product,
             owner.child(),
+            move || {
+                let keychain = keychain.clone();
+                Box::pin(async move { secrets::host_defaults(&keychain).await })
+            },
         );
         let governor = match &self.system {
             Some(system) => {
@@ -322,6 +339,7 @@ impl Engine {
         });
         let runs = Runs::start_registry(
             RunsSetup {
+                keychain: dependencies.keychain,
                 settings,
                 product: self.identity().product,
                 reached_at,
@@ -409,6 +427,7 @@ impl Engine {
         let parent = on_the_os.then(ParentWatch::start);
         let connection = network.attached_connection().await?;
         let owner = TaskOwner::root(dependencies.blocking);
+        let clock = dependencies.clock;
         let private = if on_the_os {
             private_endpoint(network, &owner).await
         } else {
@@ -432,6 +451,7 @@ impl Engine {
             runs.clone(),
             events.clone(),
             Access::Attached(reported),
+            clock,
         );
         let gone = async {
             match parent {
@@ -449,6 +469,7 @@ impl Engine {
                 accepting.child(),
                 runs.clone(),
                 events,
+                clock,
             ));
             private_files = Some(files);
         }
@@ -536,6 +557,7 @@ async fn serve_private_endpoint(
     owner: TaskOwner,
     runs: Runs,
     events: Events,
+    clock: Clock,
 ) {
     loop {
         let connection = tokio::select! {
@@ -559,7 +581,7 @@ async fn serve_private_endpoint(
         owner.spawn(async move {
             tokio::select! {
                 () = its_owner.token().cancelled() => {}
-                () = rpc::serve(dispatch, connection, &its_owner, runs, events, Access::PrivateEndpoint(token)) => {}
+                () = rpc::serve(dispatch, connection, &its_owner, runs, events, Access::PrivateEndpoint(token), clock) => {}
             }
             its_owner.stop().await;
         });

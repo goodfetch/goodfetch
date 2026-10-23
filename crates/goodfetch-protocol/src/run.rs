@@ -930,6 +930,16 @@ pub const RUN_NOT_FOUND: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// New work for a Run that ended (ADR 0102).
+pub const RUN_ENDED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "run_ended",
+    description: "The Run ended `finished`, so it takes no new work, such as a page or a Session it would open: start a Run under a new Run ID. The details name the Run.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A Run whose writer's lock another holds (ADRs 0031 and 0102).
 pub const RUN_IN_USE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "run_in_use",
@@ -1261,6 +1271,7 @@ pub const ENTRIES: Entries = Entries {
         RUN_ID_INVALID,
         RUN_CONFLICT,
         RUN_NOT_FOUND,
+        RUN_ENDED,
         RUN_IN_USE,
         RUN_BUSY,
         RUN_NOT_OWNED,

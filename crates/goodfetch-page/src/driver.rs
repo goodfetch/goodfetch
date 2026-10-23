@@ -171,7 +171,16 @@ pub(crate) trait Connect: Send + Sync {
     fn connect(&self) -> impl Future<Output = Result<Browser, CallError>> + Send;
 }
 
-/// The browser the engine launches for a Run, on the first page it opens.
+/// A browser several Sessions share, as the Run's Sessions share the
+/// browser the engine launched for it (ADR 0037 / SA-09).
+impl<B: Connect> Connect for Arc<B> {
+    async fn connect(&self) -> Result<Browser, CallError> {
+        B::connect(self).await
+    }
+}
+
+/// The browser the engine launches for a Run, on the first Session that
+/// needs it.
 pub(crate) struct LocalBrowser {
     run: Run,
     home: Home,
@@ -227,8 +236,9 @@ impl Connect for LocalBrowser {
     }
 }
 
-/// The Session-level driver: one Session's browser context, in which it
-/// opens its pages.
+/// The Session-level driver: one Session's browser context, its own
+/// cookies and storage (ADR 0037 / SA-10), in which it opens its pages,
+/// made on its first use.
 pub(crate) struct SessionDriver<B> {
     browser: B,
     context: OnceCell<browser::BrowserContextID>,
@@ -242,16 +252,18 @@ impl<B: Connect> SessionDriver<B> {
         }
     }
 
-    /// Opens a page in the Session, `navigation_timeout` its navigations'
-    /// deadline.
-    pub(crate) async fn new_page(
-        &self,
-        navigation_timeout: Duration,
-    ) -> Result<PageDriver, CallError> {
+    /// Makes the Session's browser context, connecting to its browser
+    /// first: a missing build or a browser that does not start raises its
+    /// code here.
+    pub(crate) async fn open(&self) -> Result<(), CallError> {
         let browser = self.browser.connect().await?;
+        self.context_in(&browser).await.map(drop)
+    }
+
+    /// The Session's browser context in `browser`, made on first use.
+    async fn context_in(&self, browser: &Browser) -> Result<browser::BrowserContextID, CallError> {
         let opening = browser.opening();
-        let context: browser::BrowserContextID = self
-            .context
+        self.context
             .get_or_try_init(|| async {
                 browser
                     .send(
@@ -262,8 +274,42 @@ impl<B: Connect> SessionDriver<B> {
                     .await
                     .map(|created| created.browser_context_id)
             })
-            .await?
-            .clone();
+            .await
+            .cloned()
+    }
+
+    /// Closes the Session's browser context, and with it every page in it;
+    /// the browser itself stays, for the Run's other Sessions. A browser
+    /// already gone has nothing left to close.
+    pub(crate) async fn close(&self) {
+        let Some(context) = self.context.get() else {
+            return;
+        };
+        let Ok(browser) = self.browser.connect().await else {
+            return;
+        };
+        if let Err(failure) = browser
+            .try_send(
+                None,
+                &target::DisposeBrowserContextParams {
+                    browser_context_id: context.clone(),
+                },
+            )
+            .await
+        {
+            tracing::debug!(%failure, "the Session's browser context was gone already");
+        }
+    }
+
+    /// Opens a page in the Session, `navigation_timeout` its navigations'
+    /// deadline.
+    pub(crate) async fn new_page(
+        &self,
+        navigation_timeout: Duration,
+    ) -> Result<PageDriver, CallError> {
+        let browser = self.browser.connect().await?;
+        let opening = browser.opening();
+        let context = self.context_in(&browser).await?;
         let created = browser
             .send(
                 None,

@@ -16,6 +16,7 @@ mod interception;
 mod launch;
 mod pages;
 pub mod robots_txt;
+mod sessions;
 mod trace;
 pub mod url_pattern;
 

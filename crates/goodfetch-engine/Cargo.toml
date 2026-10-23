@@ -44,6 +44,10 @@ opentelemetry_sdk.workspace = true
 tracing-opentelemetry.workspace = true
 rusqlite.workspace = true
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+# The encrypted local file (`secretfile:`, spec #564).
+age.workspace = true
+# The OS keychain's API (`keychain:`, ADR 0015); each OS's store is below.
+keyring-core.workspace = true
 # Every resolved Secret reference's value, zeroized when dropped (ADR 0015).
 secrecy.workspace = true
 serde.workspace = true
@@ -78,11 +82,21 @@ zip = { workspace = true, features = ["deflate-flate2"] }
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
+# The OS keychain on each OS (ADR 0015): the Secret Service on Linux, over
+# zbus on the engine's runtime, the login keychain on macOS and the
+# Credential Manager on Windows.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { workspace = true, features = ["tokio"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { workspace = true, features = ["keychain"] }
+
 # Ties an Attached engine to its parent and its children to itself through
 # kill-on-close Job Objects (ADR 0024), and gives the Resource governor its
 # Job object limit, memory notifications and footprints (ADR 0040).
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Threading"] }
+windows-native-keyring-store.workspace = true
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization","Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Threading"] }
 
 # Never used here: it turns on bindgen's `runtime` feature for sqlite-plugin's
 # build script, so that script loads libclang where the OS keeps it, as

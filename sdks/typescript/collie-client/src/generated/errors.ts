@@ -199,6 +199,15 @@ export class CallCancelledError extends UnavailableError {
 }
 
 /**
+ * A capability this engine cannot provide where a setting asks for it, such as a Session opening from a Session source of a kind this engine does not read: the details name the setting, the layer that set it and what it asked for, and its fix names the value that does without it.
+ */
+export class CapabilityUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "capability_unavailable", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * A host's certificate failed verification and no exception covers its domain, so nothing was sent to it. The details name the host, the failure (`expired`, `not_yet_valid`, `unknown_issuer`, `name_mismatch`, `self_signed`, `revoked`, or another failure as text) and, in `fix`, the setting that makes an exception for that domain.
  */
 export class CertificateInvalidError extends PageError {
@@ -478,6 +487,15 @@ export class RunConflictError extends ProgramError {
 }
 
 /**
+ * The Run ended `finished`, so it takes no new work, such as a page or a Session it would open: start a Run under a new Run ID. The details name the Run.
+ */
+export class RunEndedError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_ended", group: "program", retryable: false });
+  }
+}
+
+/**
  * The Run ID is not one the engine takes: lowercase letters, digits, `.`, `_` and `-`, at most 128, starting and ending with a letter or a digit, never a name Windows reserves for a device.
  */
 export class RunIdInvalidError extends ProgramError {
@@ -658,6 +676,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   browser_launch_failed: BrowserLaunchFailedError,
   browser_not_installed: BrowserNotInstalledError,
   call_cancelled: CallCancelledError,
+  capability_unavailable: CapabilityUnavailableError,
   certificate_invalid: CertificateInvalidError,
   closed: ClosedError,
   connection_lost: ConnectionLostError,
@@ -689,6 +708,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   route_already_handled: RouteAlreadyHandledError,
   run_busy: RunBusyError,
   run_conflict: RunConflictError,
+  run_ended: RunEndedError,
   run_id_invalid: RunIdInvalidError,
   run_in_use: RunInUseError,
   run_not_found: RunNotFoundError,

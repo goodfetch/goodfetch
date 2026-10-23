@@ -80,7 +80,7 @@ async function cellsOf(key: string): Promise<string[]> {
 
 test(
   "Engine & settings shows each effective value with the layer that set it and the layer that locked it",
-  { tags: ["story:12-94"] },
+  { tags: ["story:12-94", "screen:/settings"] },
   async () => {
     const { client } = await engineSettings(
       explanation([

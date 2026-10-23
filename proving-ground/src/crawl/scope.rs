@@ -16,6 +16,12 @@
 //!   cache for an hour (`Cache-Control: max-age=3600`), so a second load
 //!   the cache serves never reaches the Proving ground: the interception's
 //!   cases read it (ADR 0085).
+//! - `scope.test/storage?mark=<mark>`, linked from nowhere, keeps `mark` (up
+//!   to 32 letters, digits and hyphens, else `none`) in a `mark` cookie and
+//!   in `localStorage`, after its script reports the mark `localStorage`
+//!   held before it, or `none`, by loading `/storage/found?mark=<found>`
+//!   before the page's `load` event: the Sessions' cases read both from the
+//!   observations (ADR 0021).
 //!
 //! Every other page is an article with its ID; any other path is `404`.
 //! No task names the family: the engine's scope cases read it.
@@ -81,6 +87,8 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
             document("Moved", "<p>This page has moved.</p>\n"),
         )
         .header("location", link("http", "elsewhere.test", "/offsite")),
+        (HOST, "/storage") => storage(request.parameter("mark")),
+        (HOST, "/storage/found") => Page::text("text/plain; charset=utf-8", String::new()),
         (HOST, "/cached") => {
             let title = name(visit.seed, &[FAMILY_PLACE, CACHED_PLACE]);
             Page::ok(article("S-CACHED", &title, &[]))
@@ -103,6 +111,26 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
                 Page::ok(article(id, &title, &links))
             }),
     }
+}
+
+/// The storage page, which keeps `mark` in a cookie and in `localStorage`
+/// and reports the mark `localStorage` held before; a missing or unsafe
+/// mark is `none`.
+fn storage(mark: Option<&str>) -> Page {
+    let mark = mark
+        .filter(|mark| {
+            !mark.is_empty()
+                && mark.len() <= 32
+                && mark
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+        .unwrap_or("none");
+    let body = format!(
+        "<main>\n<h1>Storage</h1>\n</main>\n<script>\nconst found = localStorage.getItem(\"mark\") ?? \"none\";\nlocalStorage.setItem(\"mark\", \"{mark}\");\nconst report = new Image();\nreport.src = \"/storage/found?mark=\" + encodeURIComponent(found);\ndocument.body.append(report);\n</script>\n"
+    );
+    Page::ok(document("Storage", &body))
+        .header("set-cookie", format!("mark={mark}; Path=/; SameSite=Lax"))
 }
 
 /// The site's index, linking `links`.

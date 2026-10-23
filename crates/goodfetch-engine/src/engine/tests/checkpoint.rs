@@ -282,6 +282,7 @@ fn run_row(path: &Path) -> Value {
 fn another_machine(env: &TestEnv) -> crate::engine::Dependencies {
     crate::engine::Dependencies {
         environment: std::collections::BTreeMap::new(),
+        keychain: crate::secrets::Keychain::absent(),
         entropy: crate::entropy::Entropy::seeded(env.seed() ^ 1),
         ..dependencies(env)
     }
@@ -870,8 +871,10 @@ fn secret_canaries_planted_in_a_run_are_absent_from_its_checkpoint() {
         .plant(goodfetch_test_support::SecretKind::ModelApiKey)
         .value()
         .to_owned();
-    let source =
-        format!("cdp_url:ws://user:{password}@127.0.0.1:9222/devtools/browser/{token}?key={key}");
+    let source = json!({
+        "kind": "cdp_url",
+        "url": format!("ws://user:{password}@127.0.0.1:9222/devtools/browser/{token}?key={key}"),
+    });
 
     let checkpoint = attached_on(&engine(), &env, |client| async move {
         let mut talk = Talk::open(client).await;

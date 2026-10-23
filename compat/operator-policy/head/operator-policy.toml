@@ -16,6 +16,8 @@ metrics_endpoint = "example"
 
 [settings.console]
 address = "example"
+content_address = "example"
+content_public_url = "example"
 
 [settings.console.sign_in]
 idle_expiry = 30000
@@ -108,7 +110,7 @@ denied_domains = ["example"]
 extra = ["example"]
 
 [settings.session]
-source = "example"
+source = { kind = "saved_identity", name = "example" }
 
 [settings.session.pool]
 max_size = 4
@@ -190,6 +192,8 @@ metrics_endpoint = "example"
 
 [lock.console]
 address = "example"
+content_address = "example"
+content_public_url = "example"
 
 [lock.console.sign_in]
 idle_expiry = 30000
@@ -282,7 +286,7 @@ denied_domains = ["example"]
 extra = ["example"]
 
 [lock.session]
-source = "example"
+source = { kind = "saved_identity", name = "example" }
 
 [lock.session.pool]
 max_size = 4

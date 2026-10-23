@@ -25,7 +25,7 @@ use goodfetch_engine::http_client::{
     Failure, FetchError, PageTraffic, Resolve, Response, SessionCookie, Waiter,
 };
 use goodfetch_engine::known_certificates::{KeyHash, KnownCertificates};
-use goodfetch_engine::secrets::{Purpose, RunSecrets, SecretError, Secrets};
+use goodfetch_engine::secrets::{Carried, Keychain, Purpose, RunSecrets, SecretError, Secrets};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::tls::{CertificateExceptions, ExceptionKind, ExceptionUsed, PinBook, Trust};
 use goodfetch_protocol::audit::AuditVerified;
@@ -79,7 +79,11 @@ fn fixture() -> Fixture {
     )]
     .into();
     let secrets = Secrets::new(
-        environment,
+        Carried {
+            environment,
+            keychain: Keychain::absent(),
+            home: home.clone(),
+        },
         Arc::clone(&audit),
         Arc::clone(&owner),
         Clock::system(),

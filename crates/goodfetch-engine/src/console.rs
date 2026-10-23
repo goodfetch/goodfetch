@@ -18,10 +18,20 @@
 //! Connection whose `hello` needs no token. Each refusal is logged under
 //! the protocol's refusal target with the listener `console` and the
 //! endpoint table's reason, never with the token or the cookie.
+//!
+//! A Run's files are fetched by handle: `GET /bodies/<run_id>/<body>`
+//! answers a signed-in request with the file's bytes, as an attachment no
+//! browser shows on the Console's origin, and `GET /content-address/
+//! <run_id>/<body>?type=<shown>` answers it with the file's address on the
+//! content origin (`content`), signed for that one file and valid 5
+//! minutes, where it is shown in a sandboxed frame. The Console's policy
+//! lets it frame and show images from that origin alone.
 
 use std::convert::Infallible;
 use std::net::IpAddr;
 use std::sync::Arc;
+
+use goodfetch_protocol::run::RunId;
 
 use http_body_util::{BodyExt as _, Full, Limited};
 use hyper::body::{Bytes, Incoming};
@@ -33,19 +43,41 @@ use tokio::sync::{Mutex, mpsc};
 use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 use tokio_util::sync::CancellationToken;
 
+use crate::clock::Clock;
 use crate::composition::ConsoleBuild;
+use crate::content_origin::{BODIES, ContentFile, ContentKey, Shown};
+use crate::daemon::ContentOrigin;
 use crate::people::{SignInDriver, SignInFailure, SignInRefused, sign_in_id};
 use crate::rpc::{Authorities, CONSOLE_LISTENER, ConsoleSocket, REFUSAL_TARGET, Refusal};
+use crate::runs::Runs;
 use crate::tasks::TaskOwner;
 use crate::transport::{ConsoleListener, ConsoleStream};
+
+mod content;
+
+use content::{Asked, CONTENT_LISTENER, Content};
 
 /// The production Content Security Policy (ADR 0031): the Console's own
 /// scripts, styles, images, fonts and connections only; no inline code and
 /// no `eval`, since no source allows them; every string sent to a script
 /// sink refused (`require-trusted-types-for 'script'`) and no Trusted Types
 /// policy allowed; no frame may embed it; violations reported to its own
-/// address.
-pub const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'; report-uri /csp-report";
+/// address. With a content origin at `content`, it may frame that origin
+/// and show its images, and nothing else's.
+pub fn content_security_policy(content: Option<&str>) -> String {
+    let (frames, images) = content.map_or_else(
+        || (String::new(), "'self'".to_owned()),
+        |content| {
+            (
+                format!("frame-src {content}; "),
+                format!("'self' {content}"),
+            )
+        },
+    );
+    format!(
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src {images}; font-src 'self'; connect-src 'self'; manifest-src 'self'; {frames}base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'; report-uri /csp-report"
+    )
+}
 
 /// Where browsers send the policy's violation reports.
 const REPORTS: &str = "/csp-report";
@@ -65,6 +97,9 @@ const SESSION: &str = "/session";
 const SIGN_OUT: &str = "/sign-out";
 /// Where the Console's WebSocket opens.
 const PROTOCOL: &str = "/protocol";
+/// Where the page turns a file's handle into its signed content address:
+/// `/content-address/<run_id>/<body>?type=<shown>`.
+const CONTENT_ADDRESS: &str = "/content-address/";
 /// The header every signed-in `POST` carries its sign-in's CSRF token in.
 const CSRF_HEADER: &str = "x-csrf-token";
 /// The endpoint table's reason for a signed-in `POST` without its CSRF
@@ -91,6 +126,22 @@ pub(crate) struct Served {
     pub(crate) cookie: String,
     /// Where each WebSocket opened goes, for the Daemon to serve.
     pub(crate) sockets: mpsc::Sender<ConsoleSocket>,
+    /// Where a Run's files are.
+    pub(crate) runs: Runs,
+    /// The wall time content addresses are signed and checked at.
+    pub(crate) clock: Clock,
+    /// The content origin, if it started.
+    pub(crate) content: Option<ContentOrigin>,
+}
+
+/// Which of its origins a connection of the Console reached.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Side {
+    /// The Console's listener, which a shared content origin's requests
+    /// reach too, told apart by their `Host`.
+    Console,
+    /// The content origin's own listener.
+    Content,
 }
 
 /// The Console's state that each of its connections reaches.
@@ -102,6 +153,12 @@ struct Site {
     /// The sign-in cookie's name.
     cookie: String,
     sockets: mpsc::Sender<ConsoleSocket>,
+    runs: Runs,
+    clock: Clock,
+    /// The content origin, if it started.
+    content: Option<Content>,
+    /// The Console's policy, which names the content origin.
+    policy: HeaderValue,
 }
 
 /// Serves the Console `served` describes until `owner` stops, each
@@ -118,6 +175,9 @@ pub(crate) async fn serve(served: Served, owner: TaskOwner) {
         sign_ins,
         cookie,
         sockets,
+        runs,
+        clock,
+        content,
     } = served;
     let address = match listener.local_address() {
         Ok(address) => address,
@@ -126,13 +186,84 @@ pub(crate) async fn serve(served: Served, owner: TaskOwner) {
             return;
         }
     };
+    let authorities = Authorities::loopback(address);
+    let (content, content_listener) = match content.map(|origin| content_of(origin, &authorities)) {
+        Some(Some((content, listener))) => (Some(content), listener),
+        Some(None) | None => (None, None),
+    };
+    let policy = content_security_policy(content.as_ref().map(|content| content.origin.as_str()));
     let site = Arc::new(Site {
         build,
         sign_ins,
-        authorities: Authorities::loopback(address),
+        authorities,
         cookie,
         sockets,
+        runs,
+        clock,
+        content,
+        policy: HeaderValue::from_str(&policy)
+            .expect("invariant: the Console's policy is header text"),
     });
+    if let Some(listener) = content_listener {
+        owner.spawn(accept(
+            Arc::clone(&site),
+            listener,
+            Side::Content,
+            owner.child(),
+        ));
+    }
+    accept(site, listener, Side::Console, owner).await;
+}
+
+/// The content origin `origin` describes, beside the Console reached at
+/// `console`, with its own listener if it has one; none when the OS
+/// generator gives no key or its listener has no address, which leaves
+/// the Console serving without it.
+fn content_of(
+    origin: ContentOrigin,
+    console: &Authorities,
+) -> Option<(Content, Option<ConsoleListener>)> {
+    let key = match ContentKey::generated() {
+        Ok(key) => key,
+        Err(error) => {
+            tracing::error!(%error, "the OS generator gave no content key, so the Console shows no Run's files");
+            return None;
+        }
+    };
+    let ContentOrigin { listener, url } = origin;
+    let origin = url.trim_end_matches('/').to_owned();
+    let public = origin
+        .split_once("://")
+        .map_or(origin.as_str(), |(_, authority)| authority)
+        .to_owned();
+    let authorities = match &listener {
+        Some(listener) => match listener.local_address() {
+            Ok(address) => Authorities::loopback(address).with_name(public),
+            Err(error) => {
+                tracing::error!(%error, "the content origin's listener has no address, so the Console shows no Run's files");
+                return None;
+            }
+        },
+        None => Authorities::only(public),
+    };
+    let policy = HeaderValue::from_str(&Content::policy(console))
+        .expect("invariant: the content origin's policy is header text");
+    let shared = listener.is_none();
+    Some((
+        Content {
+            key,
+            origin,
+            authorities,
+            shared,
+            policy,
+        },
+        listener,
+    ))
+}
+
+/// Accepts connections on `listener`, the Console's `side`, until `owner`
+/// stops, each a task of its own.
+async fn accept(site: Arc<Site>, listener: ConsoleListener, reached: Side, owner: TaskOwner) {
     loop {
         let accepted = tokio::select! {
             () = owner.token().cancelled() => return,
@@ -141,10 +272,10 @@ pub(crate) async fn serve(served: Served, owner: TaskOwner) {
         match accepted {
             Ok(stream) => {
                 let stopping = owner.token().clone();
-                owner.spawn(Arc::clone(&site).connection(stream, stopping));
+                owner.spawn(Arc::clone(&site).connection(stream, stopping, reached));
             }
             Err(error) => {
-                tracing::warn!(%error, "the Console's listener cannot accept a connection");
+                tracing::warn!(%error, ?reached, "the Console's listener cannot accept a connection");
             }
         }
     }
@@ -153,7 +284,12 @@ pub(crate) async fn serve(served: Served, owner: TaskOwner) {
 impl Site {
     /// Serves one browser connection until it ends or `stopping` is
     /// cancelled; a WebSocket it opens then goes to the Daemon.
-    async fn connection(self: Arc<Self>, stream: ConsoleStream, stopping: CancellationToken) {
+    async fn connection(
+        self: Arc<Self>,
+        stream: ConsoleStream,
+        stopping: CancellationToken,
+        reached: Side,
+    ) {
         let from = match stream.peer_address() {
             Ok(peer) => peer.ip(),
             Err(error) => {
@@ -170,7 +306,9 @@ impl Site {
                 hyper::service::service_fn(move |request: Request<Incoming>| {
                     let site = Arc::clone(&answering);
                     let upgrade = Arc::clone(&upgrading);
-                    async move { Ok::<_, Infallible>(site.answer(request, from, &upgrade).await) }
+                    async move {
+                        Ok::<_, Infallible>(site.answer(request, from, reached, &upgrade).await)
+                    }
                 }),
             )
             .with_upgrades();
@@ -198,8 +336,20 @@ impl Site {
         &self,
         mut request: Request<Incoming>,
         from: IpAddr,
+        reached: Side,
         upgrade: &Mutex<Option<OnUpgrade>>,
     ) -> Response<Full<Bytes>> {
+        if let Some(content) = &self.content {
+            let host = request
+                .headers()
+                .get(header::HOST)
+                .and_then(|value| value.to_str().ok());
+            if reached == Side::Content || content.takes(host) {
+                return self.content_answer(content, &request).await;
+            }
+        } else if reached == Side::Content {
+            return self.plain(StatusCode::NOT_FOUND);
+        }
         match request.uri().path() {
             SIGN_IN => self.sign_in(request, from).await,
             SESSION => self.session(request.method(), request.headers()).await,
@@ -211,15 +361,201 @@ impl Site {
                 }
                 answered
             }
-            path => answer(self.build, request.method(), path),
+            path if path.starts_with(CONTENT_ADDRESS) => self.content_address(&request).await,
+            path if path.starts_with(BODIES) => self.body(&request).await,
+            path => answer(self.build, request.method(), path, &self.policy),
         }
+    }
+
+    /// What the content origin answers `request`: the file its address is
+    /// signed for, under the content origin's headers, or a refusal it
+    /// records in the Audit log.
+    async fn content_answer(
+        &self,
+        content: &Content,
+        request: &Request<Incoming>,
+    ) -> Response<Full<Bytes>> {
+        let value = |name| {
+            request
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+        };
+        let target = request
+            .uri()
+            .path_and_query()
+            .map_or("/", |target| target.as_str());
+        match content.asked(
+            request.method(),
+            target,
+            value(header::HOST),
+            value(header::ORIGIN),
+            &self.authorities,
+            self.clock.wall(),
+        ) {
+            Asked::File { file, head } => match self.read(&file).await {
+                Some(bytes) => content.file(&file, bytes, head),
+                None => content.plain(StatusCode::NOT_FOUND),
+            },
+            Asked::Refused { reason, status } => {
+                self.sign_ins.refused(CONTENT_LISTENER, reason).await;
+                tracing::warn!(target: REFUSAL_TARGET, listener = CONTENT_LISTENER, reason, "the content origin refused a request");
+                content.plain(status)
+            }
+            Asked::Answered(response) => response,
+        }
+    }
+
+    /// `GET /content-address/<run_id>/<body>?type=<shown>`: for a signed-in
+    /// request, `200` with the file's content address, `{"url": "…"}`,
+    /// signed for that one file and valid 5 minutes.
+    async fn content_address(&self, request: &Request<Incoming>) -> Response<Full<Bytes>> {
+        if let Some(refused) = self.refused_read(request).await {
+            return refused;
+        }
+        let Some(content) = &self.content else {
+            return self.plain(StatusCode::SERVICE_UNAVAILABLE);
+        };
+        let path = request.uri().path().trim_start_matches(CONTENT_ADDRESS);
+        let shown = request
+            .uri()
+            .query()
+            .unwrap_or_default()
+            .split('&')
+            .find_map(|pair| pair.strip_prefix("type="))
+            .map_or(Some(Shown::Html), Shown::named);
+        let file = path
+            .split_once('/')
+            .zip(shown)
+            .and_then(|((run_id, body), shown)| ContentFile::of(run_id, body, shown));
+        let Some(file) = file else {
+            return self.plain(StatusCode::BAD_REQUEST);
+        };
+        if self.file(&file.run_id, &file.body).await.is_none() {
+            return self.plain(StatusCode::NOT_FOUND);
+        }
+        let url = format!(
+            "{}{}",
+            content.origin,
+            content.key.sign(&file, self.clock.wall())
+        );
+        let mut response = self.plain(StatusCode::OK);
+        *response.body_mut() =
+            Full::new(Bytes::from(serde_json::json!({ "url": url }).to_string()));
+        response.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        response
+    }
+
+    /// `GET /bodies/<run_id>/<body>`: for a signed-in request, the file's
+    /// bytes, as an attachment no browser shows on the Console's origin.
+    async fn body(&self, request: &Request<Incoming>) -> Response<Full<Bytes>> {
+        if let Some(refused) = self.refused_read(request).await {
+            return refused;
+        }
+        let file = request
+            .uri()
+            .path()
+            .trim_start_matches(BODIES)
+            .split_once('/')
+            .and_then(|(run_id, body)| ContentFile::of(run_id, body, Shown::Html));
+        let Some(file) = file else {
+            return self.plain(StatusCode::NOT_FOUND);
+        };
+        let Some(bytes) = self.read(&file).await else {
+            return self.plain(StatusCode::NOT_FOUND);
+        };
+        let head = request.method() == Method::HEAD;
+        let length = bytes.len();
+        let mut response = self.plain(StatusCode::OK);
+        if !head {
+            *response.body_mut() = Full::new(Bytes::from(bytes));
+        }
+        let headers = response.headers_mut();
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/octet-stream"),
+        );
+        headers.insert(header::CONTENT_LENGTH, HeaderValue::from(length));
+        headers.insert(
+            header::CONTENT_DISPOSITION,
+            HeaderValue::from_static("attachment"),
+        );
+        response
+    }
+
+    /// The answer that refuses `request`, recorded in the Audit log, unless
+    /// it is a signed-in read of the Console's own: a `GET` or `HEAD`
+    /// naming its `Host`, with no other origin's `Origin` (a same-origin
+    /// read carries none), and a sign-in's cookie.
+    async fn refused_read(&self, request: &Request<Incoming>) -> Option<Response<Full<Bytes>>> {
+        let method = request.method();
+        if method != Method::GET && method != Method::HEAD {
+            return Some(self.refused_method(&["GET", "HEAD"]));
+        }
+        let headers = request.headers();
+        let value = |name| headers.get(name).and_then(|value| value.to_str().ok());
+        let refusal = if !value(header::HOST).is_some_and(|host| self.authorities.admits_host(host))
+        {
+            Some(Refusal::HostForeign)
+        } else if value(header::ORIGIN)
+            .is_some_and(|origin| !self.authorities.admits_origin(origin))
+        {
+            Some(Refusal::OriginForeign)
+        } else {
+            None
+        };
+        if let Some(refusal) = refusal {
+            return Some(self.refused(refusal.reason(), StatusCode::FORBIDDEN).await);
+        }
+        if let Err(refusal) = self.signed_in(headers).await {
+            return Some(
+                self.refused(refusal.reason(), StatusCode::UNAUTHORIZED)
+                    .await,
+            );
+        }
+        None
+    }
+
+    /// The bytes of `file`, if its Run holds it.
+    async fn read(&self, file: &ContentFile) -> Option<Vec<u8>> {
+        let path = self.file(&file.run_id, &file.body).await?;
+        tokio::fs::read(path).await.ok()
+    }
+
+    /// The path of the body `body` of the Run `run_id`, if it holds one.
+    async fn file(&self, run_id: &RunId, body: &str) -> Option<std::path::PathBuf> {
+        let folder = self.runs.folder(run_id.clone()).await.ok()?;
+        let path = crate::body::file(&folder, body)?;
+        tokio::fs::try_exists(&path)
+            .await
+            .ok()
+            .and_then(|exists| exists.then_some(path))
+    }
+
+    /// An answer with no body, under the Console's headers.
+    fn plain(&self, status: StatusCode) -> Response<Full<Bytes>> {
+        plain(status, &self.policy)
+    }
+
+    /// A method the path does not take, naming those it does.
+    fn refused_method(&self, allowed: &[&'static str]) -> Response<Full<Bytes>> {
+        refused_method(allowed, &self.policy)
+    }
+
+    /// A refusal by the endpoint table's rule `reason`, logged, answered
+    /// with `status` and no body.
+    fn refused_plain(&self, reason: &'static str, status: StatusCode) -> Response<Full<Bytes>> {
+        refused(reason, status, &self.policy)
     }
 
     /// `POST /sign-in`: swaps the link's token, the body, for a sign-in's
     /// cookie.
     async fn sign_in(&self, request: Request<Incoming>, from: IpAddr) -> Response<Full<Bytes>> {
         if request.method() != Method::POST {
-            return refused_method(&["POST"]);
+            return self.refused_method(&["POST"]);
         }
         if let Some(refusal) = self.foreign(request.headers()) {
             return self.refused(refusal.reason(), StatusCode::FORBIDDEN).await;
@@ -228,12 +564,12 @@ impl Site {
             .collect()
             .await
         else {
-            return plain(StatusCode::PAYLOAD_TOO_LARGE);
+            return self.plain(StatusCode::PAYLOAD_TOO_LARGE);
         };
         let body = body.to_bytes();
         match self.sign_ins.with_link(sign_in_token(&body), from).await {
             Ok(signed_in) => {
-                let mut response = plain(StatusCode::NO_CONTENT);
+                let mut response = self.plain(StatusCode::NO_CONTENT);
                 self.set_cookie(&mut response, signed_in.cookie(), self.max_age());
                 tracing::info!("the Console signed the OS user in through the sign-in link");
                 response
@@ -249,11 +585,11 @@ impl Site {
             }
             Err(SignInFailure::Generator(error)) => {
                 tracing::error!(%error, "the OS generator gave no cookie, so nobody signed in");
-                plain(StatusCode::SERVICE_UNAVAILABLE)
+                self.plain(StatusCode::SERVICE_UNAVAILABLE)
             }
             Err(SignInFailure::People(error)) => {
                 tracing::error!(%error, "the accounts store or the Console key failed, so nobody signed in");
-                plain(StatusCode::SERVICE_UNAVAILABLE)
+                self.plain(StatusCode::SERVICE_UNAVAILABLE)
             }
         }
     }
@@ -263,15 +599,15 @@ impl Site {
     /// origin can read, and its cookie's expiry set again; `401` otherwise.
     async fn session(&self, method: &Method, headers: &HeaderMap) -> Response<Full<Bytes>> {
         if method != Method::GET && method != Method::HEAD {
-            return refused_method(&["GET", "HEAD"]);
+            return self.refused_method(&["GET", "HEAD"]);
         }
         let Some(cookie) = self.cookie_of(headers) else {
-            return plain(StatusCode::UNAUTHORIZED);
+            return self.plain(StatusCode::UNAUTHORIZED);
         };
         let Some(csrf_token) = self.sign_ins.csrf_token(cookie).await else {
-            return plain(StatusCode::UNAUTHORIZED);
+            return self.plain(StatusCode::UNAUTHORIZED);
         };
-        let mut response = plain(StatusCode::OK);
+        let mut response = self.plain(StatusCode::OK);
         if method == Method::GET {
             let body = serde_json::json!({ "csrf_token": csrf_token }).to_string();
             *response.body_mut() = Full::new(Bytes::from(body));
@@ -289,7 +625,7 @@ impl Site {
     /// the cookie.
     async fn sign_out(&self, method: &Method, headers: &HeaderMap) -> Response<Full<Bytes>> {
         if method != Method::POST {
-            return refused_method(&["POST"]);
+            return self.refused_method(&["POST"]);
         }
         if let Some(refusal) = self.foreign(headers) {
             return self.refused(refusal.reason(), StatusCode::FORBIDDEN).await;
@@ -306,7 +642,7 @@ impl Site {
             return self.refused(reason, StatusCode::FORBIDDEN).await;
         }
         self.sign_ins.sign_out(cookie).await;
-        let mut response = plain(StatusCode::NO_CONTENT);
+        let mut response = self.plain(StatusCode::NO_CONTENT);
         self.set_cookie(&mut response, "", 0);
         response
     }
@@ -349,14 +685,14 @@ impl Site {
     /// in the Audit log, answered with `status` and no body.
     async fn refused(&self, reason: &'static str, status: StatusCode) -> Response<Full<Bytes>> {
         self.sign_ins.refused(CONSOLE_LISTENER, reason).await;
-        refused(reason, status)
+        self.refused_plain(reason, status)
     }
 
     /// The WebSocket handshake at `/protocol`: `101` when it carries the
     /// Console's own `Host` and `Origin` and a sign-in's cookie.
     async fn handshake(&self, method: &Method, headers: &HeaderMap) -> Response<Full<Bytes>> {
         if method != Method::GET {
-            return refused_method(&["GET"]);
+            return self.refused_method(&["GET"]);
         }
         if let Some(refusal) = self.foreign(headers) {
             return self.refused(refusal.reason(), StatusCode::FORBIDDEN).await;
@@ -371,9 +707,9 @@ impl Site {
             value(header::UPGRADE).is_some_and(|upgrade| upgrade.eq_ignore_ascii_case("websocket"));
         let version = value(header::SEC_WEBSOCKET_VERSION) == Some("13");
         let (Some(key), true, true) = (value(header::SEC_WEBSOCKET_KEY), upgrade, version) else {
-            return plain(StatusCode::BAD_REQUEST);
+            return self.plain(StatusCode::BAD_REQUEST);
         };
-        let mut response = plain(StatusCode::SWITCHING_PROTOCOLS);
+        let mut response = self.plain(StatusCode::SWITCHING_PROTOCOLS);
         let headers = response.headers_mut();
         headers.insert(header::UPGRADE, HeaderValue::from_static("websocket"));
         headers.insert(header::CONNECTION, HeaderValue::from_static("Upgrade"));
@@ -489,28 +825,37 @@ pub fn fuzz_sign_in_endpoints(data: &[u8]) {
 
 /// A refusal by the endpoint table's rule `reason`, logged, answered with
 /// `status` and no body.
-fn refused(reason: &'static str, status: StatusCode) -> Response<Full<Bytes>> {
+fn refused(
+    reason: &'static str,
+    status: StatusCode,
+    policy: &HeaderValue,
+) -> Response<Full<Bytes>> {
     tracing::warn!(target: REFUSAL_TARGET, listener = CONSOLE_LISTENER, reason, "the Console refused a request");
-    plain(status)
+    plain(status, policy)
 }
 
 /// What the Console answers `method` on `path`: a file of `build` as it is
 /// stored, the reports endpoint's acknowledgement, or an error, each under
 /// the production headers.
-fn answer(build: &ConsoleBuild, method: &Method, path: &str) -> Response<Full<Bytes>> {
+fn answer(
+    build: &ConsoleBuild,
+    method: &Method,
+    path: &str,
+    policy: &HeaderValue,
+) -> Response<Full<Bytes>> {
     if path == REPORTS {
         return if method == Method::POST {
             tracing::debug!("the Console received a Content Security Policy report");
-            plain(StatusCode::NO_CONTENT)
+            plain(StatusCode::NO_CONTENT, policy)
         } else {
-            refused_method(&["POST"])
+            refused_method(&["POST"], policy)
         };
     }
     let Some(file) = build.file(path) else {
-        return plain(StatusCode::NOT_FOUND);
+        return plain(StatusCode::NOT_FOUND, policy);
     };
     if method != Method::GET && method != Method::HEAD {
-        return refused_method(&["GET", "HEAD"]);
+        return refused_method(&["GET", "HEAD"], policy);
     }
     let body = if method == Method::HEAD {
         Bytes::new()
@@ -530,22 +875,22 @@ fn answer(build: &ConsoleBuild, method: &Method, path: &str) -> Response<Full<By
         REVALIDATED
     };
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
-    secured(response)
+    secured(response, policy)
 }
 
 /// An answer with no body.
-fn plain(status: StatusCode) -> Response<Full<Bytes>> {
+fn plain(status: StatusCode, policy: &HeaderValue) -> Response<Full<Bytes>> {
     let mut response = Response::new(Full::new(Bytes::new()));
     *response.status_mut() = status;
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static(UNSTORED));
-    secured(response)
+    secured(response, policy)
 }
 
 /// A method the path does not take, naming those it does.
-fn refused_method(allowed: &[&'static str]) -> Response<Full<Bytes>> {
-    let mut response = plain(StatusCode::METHOD_NOT_ALLOWED);
+fn refused_method(allowed: &[&'static str], policy: &HeaderValue) -> Response<Full<Bytes>> {
+    let mut response = plain(StatusCode::METHOD_NOT_ALLOWED, policy);
     if let Ok(allow) = HeaderValue::from_str(&allowed.join(", ")) {
         response.headers_mut().insert(header::ALLOW, allow);
     }
@@ -553,12 +898,9 @@ fn refused_method(allowed: &[&'static str]) -> Response<Full<Bytes>> {
 }
 
 /// `response` with the headers every answer of the Console carries.
-fn secured(mut response: Response<Full<Bytes>>) -> Response<Full<Bytes>> {
+fn secured(mut response: Response<Full<Bytes>>, policy: &HeaderValue) -> Response<Full<Bytes>> {
     let headers = response.headers_mut();
-    headers.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(CONTENT_SECURITY_POLICY),
-    );
+    headers.insert(header::CONTENT_SECURITY_POLICY, policy.clone());
     headers.insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),

@@ -141,12 +141,17 @@ struct Client {
 
 impl Client {
     async fn send(&mut self, messages: &[Value]) {
+        self.try_send(messages).await.unwrap();
+    }
+
+    /// Sends `messages`, answering whether the Connection took them.
+    async fn try_send(&mut self, messages: &[Value]) -> std::io::Result<()> {
         let mut bytes = Vec::new();
         for message in messages {
             bytes.extend(serde_json::to_vec(message).unwrap());
             bytes.push(b'\n');
         }
-        self.writer.write_all(&bytes).await.unwrap();
+        self.writer.write_all(&bytes).await
     }
 
     async fn send_bytes(&mut self, bytes: &[u8]) {
@@ -170,6 +175,7 @@ impl Client {
 fn dependencies(env: &TestEnv) -> Dependencies {
     Dependencies {
         environment: std::collections::BTreeMap::new(),
+        keychain: crate::secrets::Keychain::absent(),
         home: Home::new(env.home().to_owned()),
         clock: Clock::paused(env.start_time()),
         entropy: Entropy::seeded(env.seed()),

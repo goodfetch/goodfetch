@@ -392,6 +392,12 @@ number = 3
 kind = "error"
 prefix = "setting_"
 
+# ADR 0083's refusal of a capability the engine cannot provide (#697).
+[[area]]
+number = 3
+kind = "error"
+prefix = "capability_unavailable"
+
 [[area]]
 number = 3
 kind = "format"
@@ -561,6 +567,23 @@ prefix = "run.new_page"
 number = 5
 kind = "operation"
 prefix = "page.goto"
+
+# A Run's own Sessions (#697): `run.new_session`, `session.new_page` and
+# `session.close`.
+[[area]]
+number = 5
+kind = "operation"
+prefix = "run.new_session"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "session.new_page"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "session.close"
 
 # The other navigations (#698): `page.reload`, `page.go_back`, `page.go_forward`.
 [[area]]
@@ -825,6 +848,11 @@ prefix = "page."
 number = 11
 kind = "command"
 prefix = "locator."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "session."
 
 [[area]]
 number = 11

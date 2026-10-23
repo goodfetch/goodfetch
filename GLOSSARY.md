@@ -40,6 +40,10 @@ _Avoid_: platform, Goodfetch (for the hosted service)
 The web interface for operating a Product, served locally by its engine or by Goodfetch Cloud.
 _Avoid_: dashboard, inspector, app
 
+**Content origin**:
+The Console's second origin, which shows a run's scraped HTML, screenshots, DOM snapshots and page bodies only to an address the Console signed for that one file, valid 5 minutes, carrying no cookie, under a sandbox policy that runs no script.
+_Avoid_: preview domain, sandbox origin, file server
+
 **Client**:
 Any program that drives the engine through its operations: an SDK, the CLI, the MCP server, the Console or Goodfetch Cloud. Speaking CDP to a browser does not make a program a Client.
 _Avoid_: frontend, binding, consumer

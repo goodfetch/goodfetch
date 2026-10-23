@@ -4,6 +4,7 @@
 //! cases are `delivery`'s, a page's formats cases `formats`'s, its route
 //! cases `routes`'s and a Run's Session cases `sessions`'.
 
+mod clean_up;
 mod delivery;
 mod fetch_edge;
 mod formats;
@@ -70,6 +71,8 @@ pub(crate) enum Case {
     KeyReachesAField,
     StillAmbiguous,
     NeverActionable,
+    /// A Clean-up case.
+    CleanUp(clean_up::Case),
     /// A route case.
     Route(routes::Case),
     /// A Session case.
@@ -159,8 +162,14 @@ impl Site {
 
 /// The Proving ground's host names that belong to no task and that a case
 /// reaches, which `resolve` maps too: the fetch edge's (ADR 0118), and the
-/// scope family's site and off-site host the route cases load.
-const NAMED_HOSTS: [&str; 3] = ["fetch-edge.test", "scope.test", "elsewhere.test"];
+/// scope family's site and off-site host the route cases load, and the
+/// Clean-up pages' host (ADR 0047).
+const NAMED_HOSTS: [&str; 4] = [
+    "fetch-edge.test",
+    "scope.test",
+    "elsewhere.test",
+    clean_up::HOST,
+];
 
 /// The host name of an `http` URL.
 fn host_of(url: &str) -> Option<&str> {
@@ -246,7 +255,8 @@ impl Case {
                 return fetch_edge::Case::from_id(id)
                     .map(Self::FetchEdge)
                     .or_else(|| routes::Case::from_id(id).map(Self::Route))
-                    .or_else(|| sessions::Case::from_id(id).map(Self::Session));
+                    .or_else(|| sessions::Case::from_id(id).map(Self::Session))
+                    .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp));
             }
         })
     }
@@ -360,6 +370,7 @@ impl Case {
             Self::NeverActionable => guard::never_actionable(connection, site, checks),
             Self::Route(case) => case.run(connection, site, checks),
             Self::Session(case) => case.run(connection, site, checks),
+            Self::CleanUp(case) => case.run(connection, target, site, checks),
         }
     }
 }

@@ -60,13 +60,14 @@ received (ADR 0079).
 - `token`: Every run a Connection holding a named token starts.
 """
 
-RunWarningCode: TypeAlias = Literal["baseline_unavailable", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_stale", "cpu_throttled", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "storage_low"] | str
+RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_stale", "cpu_throttled", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "storage_low"] | str
 """A `run_warning_code`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
 received (ADR 0079).
 
 - `baseline_unavailable`: The baseline a comparison needs was unavailable.
+- `block_resources_visible`: A Session's `browser.block_resources` blocks loads a site can see missing, which few people block.
 - `browser_build_firefox`: A Session ran Firefox.
 - `browser_build_outdated`: A Session's browser build is outdated.
 - `browser_build_plugin`: A Session ran a browser build a Plugin gave.

@@ -20,6 +20,7 @@ world = []
 # Which of `interception`'s own modules may import which.
 [submodules.interception]
 answers = ["steps"]
+clean_up = ["steps"]
 pipeline = ["answers", "routes", "steps"]
 routes = []
 steps = []

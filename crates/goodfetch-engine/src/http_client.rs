@@ -405,6 +405,8 @@ pub struct Response {
     pub(crate) status: StatusCode,
     /// Its `Content-Length`, when it gave a number.
     pub(crate) content_length: Option<u64>,
+    /// Its headers.
+    pub(crate) headers: hyper::HeaderMap,
     body: Incoming,
     connection: Connection,
     connection_done: bool,
@@ -589,9 +591,11 @@ async fn send_to(
         .get(hyper::header::CONTENT_LENGTH)
         .and_then(|length| length.to_str().ok())
         .and_then(|length| length.parse().ok());
+    let headers = head.headers().clone();
     Ok(Response {
         status: head.status(),
         content_length,
+        headers,
         body: head.into_body(),
         connection,
         connection_done,

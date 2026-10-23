@@ -2093,6 +2093,17 @@
       ]
     },
     {
+      "id": "format:clean-up-rules",
+      "kind": "format",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:installed-executables",
       "kind": "format",
       "area": 3,
@@ -4925,6 +4936,50 @@
       "id": "setting:checkpoint.interval",
       "kind": "setting",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:clean_up.channel",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:clean_up.lists",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:clean_up.update",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:clean_up.version",
+      "kind": "setting",
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [

@@ -1,0 +1,4 @@
+[Adblock Plus 2.0]
+! Title: Fanboy's Annoyance List
+! Expires: 4 days (update frequency)
+/newsletter-popup.

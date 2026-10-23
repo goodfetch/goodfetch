@@ -347,6 +347,15 @@ pub(super) fn warn(connection: &Connection, warning: &RunWarning) -> rusqlite::R
     Ok(())
 }
 
+/// Whether the Run's report holds a warning of `code`.
+pub(super) fn warned(connection: &Connection, code: &str) -> rusqlite::Result<bool> {
+    connection.query_row(
+        "SELECT EXISTS (SELECT 1 FROM warnings WHERE code = ?1)",
+        [code],
+        |row| row.get(0),
+    )
+}
+
 /// The Run's warnings, in the order handed over.
 fn warnings(connection: &Connection) -> rusqlite::Result<Vec<RunWarning>> {
     let mut statement = connection

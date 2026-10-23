@@ -15,8 +15,9 @@ const HTTP_CLIENT: &str = "http_client";
 
 /// The kinds of destination ADR 0043 lets the engine connect to: pinned
 /// downloads, which nobody configures, and each kind of Operator-configured
-/// endpoint.
-const ALLOWED_KINDS: [&str; 8] = [
+/// endpoint, the Clean-up rules' sources among them (ADR 0047: `daily` and
+/// `upstream` make them configured destinations).
+const ALLOWED_KINDS: [&str; 9] = [
     "pinned download",
     "Model provider",
     "Secret provider",
@@ -25,11 +26,15 @@ const ALLOWED_KINDS: [&str; 8] = [
     "OTLP",
     "Plugin index",
     "cdp_url",
+    "Clean-up rules source",
 ];
 
 /// Each module that calls the HTTP client, with the kind of destination it
 /// connects to. A module that starts calling it joins here, with its kind.
-const CALLERS: [(&str, &str); 1] = [("pinned_download", "pinned download")];
+const CALLERS: [(&str, &str); 2] = [
+    ("pinned_download", "pinned download"),
+    ("rule_sources", "Clean-up rules source"),
+];
 
 /// The modules `modules` lets import the HTTP client whose kind of
 /// destination is none ADR 0043 allows.

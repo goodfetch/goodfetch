@@ -141,7 +141,7 @@ fn table(rule: Rule, current: ProtocolVersion) -> Result<Vec<Fabricated>> {
         }
     } else {
         let newer_minor_reads = match rule {
-            Rule::Default => Compatibility::NewerMinor,
+            Rule::Default | Rule::NewestReadable => Compatibility::NewerMinor,
             Rule::FrozenMajor | Rule::LowerMinor | Rule::SharedStore => Compatibility::Compatible,
         };
         table.push(Fabricated::of_format(

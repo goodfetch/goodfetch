@@ -56,6 +56,7 @@ export type LimitScope = "connection" | "daemon" | "install" | "person" | "token
  * - `browser_build_outdated`: A Session's browser build is outdated.
  * - `browser_build_plugin`: A Session ran a browser build a Plugin gave.
  * - `browser_build_third_party`: A Session ran a third party's browser build.
+ * - `clean_up_rules_fallback`: The Run holds to other Clean-up rules than `clean_up.update` or `clean_up.version` ask for, such as the embedded part when the daily channel cannot be reached; Provenance names both.
  * - `clean_up_rules_stale`: The Run's Clean-up rules are older than 14 days.
  * - `cpu_throttled`: The host throttled the engine's CPU.
  * - `file_write_failed`: A file the Run writes, such as a periodic Checkpoint, could not be written to its storage.
@@ -72,7 +73,7 @@ export type LimitScope = "connection" | "daemon" | "install" | "person" | "token
  * - `proxy_exit_may_change`: A Session's proxy exit may change between its requests.
  * - `storage_low`: The Run met the `low` storage level: the folder, its free space and what was shed.
  */
-export type RunWarningCode = "baseline_unavailable" | "block_resources_visible" | "browser_build_firefox" | "browser_build_outdated" | "browser_build_plugin" | "browser_build_third_party" | "clean_up_rules_stale" | "cpu_throttled" | "file_write_failed" | "filter_vendor_flagged" | "fingerprint_basic" | "fingerprint_basic_fallback" | "fingerprint_js_injection" | "fingerprint_none" | "human_input_fallback" | "path_not_writable" | "plugin_figures" | "plugin_quantity_above_maximum" | "politeness_store_degraded" | "proxy_exit_may_change" | "storage_low" | (string & {});
+export type RunWarningCode = "baseline_unavailable" | "block_resources_visible" | "browser_build_firefox" | "browser_build_outdated" | "browser_build_plugin" | "browser_build_third_party" | "clean_up_rules_fallback" | "clean_up_rules_stale" | "cpu_throttled" | "file_write_failed" | "filter_vendor_flagged" | "fingerprint_basic" | "fingerprint_basic_fallback" | "fingerprint_js_injection" | "fingerprint_none" | "human_input_fallback" | "path_not_writable" | "plugin_figures" | "plugin_quantity_above_maximum" | "politeness_store_degraded" | "proxy_exit_may_change" | "storage_low" | (string & {});
 
 /**
  * A `usage_kind`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).

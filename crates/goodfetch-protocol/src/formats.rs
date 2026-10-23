@@ -14,6 +14,7 @@ use serde_json::{Map, Value, json};
 use crate::audit::AuditEntry;
 use crate::browser_cache::BrowserCacheEntry;
 use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, Setting, ValueKind, schema_of};
+use crate::clean_up_rules::CleanUpRulesManifest;
 use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
@@ -49,8 +50,8 @@ impl Storage {
 }
 
 /// A rule of ADR 0030 by which a reader treats another version of its
-/// format. Each later rule (the Response cache's, the Clean-up rules') joins
-/// with the first format that follows it.
+/// format. Each later rule (the Response cache's) joins with the first
+/// format that follows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Rule {
@@ -70,6 +71,11 @@ pub enum Rule {
     /// Browser host's with its engine (ADR 0096): only another major is
     /// refused.
     LowerMinor,
+    /// The Clean-up rules' manifest (ADRs 0030 and 0047): a reader reads a
+    /// version of its own major up to its own minor, as the default rule
+    /// does, but a version it cannot read is skipped, never refused, for the
+    /// newest one it can read.
+    NewestReadable,
 }
 
 impl Rule {
@@ -80,6 +86,7 @@ impl Rule {
             Self::FrozenMajor => "frozen_major",
             Self::SharedStore => "shared_store",
             Self::LowerMinor => "lower_minor",
+            Self::NewestReadable => "newest_readable",
         }
     }
 
@@ -97,10 +104,14 @@ impl Rule {
             Ordering::Less => Compatibility::OlderMajor,
             Ordering::Greater => Compatibility::NewerMajor,
             Ordering::Equal => match self {
-                Self::Default if found_minor > reader_minor => Compatibility::NewerMinor,
-                Self::Default | Self::FrozenMajor | Self::SharedStore | Self::LowerMinor => {
-                    Compatibility::Compatible
+                Self::Default | Self::NewestReadable if found_minor > reader_minor => {
+                    Compatibility::NewerMinor
                 }
+                Self::Default
+                | Self::FrozenMajor
+                | Self::SharedStore
+                | Self::LowerMinor
+                | Self::NewestReadable => Compatibility::Compatible,
             },
         }
     }
@@ -130,7 +141,9 @@ impl Rule {
     fn line(self, version: ProtocolVersion) -> ((u16, u16), u16) {
         match self {
             Self::FrozenMajor => ((version.major, 0), version.minor),
-            Self::Default | Self::SharedStore | Self::LowerMinor => preview_line(version),
+            Self::Default | Self::SharedStore | Self::LowerMinor | Self::NewestReadable => {
+                preview_line(version)
+            }
         }
     }
 }
@@ -229,6 +242,19 @@ pub const BROWSER_CACHE: Format = Format {
     rule: Rule::Default,
     hello_from: &[],
     schema: schema_of::<BrowserCacheEntry>,
+};
+
+/// The Clean-up rules' manifest (ADRs 0047 and 0066), one `manifest.json`
+/// per version of the Clean-up rules beside its Filter lists: an engine
+/// reads its own major up to its own minor, and skips any other version for
+/// the newest one it can read.
+pub const CLEAN_UP_RULES: Format = Format {
+    name: "clean-up-rules",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Json,
+    rule: Rule::NewestReadable,
+    hello_from: &[],
+    schema: schema_of::<CleanUpRulesManifest>,
 };
 
 /// A Run's own SQLite file (ADRs 0002 and 0031): its metadata row, its
@@ -365,6 +391,7 @@ pub const ACCOUNTS_STORE: Format = Format {
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
     &BROWSER_CACHE,
+    &CLEAN_UP_RULES,
     &RUN_INDEX,
     &RUN_STATE,
     &INSTALLED_EXECUTABLES,

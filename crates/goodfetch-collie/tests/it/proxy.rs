@@ -821,17 +821,35 @@ fn carried_by(proving_ground: &ProvingGround, kind: &str) -> u64 {
         .sum()
 }
 
-/// Waits until the Proving ground's proxies have relayed `/storage`'s own
-/// request for `/storage/found`, which its script sends once loaded, so the
-/// page's every byte has gone through before the Run ends; a minute at
-/// most.
-fn storage_settled(proving_ground: &ProvingGround) {
+/// Whether the Proving ground's proxies relayed the browser's last request
+/// for a page of `scope.test`, its `/favicon.ico`, which Chrome asks for
+/// once the page loaded since the page names no icon, and ended every
+/// relay: a relay's bytes are recorded when it ends, and each received at
+/// least the request it is for.
+fn page_load_relayed(observations: &Value) -> bool {
+    let relays = observations["relays"].as_array().unwrap();
+    relays.iter().any(|relay| {
+        relay["target"]
+            .as_str()
+            .is_some_and(|target| target.ends_with("/favicon.ico"))
+    }) && relays
+        .iter()
+        .all(|relay| relay["bytes"]["received"].as_u64() > Some(0))
+}
+
+/// Waits until [`page_load_relayed`], a minute at most, so no byte of the
+/// page's load is under way when the Run ends.
+fn page_load_settled(proving_ground: &ProvingGround) {
     for _ in 0..600 {
-        if !relays_to(proving_ground, "/storage/found").is_empty() {
+        if page_load_relayed(&proving_ground.observations().unwrap()) {
             return;
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
+    panic!(
+        "the page's load was still under way after a minute: {}",
+        proving_ground.observations().unwrap()["relays"]
+    );
 }
 
 /// Covers: story:8-92, setting:proxy.providers, operation:run.usage
@@ -865,7 +883,7 @@ fn a_sessions_proxy_bytes_count_by_proxy_kind_at_the_providers_price() {
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=counted") }),
     );
-    storage_settled(&proving_ground);
+    page_load_settled(&proving_ground);
     let finished = call(
         &mut engine,
         4,

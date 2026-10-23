@@ -107,6 +107,7 @@ wake = []
 
 # Which of `runs`'s own modules may import which.
 [submodules.runs]
+discard = ["writer"]
 folder = []
 import = ["folder"]
 lifecycle = []

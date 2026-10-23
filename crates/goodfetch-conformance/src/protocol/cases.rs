@@ -3,8 +3,8 @@
 //! failures, its Error codes and its operations' types. A crawl's delivery
 //! cases are `delivery`'s, a page's formats cases `formats`'s, its route
 //! cases `routes`'s, a Run's Session cases `sessions`', their proxy cases
-//! `proxies`', its events and bodies cases `events`'s and its
-//! `page.request` cases `page_request`'s.
+//! `proxies`', its events and bodies cases `events`'s, its `page.request`
+//! cases `page_request`'s and the reset gate's cases `reset`'s.
 
 mod clean_up;
 mod consent;
@@ -17,6 +17,7 @@ mod launch;
 mod navigation;
 mod page_request;
 mod proxies;
+mod reset;
 mod routes;
 mod service_workers;
 mod sessions;
@@ -88,6 +89,8 @@ pub(crate) enum Case {
     Session(sessions::Case),
     /// A page events or bodies case.
     Events(events::Case),
+    /// A reset gate case.
+    Reset(reset::Case),
     /// A service worker case.
     ServiceWorker(service_workers::Case),
     /// A `page.request` case.
@@ -292,6 +295,7 @@ impl Case {
                     .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp))
                     .or_else(|| events::Case::from_id(id).map(Self::Events))
                     .or_else(|| consent::Case::from_id(id).map(Self::Consent))
+                    .or_else(|| reset::Case::from_id(id).map(Self::Reset))
                     .or_else(|| service_workers::Case::from_id(id).map(Self::ServiceWorker))
                     .or_else(|| page_request::Case::from_id(id).map(Self::PageRequest));
             }
@@ -394,6 +398,7 @@ impl Case {
             Self::Session(case) => case.run(connection, site, checks),
             Self::CleanUp(case) => case.run(connection, target, site, checks),
             Self::Events(case) => case.run(connection, site, checks),
+            Self::Reset(case) => case.run(connection, target, site, checks),
             Self::Consent(case) => case.run(
                 connection,
                 target.environment.get("GOODFETCH_HOME").map(String::as_str),

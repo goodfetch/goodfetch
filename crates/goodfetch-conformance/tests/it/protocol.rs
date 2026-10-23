@@ -378,6 +378,64 @@ fn the_delivery_suite_is_proved_against_foxhounds_attached_engine_and_daemon(
     );
 }
 
+/// The layout of run state a reset suite's target keeps its Runs in.
+#[derive(Clone, Copy, Debug)]
+enum Layout {
+    PerRun,
+    PerInstall,
+}
+
+/// ADR 0001's reset gate against Collie's executable, given by path, in
+/// either layout of run state (ADR 0002): as an Attached engine and a
+/// Daemon in the per-run layout, and as a Daemon in the per-install one. A
+/// discarded Run's planted Secret canaries, a token, a password and the
+/// Session cookie a login set, are found nowhere in the Goodfetch home, and
+/// a later Run under its Run ID finds none of its state and is sent none of
+/// its cookies.
+///
+/// Covers: story:3-39, operation:run.discard
+#[rstest::rstest]
+#[case::attached_per_run(EngineMode::Attached, Layout::PerRun)]
+#[case::daemon_per_run(EngineMode::Daemon, Layout::PerRun)]
+#[case::daemon_per_install(EngineMode::Daemon, Layout::PerInstall)]
+fn the_reset_gate_is_proved_against_collie_in_either_layout(
+    #[case] mode: EngineMode,
+    #[case] layout: Layout,
+) {
+    let env = TestEnv::new();
+    if let Layout::PerInstall = layout {
+        env.user_configuration("run_state.layout = \"per_install\"\n");
+    }
+    let copy = LocalCopy::start(&env, env.seed());
+    let proving_ground = ProvingGround::local(copy.address());
+    let target = target(&env, Tool::Collie, mode);
+
+    let document = run_protocol_suite(&ProtocolSuite::reset(), &target, &proving_ground).unwrap();
+    crate::keep(
+        &document,
+        &format!("reset-collie-{mode:?}-{layout:?}").to_lowercase(),
+    );
+
+    assert_eq!(
+        (outcomes(&document), case_outcomes(&document)),
+        (
+            vec![("run.discard", Outcome::Proved)],
+            vec![
+                (
+                    "a-discarded-run-leaves-none-of-its-secret-values-in-the-home",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-discarded-runs-session-cookie-reaches-no-later-run",
+                    CaseOutcome::Passed
+                ),
+            ]
+        ),
+        "{}",
+        serde_json::to_string_pretty(&document).unwrap()
+    );
+}
+
 /// The protocol suite's `engine.info` case with Foxhound as its Product, as
 /// a suite whose contract needs Foxhound declares it.
 fn foxhound_suite() -> ProtocolSuite {

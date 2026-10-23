@@ -230,11 +230,15 @@ impl Talk {
         began.elapsed()
     }
 
-    /// Each event read, as `[name, data]`, but axis changes.
+    /// Each event read, as `[name, data]`, but axis changes and the
+    /// progress values, which a Checkpoint changes too.
     fn lifecycle_events(&self) -> Vec<Value> {
         self.events
             .iter()
-            .filter(|event| event["event"] != "run.axes_changed")
+            .filter(|event| {
+                !["run.axes_changed", "run.progress"]
+                    .contains(&event["event"].as_str().unwrap_or_default())
+            })
             .map(|event| json!([event["event"], event["data"]]))
             .collect()
     }

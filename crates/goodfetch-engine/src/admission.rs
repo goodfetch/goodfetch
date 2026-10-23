@@ -32,7 +32,7 @@ use tokio::time::Instant;
 
 use crate::clock::Clock;
 use crate::entropy::Entropy;
-use crate::politeness::{Ending, Holder, Permit, PermitRule, Politeness, Taken, Wake};
+use crate::politeness::{Ending, Hold, Holder, Permit, PermitRule, Politeness, Taken, Wake};
 use crate::settings::Resolved;
 
 /// How long a key the Politeness holds for want of room waits for a wake
@@ -91,6 +91,38 @@ pub enum Ended {
     TooManyRequests(Option<Instant>),
 }
 
+/// Why a gate holds a key's requests (ADR 0102's wait reasons).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Held {
+    /// As many of its requests are in flight as it admits: until one ends.
+    Concurrency,
+    /// Its last request started less than the delay between starts ago.
+    Delay,
+    /// It backs off, or waits for the time a site asked for.
+    BackOff,
+}
+
+impl From<Hold> for Held {
+    fn from(hold: Hold) -> Self {
+        match hold {
+            Hold::Delay => Self::Delay,
+            Hold::BackOff => Self::BackOff,
+        }
+    }
+}
+
+/// A key whose requests wait in a gate, as [`Gate::queued`] answers it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Queued {
+    /// The key.
+    pub key: String,
+    /// How many of its requests wait in the gate.
+    pub requests: usize,
+    /// Why the gate holds it, with until when, if it knows; `None` when it
+    /// is ready.
+    pub held: Option<(Held, Option<Instant>)>,
+}
+
 /// What a gate writes into the run file, in one of its writer's commits.
 pub type Journal = Box<dyn FnOnce(&Connection) -> rusqlite::Result<()> + Send>;
 
@@ -118,9 +150,18 @@ pub trait Gate: Send {
     /// The key of the request [`Gate::admit`] would admit at `now`.
     fn next_key(&self, now: Instant) -> Option<String>;
 
-    /// Holds `key`: none of its requests is ready before `until`, unless
-    /// [`Gate::wake`] wakes it first. A held key keeps its place.
-    fn hold(&mut self, key: &str, until: Instant);
+    /// Holds `key` for the reason `held`: none of its requests is ready
+    /// before `until`, unless [`Gate::wake`] wakes it first. A held key
+    /// keeps its place.
+    fn hold(&mut self, key: &str, until: Instant, held: Held);
+
+    /// Each key whose requests wait in it at `now`, with why it holds the
+    /// key, if it does: what a Run's progress says of its waits (ADR
+    /// 0102). None by default.
+    fn queued(&self, now: Instant) -> Vec<Queued> {
+        let _ = now;
+        Vec::new()
+    }
 
     /// Ends the hold on `key`.
     fn wake(&mut self, key: &str);
@@ -301,6 +342,12 @@ impl Admission {
         }
     }
 
+    /// Each key whose requests wait in its gate at `now`, as
+    /// [`Gate::queued`] says.
+    pub fn queued(&self, now: Instant) -> Vec<Queued> {
+        self.gate.queued(now)
+    }
+
     /// The key a request to `url` waits under.
     pub fn key(&self, url: &str) -> String {
         self.gate.key(url)
@@ -363,9 +410,9 @@ impl Admission {
                     }
                     return Some(admitted);
                 }
-                Ok(Taken::Wait(Some(until))) => {
+                Ok(Taken::Wait(Some((until, hold)))) => {
                     let until = now + until.duration_since(wall).unwrap_or_default();
-                    self.gate.hold(&key, until);
+                    self.gate.hold(&key, until, hold.into());
                 }
                 Ok(Taken::Refused(until)) => {
                     let mut admitted = self.gate.admit(now)?;
@@ -374,11 +421,11 @@ impl Admission {
                 }
                 Ok(Taken::Wait(None)) => {
                     shared.waiting.insert(key.clone());
-                    self.gate.hold(&key, now + RECLAIM_CHECK);
+                    self.gate.hold(&key, now + RECLAIM_CHECK, Held::Concurrency);
                 }
                 Err(error) => {
                     tracing::warn!(%error, run_id = %shared.holder.run_id, "the Politeness file refused a take; its key waits");
-                    self.gate.hold(&key, now + RECLAIM_CHECK);
+                    self.gate.hold(&key, now + RECLAIM_CHECK, Held::Concurrency);
                 }
             }
         }

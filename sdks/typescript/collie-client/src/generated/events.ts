@@ -129,7 +129,7 @@ export interface CollieEventPayloads {
    */
   "run.migrating": RunMigrating;
   /**
-   * A Run's progress changed, such as the program's own status line. Telemetry: a newer value of the same Run replaces an unsent one.
+   * A Run's progress changed, such as the program's own status line, a Human pause beginning or ending, or its end. Telemetry: a newer value of the same Run replaces an unsent one.
    *
    * @experimental
    */

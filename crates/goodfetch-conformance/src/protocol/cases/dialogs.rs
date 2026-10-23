@@ -10,7 +10,7 @@
 //! default and failing the click the dialog blocked with
 //! `page_handler_failed`.
 
-use goodfetch_protocol::connection::CANCEL;
+use goodfetch_protocol::connection::{CALL_CANCELLED, CANCEL};
 use goodfetch_protocol::page::dialog::{
     DIALOG_ACCEPT, DIALOG_ALREADY_HANDLED, DIALOG_DISMISS, DIALOG_HANDLE, PAGE_ON_DIALOG,
 };
@@ -239,7 +239,8 @@ impl<'connection> Handlers<'connection> {
 
     /// Calls `method` with `params` while each handler `script` names does
     /// what it says with the dialogs it is asked about, any other doing
-    /// nothing; answers the call's answer.
+    /// nothing; answers the call's answer, keeping every other message,
+    /// such as a handler's subscription ending meanwhile.
     fn call_answering(
         &mut self,
         method: &str,
@@ -247,14 +248,25 @@ impl<'connection> Handlers<'connection> {
         script: &[(i64, Does)],
     ) -> Result<Value, Gone> {
         let call = self.connection.request(method, params)?;
-        loop {
-            let message = self.next()?;
+        let mut others = Vec::new();
+        let answer = loop {
+            let message = match self.next() {
+                Ok(message) => message,
+                Err(gone) => {
+                    self.kept.append(&mut others);
+                    return Err(gone);
+                }
+            };
             if message["method"] == json!(DIALOG_HANDLE.name) {
                 self.handle(&message, script)?;
             } else if message.get("method").is_none() && message["id"] == json!(call) {
-                return Ok(message);
+                break message;
+            } else {
+                others.push(message);
             }
-        }
+        };
+        self.kept.append(&mut others);
+        Ok(answer)
     }
 
     fn call(&mut self, method: &str, params: &Value) -> Result<Value, Gone> {
@@ -401,8 +413,9 @@ fn handlers(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Re
             && left["result"]["response"]["status"] == json!(200),
     );
     checks.check(
-        "a cancelled handler's call answers and it is asked no more",
-        removed.get("result").is_some() && calls(&about_alert) == vec![json!(earlier)],
+        "cancelling a handler ends its call with `call_cancelled`, and it is asked no more",
+        removed["error"]["data"]["code"] == json!(CALL_CANCELLED.name)
+            && calls(&about_alert) == vec![json!(earlier)],
     );
     checks.check(
         "every other click and navigation answers",

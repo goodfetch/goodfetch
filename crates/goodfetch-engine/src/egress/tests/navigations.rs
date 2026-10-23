@@ -1,10 +1,11 @@
 //! The scheme rules of a page's navigations through `egress`'s interface
 //! (ADRs 0017, 0056, 0089 and 0120; spec #564's `file:` and `javascript:`
-//! rules): a navigation a Client asks for may load a `file:` URL only from
-//! the program's own code or the CLI on an engine without accounts; a
-//! `javascript:` URL runs only in a frame whose own origin the domain
-//! policy allows; any other scheme but HTTP's and `about:blank` is refused,
-//! and so is every hop of a page's own requests to `file:`.
+//! rules): a navigation a Client asks for may load a `file:` URL, or any
+//! other document that reaches no network, only from the program's own code
+//! or the CLI on an engine without accounts; a `javascript:` URL runs only
+//! in a frame whose own origin the domain policy allows; `about:blank` is
+//! everyone's; and every hop of a page's own requests to `file:` is
+//! refused.
 //!
 //! Covers: story:4-5, story:4-6, error:egress_refused
 #![expect(
@@ -29,12 +30,14 @@ const PROGRAM: Navigator = Navigator {
 
 const FILE: &str = "file:///home/user/report.html";
 
-#[test]
-fn the_programs_own_navigation_loads_a_file() {
-    assert_eq!(
-        navigation(FILE, PROGRAM).map(|destination| destination == Destination::File),
-        Ok(true)
-    );
+#[rstest]
+#[case::a_file(FILE)]
+#[case::data("data:text/html,<p>hi</p>")]
+#[case::the_browsers_own_page("chrome://crash")]
+#[case::another_about_page("about:srcdoc")]
+#[case::gopher("gopher://127.0.0.1:6379/_INFO")]
+fn the_programs_own_navigation_loads_a_document_of_the_machine(#[case] url: &str) {
+    assert_eq!(navigation(url, PROGRAM), Ok(Destination::Local));
 }
 
 #[rstest]
@@ -76,11 +79,16 @@ fn about_blank_loads_nothing_and_is_allowed() {
 #[rstest]
 #[case::data("data:text/html,<p>hi</p>")]
 #[case::gopher("gopher://127.0.0.1:6379/_INFO")]
-#[case::another_about_page("about:srcdoc")]
+#[case::the_browsers_own_page("chrome://history")]
 #[case::ftp("ftp://scope.test/file")]
-fn any_other_scheme_is_refused(#[case] url: &str) {
+fn a_client_acting_for_a_model_is_refused_any_other_scheme(#[case] url: &str) {
+    let model = Navigator {
+        acting_for_model: true,
+        ..PROGRAM
+    };
+
     assert_eq!(
-        navigation(url, PROGRAM),
+        navigation(url, model),
         Err(refused(url, EgressRule::Scheme, None))
     );
 }

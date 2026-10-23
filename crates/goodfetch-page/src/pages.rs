@@ -8,9 +8,10 @@
 //! page's driver through the guard, under the Run's `timeout.action`. A
 //! navigation the browser turns into a download answers no response and
 //! publishes `page.download` on the engine's event stream. `page.goto`
-//! judges its URL's scheme first: a `file:` URL only for the program's own
-//! code, a `javascript:` URL only in a frame the domain policy allows, no
-//! other scheme but HTTP's and `about:blank` (`egress::navigation`). Every page is
+//! judges its URL's scheme first: a `file:` URL, or any other scheme but
+//! HTTP's and `about:blank`, only for the program's own code, and a
+//! `javascript:` URL only in a frame the domain policy allows
+//! (`egress::navigation`). Every page is
 //! under the interception from its opening: `page.route` and
 //! `session.route` arm their routes there, `route.*` answer the requests
 //! those routes hold, and a failure a route's handler left on a page is
@@ -614,11 +615,11 @@ impl Pages {
     /// `context`, answering once its document reached the state
     /// `wait_until` names; a download it turns into is published on the
     /// call's events. A URL is judged by its scheme first (ADRs 0017, 0056
-    /// and 0089): a `file:` URL is loaded only for the program's own code
-    /// or the CLI on an engine without accounts, a `javascript:` URL runs
-    /// only in a main frame whose document's origin the domain policy
-    /// allows, and any other scheme but HTTP's and `about:blank` is
-    /// refused with `egress_refused`.
+    /// and 0089): a `file:` URL, or any other scheme but HTTP's and
+    /// `about:blank`, is loaded only for the program's own code or the CLI
+    /// on an engine without accounts, refused with `egress_refused`
+    /// otherwise, and a `javascript:` URL runs only in a main frame whose
+    /// document's origin the domain policy allows.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %page_id.0, operation = destination.operation(), run_id = tracing::field::Empty, url.origin = tracing::field::Empty))]
     async fn navigate(
         &self,

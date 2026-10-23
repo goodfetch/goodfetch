@@ -223,9 +223,10 @@ pub enum RequestKind {
 }
 
 /// Who asked for a page's navigation, as the `file:` rule reads it (ADRs
-/// 0056 and 0089; spec #564): a `file:` URL is loaded only for the
-/// program's own code or the CLI on an engine without accounts, so a model
-/// never reads the machine's files through a page.
+/// 0056 and 0089; spec #564): a `file:` URL, or any other scheme but
+/// HTTP's, is loaded only for the program's own code or the CLI on an
+/// engine without accounts, so a model never reads the machine's files, or
+/// the browser's own pages, through a page.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Navigator {
     /// A Client acting for a model asked.
@@ -237,7 +238,8 @@ pub struct Navigator {
 }
 
 impl Navigator {
-    /// Whether its navigation may load a `file:` URL.
+    /// Whether its navigation may load a `file:` URL, or any other
+    /// document of the machine or the browser that reaches no network.
     pub fn reads_files(self) -> bool {
         !(self.acting_for_model || self.recipe_run || self.accounts)
     }
@@ -248,8 +250,9 @@ impl Navigator {
 pub enum Destination {
     /// To the network, whose every hop the page's interception judges.
     Network,
-    /// To a `file:` URL, which its [`Navigator`] may load.
-    File,
+    /// To a document of the machine or the browser that reaches no
+    /// network, a `file:` URL among them, which its [`Navigator`] may load.
+    Local,
     /// A `javascript:` URL, which runs in the frame if
     /// [`judge_javascript`] allows it.
     JavaScript,
@@ -275,9 +278,9 @@ pub fn navigation(url: &str, navigator: Navigator) -> Result<Destination, Refuse
     };
     match parsed.scheme() {
         scheme if SCHEMES.contains(&scheme) => Ok(Destination::Network),
-        FILE if navigator.reads_files() => Ok(Destination::File),
         JAVASCRIPT => Ok(Destination::JavaScript),
         _ if parsed.as_str() == BLANK => Ok(Destination::Blank),
+        _ if navigator.reads_files() => Ok(Destination::Local),
         _ => Err(refused(EgressRule::Scheme)),
     }
 }

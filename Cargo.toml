@@ -100,6 +100,8 @@ goodfetch-crawl = { path = "crates/foxhound/goodfetch-crawl" }
 goodfetch-engine = { path = "crates/goodfetch-engine" }
 # The page formats read from a document (spec #580, ADR 0007).
 goodfetch-extractor = { path = "crates/goodfetch-extractor" }
+# Foxhound's fetch tiers; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
+goodfetch-fetch-tier = { path = "crates/foxhound/goodfetch-fetch-tier" }
 # Foxhound's Frontier, its per-domain queues; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-frontier = { path = "crates/foxhound/goodfetch-frontier" }
 # Collie's pages, Sessions and browsers (spec #577).
@@ -124,6 +126,13 @@ data-encoding = { version = "2.11.1", default-features = false, features = ["all
 # The Proving ground's login forms (application/x-www-form-urlencoded).
 form_urlencoded = { version = "1.2.2", default-features = false, features = ["alloc"] }
 flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
+# The HTTP fetch tier's transport in `standard` and `identified` Sessions
+# (spec #579): HTTP/1.1 and HTTP/2 over the engine's own rustls
+# configuration (no provider of its own, no system proxy), with none of its
+# content decoding, which the fetch driver does as Chrome does (ADR 0119).
+reqwest = { version = "0.13.5", default-features = false }
+# Brotli's decoder alone, for the fetch driver's `br` (ADR 0119).
+brotli-decompressor = { version = "6.0.1", default-features = false, features = ["std"] }
 # HMAC-SHA-1, from which the Proving ground and its tests compute TOTP codes
 # (RFC 6238).
 hmac = { version = "0.12.1", default-features = false }

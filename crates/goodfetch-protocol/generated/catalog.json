@@ -3485,6 +3485,29 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": "auto",
+      "description": "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
+      "name": "fetch.tier",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "auto",
+          "http",
+          "discovered_api",
+          "browser_fetch",
+          "light_browser",
+          "browser"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": true,
       "description": "Whether a browser Session blocks ads by EasyList, as a blocker does: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
       "name": "filter_lists.ads",

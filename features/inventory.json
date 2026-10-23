@@ -5115,6 +5115,16 @@
       ]
     },
     {
+      "id": "setting:fetch.tier",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:filter_lists.ads",
       "kind": "setting",
       "area": 5,

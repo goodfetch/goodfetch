@@ -20,5 +20,5 @@ pub mod executable;
 mod pins;
 mod sample;
 
-pub use composition::composition;
+pub use composition::{composition, composition_with};
 pub use pins::pinned_artifacts;

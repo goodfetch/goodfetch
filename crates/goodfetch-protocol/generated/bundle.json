@@ -917,6 +917,14 @@
     "CertificatePin": {
       "description": "One pin of the known-certificates store, as `certs.list` answers it and\nas the store's rows hold it: a host whose certificate was accepted on\nfirst use, and the key it must keep presenting.",
       "properties": {
+        "changed_spki_sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the key the host presented instead, which stopped it\nwith `certificate_changed`, as `sha256/` and its standard base64: the\nkey `certs.accept` pins in its place. None while no change waits.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "host": {
           "arrived_in": "0.1",
           "description": "The host, as the URL parser leaves it.",
@@ -957,6 +965,70 @@
       },
       "required": [
         "host"
+      ],
+      "type": "object"
+    },
+    "CertsAcceptParams": {
+      "additionalProperties": false,
+      "description": "What `certs.accept` takes: the host, and the changed key the person\naccepts, as `certs.list` shows it.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The pinned host, as the URL parser leaves it.",
+          "type": "string"
+        },
+        "spki_sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the changed key, as `sha256/` and its standard base64.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "spki_sha256"
+      ],
+      "type": "object"
+    },
+    "CertsForgetParams": {
+      "additionalProperties": false,
+      "description": "What `certs.forget` takes: the host.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The pinned host, as the URL parser leaves it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host"
+      ],
+      "type": "object"
+    },
+    "CertsForgotten": {
+      "description": "What `certs.forget` answers.",
+      "properties": {
+        "forgotten": {
+          "arrived_in": "0.1",
+          "description": "Whether the caller had a pin for it, now removed.",
+          "type": "boolean"
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The host.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "forgotten"
       ],
       "type": "object"
     },

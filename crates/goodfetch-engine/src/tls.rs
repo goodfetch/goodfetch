@@ -208,6 +208,12 @@ fn domain_key(domain: &str) -> Option<String> {
     (!key.is_empty()).then_some(key)
 }
 
+/// `host` as the known-certificates store keys it: as the URL parser leaves
+/// a host, without a trailing dot; none when it names no host.
+pub(crate) fn host_key(host: &str) -> Option<String> {
+    domain_key(host)
+}
+
 /// Whether `host` is, or is a subdomain of, a domain `listed` holds, each
 /// as [`domain_key`] leaves it; an address is listed only as itself.
 fn covered(host: &str, listed: impl Fn(&str) -> bool) -> bool {

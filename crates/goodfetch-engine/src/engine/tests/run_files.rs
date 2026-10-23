@@ -258,11 +258,18 @@ fn a_path_the_program_cannot_write_raises_path_not_writable_and_keeps_what_it_he
     });
 
     let data = &failed["error"]["data"];
+    let after = (std::fs::read(&path).ok(), hidden_in(&folder));
+    // The test's folder is removed once the test passes: give its user back
+    // the right to write the folder a case locked.
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     assert_eq!(
         (
             (&data["code"], &data["retryable"], &data["reason"]),
             (&data["os_code"], &data["path"]),
-            (std::fs::read(&path).ok(), hidden_in(&folder)),
+            after,
         ),
         (
             (&json!("path_not_writable"), &json!(false), &json!(reason)),

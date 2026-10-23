@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use goodfetch_protocol::browser_cache::{
-    ArtifactId, ArtifactKind, ChromeChannel, DownloadProgress, MissingBrowser, NotCleaned, PinnedBy,
+    ArtifactId, ArtifactKind, ChromeChannel, DownloadProgress, MissingBrowser, PinnedBy,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -640,6 +640,8 @@ fn a_dry_run_lists_what_it_would_delete_and_deletes_nothing() {
 #[cfg(unix)]
 #[test]
 fn a_cache_the_engine_cannot_write_is_never_cleaned() {
+    use goodfetch_protocol::browser_cache::NotCleaned;
+
     let env = TestEnv::new();
     let root = env.folder().join("read-only cache");
     let cache = BrowserCache::new(&CacheLocation::new(env.home(), Some(root.clone())));

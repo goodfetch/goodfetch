@@ -42,7 +42,7 @@ CREATE TABLE outcomes (
         ) STRICT;
 CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL) STRICT;
 INSERT INTO "page_sessions" VALUES(1,1,0,'{}',6178731391398722387);
-INSERT INTO "page_sessions" VALUES(2,0,1,'{"filter_lists.ads":false}',-2937466112876520115);
+INSERT INTO "page_sessions" VALUES(2,0,1,'{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}',-2937466112876520115);
 CREATE TABLE pool_sessions (
             position INTEGER NOT NULL PRIMARY KEY,
             proxy_tier TEXT NOT NULL,
@@ -86,6 +86,11 @@ CREATE TABLE run (
         report TEXT
     ) STRICT;
 INSERT INTO "run" VALUES('paused','collie','collie','os_user',1,'{}','stopped','{"kind":"pause"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'[]',6,'{"kind":"browser_host","browser_host":"laptop"}','6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b',0,'Waiting for the next page','{"reason":"nothing_pending"}','{"run_id":"paused","lifecycle":"stopped","stop_reason":{"kind":"pause"},"verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: paused."}],"started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":0,"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":995,"set_by":"client"}]},"warnings":[{"code":"storage_low","message":"The run folder''s filesystem met the `low` storage level.","sessions":["laptop"],"folder":"runs/paused"}],"nothing_done":{"reason":"nothing_pending"}}');
+CREATE TABLE run_key (
+    id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+    wrapped BLOB NOT NULL,
+    key_reference TEXT NOT NULL
+) STRICT;
 CREATE TABLE scope (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             strategy TEXT NOT NULL,

@@ -159,6 +159,7 @@ impl RawClient {
 
     /// Whether the Daemon `found` names closes, unanswered, a Connection
     /// whose `hello` carries `found`'s token.
+    #[cfg(unix)]
     pub(crate) fn refused(found: &RuntimeFile) -> bool {
         let mut client = Self::connected(&found.endpoint);
         client.send(&json!({

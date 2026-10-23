@@ -1150,6 +1150,28 @@
       ]
     },
     {
+      "id": "error:proxy_auth_failed",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:proxy_unavailable",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:resources_exhausted",
       "kind": "error",
       "area": 3,
@@ -1238,6 +1260,17 @@
     },
     {
       "id": "error:run_in_use",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:run_key_mismatch",
       "kind": "error",
       "area": 3,
       "milestone": null,
@@ -5247,6 +5280,17 @@
       ]
     },
     {
+      "id": "setting:live_view.hiding",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:log.file.max_files",
       "kind": "setting",
       "area": 3,
@@ -5449,6 +5493,50 @@
       "id": "setting:politeness.sharing",
       "kind": "setting",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:proxy.bypass",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:proxy.password",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:proxy.server",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:proxy.username",
+      "kind": "setting",
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -10524,6 +10612,17 @@
     },
     {
       "id": "story:12-94",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-99",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",

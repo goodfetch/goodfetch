@@ -12,11 +12,13 @@
 mod driver;
 mod errors;
 mod guard;
+mod hiding;
 mod interception;
 mod launch;
 mod page_events;
 mod pages;
 mod pool;
+mod proxy;
 pub mod robots_txt;
 mod sessions;
 mod trace;

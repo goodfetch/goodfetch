@@ -262,7 +262,7 @@ fn a_crashed_session_refuses_its_calls_and_stays_crashed_once_closed() {
 /// An event only a bug sends raises `internal` naming the object, the
 /// state and the event (ADRs 0079 and 0128).
 ///
-/// Covers: story:5-28
+/// Covers: story:5-28, error:internal
 #[test]
 fn an_event_a_state_cannot_receive_raises_internal_with_the_object_state_and_event() {
     let life = SessionLife::new(

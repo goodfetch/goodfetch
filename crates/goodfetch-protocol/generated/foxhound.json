@@ -3062,7 +3062,7 @@
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "The Session's own settings, nested by key: `filter_lists.ads`,\n`.trackers`, `.annoyances`, `.first_party_scripts` and\n`browser.block_resources` choose its pages' Clean-up rules over the\nRun's. `session.source` is refused here with `setting_not_applicable`,\nas the call's own `source` sets it, and so is any other key, which\nonly the Run sets.",
+          "description": "The Session's own settings, nested by key: `filter_lists.ads`,\n`.trackers`, `.annoyances`, `.first_party_scripts`,\n`browser.block_resources` and `live_view.hiding` choose its pages'\nClean-up rules over the Run's. `session.source` is refused here with `setting_not_applicable`,\nas the call's own `source` sets it, and so is any other key, which\nonly the Run sets.",
           "type": "object"
         },
         "source": {
@@ -7857,6 +7857,26 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Session's proxy answered `407 Proxy Authentication Required`: the Session gave it no credentials, or it refused those of `proxy.username` and `proxy.password`. The details name the proxy and the username, never the password. Fix the credentials; retrying with the same ones fails the same way.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "proxy_auth_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Session's proxy could not be reached, its TLS failed, or it refused the tunnel or the request with an error of its own: the details name the proxy, never its credentials, and the browser's network error when it named one. It is the proxy's failure, never the site's and never `navigation_failed`: retry later, or through another proxy.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "proxy_unavailable",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.",
       "exit_code": 15,
       "group": "unavailable",
@@ -7944,6 +7964,16 @@
       "name": "run_in_use",
       "product": "collie",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A resumed Run's data key does not open under the key-encryption key `run_state.key_reference` names, such as a Checkpoint moved to a machine whose own key is another: the key that wrapped it never travels with the Checkpoint. The details name the Run, the setting, the reference resolved and the reference that wrapped the key, never a value. Name the key that wrapped it, in project configuration or configuration, and resume again.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "run_key_mismatch",
+      "product": "collie",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",
@@ -11150,6 +11180,27 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "auto",
+      "description": "Whether a Session's pages hide, on the live page, the elements the Filter lists' cosmetic rules match: `auto` (the default) and `always` hide them through a style sheet the site cannot see on Chromium, in every frame and every new document; `off` leaves the live page as served. When the guard finds an action's target hidden, it lifts the rule for the Session and acts. Extracted content has the elements removed whatever this says.",
+      "name": "live_view.hiding",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "auto",
+          "off",
+          "always"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "machine",
       "clearable": false,
       "default": 5,
@@ -11519,6 +11570,78 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "not_by_recipe_or_model",
+      "clearable": true,
+      "default": null,
+      "description": "The hosts the Session reaches without its proxy, as Playwright's `bypass`: a comma-separated list such as `.example.com, chromium.org`, a leading dot naming a domain's subdomains. None by default: every request goes through `proxy.server`. Set as `proxy.server` is.",
+      "name": "proxy.bypass",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "not_by_recipe_or_model",
+      "clearable": true,
+      "default": null,
+      "description": "The Secret reference of the password the Session gives `proxy.server` with `proxy.username`, such as `env:PROXY_PASSWORD`: never a value, resolved when the Session opens and never written to a log, a trace, a process's arguments or a file. None by default. Set as `proxy.server` is.",
+      "name": "proxy.password",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A Secret reference, such as `env:NAME`.",
+        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "not_by_recipe_or_model",
+      "clearable": true,
+      "default": null,
+      "description": "The proxy every request of the Session goes through, as Playwright's `server`: an `http://`, `https://`, `socks5://` or `socks5h://` URL with a host and a port, such as `http://proxy.example:3128`. None by default: the machine's own address. Set on a Run, every Session of it takes it; set in `run.new_session`'s `settings`, that Session alone; a page or a request has no proxy of its own, so the address a site sees never changes under the same cookies. A URL carrying credentials and `socks4` are refused with `setting_invalid`: give the credentials as `proxy.username` and `proxy.password`. Set only by the program's own code, configuration and an Operator policy: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`, since whoever sets it receives `proxy.password`. On Chromium, a SOCKS5 proxy's credentials go through a loopback relay the engine opens for the Session.",
+      "name": "proxy.server",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A proxy URL, `http://`, `https://`, `socks5://` or `socks5h://`, with a host and an optional port and never credentials, such as `http://proxy.example:3128`.",
+        "pattern": "^(?i:https?|socks5h?)://[^@/?#]+/?$",
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "not_by_recipe_or_model",
+      "clearable": true,
+      "default": null,
+      "description": "The username the Session gives `proxy.server`, as Playwright's `username`. None by default. Set as `proxy.server` is.",
+      "name": "proxy.username",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": 250,
@@ -11580,7 +11703,7 @@
       "authority": "configuration",
       "clearable": true,
       "default": "keychain:goodfetch/run-state-key",
-      "description": "The Secret reference of the key-encryption key that wraps each Run's data key. One set in a layer is resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration. By default the OS keychain's `keychain:goodfetch/run-state-key`, or, on a host with no OS keychain, the encrypted local file's `secretfile:run-state-key`, which `config explain` shows as the default it chose. The encrypted local file, `secrets/<name>.age` in Goodfetch home encrypted with age to the X25519 identity in `secrets/identity.txt`, a file only its owner may read, protects copies and backups of the home, not the value from another process of the same user.",
+      "description": "The Secret reference of the key-encryption key that wraps each Run's data key. One set in a layer is resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration. By default the OS keychain's `keychain:goodfetch/run-state-key`, or, on a host with no OS keychain, the encrypted local file's `secretfile:run-state-key`, which `config explain` shows as the default it chose; the engine makes the default's item, a random 256-bit key, where it is missing when a Run first seals a field. A Run's data key is stored only wrapped by this key, so a resume, such as of a Checkpoint moved to another machine, unwraps it with the key this setting names for the resume, which a Client may send in `run.resume`'s project configuration: one that gives no value fails the resume with `secret_unavailable`, one that does not open the data key with `run_key_mismatch`. The encrypted local file, `secrets/<name>.age` in Goodfetch home encrypted with age to the X25519 identity in `secrets/identity.txt`, a file only its owner may read, protects copies and backups of the home, not the value from another process of the same user.",
       "name": "run_state.key_reference",
       "product": "collie",
       "products": [

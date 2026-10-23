@@ -38,6 +38,7 @@ use goodfetch_engine::settings::RunSettings;
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::driver::{Carried, LocalBrowser, Origins, PageDriver, SessionDriver};
+use crate::proxy::SessionProxy;
 use crate::trace::CommandLog;
 pub(crate) use rules::Placement;
 use rules::{Limits, Seats, Use};
@@ -131,8 +132,10 @@ impl Pool {
         }
     }
 
-    /// A seat for a Session, placed under `placement` on its first use.
-    pub(crate) fn seat(&self, placement: Placement) -> Seat {
+    /// A seat for a Session whose requests go through `proxy`, if it has
+    /// one, in every browser it is seated in, placed under `placement` on
+    /// its first use.
+    pub(crate) fn seat(&self, placement: Placement, proxy: Option<Arc<SessionProxy>>) -> Seat {
         let number = {
             let mut browsers = lock(&self.shared.browsers);
             browsers.seats += 1;
@@ -143,6 +146,7 @@ impl Pool {
                 pool: self.clone(),
                 number,
                 placement,
+                proxy,
                 origins: Origins::default(),
                 place: Mutex::new(Place::default()),
             }),
@@ -434,6 +438,8 @@ struct SeatShared {
     pool: Pool,
     number: u64,
     placement: Placement,
+    /// The Session's one proxy, which it keeps in every browser (SA-22).
+    proxy: Option<Arc<SessionProxy>>,
     origins: Origins,
     place: Mutex<Place>,
 }
@@ -521,7 +527,7 @@ impl SeatShared {
             return Ok((*number, Arc::clone(driver)));
         }
         let (number, browser) = self.pool.place(self);
-        let driver = Arc::new(SessionDriver::new(browser));
+        let driver = Arc::new(SessionDriver::new(browser, self.proxy.clone()));
         let opened = match driver.open().await {
             Ok(()) => driver.restore(&place.carried).await,
             Err(error) => Err(error),

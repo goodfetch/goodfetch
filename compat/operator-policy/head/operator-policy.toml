@@ -81,6 +81,15 @@ accept_invalid_certs = { "example.test" = "example" }
 headless = true
 block_resources = ["image"]
 
+[settings.live_view]
+hiding = "auto"
+
+[settings.proxy]
+server = "http://proxy.example:3128"
+bypass = "example"
+username = "example"
+password = "env:EXAMPLE"
+
 [settings.run_state]
 location = "example"
 durability = "full"
@@ -269,6 +278,15 @@ accept_invalid_certs = { "example.test" = "example" }
 [lock.browser]
 headless = true
 block_resources = ["image"]
+
+[lock.live_view]
+hiding = "auto"
+
+[lock.proxy]
+server = "http://proxy.example:3128"
+bypass = "example"
+username = "example"
+password = "env:EXAMPLE"
 
 [lock.run_state]
 location = "example"

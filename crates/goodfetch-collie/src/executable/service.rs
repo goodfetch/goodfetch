@@ -15,7 +15,6 @@
     reason = "the CLI writes the service's files and runs its service manager before and outside any async worker (ADR 0060)"
 )]
 
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
 
@@ -323,7 +322,7 @@ fn launchd_domain(
         .uid();
     let gui = format!("gui/{uid}");
     let answered = std::process::Command::new(program(machine, "launchctl"))
-        .args([OsStr::new("print"), OsStr::new(&gui)])
+        .args(["print", gui.as_str()])
         .env_clear()
         .envs(machine.environment)
         .stdin(Stdio::null())
@@ -335,6 +334,10 @@ fn launchd_domain(
 }
 
 #[cfg(not(unix))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "reading the domain can fail on Unix, never here: one signature serves both"
+)]
 fn launchd_domain(
     _machine: &Machine<'_>,
     _manager: ServiceManager,

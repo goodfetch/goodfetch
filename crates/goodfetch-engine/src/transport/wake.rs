@@ -23,6 +23,10 @@ struct Listening(tokio::net::UnixListener);
 #[cfg(windows)]
 struct Listening {
     name: String,
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens pipes (ADR 0060)"
+    )]
     server: tokio::net::windows::named_pipe::NamedPipeServer,
 }
 

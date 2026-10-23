@@ -12,6 +12,8 @@ autobenches = false
 
 [dependencies]
 chacha20.workspace = true
+# Run state's field encryption and its data key's wrap (ADR 0015).
+chacha20poly1305.workspace = true
 # The Base64 of the page-body chunks `page.body` sends.
 data-encoding.workspace = true
 # Only names the inflate backend (miniz_oxide) for zip's DEFLATE.
@@ -21,6 +23,8 @@ futures-util.workspace = true
 getrandom.workspace = true
 goodfetch-protocol.workspace = true
 hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
+# Derives the wrap of each Run's data key from its key-encryption key.
+hkdf.workspace = true
 # The Console's sign-in verifiers and CSRF tokens, HMACs under the Console
 # key (spec #592).
 hmac.workspace = true

@@ -77,6 +77,23 @@ pub enum Form {
 }
 
 impl Surface {
+    /// Whether a Client of this surface acts for a model, which sets none of
+    /// the settings that send a Secret reference's value to a destination
+    /// they name (ADR 0092): the MCP server, and a Script sandbox worker
+    /// running Code mode.
+    pub fn acts_for_model(self) -> bool {
+        match self {
+            Self::Mcp | Self::Worker => true,
+            Self::SdkTypescript
+            | Self::SdkPython
+            | Self::Rust
+            | Self::Cli
+            | Self::Console
+            | Self::Cloud
+            | Self::BrowserHost => false,
+        }
+    }
+
     /// Its name on the wire.
     pub fn as_str(self) -> &'static str {
         match self {

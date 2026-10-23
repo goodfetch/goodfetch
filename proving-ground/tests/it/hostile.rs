@@ -216,6 +216,39 @@ fn a_chain_of_19_redirects_is_followed_to_its_record() {
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
 
+/// The chain a domain policy of `redirects.test` refuses at its third
+/// redirect: two within the family's host, then one to `catalog.test`.
+#[test]
+fn a_chain_leaves_the_familys_host_at_its_third_redirect() {
+    let proving_ground = ProvingGround::start(SEED);
+    let mut url = proving_ground.url("17.redirects.test", "/leaves/3");
+    let mut locations = Vec::new();
+
+    for _ in 0..3 {
+        let answer = proving_ground.get(&url);
+        let location = answer.header("location").expect("a redirect").to_owned();
+        url = if location.starts_with('/') {
+            format!("{}{location}", origin(&url))
+        } else {
+            location.clone()
+        };
+        locations.push(location);
+    }
+    let landed = proving_ground.get(&url);
+
+    assert_eq!(
+        (locations, landed.status),
+        (
+            vec![
+                "/leaves/2".to_owned(),
+                "/leaves/1".to_owned(),
+                proving_ground.url("catalog.test", "/catalog/1"),
+            ],
+            200
+        )
+    );
+}
+
 #[rstest]
 #[case::a_chain_of_20("redirects/18")]
 #[case::a_loop("redirects/19")]

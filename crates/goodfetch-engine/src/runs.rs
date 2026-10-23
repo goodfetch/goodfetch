@@ -1331,6 +1331,62 @@ impl Run {
         .map(drop)
     }
 
+    /// Charges `amount` of `usage_kind` as [`Run::charge`] does, and counts
+    /// it under `part` of the kind in the Run's Usage, such as the proxy
+    /// kind of `proxy_bytes` (ADR 0021), in the same run-state write; with
+    /// `price`, a currency and a cost already paid, its cost too, reserved
+    /// as [`Run::reserve`] does at that cost: both in one ledger
+    /// transaction, so a Limit that refuses one charges neither.
+    ///
+    /// # Errors
+    ///
+    /// As [`Run::charge`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Run::charge`]'s.
+    pub async fn charge_part(
+        &self,
+        usage_kind: &str,
+        part: &str,
+        amount: u64,
+        price: Option<(&str, u64)>,
+    ) -> Result<(), ChargeError> {
+        let (kind, part) = (usage_kind.to_owned(), part.to_owned());
+        let price = price.map(|(currency, cost)| (currency.to_owned(), cost));
+        self.charged(move |charging, now| {
+            let priced = match &price {
+                Some((currency, cost)) => {
+                    Some(charging.reserve(&kind, Some(currency), *cost, now)?)
+                }
+                None => None,
+            };
+            let mut charged = match charging.charge(&kind, amount, now) {
+                Ok(charged) => charged,
+                Err(refusal) => {
+                    if let Some((reservation, _)) = priced {
+                        // The price is given back: nothing was used.
+                        let _ = charging.settle(reservation, 0);
+                    }
+                    return Err(refusal);
+                }
+            };
+            for counted in &mut charged.counted {
+                counted.part = Some(part.clone());
+            }
+            if let Some((reservation, priced)) = priced {
+                // A cost already paid is its own worst case: it stays
+                // charged as reserved.
+                drop(reservation);
+                charged.used.extend(priced.used);
+                charged.counted.extend(priced.counted);
+            }
+            Ok(((), charged))
+        })
+        .await
+        .map(drop)
+    }
+
     /// Reserves `worst`, the worst case of a cost the Run is about to pay
     /// in `currency`, such as a model call or a paid solve, against every
     /// Limit on `usage_kind` in that currency that holds it (ADR 0041):
@@ -1424,20 +1480,28 @@ impl Run {
         *held = Some(charging);
         match changed {
             Ok((value, journaled)) => {
-                if !journaled.used.is_empty() || journaled.counted.is_some() || uncapped {
+                if !journaled.used.is_empty() || !journaled.counted.is_empty() || uncapped {
                     let epoch = self.state.epoch();
                     self.state
                         .write(move |connection| {
                             slices::journal(connection, epoch, &journaled.used, uncapped)?;
-                            match &journaled.counted {
-                                Some(counted) => report::count(
+                            for counted in &journaled.counted {
+                                report::count(
                                     connection,
                                     &counted.usage_kind,
                                     counted.currency.as_deref(),
                                     counted.delta,
-                                ),
-                                None => Ok(()),
+                                )?;
+                                if let Some(part) = &counted.part {
+                                    report::count_part(
+                                        connection,
+                                        &counted.usage_kind,
+                                        part,
+                                        counted.delta,
+                                    )?;
+                                }
                             }
+                            Ok(())
                         })
                         .await?;
                 }

@@ -116,6 +116,12 @@ CREATE TABLE usage (
         used INTEGER NOT NULL,
         PRIMARY KEY (slice_id, epoch)
     ) STRICT;
+CREATE TABLE usage_parts (
+        usage_kind TEXT NOT NULL,
+        part TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        PRIMARY KEY (usage_kind, part)
+    ) STRICT;
 CREATE TABLE usage_totals (
         usage_kind TEXT NOT NULL,
         currency TEXT NOT NULL,

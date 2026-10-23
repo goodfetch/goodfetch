@@ -224,6 +224,43 @@ fn price(text: &str) -> Option<Price<'_>> {
     })
 }
 
+/// A price as [`ValueKind::Price`] reads it: an amount in millionths of
+/// its currency, the unit of a currency Limit (ADR 0041), and the ISO 4217
+/// currency.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PriceValue {
+    /// The amount, in millionths of the currency, rounded up past the
+    /// sixth decimal so that a price is never read below what it says.
+    pub millionths: u64,
+    /// The currency, such as `USD`.
+    pub currency: String,
+}
+
+impl PriceValue {
+    /// Reads `text`, such as `"0.05 USD"`; none when it is not a price or
+    /// its amount does not fit.
+    pub fn parse(text: &str) -> Option<Self> {
+        let price = price(text)?;
+        let (kept, rest) = price
+            .fraction
+            .split_at(price.fraction.len().min(MILLIONTHS_DIGITS));
+        let fraction: u64 = format!("{kept:0<MILLIONTHS_DIGITS$}").parse().ok()?;
+        let whole: u64 = price.whole.parse().ok()?;
+        let up = u64::from(rest.bytes().any(|digit| digit != b'0'));
+        let millionths = whole
+            .checked_mul(1_000_000)?
+            .checked_add(fraction)?
+            .checked_add(up)?;
+        Some(Self {
+            millionths,
+            currency: price.currency.to_owned(),
+        })
+    }
+}
+
+/// The decimals of a millionth.
+const MILLIONTHS_DIGITS: usize = 6;
+
 /// Who may set a Setting, by layer (ADR 0028 and the ADRs that amend it).
 /// Operator policy may lock or cap any key that is not [`Authority::Fixed`].
 #[derive(Clone, Copy, Debug)]

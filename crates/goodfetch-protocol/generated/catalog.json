@@ -4228,6 +4228,47 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "not_by_recipe",
+      "clearable": true,
+      "default": null,
+      "description": "The country, an ISO 3166-1 alpha-2 code such as `US`, a Session's proxy exit is in. None by default: any country the provider offers. A country the provider does not offer for the Session's proxy kind is refused with `setting_invalid` when the Session opens. A Recipe never sets it (`setting_locked`).",
+      "name": "proxy.country",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "An ISO 3166-1 alpha-2 country code, such as `US`.",
+        "pattern": "^[A-Za-z]{2}$",
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "The proxy kind a Session's proxy is drawn from, `datacenter`, `isp`, `residential` or `mobile`: the provider's default when unset, for `list` the kind of its first server. A kind the provider does not offer is refused with `setting_invalid` when the Session opens. A Recipe may set it.",
+      "name": "proxy.kind",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "datacenter",
+          "isp",
+          "residential",
+          "mobile"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "not_by_recipe_or_model",
       "clearable": true,
       "default": null,
@@ -4250,6 +4291,94 @@
       "authority": "not_by_recipe_or_model",
       "clearable": true,
       "default": null,
+      "description": "The Proxy provider each Session of the Run, or the Session it is set on, draws its one proxy from when it opens, fixed for the Session's life: `list`, the user's own servers in `proxy.providers.list.servers`. None by default. A Session that resolves both `proxy.server` and `proxy.provider` is refused with `setting_invalid`. Set as `proxy.server` is: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`.",
+      "name": "proxy.provider",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": false,
+      "default": {},
+      "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
+      "name": "proxy.providers",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": {
+              "description": "The provider's proxy URL.",
+              "type": "string"
+            },
+            "password": {
+              "description": "The Secret reference of the account's password, such as `env:PROXY_PASSWORD`.",
+              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+              "type": "string"
+            },
+            "price": {
+              "description": "The price of a GB (10^9 bytes) through it, as an amount and its currency.",
+              "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)? [A-Z]{3}$",
+              "type": "string"
+            },
+            "servers": {
+              "description": "The user's own servers, for `list` only.",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "country": {
+                    "pattern": "^[A-Za-z]{2}$",
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "datacenter",
+                      "isp",
+                      "residential",
+                      "mobile"
+                    ]
+                  },
+                  "server": {
+                    "pattern": "^(?i:http|socks5h?)://[^@/?#]+/?$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "server",
+                  "kind"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "username": {
+              "description": "The account's username.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "not_by_recipe_or_model",
+      "clearable": true,
+      "default": null,
       "description": "The proxy every request of the Session goes through, as Playwright's `server`: an `http://`, `https://`, `socks5://` or `socks5h://` URL with a host and a port, such as `http://proxy.example:3128`. None by default: the machine's own address. Set on a Run, every Session of it takes it; set in `run.new_session`'s `settings`, that Session alone; a page or a request has no proxy of its own, so the address a site sees never changes under the same cookies. A URL carrying credentials and `socks4` are refused with `setting_invalid`: give the credentials as `proxy.username` and `proxy.password`. Set only by the program's own code, configuration and an Operator policy: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`, since whoever sets it receives `proxy.password`. On Chromium, a SOCKS5 proxy's credentials go through a loopback relay the engine opens for the Session.",
       "name": "proxy.server",
       "product": "collie",
@@ -4261,6 +4390,25 @@
         "description": "A proxy URL, `http://`, `https://`, `socks5://` or `socks5h://`, with a host and an optional port and never credentials, such as `http://proxy.example:3128`.",
         "pattern": "^(?i:https?|socks5h?)://[^@/?#]+/?$",
         "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "How long, in milliseconds, a Session asks its provider to keep its proxy exit: the provider's longest when unset. A Session that outlives it is named by the Run report's `proxy_exit_may_change` warning; the engine never looks the exit up. A `list` server's exit never changes.",
+      "name": "proxy.sticky_lifetime",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
       },
       "weakens": false
     },

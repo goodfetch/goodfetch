@@ -22,8 +22,9 @@ use serde_json::{Value, json};
 
 use super::ARRIVED_IN;
 use crate::catalog::{
-    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Setting, ValueKind, ValueShape,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, PriceValue, Setting, ValueKind, ValueShape,
 };
+use crate::secret_reference::SecretReference;
 
 /// A proxy's scheme, as `proxy.server` names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -286,6 +287,370 @@ pub struct ProxyAuthFailedDetails {
     pub username: Option<String>,
 }
 
+/// A proxy kind, the pool a Session's proxy is drawn from (ADR 0021), in
+/// the order of the proxy tiers, cheapest first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ProxyKind {
+    /// A data centre's addresses.
+    Datacenter,
+    /// Addresses an ISP assigns, hosted in a data centre.
+    Isp,
+    /// Home connections' addresses.
+    Residential,
+    /// Mobile networks' addresses.
+    Mobile,
+}
+
+/// The proxy kinds' names, as `proxy.kind` takes them, cheapest first.
+pub const PROXY_KINDS: &[&str] = &["datacenter", "isp", "residential", "mobile"];
+
+impl ProxyKind {
+    /// Every kind, cheapest first.
+    pub const ALL: [Self; 4] = [Self::Datacenter, Self::Isp, Self::Residential, Self::Mobile];
+
+    /// Its name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Datacenter => "datacenter",
+            Self::Isp => "isp",
+            Self::Residential => "residential",
+            Self::Mobile => "mobile",
+        }
+    }
+
+    /// The kind `name` names, if it names one.
+    pub fn named(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.as_str() == name)
+    }
+}
+
+impl fmt::Display for ProxyKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// An ISO 3166-1 alpha-2 country code, such as `US`, as `proxy.country`
+/// and a `list` server's `country` give it, in either case.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CountryCode(String);
+
+impl CountryCode {
+    /// Reads `text`: two ASCII letters, kept in upper case.
+    ///
+    /// # Errors
+    ///
+    /// What is wrong with it, for `setting_invalid`.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        if text.len() == 2 && text.bytes().all(|byte| byte.is_ascii_alphabetic()) {
+            Ok(Self(text.to_ascii_uppercase()))
+        } else {
+            Err(format!(
+                "expected an ISO 3166-1 alpha-2 country code such as `US`, found `{text}`"
+            ))
+        }
+    }
+
+    /// Its two letters, in upper case.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for CountryCode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+/// `proxy.country`'s values: a country code [`CountryCode::parse`] reads.
+pub const COUNTRY_CODE_SHAPE: ValueShape = ValueShape {
+    name: "CountryCode",
+    check: |value| match value.as_str() {
+        Some(text) => CountryCode::parse(text).map(drop),
+        None => Err(format!(
+            "expected an ISO 3166-1 alpha-2 country code such as `US`, found `{value}`"
+        )),
+    },
+    schema: || {
+        json!({
+            "type": "string",
+            "pattern": "^[A-Za-z]{2}$",
+            "description": "An ISO 3166-1 alpha-2 country code, such as `US`.",
+        })
+    },
+    examples: || vec![json!("US")],
+};
+
+/// One server of the `list` Proxy provider: the proxy, its kind and the
+/// country its exit is in, if the user names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListServer {
+    /// The proxy.
+    pub server: ProxyServer,
+    /// Its proxy kind.
+    pub kind: ProxyKind,
+    /// Its exit's country.
+    pub country: Option<CountryCode>,
+}
+
+/// One entry of `proxy.providers`, as read: what configuration says of one
+/// Proxy provider.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProxyProviderConfiguration {
+    /// The account's username, which a provider's sticky username builds
+    /// on.
+    pub username: Option<String>,
+    /// The Secret reference of the account's password.
+    pub password: Option<SecretReference>,
+    /// The provider's proxy, for a provider that has one.
+    pub endpoint: Option<ProxyServer>,
+    /// The user's own servers, for `list`.
+    pub servers: Vec<ListServer>,
+    /// The price of a GB (10^9 bytes) through it, for a metered proxy.
+    pub price: Option<PriceValue>,
+}
+
+/// The fields an entry of `proxy.providers` takes.
+const PROVIDER_FIELDS: [&str; 5] = ["username", "password", "endpoint", "servers", "price"];
+
+/// The fields a `list` server takes.
+const SERVER_FIELDS: [&str; 3] = ["server", "kind", "country"];
+
+impl ProxyProviderConfiguration {
+    /// Reads `value`, one entry of `proxy.providers`.
+    ///
+    /// # Errors
+    ///
+    /// What is wrong with it, for `setting_invalid`.
+    pub fn read(value: &Value) -> Result<Self, String> {
+        let Some(entry) = value.as_object() else {
+            return Err(format!(
+                "a Proxy provider's entry is a table of {}, found `{value}`",
+                PROVIDER_FIELDS.join(", ")
+            ));
+        };
+        if let Some(unknown) = entry
+            .keys()
+            .find(|field| !PROVIDER_FIELDS.contains(&field.as_str()))
+        {
+            return Err(format!(
+                "a Proxy provider's entry takes {}, not `{unknown}`",
+                PROVIDER_FIELDS.join(", ")
+            ));
+        }
+        let text = |field: &str| -> Result<Option<&str>, String> {
+            match entry.get(field) {
+                None | Some(Value::Null) => Ok(None),
+                Some(Value::String(text)) => Ok(Some(text)),
+                Some(other) => Err(format!("`{field}` is text, found `{other}`")),
+            }
+        };
+        let password = text("password")?
+            .map(|reference| {
+                SecretReference::parse(reference).map_err(|error| {
+                    format!(
+                        "`password` is a Secret reference such as `env:NAME`: {error}; a value is never taken in its place"
+                    )
+                })
+            })
+            .transpose()?;
+        let endpoint = text("endpoint")?.map(ProxyServer::parse).transpose()?;
+        let price = text("price")?
+            .map(|price| {
+                PriceValue::parse(price).ok_or_else(|| {
+                    format!(
+                        "`price` is the price of a GB as an amount and its currency, such as `5 USD`, found `{price}`"
+                    )
+                })
+            })
+            .transpose()?;
+        let servers = match entry.get("servers") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(servers)) => servers
+                .iter()
+                .map(ListServer::read)
+                .collect::<Result<_, _>>()?,
+            Some(other) => return Err(format!("`servers` is a list, found `{other}`")),
+        };
+        Ok(Self {
+            username: text("username")?.map(str::to_owned),
+            password,
+            endpoint,
+            servers,
+            price,
+        })
+    }
+}
+
+impl ListServer {
+    fn read(value: &Value) -> Result<Self, String> {
+        let Some(entry) = value.as_object() else {
+            return Err(format!(
+                "a `list` server is a table of {}, found `{value}`",
+                SERVER_FIELDS.join(", ")
+            ));
+        };
+        if let Some(unknown) = entry
+            .keys()
+            .find(|field| !SERVER_FIELDS.contains(&field.as_str()))
+        {
+            return Err(format!(
+                "a `list` server takes {}, not `{unknown}`",
+                SERVER_FIELDS.join(", ")
+            ));
+        }
+        let server = match entry.get("server").and_then(Value::as_str) {
+            Some(server) => ProxyServer::parse(server)?,
+            None => return Err("a `list` server names its `server`, a proxy URL".to_owned()),
+        };
+        if server.scheme == ProxyScheme::Https {
+            return Err(format!(
+                "a `list` server is `http://`, `socks5://` or `socks5h://`: its bytes are counted on the Session's loopback relay, which an `https://` proxy's TLS does not pass, found `{server}`"
+            ));
+        }
+        let kind = match entry.get("kind").and_then(Value::as_str) {
+            Some(kind) => ProxyKind::named(kind).ok_or_else(|| {
+                format!(
+                    "a `list` server's `kind` is one of {}, found `{kind}`",
+                    PROXY_KINDS.join(", ")
+                )
+            })?,
+            None => {
+                return Err(format!(
+                    "a `list` server names its `kind`, one of {}",
+                    PROXY_KINDS.join(", ")
+                ));
+            }
+        };
+        let country = match entry.get("country") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(country)) => Some(CountryCode::parse(country)?),
+            Some(other) => return Err(format!("`country` is text, found `{other}`")),
+        };
+        Ok(Self {
+            server,
+            kind,
+            country,
+        })
+    }
+}
+
+/// An entry of `proxy.providers`'s values.
+pub const PROXY_PROVIDER_SHAPE: ValueShape = ValueShape {
+    name: "ProxyProviderConfiguration",
+    check: |value| ProxyProviderConfiguration::read(value).map(drop),
+    schema: || {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "username": { "type": "string", "description": "The account's username." },
+                "password": {
+                    "type": "string",
+                    "pattern": crate::secret_reference::REFERENCE_PATTERN,
+                    "description": "The Secret reference of the account's password, such as `env:PROXY_PASSWORD`.",
+                },
+                "endpoint": { "type": "string", "description": "The provider's proxy URL." },
+                "servers": {
+                    "type": "array",
+                    "description": "The user's own servers, for `list` only.",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["server", "kind"],
+                        "properties": {
+                            "server": { "type": "string", "pattern": "^(?i:http|socks5h?)://[^@/?#]+/?$" },
+                            "kind": { "enum": PROXY_KINDS },
+                            "country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+                        },
+                    },
+                },
+                "price": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)? [A-Z]{3}$",
+                    "description": "The price of a GB (10^9 bytes) through it, as an amount and its currency.",
+                },
+            },
+        })
+    },
+    examples: || {
+        vec![json!({
+            "username": "account",
+            "password": "env:PROXY_PASSWORD",
+            "endpoint": "http://proxy.example:8000",
+            "servers": [
+                { "server": "http://203.0.113.7:3128", "kind": "datacenter", "country": "US" },
+            ],
+            "price": "5 USD",
+        })]
+    },
+};
+
+/// `proxy.provider` (ADRs 0021, 0092 and 0129).
+pub const PROXY_PROVIDER: Setting = Setting {
+    name: "proxy.provider",
+    description: "The Proxy provider each Session of the Run, or the Session it is set on, draws its one proxy from when it opens, fixed for the Session's life: `list`, the user's own servers in `proxy.providers.list.servers`. None by default. A Session that resolves both `proxy.server` and `proxy.provider` is refused with `setting_invalid`. Set as `proxy.server` is: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`.",
+    kind: ValueKind::Text,
+    default: none,
+    clearable: true,
+    authority: Authority::NotByRecipeOrModel,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `proxy.kind` (ADR 0021).
+pub const PROXY_KIND: Setting = Setting {
+    name: "proxy.kind",
+    description: "The proxy kind a Session's proxy is drawn from, `datacenter`, `isp`, `residential` or `mobile`: the provider's default when unset, for `list` the kind of its first server. A kind the provider does not offer is refused with `setting_invalid` when the Session opens. A Recipe may set it.",
+    kind: ValueKind::Choice(PROXY_KINDS),
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `proxy.country` (ADRs 0021 and 0092).
+pub const PROXY_COUNTRY: Setting = Setting {
+    name: "proxy.country",
+    description: "The country, an ISO 3166-1 alpha-2 code such as `US`, a Session's proxy exit is in. None by default: any country the provider offers. A country the provider does not offer for the Session's proxy kind is refused with `setting_invalid` when the Session opens. A Recipe never sets it (`setting_locked`).",
+    kind: ValueKind::Shape(&COUNTRY_CODE_SHAPE),
+    default: none,
+    clearable: true,
+    authority: Authority::NotByRecipe,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `proxy.sticky_lifetime` (ADR 0021).
+pub const PROXY_STICKY_LIFETIME: Setting = Setting {
+    name: "proxy.sticky_lifetime",
+    description: "How long, in milliseconds, a Session asks its provider to keep its proxy exit: the provider's longest when unset. A Session that outlives it is named by the Run report's `proxy_exit_may_change` warning; the engine never looks the exit up. A `list` server's exit never changes.",
+    kind: ValueKind::Duration,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn no_providers() -> Value {
+    json!({})
+}
+
+/// `proxy.providers` (ADRs 0021, 0041 and 0101).
+pub const PROXY_PROVIDERS: Setting = Setting {
+    name: "proxy.providers",
+    description: "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
+    kind: ValueKind::Map(&ValueKind::Shape(&PROXY_PROVIDER_SHAPE)),
+    default: no_providers,
+    clearable: false,
+    authority: Authority::Configuration,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A Session's proxy's entries: its settings and its Error codes.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -295,7 +660,17 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[PROXY_UNAVAILABLE, PROXY_AUTH_FAILED],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[PROXY_SERVER, PROXY_BYPASS, PROXY_USERNAME, PROXY_PASSWORD],
+    settings: &[
+        PROXY_SERVER,
+        PROXY_BYPASS,
+        PROXY_USERNAME,
+        PROXY_PASSWORD,
+        PROXY_PROVIDER,
+        PROXY_KIND,
+        PROXY_COUNTRY,
+        PROXY_STICKY_LIFETIME,
+        PROXY_PROVIDERS,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

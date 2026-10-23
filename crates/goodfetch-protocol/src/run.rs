@@ -32,8 +32,8 @@ pub mod warning;
 
 pub use self::report::{
     AppliedLimit, AxisReason, EndingError, KindUsage, LimitSetter, ModelUsage, NothingDone,
-    PlanReport, PlanStatus, PluginRun, RecordingReport, RunReport, RunUsage, RunWarning,
-    UncertainEffect, UsageAmount,
+    PlanReport, PlanStatus, PluginRun, ProxyKindBytes, RecordingReport, RunReport, RunUsage,
+    RunWarning, UncertainEffect, UsageAmount,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };

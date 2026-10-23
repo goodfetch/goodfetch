@@ -37,7 +37,7 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
 
-pub(crate) use self::navigation::Arrived;
+pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
 use crate::errors::{
     Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects, truncated,

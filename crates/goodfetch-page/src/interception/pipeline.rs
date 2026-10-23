@@ -15,14 +15,13 @@ use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::Policy;
-use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::CLOSED;
+use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::route::{
     AbortReason, PAGE_HANDLER_FAILED, PageHandler, PageHandlerFailedDetails, ROUTE_HANDLE,
     RouteFetched, RouteHandleParams, RouteHandled, RouteId, RouteRequest,
 };
-use goodfetch_protocol::page::{PageId, RequestFailed};
 use tokio::sync::oneshot;
 
 use super::answers::{Answer, Answers, Fulfillment, Reply, already_handled};
@@ -30,6 +29,7 @@ use super::routes::Route;
 use super::steps::{self, Overrides, entries};
 use super::{PageState, lock};
 use crate::driver::PageDriver;
+use crate::page_events::Refusals;
 
 /// What the pipeline of one page holds.
 pub(super) struct PageContext {
@@ -38,7 +38,8 @@ pub(super) struct PageContext {
     state: Arc<PageState>,
     answers: Answers,
     policy: Policy,
-    log: RequestLog,
+    /// The refusals the page's requests then carry.
+    refusals: Refusals,
     run: Run,
     /// The requests a `fetch` sent on, waiting for their response to be
     /// paused, by the interception's ID.
@@ -52,7 +53,7 @@ impl PageContext {
         state: Arc<PageState>,
         answers: Answers,
         policy: Policy,
-        log: RequestLog,
+        refusals: Refusals,
         run: Run,
     ) -> Self {
         Self {
@@ -61,7 +62,7 @@ impl PageContext {
             state,
             answers,
             policy,
-            log,
+            refusals,
             run,
             responses: Mutex::new(BTreeMap::new()),
         }
@@ -401,29 +402,25 @@ impl PageContext {
     /// # Errors
     ///
     /// `egress_refused` when the domain policy refuses it: the request is
-    /// failed, and the navigation waiting on it raises the refusal, or else
-    /// the Run trace records it.
+    /// failed carrying the refusal, and the navigation waiting on it raises
+    /// it, or else the Run trace records it.
     async fn send_on(&self, held: &Held, fetch: bool) -> Result<(), CallError> {
         let id = &held.paused.request_id;
         let command = match steps::send_on(id, held.url(), &held.overrides, &self.policy, fetch) {
             Ok(command) => command,
             Err(refused) => {
-                if held.navigation {
-                    // It waits before the navigation fails, so the
-                    // navigation raises it.
-                    self.state.leave(refused.error());
-                    self.fail(id, network::ErrorReason::BlockedByClient).await;
-                } else {
-                    self.fail(id, network::ErrorReason::BlockedByClient).await;
-                    let failed = RequestFailed {
-                        url: held.url().to_owned(),
-                        method: held.method().to_owned(),
-                        failure: refused.failure(),
-                    };
-                    if let Err(error) = self.log.request_failed(&failed).await {
-                        tracing::warn!(%error, "the Run trace did not take a refused request");
-                    }
+                // The refusal waits before the request fails, so its
+                // failure carries it, and the navigation waiting on it
+                // raises it; no call waits on any other request, which the
+                // Run trace then records.
+                if let Some(network_id) = &held.paused.network_id {
+                    self.refusals
+                        .leave(network_id, refused.failure(), !held.navigation);
                 }
+                if held.navigation {
+                    self.state.leave(refused.error());
+                }
+                self.fail(id, network::ErrorReason::BlockedByClient).await;
                 return Err(refused.error());
             }
         };

@@ -10,7 +10,9 @@
 //! and `session.route` arm their routes there, `route.*` answer the
 //! requests those routes hold, and a failure a route's handler left on a
 //! page is raised by the navigation waiting on its request, or else by the
-//! page's next call.
+//! page's next call. A page's events are published while `page.on` listens to
+//! them, and `response.body` and `page.wait_for_request_finished` read its
+//! responses' bodies (`page_events`).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -26,6 +28,11 @@ use goodfetch_extractor::{Context, Document};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::page::events::{
+    PAGE_ON, PAGE_WAIT_FOR_REQUEST_FINISHED, PageOnEnded, PageOnParams, RESPONSE_BODY,
+    ResponseBodyParams, WaitForRequestFinishedParams,
+};
+use goodfetch_protocol::page::route::UrlMatcher;
 use goodfetch_protocol::page::route::{
     PAGE_ROUTE, PageRouteParams, ROUTE_ABORT, ROUTE_CONTINUE, ROUTE_FALLBACK, ROUTE_FETCH,
     ROUTE_FULFILL, RouteAbortParams, RouteAnswered, RouteFetched, RouteFulfillParams,
@@ -39,7 +46,7 @@ use goodfetch_protocol::page::{
 };
 use goodfetch_protocol::run::{RUN_NOT_FOUND, RunDetails, RunId};
 use goodfetch_protocol::settings::{
-    SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_NAVIGATION,
+    SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_NAVIGATION, TIMEOUT_WAIT,
 };
 use serde_json::json;
 use tokio::sync::Mutex;
@@ -47,6 +54,8 @@ use tokio::sync::Mutex;
 use crate::driver::{Arrived, Destination, LocalBrowser, PageDriver, SessionDriver};
 use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
+use crate::page_events::{self, PageEvents, Refusals};
+use crate::url_pattern::UrlPattern;
 
 /// A navigation's deadline when the Run's settings name none: 30 s.
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
@@ -54,6 +63,10 @@ const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 /// The guard's window when the Run's settings name none: 30 s, the
 /// setting's default.
 const ACTION_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// An app-state wait's deadline when the Run's settings name none: 30 s,
+/// the setting's default.
+const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// What the page crate adds to the engine (ADR 0087): the handlers of
 /// `run.new_page`, of the navigations `page.goto`, `page.reload`,
@@ -65,10 +78,59 @@ pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
         state: Arc::new(Mutex::new(State::default())),
         pins,
         interception: Interception::default(),
+        events: page_events::Table::default(),
     };
     let contribution = with_page_handlers(Contribution::new("page"), &pages);
     let contribution = with_locator_handlers(contribution, &pages);
+    let contribution = with_event_handlers(contribution, &pages.events);
     with_route_handlers(contribution, &pages.interception)
+}
+
+/// Adds the handlers of `page.on`, each listening from when its call
+/// arrives until the call goes, of `page.wait_for_request_finished`, armed
+/// when its call arrives, and of `response.body`.
+fn with_event_handlers(contribution: Contribution, table: &page_events::Table) -> Contribution {
+    let (listening, waiting, reading) = (table.clone(), table.clone(), table.clone());
+    contribution
+        .with_handler(Handler::new(
+            &PAGE_ON,
+            move |params: PageOnParams, _context: CallContext| {
+                let listened = listening
+                    .get(&params.page_id)
+                    .map(|events| events.listen(params.event, Clock::system().wall()));
+                async move {
+                    let (listener, runtime) = listened?;
+                    listener.until_gone(runtime).await?;
+                    Ok::<PageOnEnded, CallError>(PageOnEnded {})
+                }
+            },
+        ))
+        .with_handler(Handler::new(
+            &PAGE_WAIT_FOR_REQUEST_FINISHED,
+            move |params: WaitForRequestFinishedParams, context: CallContext| {
+                let armed = waiting.get(&params.page_id).and_then(|events| {
+                    let pattern = params.url.as_ref().map(pattern_of).transpose()?;
+                    Ok(events.wait_for_request_finished(pattern, context.surface()))
+                });
+                async move { armed?.await }
+            },
+        ))
+        .with_handler(Handler::new(
+            &RESPONSE_BODY,
+            move |params: ResponseBodyParams, context: CallContext| {
+                let events = reading.get(&params.page_id);
+                let surface = context.surface();
+                async move { events?.body(&params.request_id, surface).await }
+            },
+        ))
+}
+
+/// The engine's matcher for `matcher`.
+fn pattern_of(matcher: &UrlMatcher) -> Result<UrlPattern, CallError> {
+    Ok(match matcher {
+        UrlMatcher::Glob { pattern } => UrlPattern::glob(pattern)?,
+        UrlMatcher::Regex { pattern } => UrlPattern::regex(pattern)?,
+    })
 }
 
 /// Adds the handlers of `page.route` and `session.route`, each arming its
@@ -344,6 +406,8 @@ struct Pages {
     state: Arc<Mutex<State>>,
     pins: Vec<PinnedArtifact>,
     interception: Interception,
+    /// Each open page's events, which calls reach as they arrive.
+    events: page_events::Table,
 }
 
 #[derive(Default)]
@@ -407,8 +471,31 @@ impl Pages {
             state.opened_pages += 1;
             PageId(format!("page-{}", state.opened_pages))
         };
+        // The page's events are read from before its requests pause, so
+        // every request of the page is followed.
+        let wait = run
+            .settings()
+            .and_then(|settings| Deadline::of(settings.resolved(), &TIMEOUT_WAIT))
+            .unwrap_or_else(|| {
+                Deadline::given(
+                    &TIMEOUT_WAIT,
+                    u64::try_from(WAIT_TIMEOUT.as_millis()).unwrap_or(u64::MAX),
+                    SettingsLayer::Default,
+                )
+            });
+        let refusals = Refusals::default();
+        let events = PageEvents::start(
+            page.clone(),
+            driver.clone(),
+            &run,
+            context.events().clone(),
+            refusals.clone(),
+            driver.events().await,
+            wait,
+        );
+        self.events.insert(page.clone(), events);
         self.interception
-            .start(&page, &run_pages.session, &driver, &run)
+            .start(&page, &run_pages.session, &driver, &run, refusals)
             .await?;
         let mut state = self.state.lock().await;
         let span = tracing::Span::current();
@@ -469,6 +556,7 @@ impl Pages {
                 .collect();
             state.pages.retain(|_, page| page.run.id() != &run_id);
             drop(state);
+            pages.events.close(&gone);
             if let Some(session) = session {
                 pages.interception.close(&gone, &session);
             }

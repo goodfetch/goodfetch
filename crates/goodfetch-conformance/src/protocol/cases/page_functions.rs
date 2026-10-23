@@ -16,6 +16,7 @@ use goodfetch_protocol::page::functions::{
     PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE, PAGE_FUNCTION_FAILED, PAGE_VALUE_INVALID,
     PageFunctionFailedDetails, PageValueInvalidDetails,
 };
+use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
 use goodfetch_protocol::page::{PAGE_GOTO, PAGE_RELOAD};
 use serde_json::{Value, json};
 
@@ -291,30 +292,17 @@ fn injections(target: &EngineTarget, run_id: &str) -> Vec<(Value, Value)> {
         .collect()
 }
 
-/// A page with no init script and only isolated calls records no injection;
-/// an init script registered before a navigation runs before the page's own
-/// script and in a frame added afterwards, its call staying in flight, and
-/// Provenance marks the Session; once its call is cancelled, the next
-/// document runs without it.
+/// An init script registered before a navigation runs before the page's
+/// own script and in a frame added afterwards, its call staying in flight,
+/// and Provenance marks the Session; once its call is cancelled, the next
+/// document runs without it; and a second Session of the Run, whose page
+/// has no init script and only isolated calls, records no injection.
 fn init_script(
     connection: &mut Connection,
     target: &EngineTarget,
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let plain = "conformance-page-function-no-injection";
-    if let Some((page, _)) = on_the_page(connection, site, plain, checks, |_, _| Ok(None))? {
-        let answer = evaluate(connection, &page, "() => document.title", None, "isolated")?;
-        checks.check(
-            "an isolated-world call answers",
-            answer["result"] == json!({ "value": "page-functions" }),
-        );
-        finish_run(connection, plain)?;
-        checks.check(
-            "a page with no init script and no main-world call records no injection",
-            injections(target, plain).is_empty(),
-        );
-    }
     let run_id = "conformance-page-function-init-script";
     let Some((page, Some(script))) =
         on_the_page(connection, site, run_id, checks, |connection, page| {
@@ -373,6 +361,7 @@ fn init_script(
         "a document loaded after the call was cancelled runs without the init script",
         answer["result"] == json!({ "value": null }),
     );
+    let plain = plain_session(connection, site, run_id, checks)?;
     finish_run(connection, run_id)?;
     let marked = injections(target, run_id);
     checks.check(
@@ -381,5 +370,36 @@ fn init_script(
             && marked.iter().any(|(by, _)| *by == json!(PAGE_EVALUATE.name))
             && marked.iter().all(|(_, session)| session.is_string()),
     );
+    checks.check(
+        "a Session whose page had no init script and no main-world call records no injection",
+        plain.is_some_and(|plain| marked.iter().all(|(_, session)| *session != plain)),
+    );
     Ok(())
+}
+
+/// Opens a second Session of the Run `run_id`, loads the page functions
+/// page in a page of it and calls only an isolated-world function there:
+/// the Session's ID.
+fn plain_session(
+    connection: &mut Connection,
+    site: &Site,
+    run_id: &str,
+    checks: &mut Checks,
+) -> Result<Option<Value>, Gone> {
+    let id = connection.request(RUN_NEW_SESSION.name, &json!({ "run_id": run_id }))?;
+    let session = connection.browser_answer(id)?.message["result"]["session_id"].clone();
+    let id = connection.request(SESSION_NEW_PAGE.name, &json!({ "session_id": session }))?;
+    let page = connection.browser_answer(id)?.message["result"]["page_id"].clone();
+    let origin = site.access_origin.clone().unwrap_or_default();
+    let id = connection.request(
+        PAGE_GOTO.name,
+        &json!({ "page_id": page, "url": format!("{origin}{PAGE_FUNCTIONS}") }),
+    )?;
+    connection.browser_answer(id)?;
+    let answer = evaluate(connection, &page, "() => document.title", None, "isolated")?;
+    checks.check(
+        "an isolated-world call answers in a second Session",
+        answer["result"] == json!({ "value": "page-functions" }),
+    );
+    Ok(session.is_string().then_some(session))
 }

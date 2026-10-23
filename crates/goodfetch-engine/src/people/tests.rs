@@ -242,7 +242,10 @@ fn a_shorter_idle_expiry_from_the_operator_policy_ends_sign_ins_sooner() {
     });
 }
 
-/// Covers: story:12-5, story:12-111, operation:sign_in.list, operation:sign_in.revoke
+/// The driver below `sign_in.list` and `sign_in.revoke`, which
+/// `lasting_sign_ins::a_revoked_sign_in_ends_and_rotating_the_console_key_ends_them_all`
+/// reaches over the protocol.
+/// Covers: story:12-5, story:12-111
 #[test]
 fn a_revoked_sign_in_ends_and_the_others_last() {
     let env = TestEnv::new();
@@ -277,7 +280,9 @@ fn a_revoked_sign_in_ends_and_the_others_last() {
     });
 }
 
-/// Covers: story:12-111, operation:console.rotate_key
+/// The driver below `console.rotate_key`, which `lasting_sign_ins` reaches
+/// over the protocol.
+/// Covers: story:12-111
 #[test]
 fn rotating_the_console_key_ends_every_sign_in_of_every_major() {
     let env = TestEnv::new();

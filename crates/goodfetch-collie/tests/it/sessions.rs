@@ -421,3 +421,116 @@ fn new_work_on_a_finished_run_raises_run_ended() {
         )
     );
 }
+
+/// Waits up to 30 s for every browser process the test's engines started to
+/// exit, and answers how many are left.
+#[cfg(unix)]
+fn browsers_left(env: &TestEnv) -> usize {
+    for _ in 0..300 {
+        if crate::page::browser_command_lines(env).is_empty() {
+            return 0;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    crate::page::browser_command_lines(env).len()
+}
+
+/// Covers: story:5-60, operation:run.resume, operation:session.new_page, operation:session.close
+#[cfg(unix)]
+#[test]
+fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "resumed");
+    let default_page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "resumed" }),
+    ));
+    let own = session_of(&call(
+        &mut engine,
+        3,
+        "run.new_session",
+        &json!({ "run_id": "resumed" }),
+    ));
+    let closed = session_of(&call(
+        &mut engine,
+        4,
+        "run.new_session",
+        &json!({ "run_id": "resumed" }),
+    ));
+    let _ = call(
+        &mut engine,
+        5,
+        "session.close",
+        &json!({ "session_id": closed }),
+    );
+    engine.kill();
+    let left = browsers_left(&env);
+
+    let mut resumed = Attached::start_waiting(&env, crate::page::BROWSER_DEADLINE, |command| {
+        command.env(goodfetch_test_support::BROWSERS_PATH_VARIABLE, &cache);
+    });
+    resumed.send(&crate::attached::hello("collie", "0.1"));
+    let _ = resumed.next();
+    let resolve: serde_json::Map<String, Value> = proving_ground
+        .description()
+        .resolve
+        .iter()
+        .map(|(host, address)| (host.clone(), json!([address])))
+        .collect();
+    let resume = call(
+        &mut resumed,
+        1,
+        "run.resume",
+        &json!({ "run_id": "resumed", "settings": { "network": { "resolve": resolve } } }),
+    );
+    let own_page = page_in(&mut resumed, 2, &own);
+    let stored = store(&mut resumed, 3, &proving_ground, &own_page, "own");
+    let default_again = opened(&call(
+        &mut resumed,
+        4,
+        "run.new_page",
+        &json!({ "run_id": "resumed" }),
+    ));
+    let still_closed = call(
+        &mut resumed,
+        5,
+        "session.new_page",
+        &json!({ "session_id": closed }),
+    );
+    let closed_again = call(
+        &mut resumed,
+        6,
+        "session.close",
+        &json!({ "session_id": closed }),
+    );
+    let finished = call(
+        &mut resumed,
+        7,
+        "run.finish",
+        &json!({ "run_id": "resumed" }),
+    );
+    let _ = resumed.finish();
+
+    assert_eq!(
+        (
+            left,
+            &resume["result"]["started_as"],
+            (own_page.session_id == own, stored),
+            default_again.session_id == default_page.session_id,
+            (code_of(&still_closed), &closed_again["result"]),
+            &finished["result"]["lifecycle"],
+        ),
+        (
+            0,
+            &json!("resumed"),
+            (true, json!(200)),
+            true,
+            (&json!("closed"), &json!({})),
+            &json!("finished"),
+        )
+    );
+}

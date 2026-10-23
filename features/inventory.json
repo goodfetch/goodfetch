@@ -1163,7 +1163,7 @@
     {
       "id": "error:page_memory_exceeded",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

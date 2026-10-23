@@ -73,7 +73,7 @@ const componentStories = async (
 };
 const componentStoriesProject = (
   theme: "light" | "dark",
-  plugins: TestProjectInlineConfiguration["plugins"],
+  plugins: Awaited<ReturnType<typeof storybookTest>>,
 ): TestProjectInlineConfiguration => ({
   extends: true,
   plugins,

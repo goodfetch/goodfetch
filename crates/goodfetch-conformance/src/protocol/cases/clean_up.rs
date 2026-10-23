@@ -178,7 +178,7 @@ fn finish(connection: &mut Connection, run_id: &str) -> Result<Value, Gone> {
 
 /// The lines of the Run `run_id`'s request log in the Run trace, under the
 /// Goodfetch home `target` names: `<home>/<major>/runs/<run_id>/trace/`.
-fn run_trace(target: &EngineTarget, run_id: &str) -> Vec<Value> {
+pub(super) fn run_trace(target: &EngineTarget, run_id: &str) -> Vec<Value> {
     trace_lines(target, run_id, "trace/requests.jsonl")
 }
 

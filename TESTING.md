@@ -1181,7 +1181,7 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
 | | `gitleaks` over job outputs | a step of every CI job | every OS |
 | File outputs | path traversal cases | Pre-merge; Release | Linux; every OS, each OS's own cases |
 | Audit log | tamper property tests | Quick | every OS |
-| Reset gate | ADR 0001's planted Secret canaries | as ADR 0001 sets | as ADR 0001 sets |
+| Reset gate | ADR 0001's planted Secret canaries: `conformance/reset/cases.toml` on Collie's executable, in both layouts | Pre-merge; Release | Linux; every OS with the pinned browser build |
 | Unsafe code | ASan run of crates that opt into `unsafe` | Release | Linux glibc |
 | Supply chain and workflows | ADR 0032's gates; image digest pins; CodeQL once public; `gitleaks` over commits until then | Pre-merge | Linux |
 

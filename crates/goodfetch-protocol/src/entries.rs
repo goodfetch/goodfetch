@@ -127,6 +127,7 @@ mod tests {
         "run.abort",
         "run.usage",
         "run.set_progress_message",
+        "run.discard",
         "run.checkpoint",
         "run.pause",
         "run.migrate",

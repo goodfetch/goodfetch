@@ -3025,6 +3025,16 @@ class RunCheckpointing(BaseModel):
     """The Run's ID."""
 
 
+class RunDiscarded(BaseModel):
+    """What `run.discard` answers: the Run it discarded (ADRs 0001 and 0036)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RunStartParams(BaseModel):
     """What `run.start` takes."""
 

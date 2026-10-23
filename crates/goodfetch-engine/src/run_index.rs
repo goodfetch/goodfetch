@@ -309,6 +309,42 @@ pub(crate) fn replace(
     })
 }
 
+/// Marks the row of the discarded Run `run_id` in the Run index at `path`
+/// *erased*, without its owner, tags or status line, then truncates the
+/// index's WAL with `wal_checkpoint(TRUNCATE)`, so that neither the index
+/// nor its `-wal` file keeps them (ADRs 0001 and 0036). Answers whether the
+/// index listed the Run.
+///
+/// # Errors
+///
+/// As [`write`], and `Sqlite` when another engine's reader held the WAL
+/// through the busy timeout.
+pub(crate) fn erase(
+    path: &Path,
+    engine: &ProductVersion,
+    run_id: &RunId,
+) -> Result<bool, RunStateError> {
+    let opener = opener(engine);
+    let listed = in_transaction(path, &opener, true, |transaction| {
+        transaction.execute(
+            "UPDATE runs SET presence = ?2, owner = NULL, tags = '[]', progress_message = NULL
+             WHERE run_id = ?1",
+            (run_id.as_str(), Presence::Erased.as_str()),
+        )
+    })? > 0;
+    let connection = open(path, &opener)?;
+    let busy: i64 = connection
+        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))
+        .map_err(|error| failed(path, &error))?;
+    if busy != 0 {
+        return Err(failed(
+            path,
+            &"another engine's reader held the Run index's WAL, so it was not truncated",
+        ));
+    }
+    Ok(listed)
+}
+
 /// A row whose presence is `presence`, and that names no owner unless its
 /// state is there.
 pub(crate) fn kept_as(row: RunIndexRow, presence: Presence) -> RunIndexRow {

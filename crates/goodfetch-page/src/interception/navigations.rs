@@ -73,12 +73,11 @@ impl Pending {
     /// `load`; released at once when it is no longer pending.
     pub(super) fn hold(&self, page: &PageId, permit: Permit) {
         let mut pending = lock(&self.0);
-        match pending.get_mut(page) {
-            Some(entry) => entry.permit = Some(permit),
-            None => {
-                drop(pending);
-                drop(permit);
-            }
+        if let Some(entry) = pending.get_mut(page) {
+            entry.permit = Some(permit);
+        } else {
+            drop(pending);
+            drop(permit);
         }
     }
 }

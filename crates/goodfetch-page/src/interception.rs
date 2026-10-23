@@ -271,6 +271,10 @@ impl Interception {
     /// # Cancel safety
     ///
     /// Dropping the future may leave the page's requests paused unanswered.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one value per part of the page the interception holds, each its own owner's"
+    )]
     pub(crate) async fn start(
         &self,
         page_id: &PageId,

@@ -763,10 +763,13 @@ jobs:
   # TESTING.md's table, opening or updating one needs-triage issue per
   # breached suite or job. It never fails a run, so its step is no test step.
   # While ADR 0135 keeps the ingest off, the store holds only the runs
-  # ingested before. It needs the Actions secret TEST_RESULTS_TOKEN, a token
-  # that reads the `<owner>/test-results` repository (TESTING.md, the results
-  # store; ADR 0135's amendment of 2026-10-22), which the owner adds; without
-  # it the job fails on its first step, naming the secret.
+  # ingested before. It needs the Actions secret TEST_RESULTS_TOKEN, a
+  # fine-grained token on the `<owner>/test-results` repository with
+  # Contents: Read, the least it needs (only the ingest, which pushes, needs
+  # Read and write); the owner creates that repository and adds the secret
+  # (TESTING.md, the results store; ADR 0135's amendment of 2026-10-22).
+  # `github.token` cannot read another private repository, so nothing falls
+  # back to it: without the secret the job fails on its first step, naming it.
   budgets:
     name: budgets
     needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, caches]
@@ -783,7 +786,7 @@ jobs:
           TEST_RESULTS_TOKEN: ${{ secrets.TEST_RESULTS_TOKEN }}
         run: |
           if [[ -z "$TEST_RESULTS_TOKEN" ]]; then
-            echo "::error::The budgets job reads the results store, $GITHUB_REPOSITORY_OWNER/test-results, with the Actions secret TEST_RESULTS_TOKEN, which this repository does not have: the owner adds it (ADR 0135)."
+            echo "::error::The budgets job reads the results store, $GITHUB_REPOSITORY_OWNER/test-results, with the Actions secret TEST_RESULTS_TOKEN (a fine-grained token on that repository with Contents: Read), which this repository does not have: the owner adds it (ADR 0135)."
             exit 1
           fi
       - name: Check out

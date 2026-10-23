@@ -15,6 +15,10 @@
 //! `page.body`, which sends it in `$/chunk` notifications, one per credit
 //! the Client grants the call with `$/credit`, and answers once the last
 //! chunk is sent.
+//!
+//! Size: one catalog module, the contract of a Run's pages: their
+//! operations, Error codes and `browser.*` settings, kept whole so each
+//! entry sits beside the others it is listed with.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;

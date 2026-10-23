@@ -1584,6 +1584,7 @@ version = "0.0.0"
 dependencies = [
  "data-encoding",
  "goodfetch-cdp",
+ "goodfetch-clean-up-rules",
  "goodfetch-engine",
  "goodfetch-extractor",
  "goodfetch-protocol",

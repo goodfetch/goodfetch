@@ -224,7 +224,7 @@ The `protection/1` answer adds `pages`, each page of the tier-move site with the
 
 ## Network fixtures
 
-Each listens on its own port of the site's address (loopback when the site binds every address), reported in `serve`'s first line, so proxies, rebinding and SSRF refusals are tested for real, never mocked (ADRs 0059 and 0067):
+Each listens on its own port of the site's address (loopback when the site binds every address), reported in `serve`'s first line, so proxies, rebinding and SSRF refusals are tested for real, never mocked (ADRs 0059 and 0067). `GET /network-fixtures` on the control host serves the same `proxies`, `proxy_credentials`, `dns` and `target` for a harness that knows only the Proving ground's address, such as `goodfetch-conformance`'s page suite:
 
 - **Forward proxies.** Each relays one request per client connection: plain HTTP in absolute form (`GET http://catalog.test:<port>/… HTTP/1.1`), rewritten to origin form with `Connection: close`, or a `CONNECT host:port` tunnel. A proxy resolves a host as the DNS fixture answers it, so a Proving ground host name reaches the site and its requests are observed for their task, and it connects only to this host's loopback or the site's address: another address is refused with `403` (`destination_prohibited`), an unknown name with `502` (`unresolved`), an address where nothing listens with `502` (`connection_refused`). Its own refusals name their cause in `Proxy-Status` (RFC 9209). The proxies are:
   - `open`, without authentication;

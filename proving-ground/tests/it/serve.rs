@@ -89,6 +89,21 @@ fn serve_first_prints_the_address_of_each_network_fixture() {
 
 /// Covers: story:2-82
 #[test]
+fn network_fixtures_serves_the_fixtures_the_first_line_reported() {
+    let proving_ground = ProvingGround::start(311);
+    let line: Value = serde_json::from_str(proving_ground.line()).expect("the line is JSON");
+
+    let served = proving_ground.control("/network-fixtures");
+
+    assert_eq!(served.status, 200, "{}", served.body);
+    assert_eq!(
+        (&served.json()["proxies"], &served.json()["dns"]),
+        (&line["proxies"], &line["dns"])
+    );
+}
+
+/// Covers: story:2-82
+#[test]
 fn the_proxy_credentials_are_derived_from_the_seed() {
     let first = ProvingGround::start(311);
     let again = ProvingGround::start(311);

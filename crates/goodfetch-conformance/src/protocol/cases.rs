@@ -2,7 +2,8 @@
 //! against what `goodfetch-protocol` says the protocol is: its JSON-RPC
 //! failures, its Error codes and its operations' types. A crawl's delivery
 //! cases are `delivery`'s, a page's formats cases `formats`'s, its route
-//! cases `routes`'s and a Run's Session cases `sessions`'.
+//! cases `routes`'s, a Run's Session cases `sessions`' and a Session's proxy
+//! cases `proxies`'.
 
 mod delivery;
 mod fetch_edge;
@@ -10,6 +11,7 @@ mod formats;
 mod guard;
 mod launch;
 mod navigation;
+mod proxies;
 mod routes;
 mod sessions;
 
@@ -72,7 +74,7 @@ pub(crate) enum Case {
     NeverActionable,
     /// A route case.
     Route(routes::Case),
-    /// A Session case.
+    /// A Session case, its proxy cases among them.
     Session(sessions::Case),
 }
 
@@ -87,6 +89,9 @@ pub(crate) struct Site {
     access_origin: Option<String>,
     port: String,
     resolve: Value,
+    /// Each forward proxy's address, by name, when the Proving ground
+    /// serves them.
+    proxies: BTreeMap<String, String>,
     proving_ground: ProvingGround,
 }
 
@@ -140,8 +145,20 @@ impl Site {
             access_origin,
             port,
             resolve: Value::Object(resolve),
+            proxies: proving_ground
+                .network_fixtures()
+                .ok()
+                .flatten()
+                .map(|fixtures| fixtures.proxies)
+                .unwrap_or_default(),
             proving_ground: proving_ground.clone(),
         }
+    }
+
+    /// The address of the Proving ground's forward proxy `name`, such as
+    /// `open`, if it serves one.
+    fn proxy(&self, name: &str) -> Option<&str> {
+        self.proxies.get(name).map(String::as_str)
     }
 
     /// The start URL of the task `id`, such as `statuses/1`.

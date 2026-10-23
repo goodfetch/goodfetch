@@ -47,6 +47,15 @@ pub struct Task {
     pub digest: String,
 }
 
+/// The network fixtures a local copy serves beside its pages, as far as the
+/// harness reaches them.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct NetworkFixtures {
+    /// Each forward proxy's address (`host:port`), by name: `open`,
+    /// `refusing_tunnels`, `down`, `socks5` and one per proxy kind.
+    pub proxies: std::collections::BTreeMap<String, String>,
+}
+
 /// A result submitted to the oracle: the task, the status the tool reported
 /// and the Records it found, each in the task's family's own shape.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -129,6 +138,26 @@ impl ProvingGround {
         let url = format!("http://{}/observations", self.address);
         let body = Self::answer(&url, self.agent.get(&url).call())?;
         serde_json::from_str(&body).map_err(|source| ProvingGroundError::Unreadable { url, source })
+    }
+
+    /// Its network fixtures (`GET /network-fixtures`): each forward proxy's
+    /// address by name; none for a copy that serves none, such as the
+    /// online one.
+    ///
+    /// # Errors
+    ///
+    /// When the Proving ground cannot be reached, answers another status
+    /// than 200 or 404, or serves no JSON.
+    pub fn network_fixtures(&self) -> Result<Option<NetworkFixtures>, ProvingGroundError> {
+        let url = format!("http://{}/network-fixtures", self.address);
+        let body = match Self::answer(&url, self.agent.get(&url).call()) {
+            Ok(body) => body,
+            Err(ProvingGroundError::Status { status: 404, .. }) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        serde_json::from_str(&body)
+            .map(Some)
+            .map_err(|source| ProvingGroundError::Unreadable { url, source })
     }
 
     /// Sets the Proving ground's time step, which its time-dependent pages

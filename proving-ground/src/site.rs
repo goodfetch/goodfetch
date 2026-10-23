@@ -367,6 +367,10 @@ impl Site {
                 headers: Vec::new(),
                 body: self.observations.document().into(),
             },
+            (&Method::GET, "/network-fixtures") => match self.observations.network_fixtures() {
+                Some(fixtures) => Reply::json(StatusCode::OK, &fixtures),
+                None => Reply::not_found(),
+            },
             (&Method::GET, "/certificate-authority") => Reply {
                 status: StatusCode::OK,
                 content_type: "application/x-pem-file",

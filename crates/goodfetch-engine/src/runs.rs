@@ -103,7 +103,7 @@ use crate::events::Events;
 use crate::governor::{Filesystem, Governor, Held, RunShare, StorageSample};
 use crate::home::{Home, RunStateLocation, major_name};
 use crate::known_certificates::KnownCertificates;
-use crate::ledger::{Charged, Charging, Ledger, Refusal, Reservation};
+use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation};
 use crate::metrics::Metrics;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::run_index;
@@ -736,6 +736,7 @@ enum Command {
     Reader(RunId, oneshot::Sender<RunReader>),
     Drain(oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
     Storage(Arc<StorageSample>),
+    StorageFailed(PathBuf),
 }
 
 /// What the registry answers about the engine's health (ADR 0050): whether
@@ -950,21 +951,9 @@ impl Run {
     /// once its `timeout` passes; and for a Run its program drives, which
     /// has nothing in flight in the engine, the one that then stops it.
     fn watch_safe_points(&self, timeout: Option<Duration>, ended_by: EndedBy) {
-        let failing = self.clone();
-        let mut failures = self.state.storage_failures();
-        self.spawn(async move {
-            tokio::select! {
-                () = failing.cancellation().cancelled() => {}
-                failed = failures.wait_for(Option::is_some) => if failed.is_ok() {
-                    // A commit its writer could not make stops it from its
-                    // last acknowledged one, as at `critical` (ADR 0122).
-                    failing.stop_at_safe_point(StopReason::Resources {
-                        resource: goodfetch_protocol::run::Resource::Storage,
-                        folder: Some(failing.folder.display().to_string()),
-                    });
-                },
-            }
-        });
+        // A commit its writer could not make stops it from its last
+        // acknowledged one, as at `critical` (ADR 0122).
+        self.stop_on_failures(self.state.storage_failures(), Some(&self.folder));
         if let Some(timeout) = timeout {
             let timed = self.clone();
             self.spawn(async move {
@@ -1097,7 +1086,12 @@ impl Run {
         let politeness = if settings.value(POLITENESS_SHARING.name).as_str() == Some("run") {
             Politeness::in_memory(self.admitting.politeness.tables.clone(), &self.owner).await?
         } else {
-            self.admitting.politeness.file().await?
+            let file = self.admitting.politeness.file().await?;
+            self.stop_on_failures(
+                file.storage_failures(),
+                self.admitting.politeness.path.parent(),
+            );
+            file
         };
         let holder = Holder {
             run_id: self.id.to_string(),
@@ -1107,6 +1101,29 @@ impl Run {
         Ok(Some(
             admission.sharing(politeness, holder, self.clock, settings),
         ))
+    }
+
+    /// Stops the Run at its next safe point, as at `critical`, once
+    /// `failures` reports a write of one of its essential files that met a
+    /// full disk or an I/O error, naming `folder` (ADR 0122).
+    fn stop_on_failures(
+        &self,
+        mut failures: watch::Receiver<Option<String>>,
+        folder: Option<&Path>,
+    ) {
+        let failing = self.clone();
+        let folder = folder.map(|folder| folder.display().to_string());
+        self.spawn(async move {
+            tokio::select! {
+                () = failing.cancellation().cancelled() => {}
+                failed = failures.wait_for(Option::is_some) => if failed.is_ok() {
+                    failing.stop_at_safe_point(StopReason::Resources {
+                        resource: goodfetch_protocol::run::Resource::Storage,
+                        folder,
+                    });
+                },
+            }
+        });
     }
 
     /// Its owner, whose tasks and blocking work stop with the Run.
@@ -1336,6 +1353,17 @@ impl Run {
                     },
                 )));
                 Err(Refusal::NotUnderstood(limit).into())
+            }
+            Err(Refusal::Ledger(LedgerError::Storage { path, message })) => {
+                // The ledger holds every Run's Limits: each Run of the
+                // engine stops as at `critical` (ADR 0122).
+                let folder = path.parent().map_or_else(|| path.clone(), Path::to_owned);
+                let _ = self
+                    .runs
+                    .commands
+                    .send(Command::StorageFailed(folder))
+                    .await;
+                Err(Refusal::Ledger(LedgerError::Storage { path, message }).into())
             }
             Err(refusal) => Err(refusal.into()),
         }
@@ -2145,6 +2173,7 @@ impl Registry {
                     let _ = answer.send(self.reader(&run_id));
                 }
                 Command::Storage(sample) => self.storage(&sample).await,
+                Command::StorageFailed(folder) => self.storage_failed(&folder),
             }
         }
         self.readers.wait().await;
@@ -2284,6 +2313,18 @@ impl Registry {
                 filesystem,
             }))),
             None => Ok(()),
+        }
+    }
+
+    /// Stops every live Run at its next safe point, as at `critical`, after
+    /// a write of a file they all depend on, in `folder`, met a full disk or
+    /// an I/O error (ADR 0122).
+    fn storage_failed(&self, folder: &Path) {
+        for run in self.live.values().filter_map(|live| live.run.as_ref()) {
+            run.stop(StopReason::Resources {
+                resource: goodfetch_protocol::run::Resource::Storage,
+                folder: Some(folder.display().to_string()),
+            });
         }
     }
 

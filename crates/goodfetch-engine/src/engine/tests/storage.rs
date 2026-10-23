@@ -314,6 +314,14 @@ const NOTE: Operation = Operation {
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
 };
 
+/// Charges one request to the live Run `run_id`, answering whether the
+/// Usage ledger took it.
+const CHARGE: Operation = Operation {
+    name: "test.charge",
+    description: "Charges one request to a live Run.",
+    ..NOTE
+};
+
 /// The notes the tests commit, a table of every run file.
 const NOTES: RunStateTables = RunStateTables {
     name: "test-notes",
@@ -340,6 +348,15 @@ fn noting() -> Contribution {
                     })
                     .await;
                 Ok(json!({ "acknowledged": written.is_ok() }))
+            },
+        ))
+        .with_handler(Handler::new(
+            &CHARGE,
+            |params: Value, context: CallContext| async move {
+                let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+                let run = context.runs().live(run_id).await.unwrap();
+                let charged = run.charge("requests", 1).await;
+                Ok::<Value, CallError>(json!({ "acknowledged": charged.is_ok() }))
             },
         ))
 }
@@ -448,6 +465,93 @@ fn a_commit_that_fails_its_io_is_rolled_back_and_stops_the_run_resumably() {
             (vec![1, 2], "ok".to_owned()),
         ),
         "{stopped}"
+    );
+}
+
+/// The crash VFS's disk is full from a transaction of the Usage ledger on:
+/// it is rolled back and the charge never acknowledged, and every Run of
+/// the engine stops with `resource: "storage"`, the one charging and one
+/// that charged nothing alike; their stops meet the same full disk, so
+/// each waiting call raises `resources_exhausted`, and once space is freed
+/// each resumes, the ledger passing `PRAGMA integrity_check`.
+///
+/// Covers: row:RT-03, error:resources_exhausted, operation:usage.set
+#[test]
+fn a_usage_ledger_transaction_that_meets_a_full_disk_stops_every_run_of_the_engine() {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("ledger-full"), env.seed()).unwrap();
+    let faulted = vfs.clone();
+    let limit = json!({
+        "scope": "install",
+        "usage_kind": "requests",
+        "period": { "every": "month", "time_zone": "UTC" },
+        "amount": 100,
+    });
+
+    let (charged, other, resumed) = crashing(&env, &vfs, |mut client| async move {
+        opened(&mut client).await;
+        call(&mut client, 1, "usage.set", limit).await;
+        call(&mut client, 2, "run.start", json!({ "run_id": "charging" })).await;
+        call(&mut client, 3, "run.start", json!({ "run_id": "other" })).await;
+        faulted.fail_at(faulted.operations(), IoFault::Full);
+        let charged = call(
+            &mut client,
+            4,
+            "test.charge",
+            json!({ "run_id": "charging" }),
+        )
+        .await;
+        samples().await;
+        faulted.free_space();
+        let other = call(&mut client, 5, "run.finish", json!({ "run_id": "other" })).await;
+        let resumed = [
+            call(
+                &mut client,
+                6,
+                "run.resume",
+                json!({ "run_id": "charging" }),
+            )
+            .await,
+            call(&mut client, 7, "run.resume", json!({ "run_id": "other" })).await,
+        ];
+        call(
+            &mut client,
+            8,
+            "run.finish",
+            json!({ "run_id": "charging" }),
+        )
+        .await;
+        call(&mut client, 9, "run.finish", json!({ "run_id": "other" })).await;
+        (charged, other, resumed)
+    });
+
+    let ledger = Connection::open_with_flags_and_vfs(
+        crate::home::Home::new(env.home().to_owned()).usage_ledger(),
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        vfs.name(),
+    )
+    .unwrap();
+    let integrity: String = ledger
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        (
+            &charged["result"]["acknowledged"],
+            &other["error"]["data"]["code"],
+            &other["error"]["data"]["resource"],
+            &resumed[0]["result"]["started_as"],
+            &resumed[1]["result"]["started_as"],
+            integrity.as_str(),
+        ),
+        (
+            &json!(false),
+            &json!("resources_exhausted"),
+            &json!("storage"),
+            &json!("resumed"),
+            &json!("resumed"),
+            "ok",
+        ),
+        "{other}"
     );
 }
 

@@ -268,13 +268,7 @@ impl Case {
     ) -> Result<(), Gone> {
         match self {
             Self::Hello => {
-                checks.check(
-                    format!(
-                        "the engine speaks the protocol's major {}",
-                        PROTOCOL_VERSION.major
-                    ),
-                    hello.protocol_version.major == PROTOCOL_VERSION.major,
-                );
+                speaks_the_major(hello, checks);
                 Ok(())
             }
             Self::EngineInfo => engine_info(connection, hello, checks),
@@ -368,6 +362,17 @@ impl Case {
             Self::Events(case) => case.run(connection, site, checks),
         }
     }
+}
+
+/// `hello` names the protocol's major this harness speaks.
+fn speaks_the_major(hello: &HelloResult, checks: &mut Checks) {
+    checks.check(
+        format!(
+            "the engine speaks the protocol's major {}",
+            PROTOCOL_VERSION.major
+        ),
+        hello.protocol_version.major == PROTOCOL_VERSION.major,
+    );
 }
 
 fn engine_info(

@@ -560,14 +560,7 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
             run_id,
             folder,
             error,
-        } => CallError::new(
-            &RUN_STATE_UNAVAILABLE,
-            format!("The state of the Run `{run_id}` is unavailable: {error}"),
-            &RunDetails {
-                run_id,
-                path: Some(folder.display().to_string()),
-            },
-        ),
+        } => state_unavailable(run_id, &folder, &error),
         RunError::Internal { message, .. } => internal(message),
         RunError::Draining(run_id) => draining(Some(run_id)),
         RunError::Secret { error, .. } => secret_error(&error),
@@ -579,15 +572,29 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
         RunError::ResourcesExhausted(exhausted) => storage_exhausted(&exhausted),
         RunError::Live(run_id) => live(run_id),
         RunError::Interrupted(run_id) => interrupted(run_id),
-        RunError::Forwarded(failure) => {
-            match goodfetch_protocol::entries::error_code(&failure.data.code) {
-                Some(definition) => {
-                    CallError::new(definition, failure.message, &failure.data.details)
-                }
-                None => internal(format!("{}: {}", failure.data.code, failure.message)),
-            }
-        }
+        RunError::Forwarded(failure) => forwarded(*failure),
         RunError::Stopped => stopped(),
+    }
+}
+
+/// `run_state_unavailable`: the state of `run_id` in `folder` failed with
+/// `error`.
+fn state_unavailable(run_id: RunId, folder: &std::path::Path, error: &str) -> CallError {
+    CallError::new(
+        &RUN_STATE_UNAVAILABLE,
+        format!("The state of the Run `{run_id}` is unavailable: {error}"),
+        &RunDetails {
+            run_id,
+            path: Some(folder.display().to_string()),
+        },
+    )
+}
+
+/// The failure the owner of a Run answered a forwarded read with.
+fn forwarded(failure: goodfetch_protocol::jsonrpc::ErrorObject) -> CallError {
+    match goodfetch_protocol::entries::error_code(&failure.data.code) {
+        Some(definition) => CallError::new(definition, failure.message, &failure.data.details),
+        None => internal(format!("{}: {}", failure.data.code, failure.message)),
     }
 }
 

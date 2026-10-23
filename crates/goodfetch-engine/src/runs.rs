@@ -57,7 +57,7 @@ use goodfetch_protocol::checkpoint::{
 };
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::formats::Compatibility;
-use goodfetch_protocol::governor::RUN_SHARE;
+use goodfetch_protocol::governor::{RUN_SHARE, SystemInfo};
 use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
@@ -241,8 +241,13 @@ pub(crate) trait Forwarder: Send + Sync {
         method: &'static str,
         params: Value,
         tasks: &'a TaskOwner,
-    ) -> Pin<Box<dyn Future<Output = Option<Result<Value, ErrorObject>>> + Send + 'a>>;
+    ) -> ReadAnswer<'a>;
 }
+
+/// What a read forwarded to a Run's owner answers: its result, or the
+/// failure it answered; `None` when it did not answer.
+pub(crate) type ReadAnswer<'a> =
+    Pin<Box<dyn Future<Output = Option<Result<Value, ErrorObject>>> + Send + 'a>>;
 
 /// Writes a new Run's first rows, beside the engine's own, in the
 /// transaction that records the Run.
@@ -986,6 +991,8 @@ struct Shared {
     storage: watch::Receiver<Arc<StorageSample>>,
     /// Its progress (ADR 0102).
     progress: Progress,
+    /// The Resource governor's last sample.
+    system_info: watch::Receiver<Option<SystemInfo>>,
 }
 
 impl std::fmt::Debug for Run {
@@ -1474,6 +1481,19 @@ impl Run {
     /// The wall time now, as a point in time of the Run's (ADR 0102).
     pub fn point_in_time(&self) -> PointInTime {
         point_in_time(&self.clock)
+    }
+
+    /// The wall time `wait` from now, as a point in time of the Run's, such
+    /// as when a domain is next admitted (ADR 0102).
+    pub fn point_in_time_after(&self, wait: Duration) -> PointInTime {
+        folder::point_in_time_at(self.clock.wall() + wait)
+    }
+
+    /// What the engine's Resource governor read and decided at its last
+    /// sample, once it sampled (ADR 0040): what a Run's progress says of
+    /// its concurrency.
+    pub fn system_info(&self) -> Option<SystemInfo> {
+        self.shared.system_info.borrow().clone()
     }
 
     /// Charges `amount` of `usage_kind` against every Limit that holds the
@@ -2863,12 +2883,8 @@ impl Registry {
                 Command::Health(answer) => {
                     let _ = answer.send(self.health());
                 }
-                Command::Folder(run_id, answer) => {
-                    let _ = answer.send(self.folder(&run_id));
-                }
-                Command::Live(run_id, answer) => {
-                    let _ = answer.send(self.live_run(run_id));
-                }
+                Command::Folder(run_id, answer) => _ = answer.send(self.folder(&run_id)),
+                Command::Live(run_id, answer) => _ = answer.send(self.live_run(run_id)),
                 Command::Checkpoint(run_id, location, answer) => {
                     self.checkpoint(run_id, location, answer).await;
                 }
@@ -2900,22 +2916,11 @@ impl Registry {
                 Command::SafeStop(run_id, by, answer) => {
                     let _ = answer.send(self.safe_stop(&run_id, by).await);
                 }
-                Command::Reader(run_id, answer) => {
-                    let _ = answer.send(self.reader(&run_id));
-                }
-                Command::Progress(run_id, answer) => {
-                    let _ = answer.send(Followed {
-                        changes: self.live.get(&run_id).map(|live| live.progress.subscribe()),
-                        reader: self.reader(&run_id),
-                        parts: self.setup.progress_parts.clone(),
-                        clock: self.setup.clock,
-                    });
-                }
-                Command::Locate(run_id, answer) => {
-                    let _ = answer.send(self.locate(&run_id));
-                }
+                Command::Reader(run_id, answer) => _ = answer.send(self.reader(&run_id)),
+                Command::Progress(run_id, answer) => _ = answer.send(self.followed(&run_id)),
+                Command::Locate(run_id, answer) => _ = answer.send(self.locate(&run_id)),
                 Command::Discard(run_id, answer) => self.discard(run_id, answer).await,
-                Command::Storage(sample) => self.storage(&sample).await,
+                Command::Storage(sample) => self.storage(&sample),
                 Command::StorageFailed(folder) => self.storage_failed(&folder),
             }
         }
@@ -2963,7 +2968,7 @@ impl Registry {
     /// next safe point; each Run's progress carries the worst level among
     /// its filesystems when it changes, and its report a `storage_low`
     /// warning for each folder found at `low` or worse.
-    async fn storage(&mut self, sample: &StorageSample) {
+    fn storage(&mut self, sample: &StorageSample) {
         let home = self.setup.home.root().to_owned();
         let temporary = std::env::temp_dir();
         for live in self.live.values_mut() {
@@ -3195,6 +3200,16 @@ impl Registry {
             .get(&run_id)
             .and_then(|live| live.run.clone())
             .ok_or(RunError::NotFound(run_id))
+    }
+
+    /// What a progress read of the Run `run_id` follows.
+    fn followed(&self, run_id: &RunId) -> Followed {
+        Followed {
+            changes: self.live.get(run_id).map(|live| live.progress.subscribe()),
+            reader: self.reader(run_id),
+            parts: self.setup.progress_parts.clone(),
+            clock: self.setup.clock,
+        }
     }
 
     /// Where a read of the Run `run_id` that this engine does not run
@@ -3533,18 +3548,11 @@ impl Registry {
             })
             .await
             .map_err(|error| unavailable(error.to_string()))?;
-        let progress = self.progress(&run_id, Progressing::live(1, Lifecycle::Running, None));
+        let run = self.new_run(&run_id, &folder, state, connection, start.settings, keys);
         let live = Live {
             id: run_id.clone(),
-            run: Some(self.new_run(
-                &run_id,
-                &folder,
-                state,
-                connection,
-                start.settings,
-                keys,
-                progress.clone(),
-            )),
+            progress: run.shared.progress.clone(),
+            run: Some(run),
             folder,
             kind: start.kind,
             needs: start.needs,
@@ -3563,7 +3571,6 @@ impl Registry {
             lifecycle: Lifecycle::Running,
             storage: None,
             warned_low: std::collections::BTreeSet::new(),
-            progress,
         };
         let row = self.index_row(&live, Lifecycle::Running, None);
         self.write_index(row).await;
@@ -3744,9 +3751,9 @@ impl Registry {
         connection: Option<ConnectionId>,
         settings: Option<RunSettings>,
         keys: Keys,
-        progress: Progress,
     ) -> Run {
         let epoch = state.epoch();
+        let progress = self.progress(run_id, Progressing::live(epoch, Lifecycle::Running, None));
         let share = settings
             .as_ref()
             .and_then(|settings| settings.resolved().count(RUN_SHARE.name))
@@ -3774,6 +3781,7 @@ impl Registry {
                 _sampled: self.setup.governor.sample(folder.to_owned()),
                 storage: self.setup.governor.storage(),
                 progress,
+                system_info: self.setup.governor.system_info(),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),
@@ -4184,21 +4192,14 @@ impl Registry {
             .progress_message
             .as_deref()
             .and_then(ProgressMessage::parse);
-        let progress = self.progress(
-            &run_id,
-            Progressing::live(state.epoch(), lifecycle, progress_message.clone()),
-        );
+        let run = self.new_run(&run_id, &folder, state, connection, settings, keys);
+        run.shared
+            .progress
+            .resumed(lifecycle, progress_message.clone());
         let live = Live {
             id: run_id.clone(),
-            run: Some(self.new_run(
-                &run_id,
-                &folder,
-                state,
-                connection,
-                settings,
-                keys,
-                progress.clone(),
-            )),
+            progress: run.shared.progress.clone(),
+            run: Some(run),
             folder,
             kind: recorded.kind,
             needs: recorded.needs,
@@ -4220,7 +4221,6 @@ impl Registry {
             lifecycle,
             storage: None,
             warned_low: std::collections::BTreeSet::new(),
-            progress,
         };
         let row = self.index_row(&live, lifecycle, None);
         self.write_index(row).await;

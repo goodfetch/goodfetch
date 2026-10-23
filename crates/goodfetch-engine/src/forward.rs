@@ -25,7 +25,7 @@ use crate::attached::read_token;
 use crate::clock::Clock;
 use crate::daemon::files::DaemonFiles;
 use crate::home::Home;
-use crate::runs::Forwarder;
+use crate::runs::{Forwarder, ReadAnswer};
 use crate::tasks::TaskOwner;
 use crate::transport;
 
@@ -117,7 +117,7 @@ impl Forwarder for ToOwner {
         method: &'static str,
         params: Value,
         tasks: &'a TaskOwner,
-    ) -> Pin<Box<dyn Future<Output = Option<Result<Value, ErrorObject>>> + Send + 'a>> {
+    ) -> ReadAnswer<'a> {
         Box::pin(async move {
             let (endpoint, token) = self.reach(owner, tasks).await?;
             let hello = self.hello(token, needs);

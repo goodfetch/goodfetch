@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use goodfetch_engine::admission::{Admitted, Ended, Gate, Gates, Journal, Waiting};
+use goodfetch_engine::admission::{Admitted, Ended, Gate, Gates, Held, Journal, Queued, Waiting};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::PermitRule;
 use goodfetch_engine::run_state::RunStateTables;
@@ -86,8 +86,10 @@ struct Domain {
     ready_at: Option<Instant>,
     backoffs: u32,
     /// Until when the shared Politeness holds it, unless a wake comes
-    /// first; never journaled, since the Politeness file keeps its cause.
+    /// first, and why; never journaled, since the Politeness file keeps
+    /// its cause.
     held_until: Option<Instant>,
+    held: Option<Held>,
     /// Whether the run file holds a row of it.
     journaled: bool,
 }
@@ -227,16 +229,42 @@ impl Gate for DomainQueues {
             .cloned()
     }
 
-    fn hold(&mut self, key: &str, until: Instant) {
+    fn hold(&mut self, key: &str, until: Instant, held: Held) {
         if let Some(domain) = self.domains.get_mut(key) {
             domain.held_until = Some(until);
+            domain.held = Some(held);
         }
     }
 
     fn wake(&mut self, key: &str) {
         if let Some(domain) = self.domains.get_mut(key) {
             domain.held_until = None;
+            domain.held = None;
         }
+    }
+
+    fn queued(&self, now: Instant) -> Vec<Queued> {
+        self.turns
+            .iter()
+            .filter_map(|key| {
+                let domain = self.domains.get(key)?;
+                let held = match (domain.held_until, domain.ready_at) {
+                    (Some(until), _) if until > now => {
+                        let held = domain.held.unwrap_or(Held::Concurrency);
+                        // A domain held for want of room waits for a wake,
+                        // not for a known moment.
+                        Some((held, (held != Held::Concurrency).then_some(until)))
+                    }
+                    (_, Some(ready_at)) if ready_at > now => Some((Held::BackOff, Some(ready_at))),
+                    _ => None,
+                };
+                Some(Queued {
+                    key: key.clone(),
+                    requests: domain.waiting.len(),
+                    held,
+                })
+            })
+            .collect()
     }
 
     fn rule(&self, settings: &Resolved) -> Option<Arc<dyn PermitRule>> {

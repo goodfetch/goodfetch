@@ -131,6 +131,15 @@ impl Progress {
         });
     }
 
+    /// Takes up a resumed Run's `lifecycle` and the program's status line
+    /// `message` its run state kept; a change.
+    pub(super) fn resumed(&self, lifecycle: Lifecycle, message: Option<ProgressMessage>) {
+        self.change(|progressing| {
+            progressing.lifecycle = lifecycle;
+            progressing.message = message;
+        });
+    }
+
     /// Its values from now on.
     pub(super) fn subscribe(&self) -> watch::Receiver<Progressing> {
         self.changes.subscribe()

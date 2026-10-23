@@ -78,8 +78,10 @@ use tokio::time::Instant;
 
 use crate::lease::{CommitError, Leases};
 use crate::policy::CrawlPolicy;
+use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::serving::{Crawls, Opened, Server};
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
+use goodfetch_protocol::foxhound::progress::{InFlightPhase, InFlightRequest};
 
 mod attempt;
 mod politeness;
@@ -149,6 +151,7 @@ pub(crate) async fn drive(
             let fetching = Fetching {
                 tiers: &tiers,
                 http: http.as_ref(),
+                in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
             };
             deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
         }
@@ -234,6 +237,8 @@ async fn deliver(
         let wake = (free && !starved)
             .then(|| admission.ready_at(run.clock().now()))
             .flatten();
+        let room = room(stop.is_some(), free, starved, servers);
+        show(run, &admission, &resolved, room, servers, policy);
         tokio::select! {
             biased;
             () = run.cancellation().cancelled() => {
@@ -255,6 +260,7 @@ async fn deliver(
             }
             Some(ended) = attempts.join_next() => {
                 if let Ok(attempt) = ended {
+                    fetching.in_flight.lock().await.ended(run, &attempt.leased.crawl_request.id);
                     settled(run, settings, &mut admission, &mut pool, servers, attempt).await;
                 }
             }
@@ -263,6 +269,39 @@ async fn deliver(
             key = next_wake(wakes.as_mut()) => admission.wake(key.as_deref()),
         }
     }
+}
+
+/// Whether the due requests no domain holds may go: none while the Run
+/// stops or no Connection serves it, else as the serving Connections'
+/// room (`free`) and the governor (`starved`) say.
+fn room(stopping: bool, free: bool, starved: bool, servers: &mut [Serving]) -> Room {
+    if stopping || !servers.iter_mut().any(Serving::serves) {
+        Room::None
+    } else if !free {
+        Room::Full
+    } else if starved {
+        Room::Starved
+    } else {
+        Room::Free
+    }
+}
+
+/// Sets the crawl's live parts of its Run's progress (ADR 0102): why its
+/// due requests wait, its handlers running against `policy`'s concurrency,
+/// and that it is not idle.
+fn show(
+    run: &Run,
+    admission: &Admission,
+    resolved: &Resolved,
+    room: Room,
+    servers: &[Serving],
+    policy: CrawlPolicy,
+) {
+    let now = run.clock().now();
+    progress::show_waits(run, &admission.queued(now), resolved, now, room);
+    let handlers = servers.iter().map(|server| server.in_flight).sum();
+    progress::show_concurrency(run, handlers, policy.handler_concurrency);
+    progress::show_idle(run, false);
 }
 
 /// The ending of a crawl whose state or admission failed with `error`:
@@ -348,6 +387,8 @@ pub(crate) async fn resume(
 struct Fetching<'a> {
     tiers: &'a FetchTiers,
     http: Option<&'a HttpTier>,
+    /// The requests in flight, as the Run's progress shows them.
+    in_flight: SharedInFlight,
 }
 
 impl Fetching<'_> {
@@ -427,6 +468,22 @@ async fn lease_to_servers(
                 policy.lease_length(),
             );
             server.in_flight += 1;
+            let fetches = pooled.fetching.http.is_some();
+            pooled.fetching.in_flight.lock().await.began(
+                run,
+                InFlightRequest {
+                    request_id: leased.crawl_request.id.clone(),
+                    url: leased.crawl_request.url.clone(),
+                    phase: if fetches {
+                        InFlightPhase::Fetching
+                    } else {
+                        InFlightPhase::Handling
+                    },
+                    tier: fetches.then(|| "http".to_owned()),
+                    attempt: leased.attempt,
+                    started_at: run.point_in_time(),
+                },
+            );
             let permit = permits
                 .pop()
                 .expect("invariant: one admission per work item admitted");
@@ -439,6 +496,7 @@ async fn lease_to_servers(
                     (leased, session, leased_count(run)),
                     lease,
                     pooled.fetching.served(),
+                    std::sync::Arc::clone(&pooled.fetching.in_flight),
                 ),
             ));
         }
@@ -490,6 +548,8 @@ async fn drained(
         end(run, admission, ending).await;
         return Waited::Ended;
     }
+    progress::show_waits(run, &[], resolved, run.clock().now(), Room::None);
+    progress::show_idle(run, true);
     waited(run, admission, servers, arrivals, true).await
 }
 

@@ -103,13 +103,23 @@ pub struct PolitenessOptions {
 pub enum Verdict {
     /// It does.
     Go,
-    /// Not before this moment, such as a delay's or a backoff's end.
-    Until(SystemTime),
+    /// Not before this moment, such as a delay's or a backoff's end, for
+    /// the reason it gives.
+    Until(SystemTime, Hold),
     /// Not before this moment, the time a site asked for, further away than
     /// the run waits: the request is not sent, and ends (ADR 0118).
     Refused(SystemTime),
     /// Not until a request in flight under it ends.
     Busy,
+}
+
+/// Why a key admits nothing before a moment (ADR 0102's wait reasons).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hold {
+    /// Its last request started less than the delay between starts ago.
+    Delay,
+    /// It backs off, or waits for the time a site asked for.
+    BackOff,
 }
 
 /// How a request that held a Permit ended, for its key.
@@ -201,8 +211,9 @@ impl Permit {
 pub enum Taken {
     /// The request may go, holding this Permit.
     Granted(Permit),
-    /// Not now: try again at this moment, or, when `None`, once woken.
-    Wait(Option<SystemTime>),
+    /// Not now: try again at this moment, for the reason given, or, when
+    /// `None`, once woken, since requests under the key are in flight.
+    Wait(Option<(SystemTime, Hold)>),
     /// Not before this moment, further away than the run waits: the request
     /// is not sent (see [`Verdict::Refused`]).
     Refused(SystemTime),
@@ -904,7 +915,7 @@ fn take_in(
                 key: key.to_owned(),
             })
         }
-        Verdict::Until(until) => Taken::Wait(Some(until)),
+        Verdict::Until(until, hold) => Taken::Wait(Some((until, hold))),
         Verdict::Refused(until) => Taken::Refused(until),
         Verdict::Busy => {
             if let Some(endpoint) = &context.endpoint {

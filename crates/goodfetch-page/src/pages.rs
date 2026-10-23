@@ -47,7 +47,7 @@ use crate::driver::{Arrived, Destination};
 use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events;
-use crate::sessions::{self, OpenPage, Sessions};
+use crate::sessions::{self, OpenPage, PageEvent, Sessions};
 use crate::url_pattern::UrlPattern;
 
 /// What the page crate adds to the engine (ADR 0087): its run state's
@@ -451,7 +451,13 @@ impl Pages {
         }
         let page = self.open(page_id).await?;
         span.record("run_id", page.run.id().as_str());
-        let navigated = page.driver.navigate(destination, wait_until).await;
+        let navigated = page
+            .life
+            .call(
+                PageEvent::Goto,
+                page.driver.navigate(destination, wait_until),
+            )
+            .await;
         // A failure the interception left while the navigation ran, such
         // as a route's handler failing on its document, is the
         // navigation's.
@@ -501,7 +507,12 @@ impl Pages {
             window: Window { limit, duration },
             surface: context.surface(),
         };
-        guard::act(&page.driver, request, &page.clock).await?;
+        page.life
+            .call(
+                PageEvent::Gesture,
+                guard::act(&page.driver, request, &page.clock),
+            )
+            .await?;
         Ok(Acted {})
     }
 
@@ -521,7 +532,10 @@ impl Pages {
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
         let page = self.open(&params.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
-        let document = page.driver.document().await?;
+        let document = page
+            .life
+            .call(PageEvent::Read, page.driver.document())
+            .await?;
         let request = params.formats;
         Ok(page
             .run

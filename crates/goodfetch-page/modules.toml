@@ -8,7 +8,7 @@ launch = []
 page_events = ["driver", "url_pattern"]
 pages = ["driver", "guard", "interception", "page_events", "sessions", "url_pattern"]
 pool = ["driver", "trace"]
-sessions = ["driver", "interception", "page_events", "pool"]
+sessions = ["driver", "errors", "interception", "page_events", "pool"]
 robots_txt = []
 trace = []
 url_pattern = []
@@ -16,6 +16,7 @@ url_pattern = []
 # Which of `driver`'s own modules may import which.
 [submodules.driver]
 carry = ["world"]
+ending = ["navigation"]
 identity = []
 navigation = []
 world = []
@@ -30,6 +31,8 @@ steps = []
 
 # Which of `sessions`' own modules may import which.
 [submodules.sessions]
+ends = ["life", "lifecycle"]
+life = ["lifecycle"]
 lifecycle = []
 
 # Which of `pool`'s own modules may import which.

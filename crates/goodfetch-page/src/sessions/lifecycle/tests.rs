@@ -52,6 +52,12 @@ mod session {
         source: Source::Launched,
         owner: Owner::Pool,
     };
+    /// A Session a crawl's Session pool opened on a copied Profile
+    /// directory.
+    const POOL_PROFILE: Attributes = Attributes {
+        source: Source::ProfileDirectory,
+        owner: Owner::Pool,
+    };
     /// A Session a crawl's Session pool opened on a Borrowed browser.
     const POOL_BORROWED: Attributes = Attributes {
         source: Source::Borrowed,
@@ -114,6 +120,7 @@ mod session {
     #[case::retire(SessionEvent::Retire, POOL, Ok((SessionState::Closing, SessionEffect::CloseChildren)))]
     #[case::retire_of_a_programs_session(SessionEvent::Retire, LAUNCHED, INTERNAL)]
     #[case::retire_of_an_agents_session(SessionEvent::Retire, AGENTS, INTERNAL)]
+    #[case::retire_of_a_pools_copied_profile_directory(SessionEvent::Retire, POOL_PROFILE, Ok((SessionState::Closing, SessionEffect::CloseChildren)))]
     #[case::retire_of_a_pools_borrowed_browser(SessionEvent::Retire, POOL_BORROWED, INTERNAL)]
     #[case::retire_of_a_pools_profile_directory_in_place(
         SessionEvent::Retire,

@@ -15,6 +15,7 @@
 //! browser's pages show the identity it shows with a window (`identity`).
 
 mod carry;
+mod ending;
 mod identity;
 
 mod navigation;
@@ -40,6 +41,7 @@ use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::carry::{Carried, Origins};
+pub(crate) use self::ending::Lost;
 pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
 use crate::errors::{
@@ -118,6 +120,8 @@ pub(crate) struct Browser {
     identity: Option<Identity>,
     /// Its process's ID.
     process: Option<u32>,
+    /// Cancelled once the engine closes it, so its exit is not a loss.
+    closing: CancellationToken,
 }
 
 impl Browser {
@@ -265,6 +269,7 @@ impl Connect for LocalBrowser {
                     executable: launched.executable.display().to_string(),
                     identity: None,
                     process: launched.process,
+                    closing: self.stopping.clone(),
                 };
                 // The first answer says the browser is up.
                 let version = browser

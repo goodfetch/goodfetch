@@ -41,6 +41,8 @@ mod locator;
 mod log;
 mod ops;
 mod page;
+#[cfg(unix)]
+mod page_ends;
 mod page_events;
 mod parent_death;
 mod private_endpoint;

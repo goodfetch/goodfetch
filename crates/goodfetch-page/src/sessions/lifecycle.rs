@@ -99,6 +99,13 @@ pub(crate) enum Suspended {
 
 /// What happens to a Session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "lending, Browser hosts and the Session pool wire their events with their tickets (spec #594)"
+    )
+)]
 pub(crate) enum SessionEvent {
     /// The opening call finished.
     SourceReady,
@@ -134,6 +141,13 @@ pub(crate) enum SessionEvent {
 /// What a Session is opened from, a fixed attribute that decides some
 /// cells.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "each Session source kind joins with the ticket that reads it (ADR 0056)"
+    )
+)]
 pub(crate) enum Source {
     /// A browser the engine launches, fresh.
     Launched,
@@ -152,6 +166,13 @@ pub(crate) enum Source {
 
 /// Who opened a Session, a fixed attribute.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "an Agent and a crawl's Session pool open Sessions once their tickets land (spec #594)"
+    )
+)]
 pub(crate) enum Owner {
     /// A program.
     Program,
@@ -408,6 +429,13 @@ pub(crate) enum PageState {
 
 /// What happens to a page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the tickets that bring navigation, the Page check, the Human pause and leases wire their events (spec #594)"
+    )
+)]
 pub(crate) enum PageEvent {
     /// A call that sends input.
     Gesture,

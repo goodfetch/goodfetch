@@ -20,7 +20,21 @@
 //! again on its next page. A Session's ID names its Run, so a call naming a
 //! Session of a Run this engine has not reached yet reaches it. When the
 //! Run stops, its Sessions, its pages and its browsers go with it.
+//!
+//! Each Session and each page changes state only through its table
+//! (`lifecycle`, spec #594, ADR 0128), and every call on it runs through it
+//! (`life`). Each page is followed until it ends without the engine closing
+//! its browser (ADR 0113): a target the browser destroyed is closed in the
+//! browser, and emits `close`, its Session and other pages staying; a
+//! crashed renderer, or a browser that exited non-zero or by a signal,
+//! crashes the page, which emits `crash` and counts in Usage (ADR 0040), and
+//! the browser's crash crashes its Session too; a browser that exited with
+//! status 0 quit, which ends its Session. Closing a Session ends its calls
+//! in flight with `call_cancelled` naming the program; a crashed Session's
+//! close releases what is left and leaves it `Crashed`.
 
+mod ends;
+mod life;
 mod lifecycle;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -32,12 +46,12 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::run::settings_error;
-use goodfetch_engine::run_state::RunStateTables;
+use goodfetch_engine::run_state::{RunStateError, RunStateTables};
 use goodfetch_engine::runs::{Run, RunError};
 use goodfetch_engine::settings::{SettingsError, Values};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::browser_cache::PinnedBy;
-use goodfetch_protocol::connection::CLOSED;
+use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
 use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
@@ -50,7 +64,13 @@ use goodfetch_protocol::settings::{
 use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
 
+use self::life::{Ending, PageLife, SessionLife, page_closed, session_closed};
+pub(crate) use self::lifecycle::PageEvent;
+use self::lifecycle::{
+    Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
+};
 use crate::driver::PageDriver;
+use crate::errors::{cancelled, invalid_transition};
 use crate::interception::{Interception, SESSION_KEYS};
 use crate::page_events::{self, PageEvents, Refusals};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
@@ -97,6 +117,9 @@ struct State {
     runs: BTreeMap<RunId, RunSessions>,
     sessions: BTreeMap<SessionId, Arc<Session>>,
     pages: BTreeMap<PageId, OpenPage>,
+    /// The crashed pages a close released, by their Run, whose later calls
+    /// raise `page_crashed` again until their Run stops.
+    crashed: BTreeMap<PageId, (RunId, PageLife)>,
     opened_pages: u64,
 }
 
@@ -112,7 +135,7 @@ struct RunSessions {
     closed: BTreeSet<u32>,
 }
 
-/// One open Session.
+/// One Session this engine holds: opening, open, or crashed.
 struct Session {
     run: Run,
     position: u32,
@@ -120,15 +143,26 @@ struct Session {
     seat: Seat,
     /// Its own settings, which its pages take over the Run's.
     settings: Values,
+    /// Where it is, through its table.
+    life: SessionLife,
 }
 
-/// One open page.
+/// What every Session this engine opens is: a fresh one a program opened,
+/// in a browser the engine launched, the only kind it opens yet.
+const FRESH: Attributes = Attributes {
+    source: Source::Launched,
+    owner: Owner::Program,
+};
+
+/// One page this engine holds: open, or crashed.
 #[derive(Clone)]
 pub(crate) struct OpenPage {
     pub(crate) run: Run,
     /// Its Session.
     pub(crate) session: SessionId,
     pub(crate) driver: PageDriver,
+    /// Where it is, through its table: each call on it runs through it.
+    pub(crate) life: PageLife,
     /// Its Run's `timeout.action` and where it was set.
     pub(crate) action_timeout: (SettingLimit, Duration),
     /// Its Run's clock.
@@ -153,24 +187,6 @@ fn parse_session_id(session: &SessionId) -> Option<(RunId, u32)> {
         return None;
     }
     Some((RunId::parse(run).ok()?, position.parse().ok()?))
-}
-
-/// `closed` for the Session `session`.
-fn session_closed(session: &SessionId) -> CallError {
-    CallError::new(
-        &CLOSED,
-        format!("the Session `{}` is closed, or its Run ended", session.0),
-        &json!({ "session_id": session }),
-    )
-}
-
-/// `closed` for the page `page`.
-fn page_closed(page: &PageId) -> CallError {
-    CallError::new(
-        &CLOSED,
-        format!("the page `{}` is closed, or its Run ended", page.0),
-        &json!({ "page_id": page }),
-    )
 }
 
 /// The failure of a read or write of `run`'s state.
@@ -218,20 +234,34 @@ impl Sessions {
             runs.last += 1;
             (runs.last, runs.pool.seat(Placement::Shared))
         };
-        seat.open().await?;
+        let session = session_id(run.id(), position);
+        let life = SessionLife::new(session.clone(), FRESH, SessionState::Opening);
+        let open = Arc::new(Session {
+            run: run.clone(),
+            position,
+            seat,
+            settings: settings.clone(),
+            life: life.clone(),
+        });
+        self.state
+            .lock()
+            .await
+            .sessions
+            .insert(session.clone(), Arc::clone(&open));
+        self.interception.open_session(&session);
+        if let Err(error) = open.seat.open().await {
+            life.open_failed(error.clone())?;
+            self.state.lock().await.sessions.remove(&session);
+            self.interception.close(&[], &session);
+            return Err(error);
+        }
+        match life.apply(SessionEvent::SourceReady, None)? {
+            SessionEffect::Opened => {}
+            // A `close()` while it opened abandoned the open (S3).
+            _ => return Err(cancelled(StoppedBy::Program, ClosedValue::Session)),
+        }
         self.record(&run, position, false, &settings, context)
             .await?;
-        let session = session_id(run.id(), position);
-        self.state.lock().await.sessions.insert(
-            session.clone(),
-            Arc::new(Session {
-                run,
-                position,
-                seat,
-                settings,
-            }),
-        );
-        self.interception.open_session(&session);
         Ok(SessionOpened {
             session_id: session,
         })
@@ -276,6 +306,7 @@ impl Sessions {
                             position,
                             seat,
                             settings: Values::default(),
+                            life: SessionLife::new(session.clone(), FRESH, SessionState::Open),
                         }),
                     );
                     self.interception.open_session(&session);
@@ -296,6 +327,7 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
         let open = self.session(session, context).await?;
+        open.life.call().await?;
         let run = open.run.clone();
         let (navigation_timeout, action_timeout) = timeouts(&run);
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
@@ -329,18 +361,20 @@ impl Sessions {
             return Err(session_closed(session));
         }
         tracing::Span::current().record("page_id", page.0.as_str());
-        state.pages.insert(
-            page.clone(),
-            OpenPage {
-                clock: run.clock(),
-                run,
-                session: session.clone(),
-                driver,
-                action_timeout,
-                _admission: Arc::new(admission),
-                _in_browser: Arc::new(in_browser),
-            },
-        );
+        let browser = in_browser.browser();
+        let opened = OpenPage {
+            clock: run.clock(),
+            run,
+            session: session.clone(),
+            driver,
+            life: PageLife::new(page.clone()),
+            action_timeout,
+            _admission: Arc::new(admission),
+            _in_browser: Arc::new(in_browser),
+        };
+        state.pages.insert(page.clone(), opened.clone());
+        drop(state);
+        self.watch(page.clone(), opened, open, browser);
         Ok(PageOpened {
             page_id: page,
             session_id: session.clone(),
@@ -365,11 +399,83 @@ impl Sessions {
                 };
             }
         };
+        let effect = open.life.apply(SessionEvent::Close, None)?;
+        let crashed = match effect {
+            // Already closing or closed: `close()` changes nothing (C).
+            SessionEffect::Nothing => return Ok(()),
+            SessionEffect::AbandonOpen
+            | SessionEffect::CloseChildren
+            | SessionEffect::EndAttachAndClose => false,
+            // A crashed Session releases what is left and stays `Crashed`
+            // (S22).
+            SessionEffect::Release => true,
+            SessionEffect::Serve
+            | SessionEffect::Wait
+            | SessionEffect::Opened
+            | SessionEffect::FailOpen
+            | SessionEffect::Lend
+            | SessionEffect::EndAttach
+            | SessionEffect::Quit
+            | SessionEffect::Crash
+            | SessionEffect::Suspend
+            | SessionEffect::EndAttachAndSuspend
+            | SessionEffect::Unreachable
+            | SessionEffect::Resume
+            | SessionEffect::Reopen => {
+                return Err(invalid_transition(
+                    "session",
+                    &format!("{:?}", open.life.state()),
+                    &format!("Close (effect {effect:?})"),
+                ));
+            }
+        };
+        let mut closing = Vec::new();
+        // Calls in flight on its pages end first (S7, P8); a crashed page
+        // releases what is left (P33).
+        for (page_id, page) in self.pages_of(session).await {
+            match page.life.end(&Ending::Closed(ClosedValue::Session))? {
+                PageEffect::Close => closing.push((page_id, page)),
+                effect => self.page_ended(&page_id, session, &open.run, effect).await,
+            }
+        }
+        open.seat.close().await;
+        for (page_id, page) in &closing {
+            // The context's disposal destroyed each target: the close the
+            // engine sent is confirmed (P29).
+            let effect = page.life.end(&Ending::Destroyed)?;
+            self.page_ended(page_id, session, &open.run, effect).await;
+        }
+        if crashed {
+            return Ok(());
+        }
+        open.life.apply(SessionEvent::ChildrenClosed, None)?;
+        self.session_ended(&open, session)
+            .await
+            .map_err(|error| unavailable(&open.run, &error, context))
+    }
+
+    /// The pages the Session `session` holds, by ID.
+    async fn pages_of(&self, session: &SessionId) -> Vec<(PageId, OpenPage)> {
+        self.state
+            .lock()
+            .await
+            .pages
+            .iter()
+            .filter(|(_, page)| &page.session == session)
+            .map(|(page_id, page)| (page_id.clone(), page.clone()))
+            .collect()
+    }
+
+    /// The Session `session` ended: it leaves, whatever pages it still
+    /// held go, and its run state records it closed.
+    async fn session_ended(
+        &self,
+        open: &Session,
+        session: &SessionId,
+    ) -> Result<(), RunStateError> {
         let pages = {
             let mut state = self.state.lock().await;
-            if state.sessions.remove(session).is_none() {
-                return Ok(());
-            }
+            state.sessions.remove(session);
             if let Some(runs) = state.runs.get_mut(open.run.id()) {
                 runs.closed.insert(open.position);
             }
@@ -386,7 +492,6 @@ impl Sessions {
         };
         self.events.close(&pages);
         self.interception.close(&pages, session);
-        open.seat.close().await;
         let position = open.position;
         open.run
             .state()
@@ -399,18 +504,19 @@ impl Sessions {
                     .map(drop)
             })
             .await
-            .map_err(|error| unavailable(&open.run, &error, context))
     }
 
-    /// The open page `page_id`, or `closed`.
+    /// The page `page_id` this engine holds; `page_crashed` again for a
+    /// crashed one a close released, else `closed`.
     pub(crate) async fn page(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
-        self.state
-            .lock()
-            .await
-            .pages
+        let state = self.state.lock().await;
+        if let Some(page) = state.pages.get(page_id) {
+            return Ok(page.clone());
+        }
+        Err(state
+            .crashed
             .get(page_id)
-            .cloned()
-            .ok_or_else(|| page_closed(page_id))
+            .map_or_else(|| page_closed(page_id), |(_, life)| life.crashed()))
     }
 
     /// The open Session `session`, reaching its Run first when this engine
@@ -507,12 +613,13 @@ impl Sessions {
                     let session = session_id(run.id(), position);
                     self.interception.open_session(&session);
                     state.sessions.insert(
-                        session,
+                        session.clone(),
                         Arc::new(Session {
                             run: run.clone(),
                             position,
                             seat: pool.seat(Placement::Shared),
                             settings,
+                            life: SessionLife::new(session, FRESH, SessionState::Open),
                         }),
                     );
                 }
@@ -556,6 +663,7 @@ impl Sessions {
             for session in &gone {
                 state.sessions.remove(session);
             }
+            state.crashed.retain(|_, (run, _)| run != &run_id);
             drop(state);
             for session in &gone {
                 let pages = pages.remove(session).unwrap_or_default();

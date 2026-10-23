@@ -225,7 +225,7 @@ fn the_console_serves_its_builds_files_as_they_are_stored() {
 
 /// A Run on a Daemon that serves the Console names its page there in its
 /// report (ADRs 0031 and 0102).
-/// Covers: story:3-154, command:run.start, command:run.finish
+/// Covers: story:3-154, operation:run.start, operation:run.finish
 #[test]
 fn a_runs_report_names_its_page_in_the_console_its_daemon_serves() {
     let env = TestEnv::new();

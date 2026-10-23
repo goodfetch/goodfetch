@@ -8,7 +8,7 @@
 //! `run.failed_requests` lists the latest outcome of each work item
 //! `run.retry_failed` would re-admit.
 
-use goodfetch_engine::run::run_error;
+use goodfetch_engine::run::{run_error, through_owner};
 use goodfetch_engine::runs::{RunError, RunReader};
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_protocol::foxhound::outcomes::{
@@ -63,6 +63,9 @@ async fn outcomes(
     params: RunOutcomesParams,
     context: CallContext,
 ) -> Result<CrawlRequestOutcomes, CallError> {
+    if let Some(answer) = through_owner(&context, &RUN_OUTCOMES, &params.run_id, &params).await? {
+        return Ok(answer);
+    }
     let failed = |error: RunError| run_error(error, context.identity());
     let mut reader = context
         .runs()
@@ -108,6 +111,11 @@ async fn failed_requests(
     params: RunFailedRequestsParams,
     context: CallContext,
 ) -> Result<FailedRequests, CallError> {
+    if let Some(answer) =
+        through_owner(&context, &RUN_FAILED_REQUESTS, &params.run_id, &params).await?
+    {
+        return Ok(answer);
+    }
     let failed = |error: RunError| run_error(error, context.identity());
     let mut reader = context
         .runs()

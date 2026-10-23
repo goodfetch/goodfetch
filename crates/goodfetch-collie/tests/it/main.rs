@@ -62,6 +62,7 @@ mod storage;
 mod tmpfs;
 mod upgrade_files;
 mod usage;
+mod views;
 #[cfg(target_os = "linux")]
 mod virtual_display;
 mod websocket;

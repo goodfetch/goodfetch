@@ -988,7 +988,10 @@ impl Session<'_> {
                     () = token.cancelled() => Err(CallError::new(
                         &CALL_CANCELLED,
                         "The call was cancelled by its Client.",
-                        &CallCancelledDetails { by: StoppedBy::Client },
+                        &CallCancelledDetails {
+                            by: StoppedBy::Client,
+                            closed: None,
+                        },
                     )),
                 }
             } else {

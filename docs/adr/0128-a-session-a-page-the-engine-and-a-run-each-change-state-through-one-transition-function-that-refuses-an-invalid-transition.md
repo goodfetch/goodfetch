@@ -31,6 +31,7 @@ Decided in [An invalid lifecycle transition has no refusal rule](https://github.
 
 - **Every pair of state and event is a named test case** (rstest's `#[case::name]`, `TESTING.md`), with its expected outcome copied from the area spec's table: the next state and effects, or the code. No loop computes an expected outcome.
 - **A Run keeps its reference models** (ADR 0060), and the engine's states join the Simulation's scenarios where a crash or a lost connection drives them.
+  > Note (agent decision, pending owner review), 2026-10-23, [#731](https://github.com/goodfetch/goodfetch/issues/731): a Session's and a page's tables are `goodfetch-page`'s `sessions::lifecycle`; the check that a table matches with no wildcard is `goodfetch-test-support`'s `refused_matches`, which each crate runs on its own tables. The bug-only refusal is the Error code `internal` (`InternalError` group), whose details name the object, the state and the event. A page is admitted to a navigation through `Goto` but stays `Open` while it runs: the engine lets a later navigation supersede one not yet committed (#698, as Playwright does), where the page table's `Navigating` row (P14) has it wait, so which holds is left to the owner and `Navigating`, `Paused` and their events to the tickets that bring them.
 
 ## Considered Options
 

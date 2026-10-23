@@ -16,7 +16,9 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
     "browser_cache.download_progress": DownloadProgress,
     "engine.system_info": SystemInfo,
     "events.resync": Resync,
+    "page.close": PageFired,
     "page.console": ConsoleMessage,
+    "page.crash": PageFired,
     "page.dom_content_loaded": PageFired,
     "page.download": PageDownload,
     "page.load": PageFired,
@@ -42,7 +44,9 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 - `browser_cache.download_progress`: A Pinned artifact the call needs is downloading into the Browser cache: the bytes received so far, out of those announced.
 - `engine.system_info`: The engine's Resource governor sampled: its Memory allowance and what set it, the memory the engine and its children use, the host's pressure, CPU and Tokio saturation, its level and what holds it there, and each kind's concurrency. Telemetry: a newer sample replaces an unsent one.
 - `events.resync`: The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, from which the stream continues.
+- `page.close`: The page closed: the engine closed it, or its window was closed in the browser outside every Client. Published while `page.on` listens to `close`, just before that call answers.
 - `page.console`: The page wrote a message to its console, `ConsoleMessage`: its type, text and location. Published while `page.on` listens to `console`, the only time the engine reads the page's console.
+- `page.crash`: The page crashed: its renderer, or its browser's process, which exited abnormally. Its calls in flight raised `page_crashed`, and so does each later call. Published while `page.on` listens to `crash`.
 - `page.dom_content_loaded`: The document of the page's main frame fired `DOMContentLoaded`. Published while `page.on` listens to `dom_content_loaded`.
 - `page.download`: A navigation of the page reached a file the browser downloads instead of showing, such as a PDF: the navigation answers no response and the page keeps its document. Names the page, the file's URL and the name the browser suggests.
 - `page.load`: The document of the page's main frame fired `load`. Published while `page.on` listens to `load`.
@@ -67,7 +71,9 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 EXPERIMENTAL_EVENTS: Final[frozenset[str]] = frozenset({
     "engine.system_info",
     "events.resync",
+    "page.close",
     "page.console",
+    "page.crash",
     "page.dom_content_loaded",
     "page.download",
     "page.load",

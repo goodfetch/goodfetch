@@ -15,6 +15,8 @@
 //! browser's pages show the identity it shows with a window (`identity`).
 
 mod carry;
+mod encoding;
+mod ending;
 mod identity;
 
 mod navigation;
@@ -41,6 +43,8 @@ use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::carry::{Carried, Origins};
+use self::encoding::{encoding_of, encoding_read, isolated_world};
+pub(crate) use self::ending::Lost;
 pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
 use crate::errors::{
@@ -68,51 +72,6 @@ const GUARD_MARKER: &str = "globalThis.__goodfetch_guard__ = true;";
 /// browser gives a response's headers, lower-cased.
 const PROXY_STATUS: &str = "proxy-status";
 
-/// The expression that reads the encoding a document was decoded with.
-const DOCUMENT_ENCODING: &str = "document.characterSet";
-
-/// The command that makes, or finds by its name, the guard's isolated
-/// world in `frame`'s document.
-fn isolated_world(frame: page::FrameId) -> page::CreateIsolatedWorldParams {
-    page::CreateIsolatedWorldParams {
-        frame_id: frame,
-        world_name: Some(GUARD_WORLD.to_owned()),
-        grant_univeral_access: None,
-        content_security_policy: None,
-    }
-}
-
-/// The command that reads the document's encoding in the world whose
-/// context is `context`, never through `Runtime.enable` (ADR 0019).
-fn encoding_read(context: runtime::ExecutionContextId) -> runtime::EvaluateParams {
-    runtime::EvaluateParams {
-        expression: DOCUMENT_ENCODING.to_owned(),
-        object_group: None,
-        include_command_line_api: None,
-        silent: Some(true),
-        context_id: Some(context),
-        return_by_value: Some(true),
-        generate_preview: None,
-        user_gesture: None,
-        await_promise: None,
-        throw_on_side_effect: None,
-        timeout: None,
-        disable_breaks: None,
-        repl_mode: None,
-        allow_unsafe_eval_blocked_by_csp: None,
-        unique_context_id: None,
-        serialization_options: None,
-    }
-}
-
-/// The encoding an [`encoding_read`] answered, when it named one.
-fn encoding_of(evaluated: runtime::EvaluateReturns) -> Option<String> {
-    evaluated
-        .result
-        .value
-        .and_then(|value| value.as_str().map(str::to_owned))
-}
-
 /// A browser's CDP connection as the driver uses it.
 #[derive(Clone)]
 pub(crate) struct Browser {
@@ -124,6 +83,8 @@ pub(crate) struct Browser {
     identity: Option<Identity>,
     /// Its process's ID.
     process: Option<u32>,
+    /// Cancelled once the engine closes it, so its exit is not a loss.
+    closing: CancellationToken,
 }
 
 impl Browser {
@@ -271,6 +232,7 @@ impl Connect for LocalBrowser {
                     executable: launched.executable.display().to_string(),
                     identity: None,
                     process: launched.process,
+                    closing: self.stopping.clone(),
                 };
                 // The first answer says the browser is up.
                 let version = browser

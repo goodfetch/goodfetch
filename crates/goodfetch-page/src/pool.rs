@@ -378,6 +378,11 @@ pub(crate) struct InBrowser {
 }
 
 impl InBrowser {
+    /// The number of the page's browser in its Run's pool.
+    pub(crate) fn browser(&self) -> u64 {
+        self.number
+    }
+
     /// Holds the page's browser from being recycled until the value drops:
     /// a Human pause, a person in the Live view, or a raw CDP attach bound
     /// to its work item's lease, on the page.
@@ -486,6 +491,17 @@ impl Seat {
             .run
             .spawn(self.shared.origins.clone().watch(events));
         Ok((page, in_browser))
+    }
+
+    /// Whether the Session is seated in the browser `number` now.
+    pub(crate) async fn is_in(&self, number: u64) -> bool {
+        self.shared
+            .place
+            .lock()
+            .await
+            .at
+            .as_ref()
+            .is_some_and(|(at, _)| *at == number)
     }
 
     /// Closes the Session's browser contexts, and with them every page in

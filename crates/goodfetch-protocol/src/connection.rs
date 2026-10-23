@@ -465,6 +465,21 @@ pub enum StoppedBy {
     Client,
     /// The program, such as through `run.stop` (ADR 0102).
     Program,
+    /// The browser, outside every Client: a page's window closed there, or
+    /// the browser quit (ADR 0113).
+    Browser,
+}
+
+/// What was closed under a call that `call_cancelled` ended (ADR 0113).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ClosedValue {
+    /// Its page.
+    Page,
+    /// Its page's Session.
+    Session,
+    /// Its page's browser.
+    Browser,
 }
 
 /// What `call_cancelled` details.
@@ -473,6 +488,11 @@ pub struct CallCancelledDetails {
     /// Who stopped the call.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub by: StoppedBy,
+    /// What was closed under it, when something was rather than the call
+    /// itself cancelled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub closed: Option<ClosedValue>,
 }
 
 /// A call on a value its program already closed (ADR 0078), raised by the
@@ -485,6 +505,32 @@ pub const CLOSED: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// A transition a lifecycle table refuses that only a bug in Goodfetch can
+/// cause (ADRs 0079 and 0128), logged at `error` with the same details.
+pub const INTERNAL: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "internal",
+    description: "A bug in Goodfetch: an object such as a Session or a page received an event its state cannot receive. Report it with the object, the state and the event its details carry.",
+    group: ErrorGroup::Internal,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `internal` details: the object whose table refused the event, its
+/// state and the event, as the engine names them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct InternalDetails {
+    /// The object, such as `session` or `page`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub object: String,
+    /// Its state.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub state: String,
+    /// The event refused.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub event: String,
+}
 
 /// No engine executable to start, raised by an SDK's `connect()` (ADRs
 /// 0024, 0078 and 0090).
@@ -599,6 +645,7 @@ pub const ENTRIES: Entries = Entries {
         CALL_CANCELLED,
         DEADLINE_EXCEEDED,
         CLOSED,
+        INTERNAL,
         ENGINE_NOT_FOUND,
         ENGINE_EXITED,
         CONNECTION_LOST,

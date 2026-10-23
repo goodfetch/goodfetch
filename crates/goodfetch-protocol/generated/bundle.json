@@ -5469,6 +5469,16 @@
           "const": "dom_content_loaded",
           "description": "`page.dom_content_loaded`.",
           "type": "string"
+        },
+        {
+          "const": "crash",
+          "description": "`page.crash`.",
+          "type": "string"
+        },
+        {
+          "const": "close",
+          "description": "`page.close`.",
+          "type": "string"
         }
       ]
     },
@@ -5493,7 +5503,7 @@
       "type": "object"
     },
     "PageFired": {
-      "description": "What `page.load` and `page.dom_content_loaded` report: the page whose\nmain frame's document fired the event.",
+      "description": "What `page.load`, `page.dom_content_loaded`, `page.crash` and\n`page.close` report: the page whose main frame's document fired the\nevent, or that crashed or closed.",
       "properties": {
         "page_id": {
           "$ref": "#/$defs/PageId",
@@ -9711,6 +9721,11 @@
         {
           "const": "program",
           "description": "The program, such as through `run.stop` (ADR 0102).",
+          "type": "string"
+        },
+        {
+          "const": "browser",
+          "description": "The browser, outside every Client: a page's window closed there, or\nthe browser quit (ADR 0113).",
           "type": "string"
         }
       ]

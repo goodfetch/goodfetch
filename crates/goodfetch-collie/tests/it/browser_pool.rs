@@ -101,8 +101,10 @@ fn is_dump(file: &std::path::Path) -> bool {
 
 /// A renderer of a browser the pool launched, crashed on purpose through
 /// Chromium's own `chrome://crash`, writes its dump into the folder the
-/// test's environment names, where teardown would fail the test (#373).
-/// Covers: operation:page.goto
+/// test's environment names, where teardown would fail the test (#373),
+/// and the navigation it crashed under raises `page_crashed` (spec #594's
+/// P10), not the `navigation_failed` of the load the browser abandoned.
+/// Covers: operation:page.goto, story:5-27
 #[cfg(unix)]
 #[test]
 fn a_crashed_renderer_of_a_pooled_browser_writes_its_dump_in_the_tests_crash_dump_folder() {
@@ -117,7 +119,7 @@ fn a_crashed_renderer_of_a_pooled_browser_writes_its_dump_in_the_tests_crash_dum
         &json!({ "run_id": "crash" }),
     ));
 
-    let _ = call(
+    let crashed = call(
         &mut engine,
         3,
         "page.goto",
@@ -132,9 +134,12 @@ fn a_crashed_renderer_of_a_pooled_browser_writes_its_dump_in_the_tests_crash_dum
     }
 
     assert_eq!(
-        dumps.iter().filter(|file| is_dump(file)).count(),
-        1,
-        "{dumps:?}"
+        (
+            dumps.iter().filter(|file| is_dump(file)).count(),
+            crashed["error"]["data"]["code"].clone()
+        ),
+        (1, json!("page_crashed")),
+        "{dumps:?} {crashed}"
     );
 }
 

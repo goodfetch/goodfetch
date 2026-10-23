@@ -56,6 +56,13 @@ number = 3
 kind = "error"
 prefix = "deadline_exceeded"
 
+# A transition a lifecycle table refuses that only a bug causes (ADR 0128),
+# which area 5's Session and page tables raise first (#731).
+[[area]]
+number = 3
+kind = "error"
+prefix = "internal"
+
 # The engine's own DNS resolver and Smart App Control's refusal (#260).
 [[area]]
 number = 3

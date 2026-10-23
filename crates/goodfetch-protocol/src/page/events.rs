@@ -52,6 +52,10 @@ pub enum PageEventName {
     Load,
     /// `page.dom_content_loaded`.
     DomContentLoaded,
+    /// `page.crash`.
+    Crash,
+    /// `page.close`.
+    Close,
 }
 
 /// What `page.on` takes: the page and the event listened to.
@@ -235,8 +239,9 @@ pub struct WebSocketClosed {
     pub web_socket_id: String,
 }
 
-/// What `page.load` and `page.dom_content_loaded` report: the page whose
-/// main frame's document fired the event.
+/// What `page.load`, `page.dom_content_loaded`, `page.crash` and
+/// `page.close` report: the page whose main frame's document fired the
+/// event, or that crashed or closed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PageFired {
     /// The page.
@@ -397,6 +402,20 @@ pub const PAGE_DOM_CONTENT_LOADED: Event = lossless(
     schema_of::<PageFired>,
 );
 
+/// Playwright's `crash`.
+pub const PAGE_CRASH: Event = lossless(
+    "page.crash",
+    "The page crashed: its renderer, or its browser's process, which exited abnormally. Its calls in flight raised `page_crashed`, and so does each later call. Published while `page.on` listens to `crash`.",
+    schema_of::<PageFired>,
+);
+
+/// Playwright's `close`.
+pub const PAGE_CLOSE: Event = lossless(
+    "page.close",
+    "The page closed: the engine closed it, or its window was closed in the browser outside every Client. Published while `page.on` listens to `close`, just before that call answers.",
+    schema_of::<PageFired>,
+);
+
 /// `page.on`.
 pub const PAGE_ON: Operation = Operation {
     name: "page.on",
@@ -420,6 +439,8 @@ pub const PAGE_ON: Operation = Operation {
         &PAGE_LOAD,
         &PAGE_DOM_CONTENT_LOADED,
         &PAGE_DOWNLOAD,
+        &PAGE_CRASH,
+        &PAGE_CLOSE,
     ],
     cancellable: true,
     stability: Stability::Experimental,

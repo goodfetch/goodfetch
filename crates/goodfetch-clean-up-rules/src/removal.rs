@@ -30,8 +30,9 @@ pub struct Removal {
     /// The document without them, serialized.
     pub html: String,
     /// Each element removed, in the order of its root (the document first,
-    /// then each shadow root as the document holds it) and, within one, by
-    /// rule and then document order.
+    /// then each shadow root as the document holds it) and, within one, in
+    /// document order, those of plain CSS rules before those of procedural
+    /// ones.
     pub removed: Vec<Removed>,
     /// Their text, white space aside, in characters.
     pub removed_text: usize,
@@ -53,18 +54,14 @@ pub struct Removed {
 }
 
 /// One rule as removal applies it.
-struct Rule {
+struct Rule<K> {
     name: String,
     list: List,
-    kind: Kind,
+    kind: K,
 }
 
-enum Kind {
-    /// A plain CSS selector.
-    Css(Matcher),
-    /// A procedural rule's operators, in order.
-    Procedural(Vec<Step>),
-}
+/// A procedural rule's operators, in order.
+struct Procedural(Vec<Step>);
 
 /// One procedural operator removal evaluates.
 enum Step {
@@ -84,8 +81,8 @@ pub fn remove(html: &str, url: &str, lists: &FilterLists, choices: &Choices) -> 
     }
     let document = Document::from(html);
     let roots = roots(&document);
-    let (classes, ids) = classes_and_ids(&roots);
-    let mut applied: Vec<Rule> = rules
+    let (classes, ids) = classes_and_ids(roots.iter().map(|(root, _)| root));
+    let css: Vec<Rule<Matcher>> = rules
         .css_rules(
             &classes.iter().map(String::as_str).collect::<Vec<_>>(),
             &ids.iter().map(String::as_str).collect::<Vec<_>>(),
@@ -94,42 +91,75 @@ pub fn remove(html: &str, url: &str, lists: &FilterLists, choices: &Choices) -> 
         .filter(|rule| rule.style == HIDDEN)
         .filter_map(|rule| {
             Some(Rule {
-                kind: Kind::Css(Matcher::new(&rule.selector).ok()?),
+                kind: Matcher::new(&rule.selector).ok()?,
                 name: rule.selector,
                 list: rule.list,
             })
         })
         .collect();
-    applied.extend(
-        rules
-            .procedural()
-            .into_iter()
-            .filter_map(|(filter, list)| procedural(&filter, list)),
-    );
-    if applied.is_empty() {
+    // One pass over each root finds what any plain rule matches; each
+    // element found is then credited to the first rule that matches it.
+    let every = Matcher::new(
+        &css.iter()
+            .map(|rule| rule.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
+    .ok();
+    let procedural: Vec<Rule<Procedural>> = rules
+        .procedural()
+        .into_iter()
+        .filter_map(|(filter, list)| procedural(&filter, list))
+        .collect();
+    if css.is_empty() && procedural.is_empty() {
         return untouched(html);
     }
     let mut removed = Vec::new();
     let mut gone = BTreeSet::new();
-    for (index, root) in roots.iter().enumerate() {
-        if gone_with_an_ancestor(root, &gone) {
+    for (index, (root, host)) in roots.iter().enumerate() {
+        if host.is_some_and(|host| gone_with_an_ancestor(&host, &gone)) {
             continue;
         }
-        for rule in &applied {
-            for node in matches(root, &rule.kind) {
-                if gone_with_an_ancestor(&node, &gone) {
-                    continue;
-                }
-                removed.push(Removed {
-                    rule: rule.name.clone(),
-                    list: rule.list,
-                    in_shadow_root: index > 0,
-                    text: visible_length(&node.text()),
-                    links: links(&node),
-                });
-                gone.insert(node.id);
-                node.remove_from_parent();
+        let found: Vec<(NodeRef<'_>, &str, List)> = match &every {
+            Some(every) => Selection::from(*root)
+                .select_matcher(every)
+                .nodes()
+                .iter()
+                .filter_map(|node| {
+                    let rule = css.iter().find(|rule| node.is_match(&rule.kind))?;
+                    Some((*node, rule.name.as_str(), rule.list))
+                })
+                .collect(),
+            None => css
+                .iter()
+                .flat_map(|rule| {
+                    Selection::from(*root)
+                        .select_matcher(&rule.kind)
+                        .nodes()
+                        .iter()
+                        .map(|node| (*node, rule.name.as_str(), rule.list))
+                        .collect::<Vec<_>>()
+                })
+                .collect(),
+        };
+        let procedurally = procedural.iter().flat_map(|rule| {
+            matches(root, &rule.kind)
+                .into_iter()
+                .map(|node| (node, rule.name.as_str(), rule.list))
+        });
+        for (node, rule, list) in found.into_iter().chain(procedurally) {
+            if gone_with_an_ancestor(&node, &gone) {
+                continue;
             }
+            removed.push(Removed {
+                rule: rule.to_owned(),
+                list,
+                in_shadow_root: index > 0,
+                text: visible_length(&node.text()),
+                links: links(&node),
+            });
+            gone.insert(node.id);
+            node.remove_from_parent();
         }
     }
     if removed.is_empty() {
@@ -151,13 +181,13 @@ fn untouched(html: &str) -> Removal {
     }
 }
 
-/// The document's root, then each shadow root, depth first in document
-/// order.
-fn roots(document: &Document) -> Vec<NodeRef<'_>> {
-    let mut roots = vec![document.root()];
+/// The document's root, then each shadow root with the `<template>` that
+/// holds it, breadth first in document order.
+fn roots(document: &Document) -> Vec<(NodeRef<'_>, Option<NodeRef<'_>>)> {
+    let mut roots = vec![(document.root(), None)];
     let mut next = 0;
     while next < roots.len() {
-        let root = roots[next];
+        let (root, _) = roots[next];
         next += 1;
         let shadow = Matcher::new("template[shadowrootmode]")
             .expect("invariant: the shadow root selector is CSS");
@@ -165,7 +195,7 @@ fn roots(document: &Document) -> Vec<NodeRef<'_>> {
             let contents =
                 template.query(|node| node.as_element().and_then(|e| e.template_contents));
             if let Some(contents) = contents.flatten().and_then(|id| document.tree.get(&id)) {
-                roots.push(contents);
+                roots.push((contents, Some(*template)));
             }
         }
     }
@@ -173,7 +203,9 @@ fn roots(document: &Document) -> Vec<NodeRef<'_>> {
 }
 
 /// Every class and ID the roots' elements hold.
-fn classes_and_ids(roots: &[NodeRef<'_>]) -> (BTreeSet<String>, BTreeSet<String>) {
+fn classes_and_ids<'a, 'b: 'a>(
+    roots: impl Iterator<Item = &'a NodeRef<'b>>,
+) -> (BTreeSet<String>, BTreeSet<String>) {
     let (mut classes, mut ids) = (BTreeSet::new(), BTreeSet::new());
     for root in roots {
         for node in root.descendants_it() {
@@ -193,7 +225,7 @@ fn classes_and_ids(roots: &[NodeRef<'_>]) -> (BTreeSet<String>, BTreeSet<String>
 /// The rule removal makes of a procedural `filter` of `list`: none for an
 /// action other than hiding or removing, or an operator it does not
 /// evaluate.
-fn procedural(filter: &ProceduralOrActionFilter, list: List) -> Option<Rule> {
+fn procedural(filter: &ProceduralOrActionFilter, list: List) -> Option<Rule<Procedural>> {
     match filter.action {
         None | Some(CosmeticFilterAction::Remove) => {}
         Some(_) => return None,
@@ -224,7 +256,7 @@ fn procedural(filter: &ProceduralOrActionFilter, list: List) -> Option<Rule> {
     Some(Rule {
         name: serde_json::to_string(filter).unwrap_or_default(),
         list,
-        kind: Kind::Procedural(steps),
+        kind: Procedural(steps),
     })
 }
 
@@ -234,60 +266,52 @@ fn is_pattern(text: &str) -> bool {
     text.len() > 1 && text.starts_with('/') && text.ends_with('/')
 }
 
-/// The elements `kind` matches under `root`, in document order.
-fn matches<'a>(root: &NodeRef<'a>, kind: &Kind) -> Vec<NodeRef<'a>> {
-    match kind {
-        Kind::Css(matcher) => Selection::from(*root)
-            .select_matcher(matcher)
-            .nodes()
-            .to_vec(),
-        Kind::Procedural(steps) => {
-            let mut found: Vec<NodeRef<'a>> = vec![*root];
-            for (index, step) in steps.iter().enumerate() {
-                found = match step {
-                    Step::Css(matcher) if index == 0 => Selection::from(*root)
+/// The elements the procedural rule `steps` matches under `root`.
+fn matches<'a>(root: &NodeRef<'a>, Procedural(steps): &Procedural) -> Vec<NodeRef<'a>> {
+    let mut found: Vec<NodeRef<'a>> = vec![*root];
+    for (index, step) in steps.iter().enumerate() {
+        found = match step {
+            Step::Css(matcher) if index == 0 => Selection::from(*root)
+                .select_matcher(matcher)
+                .nodes()
+                .to_vec(),
+            Step::Css(matcher) => found
+                .iter()
+                .flat_map(|node| {
+                    Selection::from(*node)
                         .select_matcher(matcher)
                         .nodes()
-                        .to_vec(),
-                    Step::Css(matcher) => found
-                        .iter()
-                        .flat_map(|node| {
-                            Selection::from(*node)
-                                .select_matcher(matcher)
-                                .nodes()
-                                .to_vec()
-                        })
-                        .collect(),
-                    Step::HasText(text) => found
-                        .into_iter()
-                        .filter(|node| node.text().contains(text.as_str()))
-                        .collect(),
-                    Step::MinTextLength(length) => found
-                        .into_iter()
-                        .filter(|node| node.text().chars().count() >= *length)
-                        .collect(),
-                    Step::UpwardBy(levels) => found
-                        .iter()
-                        .filter_map(|node| {
-                            node.ancestors_it(Some(*levels))
-                                .nth(levels.saturating_sub(1))
-                        })
-                        .filter(NodeRef::is_element)
-                        .collect(),
-                    Step::UpwardTo(matcher) => found
-                        .iter()
-                        .filter_map(|node| {
-                            node.ancestors_it(None)
-                                .find(|ancestor| ancestor.is_match(matcher))
-                        })
-                        .collect(),
-                };
-            }
-            let mut seen = BTreeSet::new();
-            found.retain(|node| seen.insert(node.id));
-            found
-        }
+                        .to_vec()
+                })
+                .collect(),
+            Step::HasText(text) => found
+                .into_iter()
+                .filter(|node| node.text().contains(text.as_str()))
+                .collect(),
+            Step::MinTextLength(length) => found
+                .into_iter()
+                .filter(|node| node.text().chars().count() >= *length)
+                .collect(),
+            Step::UpwardBy(levels) => found
+                .iter()
+                .filter_map(|node| {
+                    node.ancestors_it(Some(*levels))
+                        .nth(levels.saturating_sub(1))
+                })
+                .filter(NodeRef::is_element)
+                .collect(),
+            Step::UpwardTo(matcher) => found
+                .iter()
+                .filter_map(|node| {
+                    node.ancestors_it(None)
+                        .find(|ancestor| ancestor.is_match(matcher))
+                })
+                .collect(),
+        };
     }
+    let mut seen = BTreeSet::new();
+    found.retain(|node| seen.insert(node.id));
+    found
 }
 
 /// Whether `node`, or an ancestor of it, was removed already.

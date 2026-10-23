@@ -29,6 +29,7 @@
         });
 
   const run = async () => {
+    // oxlint-disable-next-line typescript/unbound-method -- reads the method's source text, never calls it
     const native = String(container && container.register).includes("[native code]");
     let registered = "registered";
     try {

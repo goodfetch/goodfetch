@@ -5,11 +5,15 @@
 //! Linux x64 (`just lazyfs-test`, which builds LazyFS and names it in
 //! `GOODFETCH_LAZYFS`); nextest's profiles leave them out elsewhere.
 
+use std::ffi::OsString;
 use std::io::Write as _;
+use std::os::unix::ffi::OsStringExt as _;
 use std::os::unix::fs::MetadataExt as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Duration, Instant};
 
-use goodfetch_test_support::{LazyFs, LazyFsError, TestEnv};
+use goodfetch_test_support::{LAZYFS_DEADLINE, LazyFs, LazyFsError, TestEnv};
 
 /// Writes `text` into a new file at `path`, synced when `synced`.
 fn write(path: &Path, text: &str, synced: bool) {
@@ -143,4 +147,132 @@ fn a_mount_whose_end_fails_still_stops_lazyfs_and_unmounts() {
         std::fs::read_to_string(env.home().join("open")).unwrap(),
         "kept open"
     );
+}
+
+/// A process the test started that still runs in the folder at the end,
+/// as an engine not yet stopped would, with its working folder and a file
+/// open there, fails the end at once, named in the error: the end detaches
+/// a mount only when no process uses the folder.
+#[test]
+fn a_mount_that_a_running_process_still_uses_at_its_end_fails_naming_it() {
+    let env = TestEnv::new();
+    let mounted = LazyFs::mount(&env, env.home()).unwrap();
+    write(&env.home().join("open"), "kept open", true);
+    let user = env
+        .spawn(
+            env.process_command("/bin/sh")
+                .args(["-c", "exec 3<open; exec /bin/sleep 600"])
+                .current_dir(env.home()),
+        )
+        .unwrap();
+    let pid = user.child().id();
+    wait_until("the process to hold the file open", || {
+        std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|name| name == "sleep\n")
+    });
+
+    let ended = mounted.unmount();
+
+    user.stop().unwrap();
+    let Err(LazyFsError::NotUnmounted { users, .. }) = &ended else {
+        panic!("{ended:?}");
+    };
+    assert_eq!(
+        (
+            users.len(),
+            users[0].starts_with(&format!("{pid} sleep: cwd, open "))
+        ),
+        (1, true),
+        "{users:?}"
+    );
+    assert!(!is_mounted(env.home()));
+}
+
+/// A lookup that only passes through the folder, such as `lsof` or `df`
+/// stat'ing every mount point on the machine, holds the mount while it
+/// lasts without using the folder, and the kernel refuses an unmount then:
+/// the end waits for it to be done rather than fail. A reader opening a
+/// FIFO in the folder stands in for it: until a writer comes, its open
+/// holds the mount with no open file, working folder or mapping in it.
+#[test]
+fn a_mount_that_a_passing_lookup_holds_at_its_end_ends_once_the_lookup_is_done() {
+    let env = TestEnv::new();
+    let fifo = env.home().join("pipe");
+    assert!(
+        Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let mounted = LazyFs::mount(&env, env.home()).unwrap();
+    let lookup = env
+        .spawn(env.process_command("/bin/cat").arg(&fifo))
+        .unwrap();
+    let pid = lookup.child().id();
+    wait_until("the reader to wait for a writer", || {
+        std::fs::read_to_string(format!("/proc/{pid}/wchan"))
+            .is_ok_and(|wchan| wchan == "wait_for_partner")
+    });
+    let home = env.home().to_owned();
+    // The lookup is done once the end has let go of the folder.
+    let done = std::thread::spawn(move || {
+        wait_until("the folder to be unmounted", || !is_mounted(&home));
+        Command::new("kill")
+            .args(["-KILL", &pid.to_string()])
+            .status()
+            .unwrap();
+    });
+
+    let ended = mounted.unmount();
+
+    done.join().unwrap();
+    let _ = lookup.stop();
+    assert!(ended.is_ok(), "{ended:?}");
+}
+
+/// Waits until `condition` holds, failing the test past [`LAZYFS_DEADLINE`].
+fn wait_until(what: &str, mut condition: impl FnMut() -> bool) {
+    let deadline = Instant::now() + LAZYFS_DEADLINE;
+    while !condition() {
+        assert!(
+            Instant::now() < deadline,
+            "waited {LAZYFS_DEADLINE:?} for {what}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Whether `path` is a mount point in this process's mount table, read
+/// without looking up the path, which would hold the mount itself.
+fn is_mounted(path: &Path) -> bool {
+    std::fs::read_to_string("/proc/self/mountinfo")
+        .unwrap()
+        .lines()
+        .filter_map(|line| line.split(' ').nth(4))
+        .any(|point| unescape(point) == path)
+}
+
+/// A mount table's path, whose space, tab, newline and backslash are
+/// octal escapes such as `\040`.
+fn unescape(field: &str) -> PathBuf {
+    let bytes = field.as_bytes();
+    let mut path = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while let Some(&byte) = bytes.get(at) {
+        let octal = bytes
+            .get(at + 1..at + 4)
+            .filter(|digits| byte == b'\\' && digits.iter().all(u8::is_ascii_digit));
+        if let Some(digits) = octal {
+            path.push(
+                digits
+                    .iter()
+                    .fold(0, |value, digit| value * 8 + (digit - b'0')),
+            );
+            at += 4;
+        } else {
+            path.push(byte);
+            at += 1;
+        }
+    }
+    PathBuf::from(OsString::from_vec(path))
 }

@@ -29,3 +29,8 @@ rstest.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-shear]
+# The build script's `build/consent.rs`, a module it reaches by path, reads
+# autoconsent's rules with `serde_json`, which cargo-shear does not follow.
+ignored = ["serde_json"]

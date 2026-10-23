@@ -16,5 +16,6 @@ extend-exclude = ["rnd/", "crates/goodfetch-cdp/protocol.json", "crates/goodfetc
 # `ndJsonDeserialize` operator; and the Proving ground's French and German
 # phrases and the "café" its pages spell decomposed, percent-encoded and
 # as an HTML entity; and CDP's own misspelt `grantUniveralAccess`, as its
-# bindings name it.
-extend-ignore-re = ["ThreatMetrix", "online-metrix", "\\bmis-", "\\bPNGs\\b", "look-alikes", "\\bnd-(router|neighbor)-", "\\bndJson", "\\bcaf(\\\\u|%C3)", "\\bCaf&eacute;", "für alle", "ses raisons", "\\bgrant_univeral_access\\b"]
+# bindings name it; and the consent pages' German buttons and Cookiebot's
+# own element IDs (`…LevelOptinAllowAll`).
+extend-ignore-re = ["ThreatMetrix", "online-metrix", "\\bmis-", "\\bPNGs\\b", "look-alikes", "\\bnd-(router|neighbor)-", "\\bndJson", "\\bcaf(\\\\u|%C3)", "\\bCaf&eacute;", "für alle", "ses raisons", "\\bgrant_univeral_access\\b", "Alle (akzeptieren|ablehnen)", "LevelOptin"]

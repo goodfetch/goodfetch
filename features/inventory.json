@@ -902,7 +902,7 @@
     {
       "id": "error:dialog_already_handled",
       "kind": "error",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1798,7 +1798,7 @@
     {
       "id": "event:session.page",
       "kind": "event",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2334,7 +2334,7 @@
     {
       "id": "operation:dialog.accept",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2345,7 +2345,7 @@
     {
       "id": "operation:dialog.dismiss",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2477,7 +2477,7 @@
     {
       "id": "operation:page.close",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2900,7 +2900,7 @@
     {
       "id": "operation:session.on",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2911,7 +2911,7 @@
     {
       "id": "operation:session.pages",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [

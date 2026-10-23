@@ -23,13 +23,15 @@
 //! warning and `nothingDone` its owners handed over, and two Sessions its
 //! program opened, its default one open and another closed, with a proxy
 //! of its own, which that
-//! contribution records since no browser runs here, whose program sets a
-//! progress message, which `run.checkpoint` checkpoints and
+//! contribution records since no browser runs here, and a Download's file
+//! it keeps, which its Checkpoints carry, whose program sets a progress
+//! message, which `run.checkpoint` checkpoints and
 //! `run.pause` pauses with a Checkpoint.
 //! It writes each Run's file, as SQL text, into the folder given as the
 //! only argument: `crawl.sql`, `aborted.sql` and `paused.sql`; and the
-//! pause's real Checkpoint file, `checkpoint.sqlite`, with the Checkpoint
-//! the pause reported, `checkpoint.json`, its location the file's name
+//! pause's real Checkpoint file, `checkpoint.sqlite`, as SQL text too,
+//! `checkpoint.sql`, which alone holds the chunks of a kept file, with the
+//! Checkpoint the pause reported, `checkpoint.json`, its location the file's name
 //! (ADR 0066). `xtask compat write` runs it.
 #![expect(
     clippy::disallowed_methods,
@@ -43,6 +45,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::run_files::FileKind;
 use goodfetch_engine::run_key::{self, StoredKey, Wrapped};
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::runs::{EndedBy, Start, Started};
@@ -212,6 +215,13 @@ fn bound() -> Contribution {
                 run.charge_part("proxy_bytes", "datacenter", 4_096, None)
                     .await
                     .expect("the proxy bytes are counted");
+                run.keep_file(
+                    FileKind::Download,
+                    "books.csv".to_owned(),
+                    std::io::Cursor::new(b"title,price\nDune,9.99\n".to_vec()),
+                )
+                .await
+                .expect("the Download's file is kept");
                 run.state()
                     .write(|connection| {
                         connection
@@ -393,6 +403,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::copy(
         runs.join("paused").join("checkpoint.sqlite"),
         folder.join("checkpoint.sqlite"),
+    )?;
+    let checkpointed = rusqlite::Connection::open(runs.join("paused").join("checkpoint.sqlite"))?;
+    std::fs::write(
+        folder.join("checkpoint.sql"),
+        goodfetch_test_support::sql_dump(&checkpointed)?,
     )?;
     let mut checkpoint = paused["result"]["checkpoint"].clone();
     checkpoint["location"] = json!("checkpoint.sqlite");

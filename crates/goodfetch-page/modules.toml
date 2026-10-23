@@ -1,7 +1,7 @@
 # Which of goodfetch-page's top-level modules may import which (ADR 0126).
 [modules]
 browser_fetch = ["driver", "errors", "interception", "page_value", "proxy"]
-consent = ["driver", "guard"]
+consent = ["driver", "guard", "hiding"]
 dialogs = ["driver"]
 driver = ["errors", "launch", "page_value", "proxy", "trace"]
 errors = ["page_value"]

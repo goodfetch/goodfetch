@@ -104,7 +104,7 @@ impl Case {
             Self::Vendors => vendors(connection, site, checks),
             Self::Languages => languages(connection, site, checks),
             Self::LateAndRouteChange => late_and_route_change(connection, site, checks),
-            Self::Notice => notice(connection, site, checks),
+            Self::Notice => notice(connection, home, site, checks),
             Self::Overrides => overrides(connection, site, checks),
             Self::Worlds => worlds(connection, home, site, checks),
             Self::Off => off(connection, site, checks),
@@ -315,8 +315,15 @@ fn late_and_route_change(
 }
 
 /// A notice with only an acknowledgement is no longer shown, though the
-/// page's `document.styleSheets` lists no sheet, and nothing answers it.
-fn notice(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
+/// page's `document.styleSheets` lists no sheet, and nothing answers it;
+/// the runner's rule and live hiding's share the document's one hiding
+/// sheet, made by a single `CSS.createStyleSheet`.
+fn notice(
+    connection: &mut Connection,
+    home: Option<&str>,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
     let run_id = "conformance-consent-notice";
     let Some(page) = open(connection, site, run_id, &json!({}), checks)? else {
         return finish(connection, run_id);
@@ -332,7 +339,18 @@ fn notice(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
         "nothing answered the notice",
         count(site, "/consent/answered", &[("vendor", "notice")]) == 0,
     );
-    finish(connection, run_id)
+    finish(connection, run_id)?;
+    let made = trace(home, run_id, "cdp-commands.jsonl")
+        .iter()
+        .filter(|line| line["method"] == json!("CSS.createStyleSheet"))
+        .count();
+    checks.check(
+        format!(
+            "the notice's document has one hiding sheet, live hiding's and the runner's ({made} made)"
+        ),
+        made == 1,
+    );
+    Ok(())
 }
 
 /// TikTok's rule clicks its refusal with `element.click()`, which the

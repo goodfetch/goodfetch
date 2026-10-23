@@ -31,6 +31,7 @@ use super::life::{Ending, PageLife, session_closed};
 use super::lifecycle::PageEffect;
 use super::{OpenPage, Session, Sessions, timeouts, wait_deadline};
 use crate::driver::{OnPopup, PageDriver};
+use crate::hiding::Sheets;
 use crate::page_events::{PageEvents, Refusals};
 use crate::page_value::ResponseObserver;
 use crate::pool::InBrowser;
@@ -111,11 +112,14 @@ impl Sessions {
                     observer,
                 )
                 .await?;
+            // Live hiding and the Consent prompt runner share each
+            // document's one hiding sheet.
+            let sheets = Arc::new(Sheets::new(driver.clone()));
             let hiding = self
                 .hiding
-                .start(&page, session, &driver, &run, &clean_up)
+                .start(&page, session, &driver, &run, &clean_up, &sheets)
                 .await?;
-            self.consent.start(&page, &driver, &run).await?;
+            self.consent.start(&page, &driver, &run, &sheets).await?;
             Ok::<_, CallError>(hiding)
         };
         let hiding = match started.await {

@@ -198,6 +198,24 @@ fn the_down_proxy_refuses_every_connection() {
     assert!(refused);
 }
 
+/// Another program on the machine cannot take the `down` proxy's address,
+/// so a connection to it stays refused for as long as the Proving ground
+/// runs.
+#[test]
+fn no_other_program_can_take_the_down_proxy_address() {
+    let proving_ground = ProvingGround::start(SEED);
+    let down = proving_ground.proxy("down");
+
+    let other = clients::listen(&down);
+    let refused = clients::connection_refused(&down);
+
+    assert_eq!(
+        other.map(|_| ()).map_err(|error| error.kind()),
+        Err(std::io::ErrorKind::AddrInUse)
+    );
+    assert!(refused);
+}
+
 #[rstest]
 #[case::datacenter("datacenter")]
 #[case::isp("isp")]

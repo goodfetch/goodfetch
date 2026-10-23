@@ -106,6 +106,11 @@ impl Talk {
     pub(super) async fn reply(&mut self, id: i64, method: &str, params: Value) -> Value {
         call(&mut self.0, id, method, params).await
     }
+
+    /// The Connection's Client, for a call it reads message by message.
+    pub(super) fn client(&mut self) -> &mut Client {
+        &mut self.0
+    }
 }
 
 /// Runs the engine as an Attached engine in `env`, in the per-run layout,
@@ -115,7 +120,16 @@ where
     F: FnOnce(Talk) -> Fut,
     Fut: Future<Output = T>,
 {
-    attached_on(&engine(), env, |mut client| async move {
+    per_run_on(&engine(), env, talk)
+}
+
+/// [`per_run`], with `engine`.
+pub(super) fn per_run_on<F, Fut, T>(engine: &Engine, env: &TestEnv, talk: F) -> T
+where
+    F: FnOnce(Talk) -> Fut,
+    Fut: Future<Output = T>,
+{
+    attached_on(engine, env, |mut client| async move {
         client.send(&[hello("collie", "0.1")]).await;
         client.next().await;
         talk(Talk(client)).await
@@ -129,7 +143,16 @@ where
     F: FnOnce(Talk) -> Fut,
     Fut: Future<Output = T>,
 {
-    daemon_in(env, |dialer| async move {
+    per_install_on(&engine(), env, talk)
+}
+
+/// [`per_install`], with `engine` as the Daemon.
+pub(super) fn per_install_on<F, Fut, T>(engine: &Engine, env: &TestEnv, talk: F) -> T
+where
+    F: FnOnce(Talk) -> Fut,
+    Fut: Future<Output = T>,
+{
+    daemon_on(engine, env, |dialer| async move {
         let mut client = connect(&dialer).await;
         let mut hello = hello("collie", "0.1");
         hello["params"]["token"] = json!(TOKEN);
@@ -154,7 +177,15 @@ where
     F: FnOnce(InMemoryDialer) -> Fut,
     Fut: Future<Output = T>,
 {
-    let engine = engine();
+    daemon_on(&engine(), env, body)
+}
+
+/// [`daemon_in`], with `engine` as the Daemon.
+fn daemon_on<F, Fut, T>(engine: &Engine, env: &TestEnv, body: F) -> T
+where
+    F: FnOnce(InMemoryDialer) -> Fut,
+    Fut: Future<Output = T>,
+{
     goodfetch_test_support::runtime().block_on(async {
         let dependencies = dependencies(env);
         // The test `tracing` subscriber writes the dispatch records into the

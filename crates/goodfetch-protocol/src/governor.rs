@@ -1,14 +1,15 @@
 //! The Resource governor's contracts (ADR 0040, spec #213): its settings,
 //! every key under `governor.` (ADR 0083), the `engine.system_info` event
-//! that carries its readings, and its metrics. One governor per engine
-//! process of either Product, so everything here is Collie's.
+//! that carries its readings, its metrics, and the Error code its shedding
+//! ladder ends a page with. One governor per engine process of either
+//! Product, so everything here is Collie's.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Authority, Entries, Event, EventClass, Instrument, Metric, MetricLabel, ProtocolVersion,
-    Setting, Stability, ValueKind, schema_of,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Instrument, Metric,
+    MetricLabel, ProtocolVersion, Setting, Stability, ValueKind, schema_of,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -102,6 +103,10 @@ fn one_hundred() -> serde_json::Value {
 
 fn eight() -> serde_json::Value {
     serde_json::json!(8)
+}
+
+fn one_gibibyte() -> serde_json::Value {
+    serde_json::Value::from(1_u64 << 30)
 }
 
 fn five_minutes() -> serde_json::Value {
@@ -297,6 +302,28 @@ pub const BROWSER_MEMORY_CAP: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `governor.browser.page_memory_cap` (ADR 0040).
+pub const BROWSER_PAGE_MEMORY_CAP: Setting = Setting {
+    name: "governor.browser.page_memory_cap",
+    description: "The memory, in bytes, of one page's JavaScript heap and the buffers it holds, past which the Resource governor ends the page while memory is critical: 1 GiB. The page ends at its safe point, once no call on it is in flight, and its calls raise `page_memory_exceeded`, which is retryable.",
+    kind: ValueKind::Count,
+    default: one_gibibyte,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A page the Resource governor ended past its memory cap (ADR 0040).
+pub const PAGE_MEMORY_EXCEEDED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "page_memory_exceeded",
+    description: "Memory was critical and the page held more than `governor.browser.page_memory_cap`, so the Resource governor ended it once no call on it was in flight. The page is gone: open another and try again, which the governor admits once memory frees up.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
+    exit_code: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -518,7 +545,7 @@ pub const PRESSURE_SOURCE: Metric = Metric {
 };
 
 /// Every setting of the governor, each under `governor.`.
-pub const SETTINGS: [Setting; 16] = [
+pub const SETTINGS: [Setting; 17] = [
     HTTP_FLOOR,
     HTTP_CEILING,
     BROWSER_PAGE_FLOOR,
@@ -535,6 +562,7 @@ pub const SETTINGS: [Setting; 16] = [
     BROWSER_RECYCLE_PAGES,
     BROWSER_RECYCLE_IDLE,
     BROWSER_MEMORY_CAP,
+    BROWSER_PAGE_MEMORY_CAP,
 ];
 
 /// Every entry this module defines.
@@ -543,7 +571,7 @@ pub const ENTRIES: Entries = Entries {
     operations: &[],
     events: &[SYSTEM_INFO],
     handler_requests: &[],
-    error_codes: &[],
+    error_codes: &[PAGE_MEMORY_EXCEEDED],
     plugin_kinds: &[],
     metrics: &[SATURATION, TARGET, PRESSURE_SOURCE],
     settings: &SETTINGS,

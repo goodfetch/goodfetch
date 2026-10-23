@@ -56,6 +56,7 @@ contexts_per_process = 4
 recycle_pages = 4
 recycle_idle = 30000
 memory_cap = 4
+page_memory_cap = 4
 
 [settings.storage]
 low_free = 4
@@ -264,6 +265,7 @@ contexts_per_process = 4
 recycle_pages = 4
 recycle_idle = 30000
 memory_cap = 4
+page_memory_cap = 4
 
 [lock.storage]
 low_free = 4
@@ -450,6 +452,7 @@ contexts_per_process = 4
 recycle_pages = 4
 recycle_idle = 30000
 memory_cap = 4
+page_memory_cap = 4
 
 [cap.storage]
 low_free = 4

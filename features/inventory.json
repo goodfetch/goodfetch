@@ -1139,6 +1139,17 @@
       ]
     },
     {
+      "id": "error:page_memory_exceeded",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:path_not_writable",
       "kind": "error",
       "area": 3,
@@ -5324,6 +5335,17 @@
     },
     {
       "id": "setting:governor.browser.memory_cap",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:governor.browser.page_memory_cap",
       "kind": "setting",
       "area": 3,
       "milestone": null,

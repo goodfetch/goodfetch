@@ -440,6 +440,11 @@
                     ],
                     "description": "The memory, in bytes, of a browser and its processes past which it is recycled; unset by default, when the cap is twice what the browser used once it had opened its first page."
                   },
+                  "page_memory_cap": {
+                    "description": "The memory, in bytes, of one page's JavaScript heap and the buffers it holds, past which the Resource governor ends the page while memory is critical: 1 GiB. The page ends at its safe point, once no call on it is in flight, and its calls raise `page_memory_exceeded`, which is retryable.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "recycle_idle": {
                     "description": "How long a browser may hold no open page before it closes, each of its Sessions keeping its cookies and storage for the browser that replaces it: 5 minutes.",
                     "minimum": 0,

@@ -425,6 +425,10 @@ fn new_work_on_a_finished_run_raises_run_ended() {
 /// Waits up to 30 s for every browser process the test's engines started to
 /// exit, and answers how many are left.
 #[cfg(unix)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test polls the process list on its own thread, never an async worker"
+)]
 fn browsers_left(env: &TestEnv) -> usize {
     for _ in 0..300 {
         if crate::page::browser_command_lines(env).is_empty() {

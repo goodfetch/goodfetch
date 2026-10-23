@@ -367,6 +367,13 @@ fn retry_after_is_sent_in_seconds_and_each_http_date_format_on_429_503_and_302()
     );
     let long = raw_clients::get(&proving_ground, HOST, "/retry-after/503/long", &[]);
     assert_eq!(long.header("retry-after").as_deref(), Some("3600"));
+    for _ in 0..2 {
+        let limited = raw_clients::get(&proving_ground, HOST, "/retry-after/429/long", &[]);
+        assert_eq!(
+            (limited.status(), limited.header("retry-after").as_deref()),
+            (Some(429), Some("3600"))
+        );
+    }
 }
 
 #[test]
@@ -401,6 +408,42 @@ fn refresh_stubs_name_their_targets() {
     assert_eq!(
         requests_for(&proving_ground.observations(), HOST, "/target").len(),
         1
+    );
+}
+
+/// The bodies `page.request`'s decoding cases read (ADR 0119): text in
+/// Shift_JIS, labelled so, and JSON after a UTF-8 BOM.
+#[test]
+fn a_shift_jis_text_and_a_json_body_after_a_bom_are_served_as_their_bytes() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let text = raw_clients::get(&proving_ground, HOST, "/text/shift-jis", &[]);
+    let json = raw_clients::get(&proving_ground, HOST, "/json/bom", &[]);
+
+    assert_eq!(
+        (
+            text.status(),
+            text.header("content-type").as_deref(),
+            text.body()
+        ),
+        (
+            Some(200),
+            Some("text/plain; charset=Shift_JIS"),
+            // 日本語 in Shift_JIS.
+            &[0x93, 0xFA, 0x96, 0x7B, 0x8C, 0xEA][..]
+        )
+    );
+    assert_eq!(
+        (
+            json.status(),
+            json.header("content-type").as_deref(),
+            json.body()
+        ),
+        (
+            Some(200),
+            Some("application/json"),
+            &b"\xEF\xBB\xBF{\"bom\":true}"[..]
+        )
     );
 }
 

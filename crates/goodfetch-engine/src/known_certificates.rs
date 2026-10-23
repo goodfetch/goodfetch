@@ -46,6 +46,16 @@ const SCHEMA: &[&str] = &[
         run_id TEXT,
         PRIMARY KEY (person, host)
     ) STRICT",
+    // The key a pinned host presented instead, which stopped it, waiting
+    // for a person to accept it.
+    "CREATE TABLE IF NOT EXISTS changes (
+        person TEXT NOT NULL,
+        host TEXT NOT NULL,
+        spki_sha256 BLOB NOT NULL,
+        seen_at TEXT NOT NULL,
+        run_id TEXT,
+        PRIMARY KEY (person, host)
+    ) STRICT",
 ];
 
 /// The SHA-256 of a certificate's `SubjectPublicKeyInfo`: what a pin holds,
@@ -109,6 +119,15 @@ pub enum Pinned {
     Already(Found),
 }
 
+/// What [`KnownCertificates::accept`] did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Accepted {
+    /// What the store held for the host before.
+    pub previous: Found,
+    /// The pin it holds now.
+    pub pin: CertificatePin,
+}
+
 /// Why the store could not be read or written.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -120,6 +139,12 @@ pub enum KnownCertificatesError {
         path: PathBuf,
         /// SQLite's message.
         message: String,
+    },
+    /// No change waits for the host with the key a person accepted.
+    #[error("no change of {host}'s key to that one waits to be accepted")]
+    NoSuchChange {
+        /// The host.
+        host: String,
     },
     /// The store is of another major of the format (ADR 0030).
     #[error("the known-certificates store is {found}, which this engine cannot read")]
@@ -202,18 +227,30 @@ impl Row {
                 spki_sha256: Some(read.key.to_string()),
                 pinned_at: Some(PointInTime::from_rfc3339(read.pinned_at.to_string())),
                 run_id: read.run_id,
+                changed_spki_sha256: None,
             },
             None => CertificatePin {
                 host: self.host,
                 spki_sha256: None,
                 pinned_at: None,
                 run_id: None,
+                changed_spki_sha256: None,
             },
         }
     }
 }
 
 const SELECT: &str = "SELECT host, spki_sha256, pinned_at, run_id FROM pins";
+
+/// [`SELECT`]'s columns with the key of the change waiting for each pin.
+const SELECT_LISTED: &str = "SELECT pins.host, pins.spki_sha256, pins.pinned_at, pins.run_id, changes.spki_sha256 FROM pins LEFT JOIN changes ON changes.person = pins.person AND changes.host = pins.host";
+
+/// A change waiting for a person: the key the host presented instead, and
+/// the Run that met it.
+struct Change {
+    key: KeyHash,
+    run_id: Option<RunId>,
+}
 
 impl KnownCertificates {
     /// The store of `home`, opened through the SQLite VFS named `vfs` (none
@@ -283,6 +320,134 @@ impl KnownCertificates {
         Ok(Pinned::First)
     }
 
+    /// Records `key`, which `person`'s pinned `host` presented at `now` in
+    /// `run_id` and was stopped for, as the change waiting for a person; it
+    /// replaces any change recorded before.
+    ///
+    /// # Errors
+    ///
+    /// When the store cannot be written, or is of another major.
+    pub fn record_change(
+        &self,
+        person: &str,
+        host: &str,
+        key: &KeyHash,
+        run_id: Option<&RunId>,
+        now: Timestamp,
+    ) -> Result<(), KnownCertificatesError> {
+        let connection = self.open()?;
+        connection
+            .execute(
+                "INSERT INTO changes (person, host, spki_sha256, seen_at, run_id) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT (person, host) DO UPDATE SET spki_sha256 = excluded.spki_sha256, seen_at = excluded.seen_at, run_id = excluded.run_id",
+                (
+                    person,
+                    host,
+                    key.stored(),
+                    now.to_string(),
+                    run_id.map(RunId::as_str),
+                ),
+            )
+            .map_err(|error| self.failed(&error))?;
+        Ok(())
+    }
+
+    /// Pins `key` for `person`'s `host` in place of its pin, dated `now`
+    /// and by the Run that met it, once `key` is the change waiting for the
+    /// host, which then waits no more.
+    ///
+    /// # Errors
+    ///
+    /// [`KnownCertificatesError::NoSuchChange`] unless `key` is the change
+    /// waiting for the host; otherwise when the store cannot be written,
+    /// or is of another major.
+    pub fn accept(
+        &self,
+        person: &str,
+        host: &str,
+        key: &KeyHash,
+        now: Timestamp,
+    ) -> Result<Accepted, KnownCertificatesError> {
+        let failed = |error: &dyn std::fmt::Display| self.failed(error);
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| failed(&error))?;
+        let waiting = change_in(&transaction, person, host).map_err(|error| failed(&error))?;
+        let Some(Change {
+            key: changed,
+            run_id,
+        }) = waiting.filter(|change| change.key == *key)
+        else {
+            return Err(KnownCertificatesError::NoSuchChange {
+                host: host.to_owned(),
+            });
+        };
+        let previous = find_in(&transaction, person, host).map_err(|error| failed(&error))?;
+        transaction
+            .execute(
+                "INSERT INTO pins (person, host, spki_sha256, pinned_at, run_id) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT (person, host) DO UPDATE SET spki_sha256 = excluded.spki_sha256, pinned_at = excluded.pinned_at, run_id = excluded.run_id",
+                (
+                    person,
+                    host,
+                    changed.stored(),
+                    now.to_string(),
+                    run_id.as_ref().map(RunId::as_str),
+                ),
+            )
+            .map_err(|error| failed(&error))?;
+        transaction
+            .execute(
+                "DELETE FROM changes WHERE person = ?1 AND host = ?2",
+                [person, host],
+            )
+            .map_err(|error| failed(&error))?;
+        transaction.commit().map_err(|error| failed(&error))?;
+        Ok(Accepted {
+            previous,
+            pin: CertificatePin {
+                host: host.to_owned(),
+                spki_sha256: Some(changed.to_string()),
+                pinned_at: Some(PointInTime::from_rfc3339(now.to_string())),
+                run_id,
+                changed_spki_sha256: None,
+            },
+        })
+    }
+
+    /// Removes `person`'s pin of `host` and the change waiting for it;
+    /// whether there was a pin. A store never written holds none, and is
+    /// not created.
+    ///
+    /// # Errors
+    ///
+    /// When the store cannot be written, or is of another major.
+    pub fn forget(&self, person: &str, host: &str) -> Result<bool, KnownCertificatesError> {
+        if !self.path.exists() {
+            return Ok(false);
+        }
+        let failed = |error: &dyn std::fmt::Display| self.failed(error);
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| failed(&error))?;
+        let removed = transaction
+            .execute(
+                "DELETE FROM pins WHERE person = ?1 AND host = ?2",
+                [person, host],
+            )
+            .map_err(|error| failed(&error))?;
+        transaction
+            .execute(
+                "DELETE FROM changes WHERE person = ?1 AND host = ?2",
+                [person, host],
+            )
+            .map_err(|error| failed(&error))?;
+        transaction.commit().map_err(|error| failed(&error))?;
+        Ok(removed > 0)
+    }
+
     /// `person`'s pins, by host; a row this engine cannot read is listed
     /// with its host alone. A store never written lists none, and is not
     /// created.
@@ -297,14 +462,29 @@ impl KnownCertificates {
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
         let connection = self.open()?;
         let mut statement = connection
-            .prepare(&format!("{SELECT} WHERE person = ?1 ORDER BY host"))
+            .prepare(&format!(
+                "{SELECT_LISTED} WHERE pins.person = ?1 ORDER BY pins.host"
+            ))
             .map_err(|error| failed(&error))?;
         let rows = statement
-            .query_map([person], Row::from_sql)
+            .query_map([person], |row| {
+                // A change whose key this engine cannot read waits for
+                // nothing a person could accept.
+                let changed = row
+                    .get::<_, Option<Vec<u8>>>(4)
+                    .ok()
+                    .flatten()
+                    .and_then(|bytes| KeyHash::from_stored(&bytes));
+                Ok((Row::from_sql(row)?, changed))
+            })
             .map_err(|error| failed(&error))?;
         let mut pins = Vec::new();
         for row in rows {
-            pins.push(row.map_err(|error| failed(&error))?.listed());
+            let (row, changed) = row.map_err(|error| failed(&error))?;
+            pins.push(CertificatePin {
+                changed_spki_sha256: changed.map(|key| key.to_string()),
+                ..row.listed()
+            });
         }
         Ok(pins)
     }
@@ -384,6 +564,36 @@ fn find_in(connection: &Connection, person: &str, host: &str) -> rusqlite::Resul
         )
         .optional()?;
     Ok(row.map_or(Found::Unpinned, |row| row.found()))
+}
+
+/// The change waiting for `person`'s `host` in `connection`'s store; none
+/// when none waits, or its row cannot be read.
+fn change_in(
+    connection: &Connection,
+    person: &str,
+    host: &str,
+) -> rusqlite::Result<Option<Change>> {
+    let row = connection
+        .query_row(
+            "SELECT spki_sha256, run_id FROM changes WHERE person = ?1 AND host = ?2",
+            [person, host],
+            |row| {
+                Ok((
+                    row.get::<_, Vec<u8>>(0).ok(),
+                    row.get::<_, Option<String>>(1).ok(),
+                ))
+            },
+        )
+        .optional()?;
+    Ok(row.and_then(|(key, run_id)| {
+        Some(Change {
+            key: KeyHash::from_stored(&key?)?,
+            run_id: match run_id? {
+                Some(run_id) => Some(RunId::parse(&run_id).ok()?),
+                None => None,
+            },
+        })
+    }))
 }
 
 /// Refuses a store of another major (ADR 0030): every minor of this one

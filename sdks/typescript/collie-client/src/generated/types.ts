@@ -683,6 +683,12 @@ export interface CancelParams {
  */
 export interface CertificatePin {
   /**
+   * The SHA-256 of the key the host presented instead, which stopped it
+   * with `certificate_changed`, as `sha256/` and its standard base64: the
+   * key `certs.accept` pins in its place. None while no change waits.
+   */
+  changed_spki_sha256?: string | null;
+  /**
    * The host, as the URL parser leaves it.
    */
   host: string;
@@ -701,6 +707,51 @@ export interface CertificatePin {
    * which stops the host as a changed key.
    */
   spki_sha256?: string | null;
+}
+/**
+ * What `certs.accept` takes: the host, and the changed key the person
+ * accepts, as `certs.list` shows it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CertsAcceptParams".
+ */
+export interface CertsAcceptParams {
+  /**
+   * The pinned host, as the URL parser leaves it.
+   */
+  host: string;
+  /**
+   * The SHA-256 of the changed key, as `sha256/` and its standard base64.
+   */
+  spki_sha256: string;
+}
+/**
+ * What `certs.forget` takes: the host.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CertsForgetParams".
+ */
+export interface CertsForgetParams {
+  /**
+   * The pinned host, as the URL parser leaves it.
+   */
+  host: string;
+}
+/**
+ * What `certs.forget` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CertsForgotten".
+ */
+export interface CertsForgotten {
+  /**
+   * Whether the caller had a pin for it, now removed.
+   */
+  forgotten: boolean;
+  /**
+   * The host.
+   */
+  host: string;
 }
 /**
  * What `certs.list` takes: nothing.

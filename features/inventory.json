@@ -703,6 +703,17 @@
       ]
     },
     {
+      "id": "error:certificate_changed",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:certificate_invalid",
       "kind": "error",
       "area": 4,
@@ -1819,6 +1830,28 @@
     },
     {
       "id": "operation:audit.verify",
+      "kind": "operation",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:certs.accept",
+      "kind": "operation",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:certs.forget",
       "kind": "operation",
       "area": 4,
       "milestone": null,

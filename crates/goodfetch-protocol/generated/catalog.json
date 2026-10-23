@@ -92,6 +92,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt or the Console, which no agent, Recipe or `--json` command can do.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "certificate_changed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A host's certificate failed verification and no exception covers its domain, so nothing was sent to it. The details name the host, the failure (`expired`, `not_yet_valid`, `unknown_issuer`, `name_mismatch`, `self_signed`, `revoked`, or another failure as text) and, in `fix`, the setting that makes an exception for that domain.",
       "exit_code": null,
       "group": "page",
@@ -1250,6 +1260,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/AuditVerified"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Pins the changed key that stopped a host with `certificate_changed` in place of its pin, in the caller's partition, and records the accepted change in the Audit log; answers the new pin. Refused unless the key is the change the store holds for the host. A person's answer: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "certs.accept",
+      "params": {
+        "$ref": "#/$defs/CertsAcceptParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/CertificatePin"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Removes the caller's pin of a host, and any change waiting for it, so its next connection under trust on first use pins again; nothing else removes a pin. A person's answer: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "certs.forget",
+      "params": {
+        "$ref": "#/$defs/CertsForgetParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/CertsForgotten"
       },
       "stability": "experimental"
     },

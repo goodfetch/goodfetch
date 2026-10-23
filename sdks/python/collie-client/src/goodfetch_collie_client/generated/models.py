@@ -154,6 +154,43 @@ class AxisReason(BaseModel):
     """What it says, for people."""
 
 
+class CertsAcceptParams(BaseModel):
+    """
+    What `certs.accept` takes: the host, and the changed key the person
+    accepts, as `certs.list` shows it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    host: str
+    """The pinned host, as the URL parser leaves it."""
+    spki_sha256: str
+    """The SHA-256 of the changed key, as `sha256/` and its standard base64."""
+
+
+class CertsForgetParams(BaseModel):
+    """What `certs.forget` takes: the host."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    host: str
+    """The pinned host, as the URL parser leaves it."""
+
+
+class CertsForgotten(BaseModel):
+    """What `certs.forget` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    forgotten: bool
+    """Whether the caller had a pin for it, now removed."""
+    host: str
+    """The host."""
+
+
 class CertsListParams(BaseModel):
     """What `certs.list` takes: nothing."""
 
@@ -1720,6 +1757,12 @@ class CertificatePin(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    changed_spki_sha256: str | None = None
+    """
+    The SHA-256 of the key the host presented instead, which stopped it
+    with `certificate_changed`, as `sha256/` and its standard base64: the
+    key `certs.accept` pins in its place. None while no change waits.
+    """
     host: str
     """The host, as the URL parser leaves it."""
     pinned_at: PointInTime | None = None

@@ -214,8 +214,104 @@ pub enum RequestKind {
     /// A request of a page that the page's interception holds, a route's
     /// overrides applied (spec #577's step 3).
     Page,
+    /// A hop of a page's main-frame navigation that a Client asked for,
+    /// while that call goes on: [`Navigator::reads_files`] decides whether
+    /// it may load a `file:` URL.
+    Navigation(Navigator),
     /// A request whose kind the interception that holds it cannot see.
     Unseen,
+}
+
+/// Who asked for a page's navigation, as the `file:` rule reads it (ADRs
+/// 0056 and 0089; spec #564): a `file:` URL, or any other scheme but
+/// HTTP's, is loaded only for the program's own code or the CLI on an
+/// engine without accounts, so a model never reads the machine's files, or
+/// the browser's own pages, through a page.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Navigator {
+    /// A Client acting for a model asked.
+    pub acting_for_model: bool,
+    /// The page is a Recipe's Run's.
+    pub recipe_run: bool,
+    /// The engine serves accounts, so people other than the program's own.
+    pub accounts: bool,
+}
+
+impl Navigator {
+    /// Whether its navigation may load a `file:` URL, or any other
+    /// document of the machine or the browser that reaches no network.
+    pub fn reads_files(self) -> bool {
+        !(self.acting_for_model || self.recipe_run || self.accounts)
+    }
+}
+
+/// Where a navigation a Client asked for goes, once its scheme is judged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Destination {
+    /// To the network, whose every hop the page's interception judges.
+    Network,
+    /// To a document of the machine or the browser that reaches no
+    /// network, a `file:` URL among them, which its [`Navigator`] may load.
+    Local,
+    /// A `javascript:` URL, which runs in the frame if
+    /// [`judge_javascript`] allows it.
+    JavaScript,
+    /// `about:blank`, which loads nothing.
+    Blank,
+}
+
+/// Judges the scheme of `url`, a navigation `navigator` asked for, before
+/// any route sees it.
+///
+/// # Errors
+///
+/// [`Refused`] with [`EgressRule::Scheme`].
+pub fn navigation(url: &str, navigator: Navigator) -> Result<Destination, Refused> {
+    let refused = |rule| Refused {
+        url: url.to_owned(),
+        rule,
+        address: None,
+        setting: None,
+    };
+    let Ok(parsed) = Url::parse(url) else {
+        return Err(refused(EgressRule::DomainPolicy));
+    };
+    match parsed.scheme() {
+        scheme if SCHEMES.contains(&scheme) => Ok(Destination::Network),
+        JAVASCRIPT => Ok(Destination::JavaScript),
+        _ if parsed.as_str() == BLANK => Ok(Destination::Blank),
+        _ if navigator.reads_files() => Ok(Destination::Local),
+        _ => Err(refused(EgressRule::Scheme)),
+    }
+}
+
+/// The scheme of a URL to a file of the engine's machine.
+const FILE: &str = "file";
+
+/// The scheme of a URL that runs a script in a frame.
+const JAVASCRIPT: &str = "javascript";
+
+/// The page that loads nothing.
+const BLANK: &str = "about:blank";
+
+/// Judges whether the `javascript:` URL `url` may run in a frame whose
+/// document is at `frame_url`.
+///
+/// # Errors
+///
+/// [`Refused`] naming `url`.
+pub fn judge_javascript(url: &str, frame_url: &str, session: &Policy) -> Result<(), Refused> {
+    let frame = Request {
+        url: frame_url,
+        kind: RequestKind::Page,
+    };
+    match judge(&frame, session) {
+        Judgment::Allowed(_) => Ok(()),
+        Judgment::Refused(refused) => Err(Refused {
+            url: url.to_owned(),
+            ..refused
+        }),
+    }
 }
 
 /// A request to judge.
@@ -429,6 +525,12 @@ pub fn judge(request: &Request<'_>, session: &Policy) -> Judgment {
         }
         return refused(EgressRule::DomainPolicy, None);
     };
+    if url.scheme() == FILE
+        && let RequestKind::Navigation(navigator) = request.kind
+        && navigator.reads_files()
+    {
+        return Judgment::Allowed(url);
+    }
     if !SCHEMES.contains(&url.scheme()) {
         return refused(EgressRule::Scheme, None);
     }

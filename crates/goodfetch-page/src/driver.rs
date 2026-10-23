@@ -995,6 +995,10 @@ impl PageDriver {
                         )
                         .await?;
                     match (navigated.error_text, navigated.loader_id) {
+                        // A `javascript:` URL runs in the document, which
+                        // the browser answers as an aborted navigation:
+                        // no document loads.
+                        (Some(_), None) if is_javascript(&url) => Ok(None),
                         (Some(error), loader) => navigation::refused(
                             &error,
                             loader,
@@ -1065,6 +1069,21 @@ impl PageDriver {
                 &format!("no load event within `{}`", TIMEOUT_NAVIGATION.name),
             )),
         }
+    }
+
+    /// The URL of the document the main frame holds: the one it could not
+    /// reach when it shows the browser's error page.
+    pub(crate) async fn document_url(&self) -> Result<String, CallError> {
+        let tree = self
+            .browser
+            .send(
+                Some(&self.session),
+                &page::GetFrameTreeParams {},
+                &Call::Document,
+            )
+            .await?;
+        let frame = tree.frame_tree.frame;
+        Ok(frame.unreachable_url.unwrap_or(frame.url))
     }
 
     /// `proxy_unavailable` when `response`, the document's response to a
@@ -1230,3 +1249,12 @@ impl PageDriver {
         })
     }
 }
+
+/// Whether `url` is a `javascript:` URL, which runs in a frame's document.
+fn is_javascript(url: &str) -> bool {
+    url.get(..JAVASCRIPT.len())
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case(JAVASCRIPT))
+}
+
+/// The scheme of a URL that runs a script, with its colon.
+const JAVASCRIPT: &str = "javascript:";

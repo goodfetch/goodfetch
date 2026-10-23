@@ -26,6 +26,7 @@ mod refusals;
 mod report;
 mod run;
 mod settings;
+mod storage;
 mod takeover;
 mod trace;
 mod usage;

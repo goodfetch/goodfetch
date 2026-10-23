@@ -118,6 +118,12 @@ impl CrashVfs {
         lock(&self.disk).faults.insert(index, fault);
     }
 
+    /// Frees the disk an [`IoFault::Full`] filled, as a person freeing space
+    /// does: writes that grow a file succeed again.
+    pub fn free_space(&self) {
+        lock(&self.disk).full = false;
+    }
+
     /// Crashes the instance: every file the code under test opened before
     /// now fails each I/O, and a database opened afterwards (the next
     /// process, as [`after_crash`] opens it) sees what the crash left on the

@@ -9,12 +9,12 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use goodfetch_protocol::run::{RunId, RunReport};
+use goodfetch_protocol::run::RunId;
 use rusqlite::Connection;
 use tokio::sync::watch;
 
 use super::folder::open_reader;
-use super::{RUN_FILE, RunError};
+use super::{Ended, RUN_FILE, RunError};
 use crate::tasks::TaskOwner;
 
 /// A reader of a Run's committed state.
@@ -34,7 +34,7 @@ pub(super) struct Following {
     /// The writer's commits, or `None` once the Run is ending.
     pub(super) commits: Option<watch::Receiver<u64>>,
     /// The Run's report, once it ended.
-    pub(super) report: watch::Receiver<Option<RunReport>>,
+    pub(super) report: watch::Receiver<Option<Ended>>,
 }
 
 impl RunReader {

@@ -36,7 +36,7 @@ use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
 use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
-use goodfetch_protocol::run::{RUN_NOT_FOUND, RunDetails, RunId};
+use goodfetch_protocol::run::{Lifecycle, RUN_ENDED, RUN_NOT_FOUND, RunDetails, RunId};
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SESSION_SOURCE, SettingLimit,
@@ -616,18 +616,46 @@ fn opening_source(run: &Run, own: Option<Option<SessionSource>>) -> Result<(), C
     }
 }
 
-/// The live Run `run_id`, or `run_not_found`.
+/// The live Run `run_id`; `run_ended` for one that ended `finished`, which
+/// takes no new work (ADR 0102), and `run_not_found` for any other.
 async fn live(run_id: &RunId, context: &CallContext) -> Result<Run, CallError> {
-    context.runs().live(run_id.clone()).await.map_err(|error| {
-        CallError::new(
-            &RUN_NOT_FOUND,
-            format!("No live Run has the Run ID `{run_id}`: {error}"),
-            &RunDetails {
-                run_id: run_id.clone(),
-                path: None,
-            },
-        )
-    })
+    let error = match context.runs().live(run_id.clone()).await {
+        Ok(run) => return Ok(run),
+        Err(error) => error,
+    };
+    let details = RunDetails {
+        run_id: run_id.clone(),
+        path: None,
+    };
+    if finished(run_id, context).await {
+        return Err(CallError::new(
+            &RUN_ENDED,
+            format!(
+                "The Run `{run_id}` ended `finished` and takes no new work: start a Run under a new Run ID."
+            ),
+            &details,
+        ));
+    }
+    Err(CallError::new(
+        &RUN_NOT_FOUND,
+        format!("No live Run has the Run ID `{run_id}`: {error}"),
+        &details,
+    ))
+}
+
+/// Whether the Run `run_id`'s committed state says it ended `finished`.
+async fn finished(run_id: &RunId, context: &CallContext) -> bool {
+    let Ok(mut reader) = context.runs().reader(run_id.clone()).await else {
+        return false;
+    };
+    reader
+        .read(|connection| {
+            connection.query_row("SELECT lifecycle FROM run", [], |row| {
+                row.get::<_, String>(0)
+            })
+        })
+        .await
+        .is_ok_and(|lifecycle| lifecycle == Lifecycle::Finished.as_str())
 }
 
 /// The Run's `timeout.navigation`, and its `timeout.action` with where it

@@ -375,3 +375,49 @@ fn session_source_is_refused_in_a_sessions_own_settings_and_the_runs_is_the_defa
         )
     );
 }
+
+/// Covers: error:run_ended, operation:run.new_session, operation:run.new_page
+#[test]
+fn new_work_on_a_finished_run_raises_run_ended() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    engine.send(&crate::attached::hello("collie", "0.1"));
+    let _ = engine.next();
+    let _ = call(&mut engine, 1, "run.start", &json!({ "run_id": "ended" }));
+    let _ = call(&mut engine, 2, "run.finish", &json!({ "run_id": "ended" }));
+
+    let session = call(
+        &mut engine,
+        3,
+        "run.new_session",
+        &json!({ "run_id": "ended" }),
+    );
+    let page = call(
+        &mut engine,
+        4,
+        "run.new_page",
+        &json!({ "run_id": "ended" }),
+    );
+    let never_started = call(
+        &mut engine,
+        5,
+        "run.new_session",
+        &json!({ "run_id": "never-started" }),
+    );
+    let _ = engine.finish();
+
+    assert_eq!(
+        (
+            code_of(&session),
+            &session["error"]["data"]["run_id"],
+            code_of(&page),
+            code_of(&never_started),
+        ),
+        (
+            &json!("run_ended"),
+            &json!("ended"),
+            &json!("run_ended"),
+            &json!("run_not_found"),
+        )
+    );
+}

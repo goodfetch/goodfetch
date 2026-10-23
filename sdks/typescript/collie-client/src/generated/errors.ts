@@ -487,6 +487,15 @@ export class RunConflictError extends ProgramError {
 }
 
 /**
+ * The Run ended `finished`, so it takes no new work, such as a page or a Session it would open: start a Run under a new Run ID. The details name the Run.
+ */
+export class RunEndedError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_ended", group: "program", retryable: false });
+  }
+}
+
+/**
  * The Run ID is not one the engine takes: lowercase letters, digits, `.`, `_` and `-`, at most 128, starting and ending with a letter or a digit, never a name Windows reserves for a device.
  */
 export class RunIdInvalidError extends ProgramError {
@@ -699,6 +708,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   route_already_handled: RouteAlreadyHandledError,
   run_busy: RunBusyError,
   run_conflict: RunConflictError,
+  run_ended: RunEndedError,
   run_id_invalid: RunIdInvalidError,
   run_in_use: RunInUseError,
   run_not_found: RunNotFoundError,

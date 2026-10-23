@@ -3,7 +3,8 @@
 //! and through a Daemon (`daemon run`), on a tmpfs of its own holding the
 //! Goodfetch home and the run folder, with `storage.low_free` and
 //! `storage.critical_free` set against its size and a filler file to cross
-//! them:
+//! them; the home's `logs` folder stays on the test's disk, so the engine's
+//! JSON log reaches the exercise record:
 //! - **Low:** the Run goes on, its progress reads `storage` at `low` with
 //!   its folder, freeing space brings it back to `normal`, and its report
 //!   carries `storage_low`.
@@ -38,7 +39,7 @@ use serde_json::{Value, json};
 use crate::attached::{Attached, hello};
 use crate::daemon::RawClient;
 use crate::daemon_run::{Foreground, free_address};
-use crate::tmpfs::{fill, free, inside, mounted};
+use crate::tmpfs::{fill, free, inside, mounted_home};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -77,7 +78,7 @@ impl<'env> Engine<'env> {
         let mut engine = match mode {
             Mode::Attached => {
                 env.user_configuration(settings);
-                let mut command = mounted(env, env.home(), SIZE, COLLIE);
+                let mut command = mounted_home(env, SIZE, COLLIE);
                 command.arg("attached-engine");
                 let mut engine =
                     Self::Attached(Attached::spawned(env, MESSAGE_DEADLINE, &mut command));
@@ -90,7 +91,7 @@ impl<'env> Engine<'env> {
                     "{settings}daemon.address = \"{}\"\n",
                     free_address()
                 ));
-                let mut command = mounted(env, env.home(), SIZE, COLLIE);
+                let mut command = mounted_home(env, SIZE, COLLIE);
                 command.args(["daemon", "run"]);
                 let mut daemon = Foreground::spawned(env, &mut command);
                 let endpoint = daemon.serving();

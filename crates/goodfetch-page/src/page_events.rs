@@ -656,7 +656,8 @@ fn sent_request(
 }
 
 /// A request failed: its failure carries the interception's refusal, which
-/// the Run trace records when no call waited on the request.
+/// the Run trace records when no call waited on the request, as the Run's
+/// outcome record names its Error code.
 fn failed_request(
     shared: &Shared,
     state: &mut State,
@@ -673,7 +674,9 @@ fn failed_request(
         error_text: error_text(&failed.error_text).to_owned(),
         error: refusal.as_ref().map(|(error, _)| error.clone()),
     });
-    if let Some((_, true)) = refusal {
+    if let Some((refused, true)) = &refusal {
+        // The Run trace holds the Error code no reply carries (ADR 0072).
+        shared.run.record_outcome(&refused.code);
         let (log, request) = (Arc::clone(&shared.log), request.clone());
         shared.run.spawn(async move {
             if let Err(error) = log.record(&PAGE_REQUEST_FAILED, &request).await {

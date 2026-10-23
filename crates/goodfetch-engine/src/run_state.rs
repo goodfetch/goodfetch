@@ -70,6 +70,9 @@ const SCHEMA: &[&str] = &[
         amount INTEGER NOT NULL,
         PRIMARY KEY (usage_kind, currency)
     ) STRICT",
+    // The Run's data key, wrapped by its key-encryption key, once it has
+    // one (ADR 0015).
+    crate::run_key::TABLE,
     // The warnings the Run's owners handed over, in order (ADR 0102).
     "CREATE TABLE IF NOT EXISTS warnings (
         position INTEGER NOT NULL PRIMARY KEY,

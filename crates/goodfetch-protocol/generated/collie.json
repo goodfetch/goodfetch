@@ -5408,6 +5408,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A resumed Run's data key does not open under the key-encryption key `run_state.key_reference` names, such as a Checkpoint moved to a machine whose own key is another: the key that wrapped it never travels with the Checkpoint. The details name the Run, the setting, the reference resolved and the reference that wrapped the key, never a value. Name the key that wrapped it, in project configuration or configuration, and resume again.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "run_key_mismatch",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "No Run has this Run ID: the Run index does not list it.",
       "exit_code": null,
       "group": "program",

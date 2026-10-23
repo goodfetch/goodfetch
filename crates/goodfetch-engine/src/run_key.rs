@@ -83,7 +83,8 @@ impl RunKey {
         Ok(Self { run_id, key })
     }
 
-    /// The data key `key` of the Run `run_id`.
+    /// The data key `key` of the Run `run_id`, which a test builds.
+    #[cfg(test)]
     pub(crate) fn from_bytes(run_id: RunId, key: [u8; KEY_LENGTH]) -> Self {
         Self {
             run_id,
@@ -177,6 +178,56 @@ impl Wrapped {
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
+}
+
+/// The table that holds a Run's wrapped data key, once it has one, with
+/// the Secret reference of the key-encryption key that wrapped it.
+pub const TABLE: &str = "CREATE TABLE IF NOT EXISTS run_key (
+    id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+    wrapped BLOB NOT NULL,
+    key_reference TEXT NOT NULL
+) STRICT";
+
+/// A wrapped data key as a run file holds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredKey {
+    /// The wrapped key.
+    pub wrapped: Wrapped,
+    /// The Secret reference of the key-encryption key that wrapped it.
+    pub key_reference: String,
+}
+
+/// Stores `stored` as the Run's wrapped data key in the run file
+/// `connection` writes, in place of none.
+///
+/// # Errors
+///
+/// SQLite's, and a constraint failure when the file holds a key already.
+pub fn store(connection: &rusqlite::Connection, stored: &StoredKey) -> rusqlite::Result<()> {
+    connection
+        .execute(
+            "INSERT INTO run_key (id, wrapped, key_reference) VALUES (1, ?1, ?2)",
+            (stored.wrapped.as_bytes(), stored.key_reference.as_str()),
+        )
+        .map(drop)
+}
+
+/// The Run's wrapped data key in the run file or Checkpoint `connection`
+/// reads, if it has one.
+///
+/// # Errors
+///
+/// SQLite's.
+pub fn stored(connection: &rusqlite::Connection) -> rusqlite::Result<Option<StoredKey>> {
+    let mut statement = connection.prepare("SELECT wrapped, key_reference FROM run_key")?;
+    let mut rows = statement.query([])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    Ok(Some(StoredKey {
+        wrapped: Wrapped(row.get(0)?),
+        key_reference: row.get(1)?,
+    }))
 }
 
 /// The associated data of `fields` under `domain`: each field's length, as

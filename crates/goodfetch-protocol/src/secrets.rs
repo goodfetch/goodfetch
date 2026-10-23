@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion, Setting, ValueKind,
 };
+use crate::run::RunId;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -159,6 +160,38 @@ pub struct SecretInputRefusedDetails {
     pub reason: SecretInputRefusedReason,
 }
 
+/// A Run's data key does not open under the key-encryption key a resume
+/// named (ADR 0015).
+pub const RUN_KEY_MISMATCH: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "run_key_mismatch",
+    description: "A resumed Run's data key does not open under the key-encryption key `run_state.key_reference` names, such as a Checkpoint moved to a machine whose own key is another: the key that wrapped it never travels with the Checkpoint. The details name the Run, the setting, the reference resolved and the reference that wrapped the key, never a value. Name the key that wrapped it, in project configuration or configuration, and resume again.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `run_key_mismatch` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunKeyMismatchDetails {
+    /// The Run.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The setting that names the key-encryption key,
+    /// `run_state.key_reference`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub setting: String,
+    /// The Secret reference the resume resolved.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reference: String,
+    /// The Secret reference of the key that wrapped the data key.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub wrapped_by: String,
+    /// What makes the resume open it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
 fn thirty_seconds() -> Value {
     json!(30_000)
 }
@@ -209,6 +242,7 @@ pub const ENTRIES: Entries = Entries {
         SECRET_UNBOUND,
         SECRET_DOMAIN_NOT_ALLOWED,
         SECRET_INPUT_REFUSED,
+        RUN_KEY_MISMATCH,
     ],
     plugin_kinds: &[],
     metrics: &[],

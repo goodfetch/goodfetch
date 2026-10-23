@@ -343,3 +343,91 @@ fn console_messages_and_uncaught_exceptions_carry_their_data_from_when_a_listene
         "{messages:?} {errors:?}"
     );
 }
+
+/// The bytes of the page body file a handle names.
+fn body_of(handle: &Value) -> Vec<u8> {
+    std::fs::read(handle["path"].as_str().unwrap_or_default()).unwrap_or_default()
+}
+
+/// A response a `page.wait_for_request_finished` waiter answered keeps its
+/// whole body, even once the page navigated away; another response's body
+/// is read on demand while the browser holds it, and once it dropped it,
+/// as after the next navigation, `response.body` raises `body_unavailable`
+/// whose fix names the waiter; a body cut mid-transfer raises
+/// `response_truncated`, never returned as whole (ADRs 0085 and 0118).
+/// Covers: story:5-46, operation:response.body, operation:page.wait_for_request_finished, error:body_unavailable, error:response_truncated, setting:timeout.wait
+#[test]
+fn a_kept_body_reads_whole_a_dropped_one_is_unavailable_and_a_cut_one_is_truncated() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let (mut exchange, page) = page_of(&env, &proving_ground, "bodies", &Map::new());
+    let url = proving_ground.url("access.test", "/page-events");
+    let other = proving_ground.url("catalog.test", "/catalog/1");
+    let cut = proving_ground.url("fetch-edge.test", "/cut/content-length");
+
+    let waiting = exchange.request(
+        "page.wait_for_request_finished",
+        &json!({ "page_id": page, "url": { "kind": "glob", "pattern": "**/page-events/data.json" } }),
+    );
+    let went = exchange.call("page.goto", &json!({ "page_id": page, "url": url }));
+    let finished = exchange.answer(waiting);
+    let data_id = finished["result"]["request"]["request_id"].clone();
+    let document_id = went["result"]["response"]["request_id"].clone();
+    let document_body = exchange.call(
+        "response.body",
+        &json!({ "page_id": page, "request_id": document_id }),
+    );
+    exchange.call("page.goto", &json!({ "page_id": page, "url": other }));
+    let kept = exchange.call(
+        "response.body",
+        &json!({ "page_id": page, "request_id": data_id }),
+    );
+    let dropped = exchange.call(
+        "response.body",
+        &json!({ "page_id": page, "request_id": document_id }),
+    );
+    let cut_went = exchange.call(
+        "page.goto",
+        &json!({ "page_id": page, "url": cut, "wait_until": "commit" }),
+    );
+    let cut_body = exchange.call(
+        "response.body",
+        &json!({ "page_id": page, "request_id": cut_went["result"]["response"]["request_id"] }),
+    );
+    let _ = exchange.call("run.finish", &json!({ "run_id": "bodies" }));
+    let _ = exchange.engine.finish();
+
+    let kept_json: Value = serde_json::from_slice(&body_of(&kept["result"])).unwrap_or_default();
+    assert_eq!(
+        (
+            finished["result"]["response"]["status"].clone(),
+            finished["result"]["request"]["url"]
+                .as_str()
+                .is_some_and(|url| url.ends_with("/page-events/data.json")),
+            kept_json["page_events"].is_string(),
+            String::from_utf8_lossy(&body_of(&document_body["result"]))
+                .contains("<title>page-events</title>"),
+            dropped["error"]["data"]["code"].clone(),
+            dropped["error"]["data"]["url"].clone(),
+            dropped["error"]["data"]["fix"]
+                .as_str()
+                .is_some_and(|fix| fix.contains("page.wait_for_request_finished")),
+            cut_went["result"]["response"]["status"].clone(),
+            cut_body["error"]["data"]["code"].clone(),
+            cut_body["error"]["data"]["url"].clone(),
+        ),
+        (
+            json!(200),
+            true,
+            true,
+            true,
+            json!("body_unavailable"),
+            json!(url),
+            true,
+            json!(200),
+            json!("response_truncated"),
+            json!(cut),
+        ),
+        "{finished} {kept} {document_body} {dropped} {cut_went} {cut_body}"
+    );
+}

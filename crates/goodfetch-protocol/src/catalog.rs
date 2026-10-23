@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 mod setting;
 
-pub use setting::{Authority, ValueKind, ValueShape};
+pub use setting::{Authority, PriceValue, ValueKind, ValueShape};
 
 /// The protocol's version, `major.minor` (ADR 0030), written on the wire as
 /// that text.

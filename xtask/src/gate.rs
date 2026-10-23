@@ -15,6 +15,18 @@
 //!   run's record.
 //! - **record**: appends a step's result to the run's record, only for the
 //!   planned head on a clean tree.
+//! - **verify**: checks a verdict before `just merge` merges it: every unit
+//!   of every step green, and each result reused from an earlier run that
+//!   run's own signed green result on an ancestor with that ancestor's tree;
+//!   prints each such run as an `origin\t<commit>` line.
+//! - **compare**: the backstop's check (ADR 0135): from a full run's record,
+//!   each result that an incremental run on the same tree reused and the
+//!   full run found red, as `miss` lines, or `suspect` lines for a step run
+//!   per member, whose red the members that run reran may hold.
+//!
+//! Every record line is signed with the host's gate key (`runs::Key`), a
+//! file outside the gate's worktree: a record it did not sign is no
+//! earlier run.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
@@ -23,6 +35,7 @@
 mod evidence;
 mod plan;
 mod runs;
+mod verdict;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
@@ -38,9 +51,15 @@ use crate::environment::Environment;
 use crate::{metadata, output};
 use evidence::RustInputs;
 use plan::{Action, GateRun, Head, Outcome, Planned, Step, Touched, UNOWNED, short, unit};
+use runs::Key;
 
 /// The branch whose merge base with the head is the change's base.
 const BASE_BRANCH: &str = "origin/main";
+
+/// The variables of the run's environment that choose what the gate reuses
+/// but not how any step runs, so they stay out of the host fingerprint: a
+/// forced full run's results count for the next run without it.
+const NOT_FINGERPRINTED: [&str; 1] = ["GOODFETCH_GATE_FULL"];
 
 #[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum Status {
@@ -58,6 +77,10 @@ pub(crate) enum Command {
         /// The folder of the gate's records.
         #[arg(long)]
         records: std::path::PathBuf,
+        /// The host's gate key, which signs the records, outside the gate's
+        /// worktree; made there when there is none.
+        #[arg(long)]
+        key: std::path::PathBuf,
         /// Reuses nothing: every step runs in full, and is recorded.
         #[arg(long)]
         full: bool,
@@ -89,6 +112,8 @@ pub(crate) enum Command {
     Record {
         #[arg(long)]
         records: std::path::PathBuf,
+        #[arg(long)]
+        key: std::path::PathBuf,
         /// The head the plan was made for: HEAD must still be it.
         #[arg(long)]
         head: String,
@@ -101,6 +126,29 @@ pub(crate) enum Command {
         #[arg(long, value_enum)]
         status: Status,
     },
+    /// Checks the verdict of the run on HEAD before a merge, and prints
+    /// each earlier run whose results it reuses; fails when a unit is red
+    /// or missing, or a reused result is not its run's own.
+    Verify {
+        #[arg(long)]
+        records: std::path::PathBuf,
+        #[arg(long)]
+        key: std::path::PathBuf,
+        /// The head whose verdict is checked: HEAD must be it.
+        #[arg(long)]
+        head: String,
+    },
+    /// Prints each result an incremental run on the full run's tree reused
+    /// and the full run on `full` found red.
+    Compare {
+        #[arg(long)]
+        records: std::path::PathBuf,
+        #[arg(long)]
+        key: std::path::PathBuf,
+        /// The head of the full run (`GOODFETCH_GATE_FULL=1`).
+        #[arg(long)]
+        full: String,
+    },
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
@@ -108,6 +156,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
     match command {
         Command::Plan {
             records,
+            key,
             full,
             dry_run,
             assume_green,
@@ -120,9 +169,16 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 Some(folder) => environment.path(&folder),
                 None => metadata::target_directory(&environment.cargo, root)?,
             };
+            let key = environment.path(&key);
+            let key = if dry_run {
+                key.exists().then(|| Key::load(&key)).transpose()?
+            } else {
+                Some(Key::load_or_create(&key)?)
+            };
             plan_run(
                 environment,
                 &records,
+                key.as_ref(),
                 &Options {
                     full,
                     dry_run,
@@ -135,6 +191,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         }
         Command::Record {
             records,
+            key,
             head,
             now,
             step,
@@ -146,6 +203,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             record_run(
                 root,
                 &environment.path(&records),
+                &Key::load(&environment.path(&key))?,
                 &Recorded {
                     head,
                     now,
@@ -153,6 +211,22 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     status,
                 },
             )?;
+        }
+        Command::Verify { records, key, head } => {
+            return verdict::verify(
+                environment,
+                &environment.path(&records),
+                &Key::load(&environment.path(&key))?,
+                &head,
+            );
+        }
+        Command::Compare { records, key, full } => {
+            return verdict::compare(
+                root,
+                &environment.path(&records),
+                &Key::load(&environment.path(&key))?,
+                &full,
+            );
         }
     }
     Ok(ExitCode::SUCCESS)
@@ -167,7 +241,12 @@ struct Options {
     variables: String,
 }
 
-fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Result<()> {
+fn plan_run(
+    environment: &Environment,
+    records: &Path,
+    key: Option<&Key>,
+    options: &Options,
+) -> Result<()> {
     let root = environment.root.as_path();
     let head = commit(root, "HEAD")?;
     let plan_file = runs::plan_file(records, &head);
@@ -209,7 +288,11 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
         )?;
         (Some(record), String::new())
     } else {
-        match nearest(root, records, &head)? {
+        match key
+            .map(|key| nearest(root, records, key, &head))
+            .transpose()?
+            .flatten()
+        {
             Some(record) => (Some(record), String::new()),
             None => (
                 None,
@@ -252,9 +335,9 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
     }
     output::error(&log);
     output::line(machine.trim_end());
-    if options.dry_run {
+    let Some(key) = key.filter(|_| !options.dry_run) else {
         return Ok(());
-    }
+    };
     let carried = GateRun {
         head,
         base,
@@ -264,14 +347,14 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
             .flat_map(|planned| planned.carried.clone())
             .collect(),
     };
-    write(records, &carried, &machine)
+    write(records, key, &carried, &machine)
 }
 
 /// Writes the run's record, its carried results, and its plan.
-fn write(records: &Path, carried: &GateRun, plan: &str) -> Result<()> {
+fn write(records: &Path, key: &Key, carried: &GateRun, plan: &str) -> Result<()> {
     std::fs::create_dir_all(records).with_context(|| format!("creating {}", records.display()))?;
     let record_file = runs::file(records, &carried.head);
-    std::fs::write(&record_file, runs::render(carried))
+    std::fs::write(&record_file, runs::render(carried, key))
         .with_context(|| format!("writing {}", record_file.display()))?;
     let plan_file = runs::plan_file(records, &carried.head);
     std::fs::write(&plan_file, plan).with_context(|| format!("writing {}", plan_file.display()))
@@ -449,8 +532,23 @@ fn host_fingerprint(root: &Path, cargo: &OsStr, variables: &str) -> String {
         probe(Process::new(program).args(rest));
     }
     probe(Process::new(cargo).args(["nextest", "--version"]));
-    digest.update(variables.as_bytes());
+    digest.update(fingerprinted(variables).as_bytes());
     format!("{:x}", digest.finalize())
+}
+
+/// The `NAME=value` lines of `variables` that join the host fingerprint:
+/// all but [`NOT_FINGERPRINTED`]'s.
+fn fingerprinted(variables: &str) -> String {
+    variables
+        .lines()
+        .filter(|line| {
+            let name = line.split_once('=').map_or(*line, |(name, _)| name);
+            !NOT_FINGERPRINTED.contains(&name)
+        })
+        .fold(String::new(), |mut kept, line| {
+            let _ = writeln!(kept, "{line}");
+            kept
+        })
 }
 
 /// A full green run on `assumed` on this host, now, for a dry run.
@@ -484,9 +582,10 @@ fn assumed_green(root: &Path, assumed: &str, head: &Head<'_>) -> Result<GateRun>
 }
 
 /// The record of the nearest run on `head` or one of its ancestors: the
-/// fewest commits away.
-fn nearest(root: &Path, records: &Path, head: &str) -> Result<Option<GateRun>> {
-    let mut nearest: Option<(u64, String)> = None;
+/// fewest commits away, among the records the gate's key signed; the log
+/// names each record it cannot read.
+fn nearest(root: &Path, records: &Path, key: &Key, head: &str) -> Result<Option<GateRun>> {
+    let mut nearest: Option<(u64, GateRun)> = None;
     for candidate in runs::heads(records)? {
         let ancestor = Process::new("git")
             .args([
@@ -510,13 +609,17 @@ fn nearest(root: &Path, records: &Path, head: &str) -> Result<Option<GateRun>> {
         )?
         .parse()
         .context("reading git rev-list's count")?;
-        if nearest.as_ref().is_none_or(|(best, _)| distance < *best) {
-            nearest = Some((distance, candidate));
+        if nearest.as_ref().is_some_and(|(best, _)| distance >= *best) {
+            continue;
+        }
+        match runs::read(records, &candidate, key) {
+            Ok(record) => nearest = Some((distance, record)),
+            Err(error) => output::error(&format!(
+                "Gate: the record of {candidate} is not reused: {error:#}"
+            )),
         }
     }
-    nearest
-        .map(|(_, candidate)| runs::read(records, &candidate))
-        .transpose()
+    Ok(nearest.map(|(_, record)| record))
 }
 
 /// The plan as `ci/pre-merge.sh` and `xtask gate record` read it.
@@ -612,7 +715,7 @@ struct Recorded {
 /// for the units its plan ran. HEAD must still be that head and the tree
 /// clean, else the result holds for another tree: the plan is dropped, so
 /// nothing more is recorded, and the step fails.
-fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
+fn record_run(root: &Path, records: &Path, key: &Key, recorded: &Recorded) -> Result<()> {
     let Recorded {
         head,
         now,
@@ -681,7 +784,7 @@ fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
     };
     let text: String = units
         .iter()
-        .map(|unit| runs::line(unit, &outcome))
+        .map(|unit| runs::line(head, unit, &outcome, key))
         .collect();
     output::append(&runs::file(records, head), &text)
 }

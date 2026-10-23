@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# The local gate's worktree (ADR 0135), shared by `just merge`
+# (ci/merge-pr.sh) and the backstop's full run (ci/gate-backstop.sh): one
+# worktree for every gate, at a fixed path beside the other worktrees in
+# the main checkout, so Cargo's fingerprints, sccache's keys and the perf
+# container's build volume, all keyed by absolute paths, still hold at the
+# next gate, and the gate's records in its `target/gate-runs/` serve the
+# next run. Locked, so a `git worktree prune` from another session cannot
+# drop it, and held by one gate at a time through a lock folder. Sourced,
+# never run. It keeps to bash 3.2, which stock macOS runs.
+
+root=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
+worktree="$root/.claude/worktrees/merge-gate"
+lock="$worktree.lock"
+
+# Takes the gate's lock for this process, or fails while another gate's
+# process holds it; with `wait`, waits for that gate to end, checking once a
+# minute, at most `wait` seconds. The caller releases it (`rm -rf "$lock"`).
+gate_worktree_lock() {
+  local wait=${1:-0} waited=0 holder
+  mkdir -p "${lock%/*}"
+  until mkdir "$lock" 2>/dev/null; do
+    holder=$(cat "$lock/pid" 2>/dev/null || true)
+    if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then
+      if ((waited >= wait)); then
+        echo "error: another gate (process $holder) is running in $worktree; run the command again when it ends" >&2
+        exit 1
+      fi
+      sleep 60
+      waited=$((waited + 60))
+    elif [[ -d $lock ]]; then
+      # The gate that held it ended without releasing it.
+      rm -rf "$lock"
+    else
+      echo "error: the gate's lock $lock cannot be made" >&2
+      exit 1
+    fi
+  done
+  echo "$$" >"$lock/pid"
+}
+
+# Resets the worktree to `commit` and nothing else: tracked files as
+# committed, every other file removed but the build caches (`target/`, the
+# Python environment and the npm packages, which `just fetch` brings to the
+# head's lockfiles), and no step's output from an earlier gate in `target/`.
+gate_worktree_checkout() {
+  local commit=$1 entry
+  if [[ -e "$worktree/.git" ]]; then
+    git -C "$worktree" checkout --quiet --force --detach "$commit"
+    git -C "$worktree" clean -ffdxq -e /target/ -e /.venv/ -e node_modules/
+  else
+    git worktree add --quiet --lock --detach "$worktree" "$commit"
+  fi
+  shopt -s nullglob
+  for entry in "$worktree"/target/*; do
+    case ${entry##*/} in
+      # Cargo's build folders (the profiles', the MSRV's and the stress run's
+      # base listing's), the tests' temporary folder with its fixture builds,
+      # the TLA+ tools, each checked against its pinned SHA-256 when used,
+      # the listings saved for the base of the next gate (ci/merge-pr.sh),
+      # and the results each gate run recorded, which the next run on a
+      # descendant head reuses where the change since does not reach them.
+      CACHEDIR.TAG | debug | release | ci-test | msrv | stress-base | tmp | tla-tools | stress-listings | gate-runs) ;;
+      *) rm -rf "$entry" ;;
+    esac
+  done
+  shopt -u nullglob
+  if [[ -n "$(git -C "$worktree" status --porcelain)" || $(git -C "$worktree" rev-parse HEAD) != "$(git rev-parse "$commit^{commit}")" ]]; then
+    echo "error: the gate's worktree $worktree is not a clean checkout of $commit" >&2
+    exit 1
+  fi
+}

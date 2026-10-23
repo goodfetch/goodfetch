@@ -7,6 +7,7 @@
 //! Feature.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::affected::{commit_all, repository, value};
@@ -32,21 +33,40 @@ fn plan(workspace: &Workspace, records: &Path) -> Plan {
 
 /// Plans as [`plan`] does, in the run's environment `environment`.
 fn plan_in(workspace: &Workspace, records: &Path, environment: &str) -> Plan {
+    plan_with(workspace, records, environment, &[])
+}
+
+/// Plans as [`plan_in`] does, with these arguments added.
+fn plan_with(workspace: &Workspace, records: &Path, environment: &str, extra: &[&str]) -> Plan {
+    let outcome = plan_outcome(workspace, records, environment, extra);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    parse(&outcome)
+}
+
+fn plan_outcome(
+    workspace: &Workspace,
+    records: &Path,
+    environment: &str,
+    extra: &[&str],
+) -> Outcome {
     let target = target(records);
-    let outcome = workspace.xtask(&[
+    let key = key(records);
+    let mut args = vec![
         "gate",
         "plan",
         "--records",
-        &records.to_string_lossy(),
+        records.to_str().unwrap(),
+        "--key",
+        key.to_str().unwrap(),
         "--now",
         NOW,
         "--target-dir",
-        &target.to_string_lossy(),
+        target.to_str().unwrap(),
         "--environment",
         environment,
-    ]);
-    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-    parse(&outcome)
+    ];
+    args.extend(extra);
+    workspace.xtask(&args)
 }
 
 fn parse(outcome: &Outcome) -> Plan {
@@ -81,6 +101,8 @@ fn record_outcome(workspace: &Workspace, records: &Path, head: &str, step: &str)
         "record",
         "--records",
         &records.to_string_lossy(),
+        "--key",
+        &key(records).to_string_lossy(),
         "--head",
         head,
         "--now",
@@ -98,6 +120,8 @@ fn record(workspace: &Workspace, records: &Path, head: &str, step: &str, status:
         "record",
         "--records",
         &records.to_string_lossy(),
+        "--key",
+        &key(records).to_string_lossy(),
         "--head",
         head,
         "--now",
@@ -122,6 +146,12 @@ fn members(plan: &Plan, step: &str) -> BTreeSet<String> {
 /// The Cargo target folder beside the records.
 fn target(records: &Path) -> PathBuf {
     records.with_file_name("target")
+}
+
+/// The gate's key beside the records, as the host keeps it outside the
+/// gate's worktree.
+fn key(records: &Path) -> PathBuf {
+    records.with_file_name("gate.key")
 }
 
 /// The records' folder, outside the repository so the tree stays clean.
@@ -425,5 +455,397 @@ fn a_crate_with_a_test_target_whose_dep_info_is_missing_reruns() {
         second.why["pre-merge"].contains("no dep-info of its test target `it`"),
         "{}",
         second.why["pre-merge"]
+    );
+}
+
+/// A forced full run (`GOODFETCH_GATE_FULL=1`) changes what the run reuses,
+/// not how its steps run, so its results count for the next run in the
+/// same environment without the variable.
+#[test]
+fn the_run_after_a_forced_full_run_reuses_its_results() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let full = plan_with(
+        &workspace,
+        &records,
+        "CI=\nGOODFETCH_GATE_FULL=1",
+        &["--full"],
+    );
+    assert!(full.steps.values().all(|(action, _)| action == "run"));
+    record(&workspace, &records, &full.head, "perf", "pass");
+    workspace.write(
+        "sdks/python/collie-client/src/goodfetch_collie_client/__init__.py",
+        b"\"\"\"Changed.\"\"\"\n",
+    );
+    commit_all(&workspace, "Change the Python client");
+
+    let next = plan_in(&workspace, &records, "CI=");
+
+    assert_eq!(next.previous, full.head);
+    assert_eq!(action(&next, "perf").0, "reuse", "{}", next.why["perf"]);
+}
+
+/// Every step of `just pre-merge all`, by its name in the plan.
+const STEPS: [&str; 20] = [
+    "dco",
+    "commit-messages",
+    "lint",
+    "feature-combinations",
+    "audit",
+    "commit-leaks",
+    "fuzz-check",
+    "proofs",
+    "journeys-tasks",
+    "features-tests",
+    "notices",
+    "perf",
+    "linux",
+    "visual",
+    "quick",
+    "pre-merge",
+    "stress",
+    "tlc",
+    "msrv",
+    "miri",
+];
+
+/// Records every step its plan runs as `ci/pre-merge.sh` does, green but
+/// for `red`, and leaves out `missing`.
+fn record_plan(workspace: &Workspace, records: &Path, plan: &Plan, red: &[&str], missing: &[&str]) {
+    for step in STEPS {
+        if action(plan, step).0 == "reuse" || missing.contains(&step) {
+            continue;
+        }
+        let status = if red.contains(&step) { "fail" } else { "pass" };
+        record(workspace, records, &plan.head, step, status);
+    }
+}
+
+/// A full green gate run on HEAD, then a change that reaches the Python
+/// client, and the incremental run on it, green: its head.
+fn green_runs(workspace: &Workspace, records: &Path) -> (String, String) {
+    let first = plan(workspace, records);
+    record_plan(workspace, records, &first, &[], &[]);
+    workspace.write(
+        "sdks/python/collie-client/src/goodfetch_collie_client/__init__.py",
+        b"\"\"\"Changed.\"\"\"\n",
+    );
+    commit_all(workspace, "Change the Python client");
+    let second = plan(workspace, records);
+    assert_eq!(action(&second, "perf").0, "reuse");
+    record_plan(workspace, records, &second, &[], &[]);
+    (first.head, second.head)
+}
+
+fn verify(workspace: &Workspace, records: &Path, head: &str) -> Outcome {
+    workspace.xtask(&[
+        "gate",
+        "verify",
+        "--records",
+        &records.to_string_lossy(),
+        "--key",
+        &key(records).to_string_lossy(),
+        "--head",
+        head,
+    ])
+}
+
+/// The merge's check of a verdict (`ci/merge-pr.sh`): every unit of every
+/// step is green, and every result reused from an earlier run is that run's
+/// own signed green result on an ancestor, whose run it names.
+#[test]
+fn a_green_verdict_verifies_and_names_every_run_it_reuses() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let (first, second) = green_runs(&workspace, &records);
+
+    let verified = verify(&workspace, &records, &second);
+
+    assert_eq!(verified.code, 0, "{}", verified.stderr);
+    assert_eq!(verified.stdout, format!("origin\t{first}\n"));
+}
+
+#[rstest::rstest]
+#[case::a_red_step(&["quick"], &[], "quick is red")]
+#[case::a_step_with_no_result(&[], &["msrv"], "msrv has no result")]
+fn a_verdict_with_a_red_or_missing_result_is_refused(
+    #[case] red: &[&str],
+    #[case] missing: &[&str],
+    #[case] why: &str,
+) {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let head = plan(&workspace, &records);
+    record_plan(&workspace, &records, &head, red, missing);
+
+    let verified = verify(&workspace, &records, &head.head);
+
+    assert_eq!(verified.code, 1, "{}", verified.stdout);
+    assert!(verified.stderr.contains(why), "{}", verified.stderr);
+}
+
+/// A reused result counts only while the run it came from still holds it,
+/// signed: a removed or replaced record of that run refuses the verdict.
+#[test]
+fn a_verdict_whose_reused_run_has_no_record_is_refused() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let (first, second) = green_runs(&workspace, &records);
+    std::fs::write(
+        records.join(format!("{first}.tsv")),
+        "base\tb\nhost\th\nperf\tpass\tx\tt\t1\n",
+    )
+    .unwrap();
+
+    let verified = verify(&workspace, &records, &second);
+
+    assert_eq!(verified.code, 1, "{}", verified.stdout);
+    assert!(
+        verified
+            .stderr
+            .contains(&format!("perf reuses the run on {first}")),
+        "{}",
+        verified.stderr
+    );
+}
+
+/// Signs `text`'s lines with the host's gate key for the run on `head`, as
+/// the gate's records do, to forge a record no gate run wrote.
+fn forge(records: &Path, head: &str, text: &str) -> String {
+    use hmac::Mac as _;
+    let key = std::fs::read_to_string(key(records)).unwrap();
+    text.lines().fold(String::new(), |mut signed, line| {
+        let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(key.trim().as_bytes()).unwrap();
+        mac.update(format!("{head}\n{line}").as_bytes());
+        let _ = writeln!(signed, "{line}\t{:x}", mac.finalize().into_bytes());
+        signed
+    })
+}
+
+/// A result reused from a commit that is not an ancestor of the head, or
+/// whose tree is not that commit's, does not hold for the head.
+#[test]
+fn a_verdict_reusing_a_result_from_outside_the_heads_history_is_refused() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let (_, second) = green_runs(&workspace, &records);
+    workspace.git(&["switch", "--quiet", "--create", "aside", "main"]);
+    workspace.write("docs/index.md", b"# Aside\n");
+    commit_all(&workspace, "Change the docs aside");
+    let aside = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    let tree = workspace
+        .git(&["rev-parse", "HEAD^{tree}"])
+        .trim()
+        .to_owned();
+    workspace.git(&["switch", "--quiet", "--detach", &second]);
+    let record_file = records.join(format!("{second}.tsv"));
+    let mut record = std::fs::read_to_string(&record_file).unwrap();
+    record.push_str(&forge(
+        &records,
+        &second,
+        &format!("perf\tpass\t{aside}\t{tree}\t{NOW}"),
+    ));
+    std::fs::write(&record_file, record).unwrap();
+    std::fs::write(
+        records.join(format!("{aside}.tsv")),
+        forge(
+            &records,
+            &aside,
+            &format!("base\tb\nhost\th\nperf\tpass\t{aside}\t{tree}\t{NOW}"),
+        ),
+    )
+    .unwrap();
+
+    let verified = verify(&workspace, &records, &second);
+
+    assert_eq!(verified.code, 1, "{}", verified.stdout);
+    assert!(
+        verified
+            .stderr
+            .contains(&format!("{aside} is not an ancestor of {second}")),
+        "{}",
+        verified.stderr
+    );
+}
+
+/// A record that the gate's key did not sign, such as one a test or a tool
+/// wrote, is no earlier run: nothing of it is reused.
+#[test]
+fn a_record_the_gate_did_not_sign_is_not_reused() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    let tree = workspace
+        .git(&["rev-parse", "HEAD^{tree}"])
+        .trim()
+        .to_owned();
+    std::fs::create_dir_all(&records).unwrap();
+    std::fs::write(
+        records.join(format!("{first}.tsv")),
+        format!("base\tb\nhost\th\nperf\tpass\t{first}\t{tree}\t{NOW}\n"),
+    )
+    .unwrap();
+    workspace.write("docs/index.md", b"# Changed\n");
+    commit_all(&workspace, "Change the docs");
+
+    let outcome = plan_outcome(&workspace, &records, "CI=", &[]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let second = parse(&outcome);
+    assert_eq!(second.previous, "none");
+    assert!(
+        outcome
+            .stderr
+            .contains("not signed by this host's gate key"),
+        "{}",
+        outcome.stderr
+    );
+}
+
+fn compare(workspace: &Workspace, records: &Path, full: &str) -> Outcome {
+    workspace.xtask(&[
+        "gate",
+        "compare",
+        "--records",
+        &records.to_string_lossy(),
+        "--key",
+        &key(records).to_string_lossy(),
+        "--full",
+        full,
+    ])
+}
+
+/// The backstop (ADR 0135): a full run on a commit whose tree an
+/// incremental run gated finds each result that run reused and the full run
+/// found red, a selection miss; a red step run per member is only a
+/// suspect, since the members the incremental run reran may hold the red.
+#[test]
+fn a_full_run_finds_each_reused_result_it_finds_red() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let (first, second) = green_runs(&workspace, &records);
+    // The merge of the gated head: a commit with its tree.
+    workspace.git(&["commit", "--quiet", "--allow-empty", "--message", "Merge"]);
+    let full = plan_with(&workspace, &records, "CI=", &["--full"]);
+    record_plan(&workspace, &records, &full, &["perf", "pre-merge"], &[]);
+
+    let compared = compare(&workspace, &records, &full.head);
+
+    assert_eq!(compared.code, 0, "{}", compared.stderr);
+    let lines: BTreeSet<&str> = compared.stdout.lines().collect();
+    assert!(
+        lines.contains(format!("miss\tperf\t{second}\t{first}").as_str()),
+        "{}",
+        compared.stdout
+    );
+    assert!(
+        lines.contains(format!("suspect\tpre-merge:goodfetch-engine\t{second}\t{first}").as_str()),
+        "{}",
+        compared.stdout
+    );
+    assert!(
+        !lines.iter().any(|line| line.contains("\ttlc\t")),
+        "{}",
+        compared.stdout
+    );
+}
+
+/// A run that reused nothing is not a full run to compare with.
+#[test]
+fn only_a_full_run_is_compared() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let (_, second) = green_runs(&workspace, &records);
+
+    let compared = compare(&workspace, &records, &second);
+
+    assert_eq!(compared.code, 1, "{}", compared.stdout);
+    assert!(
+        compared.stderr.contains("is not a full run"),
+        "{}",
+        compared.stderr
+    );
+}
+
+/// Runs Cargo's tests in the fixture, with `args`, into the target folder
+/// beside `records`: a real build, whose dep-info the plan reads.
+fn cargo_test(workspace: &Workspace, records: &Path, args: &[&str]) -> std::process::Output {
+    workspace
+        .command("cargo")
+        .args(["test", "--offline", "--quiet"])
+        .args(args)
+        .env("CARGO_TARGET_DIR", target(records))
+        .output()
+        .unwrap()
+}
+
+/// Fault injection (ADR 0135's backstop's proof): from a green record, a
+/// break planted where `xtask affected` alone does not look, a file of one
+/// crate that another crate's test reads through `include_str!`. The real
+/// build's dep-info reaches the reading crate, the plan reruns it, and that
+/// rerun fails.
+#[test]
+fn a_planted_break_through_a_cross_crate_include_reruns_and_fails() {
+    let workspace = repository();
+    let (_folder, records) = records();
+    workspace.write("crates/goodfetch-engine/limits.txt", b"3\n");
+    workspace.write(
+        "crates/goodfetch-conformance/src/lib.rs",
+        b"//! The harness.\n\n/// The engine's limit, which the harness checks.\npub const LIMIT: &str = include_str!(\"../../goodfetch-engine/limits.txt\");\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn the_engine_s_limit_is_three() {\n        assert_eq!(super::LIMIT.trim(), \"3\");\n    }\n}\n",
+    );
+    let built = cargo_test(&workspace, &records, &["--workspace"]);
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    commit_all(&workspace, "Check the engine's limit");
+    let first = plan(&workspace, &records);
+    record_plan(&workspace, &records, &first, &[], &[]);
+    workspace.write("crates/goodfetch-engine/limits.txt", b"4\n");
+    commit_all(&workspace, "Raise the engine's limit");
+
+    let second = plan(&workspace, &records);
+
+    assert!(
+        !affected_members(&workspace, &first.head).contains("goodfetch-conformance"),
+        "the selection alone reaches the reading crate, so this plants nothing"
+    );
+    assert_eq!(action(&second, "pre-merge").0, "part");
+    assert!(
+        members(&second, "pre-merge").contains("goodfetch-conformance"),
+        "{:?}",
+        second.steps["pre-merge"]
+    );
+    assert!(
+        second.why["pre-merge"].contains("its build read crates/goodfetch-engine/limits.txt"),
+        "{}",
+        second.why["pre-merge"]
+    );
+    let rerun = cargo_test(&workspace, &records, &["-p", "goodfetch-conformance"]);
+    assert!(!rerun.status.success(), "the planted break passed");
+}
+
+/// Fault injection: a package that only the root Vitest config loads, so
+/// every Vitest run loads it, breaks another package's tests; the plan
+/// reruns that package (`xtask affected`'s runner-config edge, and the
+/// head's test order, F8 option B).
+#[test]
+fn a_planted_break_in_a_package_the_root_vitest_config_loads_reruns_every_package() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    workspace.write(
+        "vitest.config.ts",
+        b"import { setup } from '@goodfetch/foxhound';\n\nexport default { test: { setupFiles: [setup] } };\n",
+    );
+    commit_all(&workspace, "Load the Foxhound SDK in every Vitest run");
+    let first = plan(&workspace, &records);
+    record_plan(&workspace, &records, &first, &[], &[]);
+    workspace.write(
+        "sdks/typescript/foxhound/src/setup.ts",
+        b"throw new Error('planted');\n",
+    );
+    commit_all(&workspace, "Break the setup every Vitest run loads");
+
+    let second = plan(&workspace, &records);
+
+    let rerun = members(&second, "pre-merge");
+    for package in ["sdks/typescript/foxhound", "sdks/typescript/collie-client"] {
+        assert!(rerun.contains(package), "{package} not in {rerun:?}");
+    }
+    assert!(
+        affected_members(&workspace, &first.head).contains("sdks/typescript/collie-client"),
+        "the root config's edge does not reach the package"
     );
 }

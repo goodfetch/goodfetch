@@ -363,11 +363,23 @@ fn every_member_rerun_runs_the_step_in_full() {
     assert!(matches!(action(&plan, Step::PreMerge), Action::Run { .. }));
 }
 
+/// The gate's key, for the records' cases.
+fn key() -> runs::Key {
+    runs::Key::new(b"the gate's key".to_vec())
+}
+
+/// `text`'s lines, each signed with `key` for the run on `head`.
+fn signed(head: &str, text: &str, key: &runs::Key) -> String {
+    text.lines()
+        .map(|line| runs::signed_line(head, line, key))
+        .collect()
+}
+
 #[test]
 fn a_record_reads_back_as_written_and_its_last_line_for_a_unit_wins() {
     let text = "base\tb4se\nhost\th0st\nperf\tpass\tc0ffee\tt1\t10\nquick:xtask\tpass\tc0ffee\tt1\t10\nperf\tfail\tfeed\tt2\t20\n";
 
-    let record = runs::parse("feed", text).unwrap();
+    let record = runs::parse("feed", &signed("feed", text, &key()), &key()).unwrap();
 
     assert_eq!(
         (record.base.as_str(), record.host.as_str()),
@@ -382,7 +394,29 @@ fn a_record_reads_back_as_written_and_its_last_line_for_a_unit_wins() {
             at: 20,
         })
     );
-    assert_eq!(runs::parse("feed", &runs::render(&record)).unwrap(), record);
+    assert_eq!(
+        runs::parse("feed", &runs::render(&record, &key()), &key()).unwrap(),
+        record
+    );
+}
+
+/// A record line counts only when the gate's key signed it for that run's
+/// head: one another writer wrote, edited or copied from another run's
+/// record is refused, so a test or a tool cannot plant a green result.
+#[rstest]
+#[case::unsigned("perf\tpass\tc0ffee\tt1\t10\n".to_owned())]
+#[case::edited(signed("feed", "perf\tfail\tc0ffee\tt1\t10", &key()).replace("\tfail\t", "\tpass\t"))]
+#[case::another_key(signed("feed", "perf\tpass\tc0ffee\tt1\t10", &runs::Key::new(b"another key".to_vec())))]
+#[case::another_run(signed("c0ffee", "perf\tpass\tc0ffee\tt1\t10", &key()))]
+fn a_record_line_the_gate_did_not_sign_for_its_run_is_refused(#[case] line: String) {
+    let text = signed("feed", "base\tb4se\nhost\th0st", &key()) + &line;
+
+    let error = runs::parse("feed", &text, &key()).unwrap_err();
+
+    assert!(
+        format!("{error:#}").contains("not signed by this host's gate key"),
+        "{error:#}"
+    );
 }
 
 #[test]

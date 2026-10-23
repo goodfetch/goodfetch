@@ -64,7 +64,7 @@ fixture-builds = { max-threads = 4 }
 service-manager = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^feature_generators::/) | test(/^perf_build::/) | test(/^stress::/) | test(/^test_tools::/))"
+filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^feature_generators::/) | test(/^perf_build::/) | test(/^stress::/) | test(/^test_tools::/) | test(/^gate::a_planted_break_through_/))"
 test-group = "fixture-builds"
 
 [[profile.default.overrides]]

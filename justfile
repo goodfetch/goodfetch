@@ -433,6 +433,13 @@ test suite *packages:
         pytest) skip_pytest+=("$argument") ;;
       esac
     done <<< "$exclusions"
+    # The skip is listed once, with where they do run: the gate's daily
+    # backstop runs them, and their result blocks nothing (ADR 0135).
+    if [[ -n "$exclusions" ]]; then
+      quarantined="the quarantined tests (quarantine.toml): skipped in every suite; \`just gate-backstop\` runs them daily, blocking nothing"
+      mkdir -p target
+      grep -qxF "$quarantined" target/skipped.txt 2>/dev/null || echo "$quarantined" >>target/skipped.txt
+    fi
     skips=$(ci/nextest-skips.sh)
     while IFS= read -r argument; do [[ -z "$argument" ]] || skip_nextest+=("$argument"); done <<< "$skips"
     # A selection may hold no test of a suite yet (NEXTEST_NO_TESTS=pass);
@@ -1067,6 +1074,16 @@ audit-live:
     ci/audit.sh live python
     ci/proofs/live.sh
 
+# The incremental gate's backstop (ADR 0135), daily from the gate host's
+# cron on `main`'s head: in the gate's worktree, once the gate that holds it
+# has ended, `just pre-merge all` in full (`GOODFETCH_GATE_FULL=1`), then
+# each result an incremental run on the same tree reused and the full run
+# found red, a selection miss to fix, and the quarantined tests, which block
+# nothing (ci/gate-backstop.sh). Its log and results go to ~/gate-backstop/
+# (GOODFETCH_GATE_BACKSTOP_LOG). Run from the main checkout.
+gate-backstop ref="origin/main":
+    ci/gate-backstop.sh {{ ref }}
+
 # The daily Feature and Journey reports (ADRs 0063 and 0072), from the
 # server's cron on `main`'s head while the hosted workflows are off (ADR
 # 0135): every runner's listings on this build, then `xtask features report`
@@ -1250,6 +1267,11 @@ _visual-elsewhere:
     @mkdir -p target
     @echo "visual projects: skipped, they run only in the pinned Playwright image (CI's visual job, ADR 0073)" >>target/skipped.txt
 
+# The host's gate key, which signs every record of the incremental gate
+# (ADR 0135): outside every worktree, so no step's test or tool that writes
+# into target/gate-runs/ can sign a result; made on the first gate run.
+gate_key := env("XDG_CONFIG_HOME", env("HOME", "") / ".config") / "goodfetch/gate-records.key"
+
 # The incremental gate's plan for HEAD (ADR 0135), from the results earlier
 # gate runs recorded in target/gate-runs/, which `just merge` keeps between
 # gates; GOODFETCH_GATE_FULL=1 reuses nothing.
@@ -1265,14 +1287,27 @@ _gate-plan:
     # fingerprint, so a result counts only for a run in the same environment.
     variables=$(env | grep -E '^(CI|GOODFETCH_[A-Z0-9_]+|NEXTEST_[A-Z0-9_]+|CARGO_[A-Z0-9_]+|RUST[A-Z0-9_]*|UV_[A-Z0-9_]+|NODE_[A-Z0-9_]+)=' | LC_ALL=C sort || true)
     GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/gate-runs/listing-tools.json" \
-      cargo run --quiet -p xtask -- gate plan --records target/gate-runs --now "$(date +%s)" \
-      --environment "$variables" ${GOODFETCH_GATE_FULL:+--full}
+      cargo run --quiet -p xtask -- gate plan --records target/gate-runs --key "{{ gate_key }}" \
+      --now "$(date +%s)" --environment "$variables" ${GOODFETCH_GATE_FULL:+--full}
 
 # Records a gate step's result (`pass` or `fail`) for the head the plan was
 # made for, which must still be checked out on a clean tree (ADR 0135).
 _gate-record head step status:
-    cargo run --quiet -p xtask -- gate record --records target/gate-runs --head {{ head }} \
-      --now "$(date +%s)" --step {{ step }} --status {{ status }}
+    cargo run --quiet -p xtask -- gate record --records target/gate-runs --key "{{ gate_key }}" \
+      --head {{ head }} --now "$(date +%s)" --step {{ step }} --status {{ status }}
+
+# Checks the verdict of the gate run on `head`, checked out, before `just
+# merge` merges it (ADR 0135): every unit green, and each reused result its
+# earlier run's own on an ancestor; prints each such run as `origin` lines.
+_gate-verify head:
+    cargo run --quiet --locked -p xtask -- gate verify --records target/gate-runs \
+      --key "{{ gate_key }}" --head {{ head }}
+
+# The backstop's comparison (ADR 0135): each result an incremental run on
+# the full run's tree reused and the full run on `full` found red.
+_gate-compare full:
+    cargo run --quiet --locked -p xtask -- gate compare --records target/gate-runs \
+      --key "{{ gate_key }}" --full {{ full }}
 
 # Starts and checks the real OS services the tests use (ci/os-services.sh),
 # which `just pre-merge` runs first on a Linux host.

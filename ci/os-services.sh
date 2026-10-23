@@ -107,6 +107,48 @@ setup_user_namespaces() {
   echo "$TEST_UNSHARE makes user namespaces."
 }
 
+# What a transient scope of the user's manager limited to 64 MiB reads as its
+# own memory limit: the cgroup it runs in, then that cgroup's `memory.max`
+# (67108864 when the limit holds) and its parent's controllers.
+scope_memory_limit() {
+  # The script expands in the scope's own shell, not here.
+  # shellcheck disable=SC2016
+  systemd-run --user --scope --quiet -p MemoryMax=64M -- sh -c '
+    cgroup=$(sed -n "s/^0:://p" /proc/self/cgroup)
+    echo "cgroup $cgroup"
+    echo "memory.max $(cat "/sys/fs/cgroup$cgroup/memory.max" 2>&1)"
+    echo "controllers $(cat "/sys/fs/cgroup$cgroup/../cgroup.controllers" 2>&1)"' 2>&1
+}
+
+# Collie's governor test runs the engine in a transient scope of the user's
+# manager with a memory limit (crates/goodfetch-collie/tests/it/governor.rs).
+# On 2026-10-23's hosted Release run the engine read no limit there on any
+# Linux cell. When a scope's limit does not hold on a GitHub-hosted runner,
+# the user's manager gets every controller delegated, as systemd's docs on
+# delegation and rootless Podman's set it up, and the probe runs again. What
+# each probe read is printed, and a limit that still does not hold is a
+# warning naming it: the test then fails with its own message.
+setup_memory_scopes() {
+  local probe uid
+  uid=$(id -u)
+  probe=$(scope_memory_limit)
+  if [[ "$probe" != *"memory.max 67108864"* && "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]; then
+    echo "A user scope's memory limit did not hold:"
+    echo "  ${probe//$'\n'/$'\n'  }"
+    as_root mkdir -p /etc/systemd/system/user@.service.d
+    printf '[Service]\nDelegate=cpu cpuset io memory pids\n' |
+      as_root tee /etc/systemd/system/user@.service.d/goodfetch-delegate.conf >/dev/null
+    as_root systemctl daemon-reload
+    as_root systemctl restart "user@$uid.service"
+    probe=$(scope_memory_limit)
+  fi
+  echo "A user scope limited to 64 MiB reads:"
+  echo "  ${probe//$'\n'/$'\n'  }"
+  if [[ "$probe" != *"memory.max 67108864"* ]]; then
+    echo "::warning::A transient scope of the user's manager does not limit its memory here, so Collie's governor test fails: ${probe//$'\n'/; }"
+  fi
+}
+
 setup_linux() {
   local missing=()
   command -v dbus-daemon >/dev/null || missing+=(dbus-daemon)
@@ -170,6 +212,7 @@ setup_linux() {
   local runtime_dir=$RUNTIME
   if [[ -d "/run/user/$(id -u)/systemd" ]]; then runtime_dir=/run/user/$(id -u); fi
   export XDG_RUNTIME_DIR=$runtime_dir
+  if [[ -d "/run/user/$(id -u)/systemd" ]]; then setup_memory_scopes; fi
   {
     echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
     echo "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"

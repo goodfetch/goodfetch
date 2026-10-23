@@ -18,7 +18,9 @@
 //! `DnsNamespace`, which starts a child on Linux whose resolver is the
 //! Proving ground's DNS fixture,
 //! and the Secret canaries, planted and searched for in every encoding
-//! with their `gitleaks` rule (ADR 0067); the shared snapshot
+//! with their `gitleaks` rule (ADR 0067); `refused_matches`, which finds
+//! what would let a new state or event through a transition table's
+//! source unseen (ADR 0128); the shared snapshot
 //! filters, the locale and time zone table and the Unicode record, each
 //! committed once among `test-support/fixtures/` for three languages
 //! (ADRs 0062 and 0073); the Scripted engine's script format and its
@@ -78,6 +80,7 @@ mod ssrf;
 mod strict_stdout;
 mod tools;
 mod trace;
+mod transition_tables;
 mod unicode;
 mod variables;
 
@@ -176,6 +179,7 @@ pub use strict_stdout::{
 };
 pub use tools::{Product, Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};
+pub use transition_tables::refused_matches;
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 pub use variables::{
     DNS_NAMESPACE_VARIABLE, ENGINE_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, RECORDS_VARIABLE,

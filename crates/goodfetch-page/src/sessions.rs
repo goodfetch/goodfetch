@@ -21,6 +21,8 @@
 //! Session of a Run this engine has not reached yet reaches it. When the
 //! Run stops, its Sessions, its pages and its browsers go with it.
 
+mod lifecycle;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;

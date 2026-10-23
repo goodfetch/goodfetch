@@ -351,6 +351,49 @@ fn two_sessions_of_one_run_reach_the_site_each_through_its_own_proxy() {
     );
 }
 
+/// Covers: story:5-88, setting:proxy.bypass
+#[cfg(unix)]
+#[test]
+fn a_host_proxy_bypass_names_is_reached_without_the_proxy() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut proxy = proxy_settings(&proving_ground, "http", "open", None);
+    proxy["bypass"] = json!("other.test, scope.test");
+    let mut engine = started_through(&env, &cache, &proving_ground, "bypassed", proxy, "");
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "bypassed" }),
+    ));
+    let navigated = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({
+            "page_id": page.page_id,
+            "url": proving_ground.url("scope.test", "/storage?mark=bypassed"),
+        }),
+    );
+    let _ = call(
+        &mut engine,
+        4,
+        "run.finish",
+        &json!({ "run_id": "bypassed" }),
+    );
+    let _ = engine.finish();
+
+    assert_eq!(
+        (
+            &navigated["result"]["response"]["status"],
+            relays_to(&proving_ground, "/storage?mark=")
+        ),
+        (&json!(200), vec![])
+    );
+}
+
 /// Covers: story:5-89, operation:session.new_page, operation:run.new_page, operation:page.goto
 #[rstest]
 #[case::a_pages_own_proxy(

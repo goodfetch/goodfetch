@@ -7,6 +7,12 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+# On Windows, a bare `bash` resolves to WSL's `bash.exe` in System32, which
+# Windows searches before PATH, so recipes run in Git for Windows' Bash, as
+# GitHub's `shell: bash` steps do. Shebang recipes reach it through Git
+# Bash's `cygpath` and `/usr/bin/env`.
+set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-euo", "pipefail", "-c"]
+
 # nextest starts each test straight from the runner, not through a stub copy
 # of `cargo-nextest` that then executes the test (its double-spawn): on macOS
 # under load, a test that starts no process at all kept its output pipes open

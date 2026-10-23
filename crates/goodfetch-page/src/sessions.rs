@@ -32,6 +32,11 @@
 //! status 0 quit, which ends its Session. Closing a Session ends its calls
 //! in flight with `call_cancelled` naming the program; a crashed Session's
 //! close releases what is left and leaves it `Crashed`.
+//!
+//! Size: one table, the engine's Sessions with their opening, closing and
+//! reopening from run state, each of which reads and changes that table
+//! under its one lock; a page's end and the tables of states are in their
+//! own modules.
 
 mod ends;
 mod life;

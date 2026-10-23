@@ -58,23 +58,40 @@ describe("testEnv", () => {
   });
 });
 
+/** One meeting of the two tests below: what each run brought to it. */
+interface Meeting {
+  readonly folders: string[];
+  readonly homes: string[];
+  readonly both: Promise<void>;
+  readonly release: () => void;
+}
+
+function meeting(): Meeting {
+  const { promise: both, resolve: release } = Promise.withResolvers<void>();
+  return { folders: [], homes: [], both, release };
+}
+
 // Two tests running at once each get a folder and home of their own: each
 // waits until both have their setup, so a run that does not hold both at
-// once times out rather than pass.
+// once times out rather than pass. Each pair of runs meets anew, so a
+// repeated run (`just repeat`) compares only its own pair: neither test's
+// next run starts before the other has joined their meeting.
 describe.concurrent("testEnv of two tests running at once", () => {
-  const folders: string[] = [];
-  const homes: string[] = [];
-  const { promise: both, resolve: release } = Promise.withResolvers<void>();
+  let current = meeting();
 
   for (const name of ["first", "second"]) {
     test(`gives the ${name} test a folder and home of its own`, async ({ testEnv }) => {
-      folders.push(testEnv.folder);
-      homes.push(testEnv.home);
-      if (folders.length === 2) release();
-      await both;
+      const joined = current;
+      joined.folders.push(testEnv.folder);
+      joined.homes.push(testEnv.home);
+      if (joined.folders.length === 2) {
+        current = meeting();
+        joined.release();
+      }
+      await joined.both;
 
-      expect(new Set(folders).size).toBe(2);
-      expect(new Set(homes).size).toBe(2);
+      expect(new Set(joined.folders).size).toBe(2);
+      expect(new Set(joined.homes).size).toBe(2);
     });
   }
 });

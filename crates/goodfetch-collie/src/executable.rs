@@ -23,18 +23,17 @@
 //! command runs (ADR 0083).
 //!
 //! Logs go to stderr through the `tracing` subscriber (the `logs` module),
-//! filtered by `GOODFETCH_LOG` in `EnvFilter`'s syntax (`info` when unset),
-//! as text unless `log.format` says `json`; stdout is the protocol's alone
-//! (STYLE.md), but in `daemon run`, the foreground Daemon, whose logs are
-//! JSON lines on stdout unless `log.format` says `text` (ADR 0049). With
-//! `GOODFETCH_LOG_OUTPUT=file` they also go, as JSON lines, to a file of its
-//! own in the Goodfetch home's log folder, which test support turns on for
-//! ADR 0072's exercise audit (ADR 0122). Both variables stand in for the
-//! `log.level` and `log.output` settings until #1566. Each Connection
-//! receives the logs as `$/log` at its own level, and the spans go to the
-//! OTLP collector `otlp.traces_endpoint` names, and nowhere without it. A
-//! panic writes a crash report into the home's `crashes` folder, which
-//! nothing sends (ADR 0043).
+//! filtered by `log.level` (`info` when unset), as text unless `log.format`
+//! says `json`; stdout is the protocol's alone (STYLE.md), but in `daemon
+//! run`, the foreground Daemon, whose logs are JSON lines on stdout unless
+//! `log.format` says `text` (ADR 0049). Where `log.output` is `file`, as it
+//! is by default for a Daemon a start launched, they also go, as JSON
+//! lines, to files of its own in the Goodfetch home's log folder, rotated
+//! by size, which test support turns on for ADR 0072's exercise audit (ADR
+//! 0122). Each Connection receives the logs as `$/log` at its own level,
+//! and the spans go to the OTLP collector `otlp.traces_endpoint` names, and
+//! nowhere without it. A panic writes a crash report into the home's
+//! `crashes` folder, which nothing sends (ADR 0043).
 //!
 //! The engine runs on the system versions of its handles (ADR 0059): the
 //! OS's clock, entropy seeded by the OS, blocking work on tracked threads,
@@ -42,7 +41,7 @@
 //! `goodfetch` folder of the OS's usual data folder.
 
 use std::collections::BTreeMap;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::process::ExitCode;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
@@ -71,6 +70,7 @@ mod certs;
 mod config;
 mod console;
 mod daemon;
+mod log_file;
 mod logs;
 mod metrics;
 mod otlp;
@@ -78,13 +78,6 @@ mod runs;
 mod service;
 mod upgrade;
 mod usage;
-
-/// The variable that filters the logs, in `EnvFilter`'s syntax.
-pub const LOG_VARIABLE: &str = "GOODFETCH_LOG";
-
-/// Where the logs also go: `file`, the Goodfetch home's log folder, or
-/// `none`, the default.
-pub const LOG_OUTPUT_VARIABLE: &str = "GOODFETCH_LOG_OUTPUT";
 
 /// The Goodfetch home's log folder (ADR 0122).
 const LOG_FOLDER: &str = "logs";
@@ -470,16 +463,9 @@ pub fn main(start: &Start) -> ExitCode {
     let home = home(&environment);
     let clock = Clock::system();
     let log_events = LogEvents::new();
-    let (launched, _) = logs::logs_of(&parsed);
-    let (_logs, entropy) = match observe(
-        start,
-        &binary,
-        &environment,
-        home.as_ref(),
-        &parsed,
-        clock,
-        &log_events,
-    ) {
+    let launched = logs::Process::of(&parsed) == logs::Process::DaemonLaunched;
+    let (_logs, entropy) = match observe(start, &binary, home.as_ref(), &parsed, clock, &log_events)
+    {
         Ok(installed) => installed,
         Err(exit) => return exit,
     };
@@ -556,12 +542,11 @@ fn instrumented(engine: Engine, log_events: LogEvents) -> Engine {
 /// Installs the `tracing` subscriber of `parsed`'s process, with
 /// `log_events`, and its crash reports, and answers it with the process's
 /// `Entropy` from the OS, a fork of which draws its export's trace and span
-/// IDs; fails once it has logged why the logs cannot go where
-/// `GOODFETCH_LOG_OUTPUT` says.
+/// IDs; fails once it has logged why the logs cannot go where the `log.*`
+/// settings say, with the Error code (ADR 0122).
 fn observe(
     start: &Start,
     binary: &str,
-    environment: &BTreeMap<OsString, OsString>,
     home: Option<&Home>,
     parsed: &Parsed,
     clock: Clock,
@@ -572,24 +557,27 @@ fn observe(
         clock,
         trace_ids: entropy.as_mut().ok().map(Entropy::fork),
     };
-    let settings = home.and_then(|home| {
-        let version = ProductVersion::parse(start.version).ok()?;
-        browsers::machine_settings(home, start.product, &version).ok()
+    let version = ProductVersion::parse(start.version).ok();
+    let settings = home
+        .zip(version.as_ref())
+        .and_then(|(home, version)| browsers::machine_settings(home, start.product, version).ok());
+    let process = logs::Process::of(parsed);
+    let filter = logs::filter_of(settings.as_ref());
+    let file = version.as_ref().map_or(Ok(None), |version| {
+        logs::file_of(binary, process, version, home, settings.as_ref(), clock)
     });
-    let (launched, to) = logs::logs_of(parsed);
-    let file = logs::log_file(binary, environment, home, launched);
-    let failed_file = file.as_ref().err().cloned();
+    let refused = filter.as_ref().err().or(file.as_ref().err()).cloned();
     let installed = logs::install(logs::Logs {
-        filter: environment.get(OsStr::new(LOG_VARIABLE)),
+        filter: filter.unwrap_or_else(|_| "info".to_owned()),
         file: file.ok().flatten(),
-        to,
+        to: process.to(),
         settings: settings.as_ref(),
         events: log_events,
         product: start.product,
         handles,
     });
-    if let Some(problem) = failed_file {
-        tracing::error!(%problem, "the logs cannot go where {LOG_OUTPUT_VARIABLE} says");
+    if let Some(refused) = refused {
+        tracing::error!(code = refused.code, "{}", refused.message);
         return Err(ExitCode::FAILURE);
     }
     if let Some(home) = home {

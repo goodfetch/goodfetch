@@ -3,7 +3,12 @@
 //! commit survives a power cut, and one writer, an actor of the run's owner
 //! that commits every write its mailbox holds in one transaction. Each
 //! commit is accepted only under the writer's run epoch: a writer whose
-//! epoch the file no longer holds commits nothing. The file opens through a
+//! epoch the file no longer holds commits nothing. A commit that meets a full
+//! disk or an I/O error (`SQLITE_FULL`, `SQLITE_IOERR`) at any of its writes
+//! is rolled back with `ROLLBACK`, as SQLite advises, so the file is the
+//! same after any of them; nothing of it is acknowledged, and the writer
+//! says so to whoever watches its storage failures, which stop its Run
+//! (ADR 0122). The file opens through a
 //! VFS named by a value, none in production, the crash VFS in tests. Each
 //! acknowledged commit moves a counter on, which a reader of the file's
 //! committed state waits on for more, never holding the writer back.
@@ -172,6 +177,15 @@ pub enum RunStateError {
         /// minor refused this engine.
         install: Option<String>,
     },
+    /// The disk was full or failed an I/O at the commit (ADR 0122): it was
+    /// rolled back, and nothing of it is acknowledged.
+    #[error("run state at `{path}` could not be written to its storage: {message}")]
+    Storage {
+        /// The run file.
+        path: PathBuf,
+        /// SQLite's message.
+        message: String,
+    },
     /// The writer has stopped.
     #[error("the run file's writer has stopped")]
     Closed,
@@ -191,8 +205,9 @@ impl RunStateError {
 
 type Completion = Box<dyn FnOnce(Result<(), RunStateError>) + Send>;
 /// A write: given the transaction, it runs its work and answers how to
-/// report it once the commit ends; given none, it reports the failure only.
-type QueuedWrite = Box<dyn FnOnce(Option<(&Connection, &Path)>) -> Completion + Send>;
+/// report it once the commit ends, and whether its work met a full disk or
+/// an I/O error; given none, it reports the failure only.
+type QueuedWrite = Box<dyn FnOnce(Option<(&Connection, &Path)>) -> (Completion, bool) + Send>;
 
 /// The writer of one run file: a handle to its actor, which any task may
 /// clone and send writes to.
@@ -201,7 +216,15 @@ pub struct RunState {
     mailbox: mpsc::Sender<QueuedWrite>,
     path: PathBuf,
     epoch: u64,
+    watched: std::sync::Arc<Watched>,
+}
+
+/// What a writer's watchers follow: its acknowledged commits and its first
+/// storage failure.
+#[derive(Debug)]
+struct Watched {
     commits: watch::Receiver<u64>,
+    failures: watch::Receiver<Option<String>>,
 }
 
 impl RunState {
@@ -234,17 +257,28 @@ impl RunState {
         let actor_path = path.clone();
         let mut connection = connection;
         let (committed, commits) = watch::channel(0_u64);
+        let (failed, failures) = watch::channel(None);
         owner
             .actor("run-state-writer", jobs, move |group: Vec<QueuedWrite>| {
-                commit_group(&mut connection, &actor_path, epoch, group, &committed);
+                let signals = Signals {
+                    commits: &committed,
+                    failures: &failed,
+                };
+                commit_group(&mut connection, &actor_path, epoch, group, &signals);
             })
             .map_err(|error| sqlite_error(&path, &error))?;
         Ok(Self {
             mailbox,
             path,
             epoch,
-            commits,
+            watched: std::sync::Arc::new(Watched { commits, failures }),
         })
+    }
+
+    /// The first commit that met a full disk or an I/O error, as SQLite
+    /// named it, once one did (ADR 0122): none until then.
+    pub fn storage_failures(&self) -> watch::Receiver<Option<String>> {
+        self.watched.failures.clone()
     }
 
     /// The run file's path.
@@ -262,7 +296,7 @@ impl RunState {
     /// on it for more committed state. Its sender is gone once the writer
     /// stops.
     pub fn commits(&self) -> watch::Receiver<u64> {
-        self.commits.clone()
+        self.watched.commits.clone()
     }
 
     /// Runs `work` in the writer's next commit, grouped with every write
@@ -285,15 +319,18 @@ impl RunState {
     {
         let (answer, answered) = oneshot::channel();
         let job: QueuedWrite = Box::new(move |transaction: Option<(&Connection, &Path)>| {
+            let mut storage = false;
             let done = match transaction {
-                Some((connection, path)) => {
-                    run_in_savepoint(connection, work).map_err(|error| sqlite_error(path, &error))
-                }
+                Some((connection, path)) => run_in_savepoint(connection, work).map_err(|error| {
+                    storage = is_storage(&error);
+                    sqlite_error(path, &error)
+                }),
                 None => Err(RunStateError::Closed),
             };
-            Box::new(move |committed: Result<(), RunStateError>| {
+            let completion: Completion = Box::new(move |committed: Result<(), RunStateError>| {
                 let _ = answer.send(committed.and(done));
-            })
+            });
+            (completion, storage)
         });
         self.mailbox
             .send(job)
@@ -366,6 +403,28 @@ fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
     RunStateError::Sqlite {
         path: path.to_owned(),
         message: error.to_string(),
+    }
+}
+
+/// Whether `error` is a full disk or an I/O error, after which SQLite may
+/// have rolled the whole transaction back (ADR 0122).
+fn is_storage(error: &rusqlite::Error) -> bool {
+    matches!(
+        error.sqlite_error_code(),
+        Some(rusqlite::ErrorCode::DiskFull | rusqlite::ErrorCode::SystemIoFailure)
+    )
+}
+
+/// The failure of a commit of the run file at `path` on `error`: a full
+/// disk or an I/O error as such.
+fn commit_error(path: &Path, error: &rusqlite::Error) -> RunStateError {
+    if is_storage(error) {
+        RunStateError::Storage {
+            path: path.to_owned(),
+            message: error.to_string(),
+        }
+    } else {
+        sqlite_error(path, error)
     }
 }
 
@@ -478,22 +537,42 @@ fn run_in_savepoint<T>(
     }
 }
 
+/// Where the writer signals each acknowledged commit and the first storage
+/// failure.
+struct Signals<'a> {
+    commits: &'a watch::Sender<u64>,
+    failures: &'a watch::Sender<Option<String>>,
+}
+
 /// Commits `group` in one transaction under `epoch`, counts the commit in
 /// `commits`, then answers each write: all of them with the failure when
-/// the transaction fails or the file holds another epoch.
+/// the transaction fails or the file holds another epoch, and a full disk or
+/// an I/O error also goes to `failures`.
 fn commit_group(
     connection: &mut Connection,
     path: &Path,
     epoch: u64,
     group: Vec<QueuedWrite>,
-    commits: &watch::Sender<u64>,
+    signals: &Signals<'_>,
 ) {
     let (completions, committed) = match commit_writes(connection, path, epoch, group) {
         Ok(completions) => {
-            commits.send_modify(|count| *count += 1);
+            signals.commits.send_modify(|count| *count += 1);
             (completions, Ok(()))
         }
-        Err((completions, error)) => (completions, Err(error)),
+        Err((completions, error)) => {
+            if let RunStateError::Storage { message, .. } = &error {
+                tracing::warn!(path = %path.display(), %message, "a commit of run state met a full disk or an I/O error and was rolled back");
+                signals.failures.send_if_modified(|failure| {
+                    let first = failure.is_none();
+                    if first {
+                        *failure = Some(message.clone());
+                    }
+                    first
+                });
+            }
+            (completions, Err(error))
+        }
     };
     for completion in completions {
         completion(committed.clone());
@@ -507,12 +586,12 @@ fn commit_writes(
     group: Vec<QueuedWrite>,
 ) -> Result<Vec<Completion>, (Vec<Completion>, RunStateError)> {
     let refuse = |group: Vec<QueuedWrite>, error: RunStateError| {
-        let completions = group.into_iter().map(|job| job(None)).collect();
+        let completions = group.into_iter().map(|job| job(None).0).collect();
         (completions, error)
     };
     let transaction = match connection.transaction_with_behavior(TransactionBehavior::Immediate) {
         Ok(transaction) => transaction,
-        Err(error) => return Err(refuse(group, sqlite_error(path, &error))),
+        Err(error) => return Err(refuse(group, commit_error(path, &error))),
     };
     let found = transaction
         .query_row("SELECT epoch FROM run", [], |row| row.get::<_, i64>(0))
@@ -529,18 +608,32 @@ fn commit_writes(
         }
         Ok(_) => {}
     }
-    let completions: Vec<Completion> = group
+    let (completions, storage): (Vec<Completion>, Vec<bool>) = group
         .into_iter()
         .map(|job| job(Some((&transaction, path))))
-        .collect();
-    if let Err(error) =
-        transaction.execute("UPDATE run SET journal_position = journal_position + 1", [])
-    {
-        return Err((completions, sqlite_error(path, &error)));
+        .unzip();
+    let failed = if storage.contains(&true) {
+        Some(RunStateError::Storage {
+            path: path.to_owned(),
+            message: "a write met a full disk or an I/O error".to_owned(),
+        })
+    } else {
+        transaction
+            .execute("UPDATE run SET journal_position = journal_position + 1", [])
+            .err()
+            .map(|error| commit_error(path, &error))
+    };
+    if let Some(error) = failed {
+        // SQLite may have rolled the transaction back already after a full
+        // disk or an I/O error; `ROLLBACK` makes the state the same either
+        // way (ADR 0122).
+        let _ = transaction.rollback();
+        return Err((completions, error));
     }
+    // A commit that fails is rolled back as its transaction drops.
     match transaction.commit() {
         Ok(()) => Ok(completions),
-        Err(error) => Err((completions, sqlite_error(path, &error))),
+        Err(error) => Err((completions, commit_error(path, &error))),
     }
 }
 

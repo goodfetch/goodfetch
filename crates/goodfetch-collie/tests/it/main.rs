@@ -21,6 +21,7 @@ mod config;
 mod console;
 mod content_origin;
 mod daemon;
+mod daemon_log;
 mod daemon_run;
 mod events;
 mod exit_codes;
@@ -47,6 +48,10 @@ mod service_manager;
 mod sessions;
 mod settings_flags;
 mod sign_in;
+#[cfg(target_os = "linux")]
+mod storage;
+#[cfg(target_os = "linux")]
+mod tmpfs;
 mod upgrade_files;
 mod usage;
 #[cfg(target_os = "linux")]

@@ -46,8 +46,9 @@ fn hello() -> Value {
 /// test support asks and on stderr: piped when `read`, as `StrictStdout`
 /// wants, and otherwise nowhere, since nothing reads it before the kill.
 fn engine(env: &TestEnv, read: bool) -> Process {
+    env.log_level("trace");
     let mut command = env.process_command(FOXHOUND);
-    command.arg("attached-engine").env("GOODFETCH_LOG", "trace");
+    command.arg("attached-engine");
     if read {
         command.stderr(Stdio::piped());
     } else {

@@ -120,7 +120,9 @@ fn a_command_piped_holds_no_escape_byte(#[case] flags: &[&str]) {
 /// instant, which two runs on a pseudo-terminal compared with each other
 /// must not hold.
 fn without_trace_lines() -> TestEnv {
-    TestEnv::new().with_variable("GOODFETCH_LOG", "info")
+    let env = TestEnv::new();
+    env.log_level("info");
+    env
 }
 
 /// Covers: story:11-208, command:engine.info

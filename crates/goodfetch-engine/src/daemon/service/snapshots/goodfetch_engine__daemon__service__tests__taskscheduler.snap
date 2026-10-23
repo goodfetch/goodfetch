@@ -31,7 +31,7 @@ expression: "format!(\"{}\\n{}\", files.join(\"\\n\"), commands.join(\"\\n\"))"
   <Actions Context="Author">
     <Exec>
       <Command>/Users/ada/Goodfetch é home/browsers/executable_copy/goodfetch-collie/1.4.0-0123456789abcdef/files/goodfetch-collie</Command>
-      <Arguments>daemon launched --service --copy 1.4.0-0123456789abcdef --environment &quot;GOODFETCH_HOME=/Users/ada/Goodfetch é home&quot; --environment GOODFETCH_LOG=info,goodfetch=debug</Arguments>
+      <Arguments>daemon launched --service --copy 1.4.0-0123456789abcdef --environment &quot;GOODFETCH_HOME=/Users/ada/Goodfetch é home&quot;</Arguments>
       <WorkingDirectory>/Users/ada/Goodfetch é home</WorkingDirectory>
     </Exec>
   </Actions>

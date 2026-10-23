@@ -98,6 +98,15 @@ pub enum LedgerError {
         /// SQLite's message.
         message: String,
     },
+    /// The disk was full or failed an I/O at a transaction (ADR 0122): it
+    /// was rolled back, and nothing of it is acknowledged.
+    #[error("the Usage ledger at `{path}` could not be written to its storage: {message}")]
+    Storage {
+        /// The ledger's file.
+        path: PathBuf,
+        /// SQLite's message.
+        message: String,
+    },
     /// The file is of another major of the format (ADR 0030).
     #[error("the Usage ledger is {found}, which this engine cannot read")]
     Format {
@@ -309,7 +318,7 @@ impl Ledger {
     /// Sets up `connection`, creating the tables it lacks, and refuses a
     /// ledger of another major.
     fn prepared(&self, mut connection: Connection) -> Result<Connection, LedgerError> {
-        let failed = |error: &dyn std::fmt::Display| self.failed(error);
+        let failed = |error: &(dyn std::error::Error + 'static)| self.failed(error);
         connection
             .busy_timeout(BUSY_TIMEOUT)
             .map_err(|error| failed(&error))?;
@@ -348,10 +357,30 @@ impl Ledger {
         Ok(connection)
     }
 
-    fn failed(&self, error: &dyn std::fmt::Display) -> LedgerError {
-        LedgerError::Sqlite {
-            path: self.path.clone(),
-            message: error.to_string(),
+    /// The failure of a transaction of the ledger on `error`: a full disk
+    /// or an I/O error as such, after which SQLite may have rolled the whole
+    /// transaction back, and the transaction's drop rolls back the rest (ADR
+    /// 0122).
+    fn failed(&self, error: &(dyn std::error::Error + 'static)) -> LedgerError {
+        let storage = error
+            .downcast_ref::<rusqlite::Error>()
+            .and_then(rusqlite::Error::sqlite_error_code)
+            .is_some_and(|code| {
+                matches!(
+                    code,
+                    rusqlite::ErrorCode::DiskFull | rusqlite::ErrorCode::SystemIoFailure
+                )
+            });
+        if storage {
+            LedgerError::Storage {
+                path: self.path.clone(),
+                message: error.to_string(),
+            }
+        } else {
+            LedgerError::Sqlite {
+                path: self.path.clone(),
+                message: error.to_string(),
+            }
         }
     }
 

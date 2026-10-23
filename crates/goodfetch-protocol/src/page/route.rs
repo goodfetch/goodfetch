@@ -122,9 +122,12 @@ pub struct RouteHandleParams {
     /// The intercepted request, which an answer names.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub route_id: RouteId,
-    /// The page that sent the request.
+    /// The page that sent the request; none for a request a site's service
+    /// worker sent itself, which belongs to no page and reaches only
+    /// Session routes (ADR 0121).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub page_id: PageId,
+    pub page_id: Option<PageId>,
     /// The request.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub request: RouteRequest,

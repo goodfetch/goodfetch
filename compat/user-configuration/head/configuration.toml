@@ -80,6 +80,7 @@ accept_invalid_certs = { "example.test" = "example" }
 [settings.browser]
 headless = true
 block_resources = ["image"]
+service_workers = "allow"
 
 [settings.live_view]
 hiding = "auto"

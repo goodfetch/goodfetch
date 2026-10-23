@@ -24,6 +24,7 @@ encoding = []
 ending = ["navigation"]
 identity = []
 navigation = []
+service_workers = []
 targets = ["world"]
 world = []
 

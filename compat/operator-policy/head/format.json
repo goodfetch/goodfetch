@@ -716,6 +716,13 @@
               "headless": {
                 "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
                 "type": "boolean"
+              },
+              "service_workers": {
+                "description": "Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.",
+                "enum": [
+                  "allow",
+                  "block"
+                ]
               }
             },
             "type": "object"
@@ -2304,6 +2311,13 @@
               "headless": {
                 "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
                 "type": "boolean"
+              },
+              "service_workers": {
+                "description": "Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.",
+                "enum": [
+                  "allow",
+                  "block"
+                ]
               }
             },
             "type": "object"

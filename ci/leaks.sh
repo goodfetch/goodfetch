@@ -33,7 +33,7 @@ for path in "$@"; do
     continue
   fi
   for configuration in "${configurations[@]}"; do
-    if ! gitleaks dir "$path" --config "$configuration" --no-banner --redact --log-level warn; then
+    if ! gitleaks dir "$path" --config "$configuration" --no-banner --redact --verbose --log-level warn; then
       echo "error[secret-in-output] $path: gitleaks found a secret with ${configuration#"$root/"}; nothing of this job uploads" >&2
       failed=1
     fi

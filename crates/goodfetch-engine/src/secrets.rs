@@ -31,7 +31,9 @@ use std::time::Duration;
 use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
-use goodfetch_protocol::secrets::{KEY_REFERENCE_IN_FILE, RUN_STATE_KEY_REFERENCE, SecretFailure};
+use goodfetch_protocol::secrets::{
+    KEY_REFERENCE_IN_FILE, RUN_STATE_KEY_REFERENCE, SecretFailure, SecretInputRefusedReason,
+};
 use goodfetch_protocol::settings::SettingsLayer;
 use jiff::Timestamp;
 use secrecy::SecretString;
@@ -42,6 +44,7 @@ pub use keychain::Keychain;
 use crate::audit::{AuditError, AuditLog, Origin};
 use crate::clock::Clock;
 use crate::home::Home;
+use crate::known_certificates::KeyHash;
 use crate::settings::HostDefaults;
 use crate::tasks::TaskOwner;
 
@@ -197,6 +200,19 @@ pub enum SecretError {
         /// The binding's domains.
         domains: Vec<String>,
     },
+    /// The receiving host may not get a value at all, such as one reached
+    /// through an invalid-certificate exception: `secret_input_refused`.
+    #[error("`{placeholder}` may not be sent to `{domain}` ({})", reason_name(*reason))]
+    InputRefused {
+        /// The placeholder.
+        placeholder: String,
+        /// The reference.
+        reference: SecretReference,
+        /// The host it would have gone to.
+        domain: String,
+        /// Why it may not go there.
+        reason: SecretInputRefusedReason,
+    },
     /// The resolution could not be recorded in the Audit log, so its value
     /// was dropped unused.
     #[error("the use of `{reference}` for `{placeholder}` cannot be recorded: {source}")]
@@ -299,8 +315,46 @@ impl Secrets {
             secrets: self.clone(),
             timeout,
             held: tokio::sync::Mutex::new(Vec::new()),
+            exception_hosts: ExceptionHosts::default(),
         }))
     }
+}
+
+/// The hosts one Run reached through an invalid-certificate exception
+/// (ADR 0042), with the key each presented: the engine's client sends them
+/// no Session cookie and the driver resolves no value for them. Hosts are
+/// held as the URL parser leaves them, without a trailing dot. Clones share
+/// it.
+#[derive(Clone, Debug, Default)]
+pub struct ExceptionHosts(Arc<tokio::sync::Mutex<BTreeMap<String, KeyHash>>>);
+
+impl ExceptionHosts {
+    /// The key `host` presented, when the Run reached it through an
+    /// exception.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn reached(&self, host: &str) -> Option<KeyHash> {
+        self.0.lock().await.get(&host_key(host)).copied()
+    }
+
+    /// Adds `host`, reached through an exception with `key`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the host out.
+    pub(crate) async fn add(&self, host: &str, key: KeyHash) {
+        self.0.lock().await.insert(host_key(host), key);
+    }
+}
+
+/// `host` in lower case, without the trailing dot of a fully qualified
+/// name.
+fn host_key(host: &str) -> String {
+    let host = host.to_ascii_lowercase();
+    host.strip_suffix('.')
+        .map_or_else(|| host.clone(), str::to_owned)
 }
 
 /// One value a Run resolved, under the name it was resolved for.
@@ -318,6 +372,9 @@ struct ForRun {
     secrets: Secrets,
     timeout: Duration,
     held: tokio::sync::Mutex<Vec<Held>>,
+    /// The hosts the Run reached through an invalid-certificate exception,
+    /// which get no value.
+    exception_hosts: ExceptionHosts,
 }
 
 impl std::fmt::Debug for RunSecrets {
@@ -330,6 +387,12 @@ impl std::fmt::Debug for RunSecrets {
 }
 
 impl RunSecrets {
+    /// The hosts the Run reached through an invalid-certificate exception,
+    /// which its Sessions' traffic adds to: none gets a value (ADR 0042).
+    pub fn exception_hosts(&self) -> ExceptionHosts {
+        self.0.exception_hosts.clone()
+    }
+
     /// The value `reference` points to, resolved now for `purpose`: refused
     /// for a domain its binding does not allow, bounded by `timeout.secret`,
     /// recorded in the Audit log and held for the rest of the Run.
@@ -347,6 +410,16 @@ impl RunSecrets {
         reference: &SecretReference,
         purpose: &Purpose<'_>,
     ) -> Result<SecretString, SecretError> {
+        if let Some(domain) = purpose.domain
+            && self.0.exception_hosts.reached(domain).await.is_some()
+        {
+            return Err(SecretError::InputRefused {
+                placeholder: purpose.placeholder.to_owned(),
+                reference: reference.clone(),
+                domain: domain.to_owned(),
+                reason: SecretInputRefusedReason::InvalidCertificateException,
+            });
+        }
         if !purpose.domains.is_empty()
             && !purpose
                 .domain
@@ -465,6 +538,13 @@ impl RunSecrets {
                 reference: reference.clone(),
                 source,
             })
+    }
+}
+
+/// A refusal's reason as the wire names it.
+fn reason_name(reason: SecretInputRefusedReason) -> &'static str {
+    match reason {
+        SecretInputRefusedReason::InvalidCertificateException => "invalid_certificate_exception",
     }
 }
 

@@ -6,6 +6,7 @@
     "@goodfetch/test-support": "workspace:*",
     "@lingui/vite-plugin": "6.10.0",
     "@playwright/test": "catalog:",
+    "@storybook/addon-vitest": "10.6.3",
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",

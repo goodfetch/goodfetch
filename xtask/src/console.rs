@@ -1,8 +1,9 @@
 //! The Console's build (ADRs 0057 and 0068): `build` runs Collie's Console
 //! package's `build` script into a folder of its own, then compresses every
 //! file it wrote with brotli into `crates/goodfetch-collie/console-build/`,
-//! which holds brotli files only and which Collie's executable embeds and
-//! serves as they are. Building Collie's executable without it fails with
+//! which holds brotli files and, as it is, the package's `routes.json`, and
+//! which Collie's executable embeds and serves as they are, the page at
+//! each route. Building Collie's executable without it fails with
 //! an error naming this command. A build whose inputs (the package's files
 //! and the pnpm lockfile) did not change since the last one runs nothing.
 //! The package's build reads only what is installed: it calls nowhere (ADR
@@ -35,6 +36,9 @@ const LOCKFILE: &str = "pnpm-lock.yaml";
 const COMPRESSION: &str = "brotli quality 11, window 22";
 /// The page every build has.
 const PAGE: &str = "index.html";
+/// The routes of the package's screens (ADR 0072), which the build folder
+/// keeps as they are, uncompressed, for the executable to serve the page at.
+const ROUTES: &str = "routes.json";
 
 #[derive(clap::Subcommand)]
 pub(crate) enum Command {
@@ -86,6 +90,11 @@ pub(crate) fn build(root: &Path) -> Result<()> {
     }
     let compressed = staging.path().join("compressed");
     compress_tree(&built, &compressed)?;
+    let routes = root.join(PACKAGE).join(ROUTES);
+    if routes.is_file() {
+        std::fs::copy(&routes, compressed.join(ROUTES))
+            .with_context(|| format!("copying {}", routes.display()))?;
+    }
     if out.exists() {
         std::fs::remove_dir_all(&out).with_context(|| format!("removing {}", out.display()))?;
     } else if let Some(folder) = out.parent() {

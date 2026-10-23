@@ -1641,6 +1641,7 @@ dependencies = [
 name = "goodfetch-conformance"
 version = "0.0.0"
 dependencies = [
+ "data-encoding",
  "goodfetch-protocol",
  "goodfetch-test-support",
  "jsonschema",
@@ -1800,6 +1801,7 @@ dependencies = [
 name = "goodfetch-page"
 version = "0.0.0"
 dependencies = [
+ "data-encoding",
  "goodfetch-cdp",
  "goodfetch-engine",
  "goodfetch-extractor",

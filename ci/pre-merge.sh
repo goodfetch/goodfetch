@@ -194,11 +194,13 @@ gated audit just audit
 gated commit-leaks just commit-leaks
 gated fuzz-check just fuzz-check
 gated proofs just proofs
+# A part reruns every Vitest, Playwright and pytest test, as a full run
+# does, in the head's order (`--shuffled-all`), and nextest over its crates.
 case $(action quick) in
   reuse) reused quick ;;
   part)
     read -ra members <<<"$(members_of quick | tr '\n' ' ')"
-    gated quick just test quick "${members[@]}"
+    gated quick just test quick --shuffled-all "${members[@]}"
     ;;
   *) gated quick just _suite quick "$all" ;;
 esac
@@ -209,7 +211,7 @@ case $(action pre-merge) in
   *)
     if [[ $(action pre-merge) == part ]]; then
       read -ra members <<<"$(members_of pre-merge | tr '\n' ' ')"
-      suite=(test pre-merge "${members[@]}")
+      suite=(test pre-merge --shuffled-all "${members[@]}")
     else
       suite=(_suite pre-merge "$all")
     fi

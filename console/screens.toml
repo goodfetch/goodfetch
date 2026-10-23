@@ -12,3 +12,9 @@
 # A screen with no route, sign-in state or walk here fails its case with
 # `screen_setup_missing`, naming it; it is never skipped. A walk that moves
 # fails with `keyboard_walk_changed`: fix the screen, or record the new one.
+
+[[screen]]
+feature = "screen:/settings"
+route = "/settings"
+sign_in = "signed-in"
+walk = ["link Overview", "link Engine & settings", "button Project configuration", "textbox Run values", "button Explain"]

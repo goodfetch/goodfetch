@@ -334,8 +334,13 @@ test suite *packages:
     #!/usr/bin/env bash
     set -euo pipefail
     packages=() vitest=() pytest=() vitest_files=() playwright_files=()
+    # `--shuffled-all` (the incremental gate, ADR 0135): Vitest, Playwright
+    # and pytest run every test, as over the whole workspace, so their order
+    # is the full run's; the crates given narrow nextest alone.
+    shuffled_all=false
     for package in {{ packages }}; do
-      if [[ -f "$package/package.json" ]]; then vitest+=("$package/")
+      if [[ "$package" == --shuffled-all ]]; then shuffled_all=true
+      elif [[ -f "$package/package.json" ]]; then vitest+=("$package/")
       elif [[ -f "$package/pyproject.toml" ]]; then pytest+=("$package")
       # A test file that no package owns, as the incremental gate passes
       # them (ADR 0135), runs in its own runner only.
@@ -353,6 +358,10 @@ test suite *packages:
       [[ ${#pytest[@]} -gt 0 ]] || python=false
     else
       packages=(--workspace)
+    fi
+    if $shuffled_all; then
+      vitest=() pytest=() vitest_files=() playwright_files=()
+      typescript=true python=true vitest_given=true playwright_given=true
     fi
     # Vitest takes the package folders and its own files; Playwright the
     # folders and its own files.

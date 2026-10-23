@@ -27,6 +27,9 @@ const AUDIT_LOG: &str = "audit-log.sqlite";
 /// The Audit log's head file, beside its store.
 const AUDIT_LOG_HEAD: &str = "audit-log-head.json";
 
+/// The known-certificates store, beside the Usage ledger (ADR 0042).
+const KNOWN_CERTIFICATES: &str = "known-certificates.sqlite";
+
 /// The per-major accounts store, beside the Operator policy (spec #592).
 const ACCOUNTS_STORE: &str = "accounts-store.sqlite";
 
@@ -114,6 +117,13 @@ impl Home {
     /// entry so that a truncated tail shows.
     pub fn audit_log_head(&self) -> PathBuf {
         self.root.join(AUDIT_LOG_HEAD)
+    }
+
+    /// The per-user known-certificates store, beside the Usage ledger and
+    /// outside the per-major folders, which every engine of every major and
+    /// of both Products reads (ADR 0042).
+    pub fn known_certificates(&self) -> PathBuf {
+        self.root.join(KNOWN_CERTIFICATES)
     }
 
     /// The accounts store of the Product version `version`'s major, in its

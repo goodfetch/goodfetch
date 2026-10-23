@@ -388,6 +388,15 @@ export class PageCrashedError extends UnavailableError {
 }
 
 /**
+ * A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or else by the next call on its page. The details name the handler, the request's URL and what the failure said.
+ */
+export class PageHandlerFailedError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_handler_failed", group: "program", retryable: false });
+  }
+}
+
+/**
  * The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.
  */
 export class PathNotWritableError extends ProgramError {
@@ -438,6 +447,15 @@ export class ResourcesExhaustedError extends UnavailableError {
 export class ResponseTruncatedError extends PageError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "response_truncated", group: "page", retryable: true });
+  }
+}
+
+/**
+ * The route's request was answered already, by an earlier `continue`, `fulfill`, `abort` or `fallback`, or its handler ended: the first answer stands and this one changed nothing.
+ */
+export class RouteAlreadyHandledError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "route_already_handled", group: "program", retryable: false });
   }
 }
 
@@ -519,6 +537,15 @@ export class SampleRefusedError extends RefusedError {
 export class SecretDomainNotAllowedError extends RefusedError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "secret_domain_not_allowed", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Secret placeholder's value would be typed or sent where other code may read it, or to a host reached through an invalid-certificate exception, so it was not resolved. The details name the placeholder, the reference, the domain and the `reason`, never a value.
+ */
+export class SecretInputRefusedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "secret_input_refused", group: "refused", retryable: false });
   }
 }
 
@@ -652,12 +679,14 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   not_a_daemon: NotADaemonError,
   not_in_product: NotInProductError,
   page_crashed: PageCrashedError,
+  page_handler_failed: PageHandlerFailedError,
   path_not_writable: PathNotWritableError,
   pattern_unsupported: PatternUnsupportedError,
   person_required: PersonRequiredError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
   resources_exhausted: ResourcesExhaustedError,
   response_truncated: ResponseTruncatedError,
+  route_already_handled: RouteAlreadyHandledError,
   run_busy: RunBusyError,
   run_conflict: RunConflictError,
   run_id_invalid: RunIdInvalidError,
@@ -667,6 +696,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   run_state_unavailable: RunStateUnavailableError,
   sample_refused: SampleRefusedError,
   secret_domain_not_allowed: SecretDomainNotAllowedError,
+  secret_input_refused: SecretInputRefusedError,
   secret_unavailable: SecretUnavailableError,
   secret_unbound: SecretUnboundError,
   session_bound_to_machine: SessionBoundToMachineError,

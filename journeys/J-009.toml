@@ -9,7 +9,7 @@ locked it, if any, so that the person can tell why a value applies."""
 area = 3
 product = "collie"
 status = "active"
-covers = ["row:RT-22", "story:3-89"]
+covers = ["row:RT-22", "story:3-89", "story:12-94"]
 
 [surfaces]
 cli = "M1"

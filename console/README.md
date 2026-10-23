@@ -2,7 +2,9 @@
 
 The Console, with Foxhound's screens as a package of their own (ADR 0087). Area 12 fills it.
 
-Each package commits the routes its build reads as `routes.json` at its root, `{ "routes": ["/runs", …] }`, which the Feature inventory reads for its `screen:` Features (ADR 0072).
+Each package commits the routes its build reads as `routes.json` at its root, `{ "routes": ["/runs", …] }`, which the Feature inventory reads for its `screen:` Features (ADR 0072), and at which the executable serves the Console's page (`xtask console build` keeps it beside the build). Collie's are declared in `collie/src/routes.ts`, whose unit test fails when `routes.json` differs.
+
+Each state of a component is a Storybook story beside it (`*.stories.tsx`; `collie/.storybook/`), which the root Vitest configuration's `component-stories-light` and `component-stories-dark` projects render as tests with the a11y addon's axe pass; `pnpm --dir console/collie exec storybook dev` shows them.
 
 Each `screen:` Feature gets a keyboard walk and axe case from `screens.spec.ts`, with no test written for it (ADR 0073). Give each new screen its route and sign-in state in `screens.toml`, or its case fails.
 

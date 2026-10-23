@@ -28,3 +28,4 @@ mod name_server;
 mod nothing_leaves;
 mod resolved_address;
 mod resolver_cache;
+mod trust_on_first_use;

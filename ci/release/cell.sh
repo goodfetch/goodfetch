@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # One cell of the Release suite in CI (ADRs 0061, 0094 and 0108), on its
 # runner's own system, after .github/actions/host-tools:
-#   build       before the deny: builds the target's tests once with
-#               `cargo nextest archive`, and both Products' executables with
+#   build       before the deny: builds Collie's Console first (`just
+#               console-build`, ADR 0057), as the local gate does, then the
+#               target's tests once with `cargo nextest archive`, and both Products' executables with
 #               the thin-LTO `ci` profile, from one invocation (ADR 0094),
 #               the test tool manifest of the executables tests run, and the
 #               one of the `ci` executables the resident-memory check runs;
@@ -78,6 +79,10 @@ skip() {
 
 case "$part" in
   build)
+    # Collie's executable embeds its Console build (ADR 0057), which the
+    # archive's and the `ci` profile's builds of it read: without it they fail
+    # to compile. It builds from the packages `just fetch` installed.
+    just console-build
     cargo nextest archive --workspace --locked --target "$target" \
       --profile ci --cargo-profile ci-test --archive-file "$archive"
     cargo build --workspace --locked --target "$target" --profile ci

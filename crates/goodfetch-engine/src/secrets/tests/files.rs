@@ -231,3 +231,107 @@ fn an_identity_file_everyone_may_read_is_refused_with_the_icacls_that_closes_it(
         "{fix}"
     );
 }
+
+/// Makes the engine's own key-encryption key in `env`'s encrypted local
+/// file `run-state-key`, as a Run's first seal does, and answers how it
+/// went.
+fn make(env: &TestEnv) -> Result<(), SecretError> {
+    goodfetch_test_support::runtime().block_on(async {
+        driver(env, &[])
+            .make_key(&super::reference("secretfile:run-state-key"))
+            .await
+    })
+}
+
+/// In a home with no encrypted local file, the engine makes the identity,
+/// only its owner's, and the file of its own key: 32 random bytes in
+/// Base64, which resolve through `secretfile:`; made again, the first key
+/// stays, since a new one would open no Run's data key.
+/// Covers: story:4-64, setting:run_state.key_reference
+#[test]
+fn the_engines_own_key_is_made_once_in_the_encrypted_local_file_with_an_owner_only_identity() {
+    let env = TestEnv::new();
+
+    make(&env).unwrap();
+    let first = resolved_key(&env);
+    make(&env).unwrap();
+    let second = resolved_key(&env);
+
+    let decoded = data_encoding::BASE64
+        .decode(first.as_bytes())
+        .map(|key| key.len());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(folder(&env).join("identity.txt"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o077, 0, "the identity is {mode:o}");
+    }
+    assert_eq!((decoded, first == second), (Ok(32), true));
+}
+
+/// The value `secretfile:run-state-key` resolves to in `env`'s home.
+fn resolved_key(env: &TestEnv) -> String {
+    let secrets = goodfetch_test_support::runtime()
+        .block_on(async { driver(env, &[]).for_run(Duration::from_secs(30)) });
+    resolved(&secrets, "secretfile:run-state-key")
+        .unwrap()
+        .expose_secret()
+        .to_owned()
+}
+
+/// An identity others may read refuses the making of the engine's key as
+/// it refuses a read, with the `chmod` that closes it, and no key file is
+/// written.
+/// Covers: story:4-64, error:secret_unavailable
+#[cfg(unix)]
+#[test]
+fn the_engines_own_key_is_not_made_beside_an_identity_others_may_read() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let env = TestEnv::new();
+    identity(&env);
+    let path = folder(&env).join("identity.txt");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    let made = make(&env);
+
+    let Err(SecretError::Unavailable { failure, fix, .. }) = made else {
+        panic!("expected `secret_unavailable`, found {made:?}");
+    };
+    assert_eq!(
+        (
+            failure,
+            fix.contains("chmod 600"),
+            folder(&env).join("run-state-key.age").exists()
+        ),
+        (SecretFailure::NotConfigured, true, false),
+        "{fix}"
+    );
+}
+
+/// The engine makes only its own key: any other reference is refused, and
+/// nothing is written.
+/// Covers: story:4-64, error:secret_unavailable
+#[test]
+fn the_engine_makes_no_key_where_another_reference_points() {
+    let env = TestEnv::new();
+
+    let made = goodfetch_test_support::runtime().block_on(async {
+        driver(&env, &[])
+            .make_key(&super::reference("secretfile:shop-key"))
+            .await
+    });
+
+    assert!(
+        matches!(
+            made,
+            Err(SecretError::Unavailable {
+                failure: SecretFailure::NotConfigured,
+                ..
+            })
+        ) && !folder(&env).exists(),
+        "{made:?}"
+    );
+}

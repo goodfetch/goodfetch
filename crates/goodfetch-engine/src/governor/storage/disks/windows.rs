@@ -43,7 +43,14 @@ pub(super) fn read(folder: &Path) -> Option<Reading> {
     let path = wide(folder);
     let (mut free, mut size, mut all_free) = (0_u64, 0_u64, 0_u64);
     // SAFETY: `path` is NUL-terminated and each count a writable `u64`.
-    let done = unsafe { GetDiskFreeSpaceExW(path.as_ptr(), &mut free, &mut size, &mut all_free) };
+    let done = unsafe {
+        GetDiskFreeSpaceExW(
+            path.as_ptr(),
+            &raw mut free,
+            &raw mut size,
+            &raw mut all_free,
+        )
+    };
     (done != 0).then_some(Reading {
         size,
         free,

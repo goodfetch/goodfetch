@@ -306,6 +306,7 @@ impl Machine<'_> {
 
     /// The pick when it is not this executable, which a service's
     /// `daemon launched` gives its place to.
+    #[cfg(unix)]
     pub(super) fn other_pick(&self) -> Option<InstalledExecutable> {
         self.pick().filter(|picked| {
             picked.product != self.identity.product

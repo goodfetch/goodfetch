@@ -195,6 +195,7 @@ fn reading_a_checkpoint_gives_its_run_its_product_lifecycle_and_binding() {
                 machine: "m-1".to_owned()
             }),
             run_epoch: 2,
+            key: None,
         }
     );
 }

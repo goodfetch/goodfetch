@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion, Setting, ValueKind,
 };
+use crate::run::RunId;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -159,6 +160,38 @@ pub struct SecretInputRefusedDetails {
     pub reason: SecretInputRefusedReason,
 }
 
+/// A Run's data key does not open under the key-encryption key a resume
+/// named (ADR 0015).
+pub const RUN_KEY_MISMATCH: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "run_key_mismatch",
+    description: "A resumed Run's data key does not open under the key-encryption key `run_state.key_reference` names, such as a Checkpoint moved to a machine whose own key is another: the key that wrapped it never travels with the Checkpoint. The details name the Run, the setting, the reference resolved and the reference that wrapped the key, never a value. Name the key that wrapped it, in project configuration or configuration, and resume again.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `run_key_mismatch` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunKeyMismatchDetails {
+    /// The Run.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The setting that names the key-encryption key,
+    /// `run_state.key_reference`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub setting: String,
+    /// The Secret reference the resume resolved.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reference: String,
+    /// The Secret reference of the key that wrapped the data key.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub wrapped_by: String,
+    /// What makes the resume open it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
 fn thirty_seconds() -> Value {
     json!(30_000)
 }
@@ -177,7 +210,7 @@ fn in_keychain() -> Value {
 /// `run_state.key_reference` (ADR 0015).
 pub const RUN_STATE_KEY_REFERENCE: Setting = Setting {
     name: "run_state.key_reference",
-    description: "The Secret reference of the key-encryption key that wraps each Run's data key. One set in a layer is resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration. By default the OS keychain's `keychain:goodfetch/run-state-key`, or, on a host with no OS keychain, the encrypted local file's `secretfile:run-state-key`, which `config explain` shows as the default it chose. The encrypted local file, `secrets/<name>.age` in Goodfetch home encrypted with age to the X25519 identity in `secrets/identity.txt`, a file only its owner may read, protects copies and backups of the home, not the value from another process of the same user.",
+    description: "The Secret reference of the key-encryption key that wraps each Run's data key. One set in a layer is resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration. By default the OS keychain's `keychain:goodfetch/run-state-key`, or, on a host with no OS keychain, the encrypted local file's `secretfile:run-state-key`, which `config explain` shows as the default it chose; the engine makes the default's item, a random 256-bit key, where it is missing when a Run first seals a field. A Run's data key is stored only wrapped by this key, so a resume, such as of a Checkpoint moved to another machine, unwraps it with the key this setting names for the resume, which a Client may send in `run.resume`'s project configuration: one that gives no value fails the resume with `secret_unavailable`, one that does not open the data key with `run_key_mismatch`. The encrypted local file, `secrets/<name>.age` in Goodfetch home encrypted with age to the X25519 identity in `secrets/identity.txt`, a file only its owner may read, protects copies and backups of the home, not the value from another process of the same user.",
     kind: ValueKind::SecretReference,
     default: in_keychain,
     clearable: true,
@@ -209,6 +242,7 @@ pub const ENTRIES: Entries = Entries {
         SECRET_UNBOUND,
         SECRET_DOMAIN_NOT_ALLOWED,
         SECRET_INPUT_REFUSED,
+        RUN_KEY_MISMATCH,
     ],
     plugin_kinds: &[],
     metrics: &[],

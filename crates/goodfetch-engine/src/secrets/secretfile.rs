@@ -102,6 +102,72 @@ fn read(folder: &Path, name: &str) -> Result<SecretString, ProviderFailure> {
     Ok(SecretString::from(text.to_owned()))
 }
 
+/// Makes the file `name` in `folder` hold `value`, encrypted to the
+/// folder's identity, unless the file exists: the identity too is made
+/// where there is none, only its owner's. Each file appears whole or not
+/// at all, and one that exists is never replaced, so two makers keep the
+/// first one's. It blocks: run it under a blocking policy.
+///
+/// # Errors
+///
+/// As a read's: an identity others may read is `NotConfigured`, with the
+/// `chmod` that closes it, and what the file system refuses is translated.
+pub(super) fn make(folder: &Path, name: &str, value: &SecretString) -> Result<(), ProviderFailure> {
+    use secrecy::ExposeSecret as _;
+    use std::io::Write as _;
+
+    let identity_path = folder.join(IDENTITY);
+    std::fs::create_dir_all(folder).map_err(|error| translate_io(&error, folder))?;
+    if !identity_path.exists() {
+        let identity = x25519::Identity::generate();
+        let text = Zeroizing::new(format!(
+            "# public key: {}\n{}\n",
+            identity.to_public(),
+            identity.to_string().expose_secret()
+        ));
+        publish(folder, &identity_path, text.as_bytes())?;
+    }
+    let file = folder.join(format!("{name}.age"));
+    if file.exists() {
+        return Ok(());
+    }
+    let identities = identities(&identity_path)?;
+    let recipient = identities
+        .first()
+        .map(x25519::Identity::to_public)
+        .expect("invariant: `identities` gives at least one identity");
+    let encryptor =
+        age::Encryptor::with_recipients(std::iter::once(&recipient as &dyn age::Recipient))
+            .expect("invariant: one X25519 recipient encrypts");
+    let mut encrypted = Vec::new();
+    let mut writer = encryptor
+        .wrap_output(&mut encrypted)
+        .map_err(|error| translate_io(&error, &file))?;
+    writer
+        .write_all(value.expose_secret().as_bytes())
+        .and_then(|()| writer.finish().map(drop))
+        .map_err(|error| translate_io(&error, &file))?;
+    publish(folder, &file, &encrypted)
+}
+
+/// Writes `bytes` to `path` in `folder` through a temporary file only its
+/// owner may read, synced, then linked where no file is, so a reader never
+/// sees half of one; a file another maker put there first is kept.
+fn publish(folder: &Path, path: &Path, bytes: &[u8]) -> Result<(), ProviderFailure> {
+    use std::io::Write as _;
+
+    let failed = |error: io::Error| translate_io(&error, path);
+    // A temporary file is `0600` from its creation on Unix.
+    let mut temporary = tempfile::NamedTempFile::new_in(folder).map_err(failed)?;
+    temporary.write_all(bytes).map_err(failed)?;
+    temporary.as_file().sync_all().map_err(failed)?;
+    match temporary.persist_noclobber(path) {
+        Ok(_) => Ok(()),
+        Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Err(error) => Err(failed(error.error)),
+    }
+}
+
 /// The X25519 identities of the identity file at `path`, which only its
 /// owner may read.
 fn identities(path: &Path) -> Result<Vec<x25519::Identity>, ProviderFailure> {

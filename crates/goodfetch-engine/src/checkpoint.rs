@@ -29,6 +29,7 @@ use rusqlite::backup::{Backup, StepResult};
 use rusqlite::{Connection, ErrorCode, OpenFlags};
 use sha2::{Digest as _, Sha256};
 
+use crate::run_key::{self, StoredKey};
 use crate::run_state::{RunStateError, check_format, open_reader};
 
 /// The name of the Checkpoint the engine keeps in a Run's folder: the
@@ -148,6 +149,8 @@ pub(crate) struct Held {
     pub(crate) binding: Option<RunBinding>,
     /// The run epoch of its last writer.
     pub(crate) run_epoch: u64,
+    /// Its data key, wrapped, once it has one.
+    pub(crate) key: Option<StoredKey>,
 }
 
 /// Opens the Checkpoint at `path` to read it, on the real filesystem.
@@ -212,6 +215,7 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
             .transpose()
             .map_err(|error| damaged(format!("`binding`: {error}")))?,
         run_epoch: u64::try_from(run_epoch).unwrap_or_default(),
+        key: run_key::stored(connection).map_err(|error| damaged(error.to_string()))?,
     })
 }
 

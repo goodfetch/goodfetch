@@ -21,7 +21,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::ARRIVED_IN;
-use crate::catalog::{Authority, ErrorCodeDefinition, ErrorGroup, Setting, ValueKind, ValueShape};
+use crate::catalog::{
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Setting, ValueKind, ValueShape,
+};
 
 /// A proxy's scheme, as `proxy.server` names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -283,3 +285,17 @@ pub struct ProxyAuthFailedDetails {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub username: Option<String>,
 }
+
+/// A Session's proxy's entries: its settings and its Error codes.
+pub const ENTRIES: Entries = Entries {
+    defined_in: module_path!(),
+    operations: &[],
+    events: &[],
+    handler_requests: &[],
+    error_codes: &[PROXY_UNAVAILABLE, PROXY_AUTH_FAILED],
+    plugin_kinds: &[],
+    metrics: &[],
+    settings: &[PROXY_SERVER, PROXY_BYPASS, PROXY_USERNAME, PROXY_PASSWORD],
+    hook_stages: &[],
+    shared_type_values: &[],
+};

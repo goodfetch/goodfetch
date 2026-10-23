@@ -756,7 +756,7 @@ impl PageDriver {
         .await;
         match followed {
             Ok(Ok(Ok(Arrived::Document(Some(response)))))
-                if let Some(failed) = self.proxys_own(&url, &response) =>
+                if let Some(failed) = self.answered_by_proxy(&url, &response) =>
             {
                 Err(failed)
             }
@@ -789,7 +789,7 @@ impl PageDriver {
     /// `proxy_unavailable` when `response`, the document's response to a
     /// navigation to `url`, is the Session's proxy's own, never the site's
     /// (the proxy-or-site rule).
-    fn proxys_own(&self, url: &str, response: &PageResponse) -> Option<CallError> {
+    fn answered_by_proxy(&self, url: &str, response: &PageResponse) -> Option<CallError> {
         let proxy = self.proxy.as_deref()?;
         let proxy_status = response.headers.get(PROXY_STATUS).map(String::as_str);
         if party(Answer::Response { proxy_status }) != Party::Proxy {

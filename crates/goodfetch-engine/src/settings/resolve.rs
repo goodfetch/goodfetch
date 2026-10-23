@@ -20,7 +20,7 @@ use serde_json::Value;
 
 use super::error::SettingsError;
 use super::keys::{self, Key};
-use super::values::Values;
+use super::values::{Given, Values};
 
 /// An Operator policy: what it sets, locks and caps.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -591,14 +591,6 @@ fn limit(key: &str, value: &Value, layer: SettingsLayer) -> SettingLimit {
 /// `bound`.
 fn above(value: &Value, bound: u64) -> bool {
     value.is_null() || value.as_u64().is_some_and(|value| value > bound)
-}
-
-/// Who gave a value: where a run-layer value came from, and whether a
-/// Client acting for a model gave it.
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct Given {
-    pub(crate) origin: Option<RunOrigin>,
-    pub(crate) for_model: bool,
 }
 
 /// Takes `value` from `layer` for `key`, as `given` for the run layer,

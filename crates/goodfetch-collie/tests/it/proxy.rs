@@ -8,6 +8,10 @@
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the SOCKS5 test reads the Goodfetch home's files on its own thread, never an async worker"
+)]
 
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use rstest::rstest;
@@ -188,7 +192,7 @@ enum Failing {
 #[case::a_proxy_that_is_down(Failing::Down, "proxy_unavailable", true)]
 #[case::no_credentials(Failing::NoCredentials, "proxy_auth_failed", false)]
 #[case::a_wrong_password(Failing::WrongPassword, "proxy_auth_failed", false)]
-fn a_failing_proxy_is_the_proxys_failure_never_the_navigations(
+fn a_failing_proxy_raises_a_proxy_error_never_navigation_failed(
     #[case] failing: Failing,
     #[case] code: &str,
     #[case] retryable: bool,
@@ -261,10 +265,10 @@ fn relays_to(proving_ground: &ProvingGround, marker: &str) -> Vec<(String, Strin
         })
         .map(|relay| {
             let target = relay["target"].as_str().unwrap();
-            let marked = &target[target.find(marker).unwrap()..];
+            let from_marker = &target[target.find(marker).unwrap()..];
             (
                 relay["proxy"].as_str().unwrap().to_owned(),
-                marked.to_owned(),
+                from_marker.to_owned(),
             )
         })
         .collect()
@@ -462,7 +466,7 @@ fn files_holding(folder: &std::path::Path, secret: &str) -> Vec<std::path::PathB
 #[rstest]
 #[case::socks5("socks5")]
 #[case::socks5h("socks5h")]
-fn a_socks5_proxys_credentials_reach_it_through_the_sessions_loopback_relay_and_nowhere_else(
+fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_relay_alone(
     #[case] scheme: &str,
 ) {
     let env = TestEnv::new();

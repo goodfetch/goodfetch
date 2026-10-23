@@ -14,7 +14,14 @@ use serde_json::{Map, Value};
 
 use super::error::SettingsError;
 use super::keys::{self, Key};
-use super::resolve::Given;
+
+/// Who gave a value: where a run-layer value came from, and whether a
+/// Client acting for a model gave it.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Given {
+    pub(crate) origin: Option<RunOrigin>,
+    pub(crate) for_model: bool,
+}
 
 /// What one layer sets.
 #[derive(Clone, Debug, Default, PartialEq)]

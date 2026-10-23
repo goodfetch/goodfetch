@@ -87,7 +87,7 @@ proptest! {
 
     /// Covers: story:5-88, error:proxy_unavailable
     #[test]
-    fn a_response_whose_proxy_status_names_an_error_is_the_proxys(field in with_an_error()) {
+    fn a_response_whose_proxy_status_names_an_error_comes_from_the_proxy(field in with_an_error()) {
         prop_assert_eq!(party(Answer::Response { proxy_status: Some(&field) }), Party::Proxy);
     }
 
@@ -124,7 +124,7 @@ fn a_response_without_proxy_status_is_the_sites() {
 #[case::name_not_resolved("net::ERR_NAME_NOT_RESOLVED", Party::Site)]
 #[case::site_certificate("net::ERR_CERT_AUTHORITY_INVALID", Party::Site)]
 #[case::aborted("net::ERR_ABORTED", Party::Site)]
-fn a_failure_is_the_proxys_when_chromium_names_the_proxys_own_answer(
+fn a_failure_comes_from_the_proxy_when_chromium_names_its_answer(
     #[case] error: &str,
     #[case] expected: Party,
 ) {

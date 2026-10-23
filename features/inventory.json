@@ -1086,7 +1086,7 @@
     {
       "id": "error:proxy_auth_failed",
       "kind": "error",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1097,7 +1097,7 @@
     {
       "id": "error:proxy_unavailable",
       "kind": "error",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -5063,7 +5063,7 @@
     {
       "id": "setting:proxy.bypass",
       "kind": "setting",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -5074,7 +5074,7 @@
     {
       "id": "setting:proxy.password",
       "kind": "setting",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -5085,7 +5085,7 @@
     {
       "id": "setting:proxy.server",
       "kind": "setting",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -5096,7 +5096,7 @@
     {
       "id": "setting:proxy.username",
       "kind": "setting",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [

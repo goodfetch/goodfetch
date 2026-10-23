@@ -110,6 +110,7 @@ shelf = []
 message = []
 
 [submodules.forward_proxy]
+socks5 = []
 username = []
 
 [submodules.browser_pages]

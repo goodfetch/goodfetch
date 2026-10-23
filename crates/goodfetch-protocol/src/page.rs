@@ -37,10 +37,6 @@ pub mod proxy;
 pub mod route;
 pub mod session;
 
-use self::proxy::{
-    PROXY_AUTH_FAILED, PROXY_BYPASS, PROXY_PASSWORD, PROXY_SERVER, PROXY_UNAVAILABLE,
-    PROXY_USERNAME,
-};
 use self::route::{
     PAGE_HANDLER_FAILED, PAGE_ROUTE, ROUTE_ABORT, ROUTE_ALREADY_HANDLED, ROUTE_CONTINUE,
     ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL, ROUTE_HANDLE, SESSION_ROUTE,
@@ -989,18 +985,10 @@ pub const ENTRIES: Entries = Entries {
         PATTERN_UNSUPPORTED,
         PAGE_HANDLER_FAILED,
         ROUTE_ALREADY_HANDLED,
-        PROXY_UNAVAILABLE,
-        PROXY_AUTH_FAILED,
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[
-        BROWSER_HEADLESS,
-        PROXY_SERVER,
-        PROXY_BYPASS,
-        PROXY_USERNAME,
-        PROXY_PASSWORD,
-    ],
+    settings: &[BROWSER_HEADLESS],
     hook_stages: &[],
     shared_type_values: &[],
 };

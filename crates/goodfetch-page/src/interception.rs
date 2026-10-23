@@ -59,7 +59,7 @@ mod steps;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use goodfetch_cdp::generated::fetch;
+use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
 use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
@@ -321,13 +321,23 @@ impl Interception {
             state
         };
         let events = driver.events().await;
+        let mut patterns = vec![fetch::RequestPattern {
+            url_pattern: Some("*".to_owned()),
+            resource_type: None,
+            request_stage: Some(fetch::RequestStage::Request),
+        }];
+        // A page with a navigation gate pauses its documents' responses
+        // too, so the gate judges each before the page renders it.
+        if driver.value().gate().is_some() {
+            patterns.push(fetch::RequestPattern {
+                url_pattern: Some("*".to_owned()),
+                resource_type: Some(network::ResourceType::Document),
+                request_stage: Some(fetch::RequestStage::Response),
+            });
+        }
         driver
             .opening_command(&fetch::EnableParams {
-                patterns: Some(vec![fetch::RequestPattern {
-                    url_pattern: Some("*".to_owned()),
-                    resource_type: None,
-                    request_stage: Some(fetch::RequestStage::Request),
-                }]),
+                patterns: Some(patterns),
                 // An HTTP or HTTPS proxy's 407 reaches the engine, which
                 // answers it with the Session's credentials (SA-22).
                 handle_auth_requests: driver

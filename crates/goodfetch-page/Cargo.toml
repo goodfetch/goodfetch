@@ -41,6 +41,10 @@ libc.workspace = true
 tokio = { workspace = true, features = ["net"] }
 
 [dev-dependencies]
+# The integration tests' adapter of the page's value and response observer
+# (ADR 0125); never the unit tests', which would link two copies of this
+# crate.
+goodfetch-recording-gate.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 mimalloc.workspace = true

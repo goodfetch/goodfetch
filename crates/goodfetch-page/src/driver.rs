@@ -22,6 +22,7 @@ mod ending;
 mod identity;
 
 mod navigation;
+mod permit_waits;
 mod service_workers;
 mod targets;
 mod world;
@@ -35,7 +36,9 @@ use goodfetch_cdp::{
 };
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::Pins;
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
+use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{
@@ -50,11 +53,13 @@ use self::encoding::{encoding_of, encoding_read, isolated_world};
 pub(crate) use self::ending::Lost;
 pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
+use self::permit_waits::PermitWaits;
 pub(crate) use self::service_workers::{OnServiceWorker, ServiceWorkers};
 use crate::errors::{
     Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects, truncated,
 };
 use crate::launch::launch;
+use crate::page_value::{self, PageValue};
 use crate::proxy::{Answer, Party, SessionProxy, party, proxy_error};
 use crate::trace::CommandLog;
 use identity::Identity;
@@ -91,6 +96,10 @@ pub(crate) struct Browser {
     closing: CancellationToken,
     /// Its service workers, which it attaches the engine to (ADR 0121).
     service_workers: Arc<service_workers::ServiceWorkerChoices>,
+    /// The lease check of the page this connection drives, asked before
+    /// each command it sends; none on the browser's own connection and on
+    /// a page whose value has none (ADR 0087).
+    lease: Option<Arc<dyn LeaseCheck>>,
 }
 
 impl Browser {
@@ -111,6 +120,21 @@ impl Browser {
     /// Sends `params` on `session`, recorded in the Run trace, answering
     /// the failure itself, for a caller that acts on some failures.
     async fn try_send<C: Command>(
+        &self,
+        session: Option<&TargetSession>,
+        params: &C,
+    ) -> Result<C::Returns, Failure> {
+        if let Some(lease) = &self.lease
+            && lease.check().is_err()
+        {
+            return Err(Failure::Withheld { method: C::METHOD });
+        }
+        self.send_unleased(session, params).await
+    }
+
+    /// Sends `params` on `session` whatever the lease, as the engine closes
+    /// a page of its own, recorded in the Run trace.
+    async fn send_unleased<C: Command>(
         &self,
         session: Option<&TargetSession>,
         params: &C,
@@ -240,6 +264,7 @@ impl Connect for LocalBrowser {
                     process: launched.process,
                     closing: self.stopping.clone(),
                     service_workers: Arc::default(),
+                    lease: None,
                 };
                 // The first answer says the browser is up.
                 let version = browser
@@ -419,8 +444,11 @@ impl<B: Connect> SessionDriver<B> {
             frame,
             navigation_timeout,
             started: Arc::new(watch::Sender::new(0)),
+            navigating: Arc::new(watch::Sender::new(0)),
             turn: Arc::new(Mutex::new(None)),
             gesture: Arc::new(Mutex::new(())),
+            value: PageValue::empty(),
+            waits: None,
         })
     }
 }
@@ -457,6 +485,31 @@ pub(crate) struct PageDriver {
     /// The page's pointer, held from a check that arms the guard's listener
     /// to its disarm, so no two gestures interleave (`targets`).
     gesture: Arc<Mutex<()>>,
+    /// How many navigation calls wait on the page now: a request the
+    /// navigation gate refuses raises from them, or else is recorded.
+    navigating: Arc<watch::Sender<u32>>,
+    /// What it carries for Foxhound: its navigation gate and lease check,
+    /// the latter asked before each command its `browser` sends.
+    value: PageValue,
+    /// Its waits for its gate's permits, when it has a gate.
+    waits: Option<Arc<PermitWaits>>,
+}
+
+/// A navigation call waiting on its page, counted until dropped.
+struct NavigationCall<'page>(&'page watch::Sender<u32>);
+
+impl<'page> NavigationCall<'page> {
+    fn start(navigating: &'page watch::Sender<u32>) -> Self {
+        navigating.send_modify(|navigating| *navigating += 1);
+        Self(navigating)
+    }
+}
+
+impl Drop for NavigationCall<'_> {
+    fn drop(&mut self) {
+        self.0
+            .send_modify(|navigating| *navigating = navigating.saturating_sub(1));
+    }
 }
 
 /// A gesture's turn on its page: its commands, sent while no other
@@ -630,12 +683,66 @@ impl PageDriver {
         self.navigation_timeout
     }
 
+    /// The page carrying `value`, its Run reading time from `clock`: its
+    /// commands from now on ask its lease check first, and its navigations'
+    /// deadlines leave out its waits for its gate's permits.
+    pub(crate) fn with_value(mut self, value: PageValue, clock: Clock) -> Self {
+        self.browser.lease = value.lease().cloned();
+        self.waits = value.gate().map(|_| PermitWaits::new(clock));
+        self.value = value;
+        self
+    }
+
+    /// What the page carries for Foxhound.
+    pub(crate) fn value(&self) -> &PageValue {
+        &self.value
+    }
+
+    /// Asks the page's navigation gate to admit `navigation`, answering its
+    /// permit; none from a page with no gate, which admits everything. The
+    /// wait counts against no deadline of the page, and the page's lease
+    /// check holds the lease through it (ADR 0093).
+    ///
+    /// # Errors
+    ///
+    /// The gate's refusal.
+    pub(crate) async fn admit(
+        &self,
+        navigation: &page_value::Navigation,
+    ) -> Result<Option<page_value::Permit>, page_value::Refusal> {
+        let Some(gate) = self.value.gate() else {
+            return Ok(None);
+        };
+        let waiting = self.waits.as_ref().map(PermitWaits::begin);
+        let holding = self
+            .value
+            .lease()
+            .map(|lease| lease.permit_wait(&navigation.url));
+        let admitted = gate.admit(navigation).await;
+        drop((holding, waiting));
+        admitted.map(Some)
+    }
+
+    /// Whether a navigation call waits on the page now.
+    pub(crate) fn navigation_waits(&self) -> bool {
+        *self.navigating.borrow() > 0
+    }
+
+    /// Runs `future` within `limit`, the page's waits for its gate's
+    /// permits not counted; none once `limit` passed.
+    pub(crate) async fn within<F: Future>(&self, limit: Duration, future: F) -> Option<F::Output> {
+        match &self.waits {
+            Some(waits) => waits.within(limit, future).await.ok(),
+            None => tokio::time::timeout(limit, future).await.ok(),
+        }
+    }
+
     /// Closes the page's target, as the engine closes a page of its own
     /// once it is done with it; a target gone already has nothing to close.
     pub(crate) async fn close(&self) {
         if let Err(failure) = self
             .browser
-            .try_send(
+            .send_unleased(
                 None,
                 &target::CloseTargetParams {
                     target_id: self.frame.clone(),
@@ -791,37 +898,42 @@ impl PageDriver {
                 }
             })
         };
-        let followed = tokio::time::timeout(
-            self.navigation_timeout,
-            self.follow(command, &mut events, &call, wait_until, superseded),
-        )
-        .await;
+        let waiting = NavigationCall::start(&self.navigating);
+        let followed = self
+            .within(
+                self.navigation_timeout,
+                // Boxed: the deadline that leaves out permit waits keeps it
+                // in its own state across its sleeps.
+                Box::pin(self.follow(command, &mut events, &call, wait_until, superseded)),
+            )
+            .await;
+        drop(waiting);
         match followed {
-            Ok(Ok(Ok(Arrived::Document(Some(response)))))
+            Some(Ok(Ok(Arrived::Document(Some(response)))))
                 if let Some(failed) = self.answered_by_proxy(&url, &response) =>
             {
                 Err(failed)
             }
-            Ok(Ok(Ok(Arrived::Document(Some(response))))) if wait_until != WaitUntil::Commit => {
+            Some(Ok(Ok(Arrived::Document(Some(response))))) if wait_until != WaitUntil::Commit => {
                 Ok(Arrived::Document(Some(PageResponse {
                     encoding: self.document_encoding(&call).await?,
                     ..response
                 })))
             }
-            Ok(Ok(Ok(arrived))) => Ok(arrived),
-            Ok(Ok(Err(Ended::Failed(error)))) => Err(self
+            Some(Ok(Ok(arrived))) => Ok(arrived),
+            Some(Ok(Err(Ended::Failed(error)))) => Err(self
                 .proxy
                 .as_ref()
                 .and_then(|proxy| proxy.failure(&url, &error))
                 .unwrap_or_else(|| network_error(&url, &error))),
-            Ok(Ok(Err(Ended::Interrupted))) => Err(interrupted(&url)),
-            Ok(Ok(Err(Ended::TooManyRedirects(chain)))) => Err(too_many_redirects(&url, chain)),
-            Ok(Ok(Err(Ended::Truncated { received, expected }))) => {
+            Some(Ok(Err(Ended::Interrupted))) => Err(interrupted(&url)),
+            Some(Ok(Err(Ended::TooManyRedirects(chain)))) => Err(too_many_redirects(&url, chain)),
+            Some(Ok(Err(Ended::Truncated { received, expected }))) => {
                 Err(truncated(&url, received, expected))
             }
-            Ok(Ok(Err(Ended::Crashed))) => Err(renderer_crashed()),
-            Ok(Err(failed)) => Err(failed),
-            Err(_) => Err(network_error(
+            Some(Ok(Err(Ended::Crashed))) => Err(renderer_crashed()),
+            Some(Err(failed)) => Err(failed),
+            None => Err(network_error(
                 &url,
                 &format!("no load event within `{}`", TIMEOUT_NAVIGATION.name),
             )),

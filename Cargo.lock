@@ -1879,6 +1879,7 @@ dependencies = [
  "goodfetch-engine",
  "goodfetch-extractor",
  "goodfetch-protocol",
+ "goodfetch-recording-gate",
  "goodfetch-test-support",
  "gungraun",
  "jiff",
@@ -1959,6 +1960,16 @@ dependencies = [
  "ureq",
  "url",
  "web-bot-auth",
+]
+
+[[package]]
+name = "goodfetch-recording-gate"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-engine",
+ "goodfetch-page",
+ "goodfetch-protocol",
+ "tokio",
 ]
 
 [[package]]

@@ -17,6 +17,7 @@
 //! keeps its response's body for `response.body`.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use goodfetch_engine::browser_cache::PinnedArtifact;
 use goodfetch_engine::clock::Clock;
@@ -52,6 +53,7 @@ use crate::driver::{Arrived, Destination};
 use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events::{self, Requested};
+use crate::page_value::{HandlerPages, ProgramPages};
 use crate::sessions::{self, OpenPage, PageEvent, Sessions};
 use crate::trace;
 use crate::url_pattern::UrlPattern;
@@ -64,11 +66,21 @@ mod clean_up;
 /// `page.go_back` and `page.go_forward`, of `page.formats` and of the
 /// locator actions, and of the routes and their answers, whose browsers
 /// come from `pins`, the builds the Product version pins.
+/// Every page it opens carries an empty value and registers no response
+/// observer, as a Collie program's pages do.
 pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
+    contribution_with(pins, Arc::new(ProgramPages))
+}
+
+/// What the page crate adds to the engine, as [`contribution`], each page
+/// it opens taking its value and its response observer from `hooks` (ADR
+/// 0087): the hook through which Foxhound sets them on the pages it hands
+/// to handlers.
+pub fn contribution_with(pins: Vec<PinnedArtifact>, hooks: Arc<dyn HandlerPages>) -> Contribution {
     let interception = Interception::default();
     let events = page_events::Table::default();
     let pages = Pages {
-        sessions: Sessions::new(pins, interception.clone(), events.clone()),
+        sessions: Sessions::new(pins, interception.clone(), events.clone(), hooks),
         interception,
         events,
     };
@@ -601,7 +613,10 @@ impl Pages {
             max_redirects,
             option: max_redirects_option(surface),
         };
-        let (driver, in_browser) = self.sessions.engine_page(&page.session).await?;
+        let (driver, in_browser) = self
+            .sessions
+            .engine_page(&page.session, page.driver.value())
+            .await?;
         let fetched = browser_fetch::send(&driver, &steps, &request).await;
         driver.close().await;
         drop(in_browser);

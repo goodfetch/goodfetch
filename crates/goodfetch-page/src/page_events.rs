@@ -19,6 +19,9 @@
 //! error after the response, other than the browser's own cancel or a
 //! coding that failed to decode).
 //!
+//! A response `page.request` answered from the page's Session keeps its
+//! body too, whole or as cut, under its request's ID.
+//!
 //! A request the interception refused carries the refusal's Error code in
 //! its `failure`, and one no call waited on is recorded in the Run trace as
 //! `page.request_failed`, so a refusal is never a timeout.
@@ -154,6 +157,9 @@ struct State {
     requests: BTreeMap<String, Tracked>,
     /// The bodies kept for the responses a waiter answered.
     kept: BTreeMap<String, BodyHandle>,
+    /// The bodies kept for the responses `page.request` answered from the
+    /// page's Session, whole or cut.
+    requested: BTreeMap<String, Requested>,
     waiters: Vec<Waiter>,
     /// The sockets the page opened, by the browser's ID.
     sockets: BTreeMap<String, String>,
@@ -166,6 +172,19 @@ struct Tracked {
     /// The bytes of its body that arrived, decoded.
     received: u64,
     ended: Option<Ended>,
+}
+
+/// The body of a response `page.request` answered, as it kept it.
+#[derive(Clone)]
+pub(crate) enum Requested {
+    /// Whole, in the Run's folder.
+    Whole(BodyHandle),
+    /// Broken off after `received` bytes of the `expected`, from `url`.
+    Cut {
+        url: String,
+        received: u64,
+        expected: Option<u64>,
+    },
 }
 
 /// How a request ended.
@@ -307,6 +326,13 @@ impl PageEvents {
         }
     }
 
+    /// Keeps `body`, the body of the response `page.request` answered from
+    /// the page's Session to the request `request_id`, for
+    /// [`body`](Self::body).
+    pub(crate) fn keep_requested(&self, request_id: String, body: Requested) {
+        lock(&self.shared.state).requested.insert(request_id, body);
+    }
+
     /// The body of the response to the request `request_id`, once it
     /// ended, as a page body's handle.
     ///
@@ -327,6 +353,15 @@ impl PageEvents {
                 let state = lock(&shared.state);
                 if let Some(kept) = state.kept.get(request_id) {
                     return Ok(kept.clone());
+                }
+                match state.requested.get(request_id) {
+                    Some(Requested::Whole(kept)) => return Ok(kept.clone()),
+                    Some(Requested::Cut {
+                        url,
+                        received,
+                        expected,
+                    }) => return Err(cut(url, *received, *expected)),
+                    None => {}
                 }
                 let Some(tracked) = state.requests.get(request_id) else {
                     return Err(unavailable("", request_id, surface));

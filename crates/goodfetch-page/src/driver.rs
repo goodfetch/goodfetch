@@ -652,6 +652,28 @@ impl PageDriver {
         self.proxy.as_deref()
     }
 
+    /// Its navigations' deadline, the Run's `timeout.navigation`.
+    pub(crate) fn navigation_timeout(&self) -> Duration {
+        self.navigation_timeout
+    }
+
+    /// Closes the page's target, as the engine closes a page of its own
+    /// once it is done with it; a target gone already has nothing to close.
+    pub(crate) async fn close(&self) {
+        if let Err(failure) = self
+            .browser
+            .try_send(
+                None,
+                &target::CloseTargetParams {
+                    target_id: self.frame.clone(),
+                },
+            )
+            .await
+        {
+            tracing::debug!(%failure, "the engine's page was gone already");
+        }
+    }
+
     /// The events of the page's target, from when this answers.
     pub(crate) async fn events(&self) -> Subscription {
         self.browser.connection.subscribe(Some(&self.session)).await

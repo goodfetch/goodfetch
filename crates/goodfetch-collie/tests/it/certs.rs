@@ -222,9 +222,10 @@ fn answers_from(env: &TestEnv, surface: &str, calls: &[(&str, Value)]) -> Vec<Va
 /// Story 4-36: `certs accept` asks the person at the terminal, showing
 /// both keys; a yes pins the changed key in place of the old one, records
 /// the accepted change in the Audit log, which verifies, and no change
-/// waits any more; a no changes nothing.
-/// Covers: story:4-36, command:certs.accept, operation:certs.accept
+/// waits any more; a no changes nothing, calling nothing.
+/// Covers: story:4-36, command:certs.accept
 #[rstest::rstest]
+/// Covers: operation:certs.accept
 #[case::answered_yes("y", Some((json!(CHANGED), Value::Null)), 1)]
 #[case::answered_no("n", Some((json!(PINNED), json!(CHANGED))), 0)]
 fn certs_accept_asks_the_person_at_the_terminal(
@@ -273,8 +274,10 @@ fn certs_accept_asks_the_person_at_the_terminal(
 /// Story 4-36: under `--json`, and with stdin no terminal as under a
 /// script, an agent or CI, `certs accept` is refused with
 /// `person_required` and exit 4 before any engine call; the pin and its
-/// waiting change stay.
-/// Covers: story:4-36, command:certs.accept, error:person_required
+/// waiting change stay. The CLI refuses it itself, so no reply carries the
+/// code: `a_person_only_certs_call_is_refused_to_every_surface_but_a_persons`
+/// reaches `error:person_required` over the protocol.
+/// Covers: story:4-36, command:certs.accept, exit:refused
 #[rstest::rstest]
 #[case::under_json(&["certs", "accept", HOST, "--json"], "person_required")]
 #[case::from_a_pipe(&["certs", "accept", HOST], "")]
@@ -312,15 +315,19 @@ fn certs_accept_is_refused_under_json_and_without_a_terminal(
 /// for a model (MCP) and to a program's SDK, through which a Recipe's code
 /// reaches the engine too; the CLI's own Connection is answered (positive
 /// control), and the refused calls changed nothing.
-/// Covers: story:4-36, story:4-37, operation:certs.accept, operation:certs.forget, error:person_required
+/// Covers: story:4-36, story:4-37, operation:certs.accept, operation:certs.forget
 #[rstest::rstest]
+/// Covers: error:person_required
 #[case::from_an_agent("mcp", "person_required", Some((json!(PINNED), json!(CHANGED))))]
+/// Covers: error:person_required
 #[case::from_the_typescript_sdk(
     "sdk_typescript",
     "person_required",
     Some((json!(PINNED), json!(CHANGED)))
 )]
+/// Covers: error:person_required
 #[case::from_the_python_sdk("sdk_python", "person_required", Some((json!(PINNED), json!(CHANGED))))]
+/// Covers: error:person_required
 #[case::from_a_rust_program("rust", "person_required", Some((json!(PINNED), json!(CHANGED))))]
 #[case::from_the_cli("cli", "answered", None)]
 fn a_person_only_certs_call_is_refused_to_every_surface_but_a_persons(
@@ -382,9 +389,10 @@ fn certs_accept_refuses_a_key_that_did_not_stop_the_host() {
 
 /// Story 4-37: `certs forget` asks the person at the terminal; a yes
 /// removes the caller's pin and its waiting change, and nothing of another
-/// person's; a no keeps it.
-/// Covers: story:4-37, command:certs.forget, operation:certs.forget
+/// person's; a no keeps it, calling nothing.
+/// Covers: story:4-37, command:certs.forget
 #[rstest::rstest]
+/// Covers: operation:certs.forget
 #[case::answered_yes("y", None)]
 #[case::answered_no("n", Some((json!(PINNED), json!(CHANGED))))]
 fn certs_forget_asks_the_person_at_the_terminal(
@@ -416,20 +424,35 @@ fn certs_forget_asks_the_person_at_the_terminal(
 }
 
 /// Story 4-37: under `--json`, and with stdin no terminal, `certs forget`
-/// is refused with `person_required` and exit 4; the pin stays.
-/// Covers: story:4-37, command:certs.forget, error:person_required
+/// is refused with `person_required` and exit 4; the pin stays. As for
+/// `certs accept`, the CLI refuses it itself.
+/// Covers: story:4-37, command:certs.forget, exit:refused
 #[rstest::rstest]
-#[case::under_json(&["certs", "forget", HOST, "--json"])]
-#[case::from_a_pipe(&["certs", "forget", HOST])]
-fn certs_forget_is_refused_under_json_and_without_a_terminal(#[case] args: &[&str]) {
+#[case::under_json(&["certs", "forget", HOST, "--json"], "person_required")]
+#[case::from_a_pipe(&["certs", "forget", HOST], "")]
+fn certs_forget_is_refused_under_json_and_without_a_terminal(
+    #[case] args: &[&str],
+    #[case] printed_code: &str,
+) {
     let env = TestEnv::new();
     changed_store(&env);
 
     let refused = cli(&env, COLLIE).args(args).stdin("y\n").run().unwrap();
 
+    let printed: Value = serde_json::from_str(&refused.stdout).unwrap_or(Value::Null);
     assert_eq!(
-        (refused.exit, pin_of_host(&env)),
-        (Some(4), Some((json!(PINNED), json!(CHANGED)))),
+        (
+            refused.exit,
+            printed["error"]["code"].as_str().unwrap_or_default(),
+            refused.stderr.contains("code: person_required") || !printed_code.is_empty(),
+            pin_of_host(&env),
+        ),
+        (
+            Some(4),
+            printed_code,
+            true,
+            Some((json!(PINNED), json!(CHANGED)))
+        ),
         "{refused}"
     );
 }

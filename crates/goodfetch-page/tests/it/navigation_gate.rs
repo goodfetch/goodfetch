@@ -9,6 +9,9 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::time::Duration;
+
+use goodfetch_engine::lease::LeaseEnded;
 use goodfetch_page::page_value::NavigationKind;
 use goodfetch_protocol::page::SitePreference;
 use goodfetch_recording_gate::RecordingGate;
@@ -261,6 +264,129 @@ fn a_refused_navigation_no_call_waits_on_is_aborted_and_the_page_keeps_its_docum
                 Some("/".to_owned()),
                 false,
                 json!("site_preferences_refused"),
+            )
+        );
+    });
+}
+
+/// The lease check is asked before each command the page sends, a
+/// `page.request`'s included: once the lease ended, a navigation, a
+/// `page.request` and a click each raise `attempt_ended` and nothing
+/// reaches the site.
+/// Covers: operation:page.goto, operation:page.request, operation:locator.click
+#[test]
+fn a_page_whose_lease_ended_sends_nothing_more() {
+    let gate = RecordingGate::new();
+    with_handler_page(&gate, Map::new(), async |program| {
+        let before = gate.lease_checks();
+        program.goto(HISTORY, "/").await;
+        let navigation_checks = gate.lease_checks() - before;
+        let before = gate.lease_checks();
+        let url = program.proving_ground.url(HISTORY, "/b");
+        let sent = program.on_page("page.request", json!({ "url": url })).await;
+        assert!(sent.get("result").is_some(), "{sent}");
+        let request_checks = gate.lease_checks() - before;
+
+        gate.end_lease(LeaseEnded::Lost);
+        let goto = program
+            .on_page(
+                "page.goto",
+                json!({ "url": program.proving_ground.url(HISTORY, "/after-goto") }),
+            )
+            .await;
+        let request = program
+            .on_page(
+                "page.request",
+                json!({ "url": program.proving_ground.url(HISTORY, "/after-request") }),
+            )
+            .await;
+        let click = program
+            .call(
+                "locator.click",
+                &json!({ "locator": { "page_id": program.page, "selector": "#next" } }),
+            )
+            .await;
+        let code = |answer: &Value| answer["error"]["data"]["code"].clone();
+
+        assert_eq!(
+            (
+                navigation_checks > 0,
+                request_checks > 0,
+                code(&goto),
+                code(&request),
+                code(&click),
+                program.requested(HISTORY, "/after-goto"),
+                program.requested(HISTORY, "/after-request"),
+                program.requested(HISTORY, "/b"),
+            ),
+            (
+                true,
+                true,
+                json!("attempt_ended"),
+                json!("attempt_ended"),
+                json!("attempt_ended"),
+                false,
+                false,
+                true,
+            )
+        );
+    });
+}
+
+/// Time spent waiting for a permit counts against no timeout: a navigation
+/// and a `page.request` each held at the gate past `timeout.navigation`
+/// arrive, the lease is held through each wait, and each permit is released
+/// once its navigation loaded or its response arrived.
+/// Covers: operation:page.goto, operation:page.request
+#[test]
+fn a_permit_wait_counts_against_no_timeout_and_holds_the_lease() {
+    let gate = RecordingGate::new();
+    gate.hold("/held", Duration::from_millis(1500));
+    let mut settings = Map::new();
+    settings.insert("timeout".to_owned(), json!({ "navigation": 1000 }));
+    with_handler_page(&gate, settings, async |program| {
+        let goto = program
+            .on_page(
+                "page.goto",
+                json!({ "url": program.proving_ground.url(HISTORY, "/held-goto") }),
+            )
+            .await;
+        let request = program
+            .on_page(
+                "page.request",
+                json!({ "url": program.proving_ground.url(HISTORY, "/held-request") }),
+            )
+            .await;
+        settled(|| gate.released().len() >= 2).await;
+        let waits: Vec<(Option<String>, bool)> = gate
+            .waits()
+            .into_iter()
+            .map(|wait| (path_of(Some(&wait.url)), wait.ended))
+            .collect();
+        let released: Vec<Option<String>> = gate
+            .released()
+            .iter()
+            .map(|url| path_of(Some(url)))
+            .collect();
+
+        assert_eq!(
+            (
+                goto["result"]["response"]["status"].clone(),
+                request["result"]["status"].clone(),
+                waits,
+                released,
+            ),
+            (
+                json!(404),
+                json!(404),
+                vec![
+                    (Some("/held-goto".to_owned()), true),
+                    (Some("/held-request".to_owned()), true),
+                ],
+                vec![
+                    Some("/held-goto".to_owned()),
+                    Some("/held-request".to_owned())
+                ],
             )
         );
     });

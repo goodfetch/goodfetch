@@ -14,7 +14,7 @@
 )]
 #![expect(
     clippy::disallowed_methods,
-    reason = "the SOCKS5 test reads the Goodfetch home's files on its own thread, never an async worker"
+    reason = "the SOCKS5 test reads the Goodfetch home's files, and the Usage test polls the Proving ground, on its own thread, never an async worker"
 )]
 
 use std::collections::BTreeSet;
@@ -813,6 +813,19 @@ fn carried_by(proving_ground: &ProvingGround, kind: &str) -> u64 {
         .sum()
 }
 
+/// Waits until the Proving ground's proxies have relayed `/storage`'s own
+/// request for `/storage/found`, which its script sends once loaded, so the
+/// page's every byte has gone through before the Run ends; a minute at
+/// most.
+fn storage_settled(proving_ground: &ProvingGround) {
+    for _ in 0..600 {
+        if !relays_to(proving_ground, "/storage/found").is_empty() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
 /// Covers: story:8-92, setting:proxy.providers, operation:run.usage
 #[cfg(unix)]
 #[test]
@@ -844,16 +857,18 @@ fn a_sessions_proxy_bytes_count_by_proxy_kind_at_the_providers_price() {
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=counted") }),
     );
+    storage_settled(&proving_ground);
     let finished = call(
         &mut engine,
         4,
         "run.finish",
         &json!({ "run_id": "counted" }),
     );
+    let used = call(&mut engine, 5, "run.usage", &json!({ "run_id": "counted" }));
     let _ = engine.finish();
 
     let carried = carried_by(&proving_ground, "isp");
-    let usage = &finished["result"]["usage"];
+    let usage = &used["result"];
     assert_eq!(
         (
             navigated.get("result").is_some(),
@@ -862,6 +877,7 @@ fn a_sessions_proxy_bytes_count_by_proxy_kind_at_the_providers_price() {
             &usage["proxy_bytes_by_kind"],
             &usage["proxy_price"],
             &usage["uncapped"],
+            &finished["result"]["usage"]["proxy_bytes_by_kind"],
         ),
         (
             true,
@@ -870,8 +886,9 @@ fn a_sessions_proxy_bytes_count_by_proxy_kind_at_the_providers_price() {
             &json!([{ "kind": "isp", "bytes": carried }]),
             &json!([{ "currency": "USD", "amount": carried }]),
             &json!(true),
+            &json!([{ "kind": "isp", "bytes": carried }]),
         ),
-        "{finished}"
+        "{used}"
     );
 }
 

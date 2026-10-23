@@ -209,7 +209,7 @@ fn bound() -> Contribution {
                 run.nothing_done(NothingDone::NothingPending)
                     .await
                     .expect("`nothingDone` is kept");
-                run.charge_part("proxy_bytes", "datacenter", 4_096)
+                run.charge_part("proxy_bytes", "datacenter", 4_096, None)
                     .await
                     .expect("the proxy bytes are counted");
                 run.state()

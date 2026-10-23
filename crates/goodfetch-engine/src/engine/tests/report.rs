@@ -62,8 +62,11 @@ async fn hand_over(params: Value, context: CallContext) -> Result<Value, CallErr
             charge["usage_kind"].as_str().unwrap(),
             charge["amount"].as_u64().unwrap(),
         );
+        let price = charge["price"]["currency"]
+            .as_str()
+            .map(|currency| (currency, charge["price"]["amount"].as_u64().unwrap()));
         match charge["part"].as_str() {
-            Some(part) => run.charge_part(usage_kind, part, amount).await.ok(),
+            Some(part) => run.charge_part(usage_kind, part, amount, price).await.ok(),
             None => run.charge(usage_kind, amount).await.ok(),
         };
     }
@@ -847,6 +850,49 @@ fn run_usage_counts_proxy_bytes_by_proxy_kind_and_their_price_by_currency() {
                 { "kind": "datacenter", "bytes": 300 },
                 { "kind": "residential", "bytes": 1_024 },
             ]),
+        )
+    );
+}
+
+/// Covers: story:8-92, operation:run.usage
+#[test]
+fn a_priced_part_charges_its_amount_and_its_price_together_or_neither() {
+    let env = TestEnv::new();
+
+    let replies = replies(
+        &env,
+        &[
+            (
+                "usage.set",
+                json!({ "scope": "install", "usage_kind": "proxy_bytes", "amount": 1_500 }),
+            ),
+            ("run.start", json!({ "run_id": "priced" })),
+            (
+                "test.hand_over",
+                json!({
+                    "run_id": "priced",
+                    "charges": [
+                        { "usage_kind": "proxy_bytes", "part": "mobile", "amount": 1_000, "price": { "currency": "USD", "amount": 40 } },
+                        { "usage_kind": "proxy_bytes", "part": "mobile", "amount": 1_000, "price": { "currency": "USD", "amount": 40 } },
+                    ],
+                }),
+            ),
+            ("run.finish", json!({ "run_id": "priced" })),
+            ("run.usage", json!({ "run_id": "priced" })),
+        ],
+    );
+
+    let usage = &replies[4]["result"];
+    assert_eq!(
+        (
+            &usage["proxy_bytes"],
+            &usage["proxy_bytes_by_kind"],
+            &usage["proxy_price"],
+        ),
+        (
+            &json!(1_000),
+            &json!([{ "kind": "mobile", "bytes": 1_000 }]),
+            &json!([{ "currency": "USD", "amount": 40 }]),
         )
     );
 }

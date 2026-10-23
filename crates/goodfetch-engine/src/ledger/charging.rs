@@ -41,7 +41,7 @@ pub struct Charged {
     pub used: Vec<(SliceId, u64)>,
     /// What the run's Usage of its kind changed by, which its report
     /// counts (ADR 0101).
-    pub counted: Option<Counted>,
+    pub counted: Vec<Counted>,
 }
 
 /// What a run's Usage of one kind, in one currency or as a count, changed
@@ -158,7 +158,7 @@ impl Charging {
         now: Timestamp,
     ) -> Result<Charged, Refusal> {
         let (_, mut charged) = self.take(usage_kind, None, amount, now)?;
-        charged.counted = Some(Counted::of(usage_kind, None, signed(amount)));
+        charged.counted = vec![Counted::of(usage_kind, None, signed(amount))];
         if !charged.used.is_empty() {
             tracing::trace!(target: TARGET, transition = "charge", usage_kind, amount, run_id = %self.holder.run_id, epoch = self.holder.epoch, "a run charged Usage against its Slices");
         }
@@ -187,7 +187,7 @@ impl Charging {
         if taken.is_empty() && currency.is_some() {
             self.uncapped = true;
         }
-        charged.counted = Some(Counted::of(usage_kind, currency, signed(worst)));
+        charged.counted = vec![Counted::of(usage_kind, currency, signed(worst))];
         tracing::trace!(target: TARGET, transition = "reserve", usage_kind, worst, run_id = %self.holder.run_id, epoch = self.holder.epoch, "a run reserved a worst case against its Slices");
         Ok((
             Reservation {
@@ -214,11 +214,11 @@ impl Charging {
         let refund = worst.saturating_sub(cost);
         let mut owed: Vec<(LimitId, u64)> = Vec::new();
         let mut charged = Charged {
-            counted: Some(Counted::of(
+            counted: vec![Counted::of(
                 &usage_kind,
                 currency.as_deref(),
                 -signed(refund),
-            )),
+            )],
             ..Charged::default()
         };
         for (slice, taken) in taken.into_iter().rev() {

@@ -379,27 +379,18 @@ impl ProxyUsage {
         }
         let mut tally = self.tally.lock().await;
         let (bytes, owed) = tally.add(bytes);
-        if let Err(error) = self
+        let price = match (owed, tally.currency()) {
+            (Some(owed), Some(currency)) if owed > 0 => Some((currency, owed)),
+            _ => None,
+        };
+        match self
             .run
-            .charge_part(PROXY_BYTES, self.kind.as_str(), bytes)
+            .charge_part(PROXY_BYTES, self.kind.as_str(), bytes, price)
             .await
         {
-            tracing::debug!(%error, "a Session's proxy bytes were refused");
-            self.refused(&error);
-            return false;
-        }
-        let (Some(owed), Some(currency)) = (owed.filter(|owed| *owed > 0), tally.currency()) else {
-            return true;
-        };
-        match self.run.reserve(PROXY_BYTES, Some(currency), owed).await {
-            // A price already paid is its own worst case: it stays
-            // charged as reserved.
-            Ok(reservation) => {
-                drop(reservation);
-                true
-            }
+            Ok(()) => true,
             Err(error) => {
-                tracing::debug!(%error, "the price of a Session's proxy bytes was refused");
+                tracing::debug!(%error, "a Session's proxy bytes were refused");
                 self.refused(&error);
                 false
             }

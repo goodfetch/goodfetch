@@ -8,7 +8,8 @@
 //! asked for, and a 100 ms timer that reports whether a page behind another
 //! tab kept it (spec #577, ticket #696); a page's events (#703); a page
 //! a service worker controls (#707); and a page that opens each JavaScript
-//! dialog and one that opens a popup (#719). Its answers name the build's age beside the
+//! dialog and one that opens a popup (#719); and a page whose own script
+//! defines a global and records an init script's mark (#704). Its answers name the build's age beside the
 //! Access dimensions a result was run under, so every result is reported per
 //! Fingerprint method, engine, Access mode and build age, against stock
 //! headless and headful Chrome as controls.
@@ -64,6 +65,8 @@ const PAGE_EVENTS_SOCKET: &str = "/page-events/socket";
 const DIALOGS: &str = "/dialogs";
 const POPUP: &str = "/popup";
 const POPUP_OPENED: &str = "/popup/opened";
+/// The page functions page.
+const PAGE_FUNCTIONS: &str = "/page-functions";
 /// The service worker page and its worker's script.
 const SERVICE_WORKER: &str = "/service-worker/";
 const SERVICE_WORKER_SCRIPT: &str = "/service-worker/sw.js";
@@ -90,6 +93,7 @@ const TIMER_SCRIPT: &str = include_str!("../pages/access/timer.js");
 const PAGE_EVENTS_SCRIPT: &str = include_str!("../pages/access/page-events.js");
 const DIALOGS_SCRIPT: &str = include_str!("../pages/access/dialogs.js");
 const POPUP_SCRIPT: &str = include_str!("../pages/access/popup.js");
+const PAGE_FUNCTIONS_SCRIPT: &str = include_str!("../pages/access/page-functions.js");
 const SERVICE_WORKER_PAGE_SCRIPT: &str = include_str!("../pages/access/service-worker.js");
 const SERVICE_WORKER_WORKER_SCRIPT: &str = include_str!("../pages/access/service-worker-sw.js");
 
@@ -175,14 +179,9 @@ pub(crate) fn respond(
             Reply::html(page(seed, "timer", &reporting(TIMER_SCRIPT))),
             None,
         ),
-        Method::GET if path == PAGE_EVENTS => (
-            Reply::html(page(
-                seed,
-                "page-events",
-                &format!("<script>\n{PAGE_EVENTS_SCRIPT}</script>\n"),
-            )),
-            None,
-        ),
+        Method::GET if path == PAGE_EVENTS => {
+            (scripted(seed, "page-events", PAGE_EVENTS_SCRIPT), None)
+        }
         Method::GET if PAGE_EVENTS_DATA.contains(&path) => (
             Reply::json(
                 StatusCode::OK,
@@ -194,12 +193,9 @@ pub(crate) fn respond(
             Reply::html(page(seed, "dialogs", &reporting(DIALOGS_SCRIPT))),
             None,
         ),
-        Method::GET if path == POPUP => (
-            Reply::html(page(
-                seed,
-                "popup",
-                &format!("<script>\n{POPUP_SCRIPT}</script>\n"),
-            )),
+        Method::GET if path == POPUP => (scripted(seed, "popup", POPUP_SCRIPT), None),
+        Method::GET if path == PAGE_FUNCTIONS => (
+            scripted(seed, "page-functions", PAGE_FUNCTIONS_SCRIPT),
             None,
         ),
         Method::GET if path == POPUP_OPENED => (Reply::html(page(seed, "popup-opened", "")), None),
@@ -256,6 +252,11 @@ fn page(seed: u64, id: &str, more: &str) -> String {
         "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>{id}</title></head>\n<body>\n<main>\n<article class=\"record\" data-id=\"{id}\">\n<p>Code: <span class=\"code\">{}</span></p>\n</article>\n{more}</main>\n</body>\n</html>\n",
         code(seed, id)
     )
+}
+
+/// A page of the family whose script is `script`, inline.
+fn scripted(seed: u64, id: &str, script: &str) -> Reply {
+    Reply::html(page(seed, id, &format!("<script>\n{script}</script>\n")))
 }
 
 /// A probe's script, which reports to its host under `check`.

@@ -29,6 +29,7 @@ use rusqlite::backup::{Backup, StepResult};
 use rusqlite::{Connection, ErrorCode, OpenFlags};
 use sha2::{Digest as _, Sha256};
 
+use crate::run_files::{self, CarryError};
 use crate::run_key::{self, StoredKey};
 use crate::run_state::{RunStateError, check_format, open_reader};
 
@@ -125,13 +126,33 @@ pub(crate) fn install(
         None => Connection::open_with_flags(run_file, flags),
     }
     .map_err(failed)?;
-    let backup = Backup::new(&from, &mut to).map_err(failed)?;
-    match backup.step(-1).map_err(failed)? {
-        StepResult::Done => Ok(()),
-        other => Err(WriteError::Source(RunStateError::Sqlite {
-            path: checkpoint.to_owned(),
-            message: format!("the restore stopped early: {other:?}"),
-        })),
+    {
+        let backup = Backup::new(&from, &mut to).map_err(failed)?;
+        match backup.step(-1).map_err(failed)? {
+            StepResult::Done => {}
+            other => {
+                return Err(WriteError::Source(RunStateError::Sqlite {
+                    path: checkpoint.to_owned(),
+                    message: format!("the restore stopped early: {other:?}"),
+                }));
+            }
+        }
+    }
+    if let Some(folder) = run_file.parent() {
+        run_files::unpack(&from, folder).map_err(|error| carry_failed(error, checkpoint))?;
+    }
+    run_files::drop_chunks(&to).map_err(failed)
+}
+
+/// The failure `error` of carrying the kept files of the Checkpoint or run
+/// file at `path`.
+fn carry_failed(error: CarryError, path: &Path) -> WriteError {
+    match error {
+        CarryError::Io(error) => storage(&error, "carry its kept files"),
+        other => WriteError::Source(RunStateError::Sqlite {
+            path: path.to_owned(),
+            message: other.to_string(),
+        }),
     }
 }
 
@@ -256,6 +277,9 @@ fn copy_into(reader: &Connection, source: &Path, into: &Path) -> Result<(u64, u6
     }
     copy.pragma_update_and_check(None, "journal_mode", "DELETE", |_| Ok(()))
         .map_err(failed)?;
+    if let Some(folder) = source.parent() {
+        run_files::pack(&copy, folder).map_err(|error| carry_failed(error, source))?;
+    }
     let (epoch, position): (i64, i64) = copy
         .query_row("SELECT epoch, journal_position FROM run", [], |row| {
             Ok((row.get(0)?, row.get(1)?))
@@ -362,8 +386,8 @@ fn sync_folder(path: &Path) {
 
 fn storage(error: &io::Error, doing: &str) -> WriteError {
     WriteError::Storage {
-        reason: reason_of(error.kind()),
-        os_code: error.raw_os_error().and_then(os_code),
+        reason: run_files::reason_of(error.kind()),
+        os_code: error.raw_os_error().and_then(run_files::os_code),
         message: format!("could not {doing}: {error}"),
     }
 }
@@ -381,60 +405,6 @@ fn sqlite_storage(error: &rusqlite::Error) -> WriteError {
         os_code: None,
         message: format!("could not write the Checkpoint: {error}"),
     }
-}
-
-/// `kind`'s name in `snake_case`, as ADR 0116 reports it.
-fn reason_of(kind: io::ErrorKind) -> &'static str {
-    match kind {
-        io::ErrorKind::StorageFull => "storage_full",
-        io::ErrorKind::QuotaExceeded => "quota_exceeded",
-        io::ErrorKind::PermissionDenied => "permission_denied",
-        io::ErrorKind::ReadOnlyFilesystem => "read_only_filesystem",
-        io::ErrorKind::IsADirectory => "is_a_directory",
-        io::ErrorKind::NotADirectory => "not_a_directory",
-        io::ErrorKind::InvalidFilename => "invalid_filename",
-        io::ErrorKind::FileTooLarge => "file_too_large",
-        io::ErrorKind::NotFound => "not_found",
-        _ => "other",
-    }
-}
-
-/// The OS's own name of the error numbered `code`, for the errors a file
-/// write meets.
-fn os_code(code: i32) -> Option<&'static str> {
-    #[cfg(unix)]
-    let name = match code {
-        1 => Some("EPERM"),
-        2 => Some("ENOENT"),
-        5 => Some("EIO"),
-        13 => Some("EACCES"),
-        20 => Some("ENOTDIR"),
-        21 => Some("EISDIR"),
-        27 => Some("EFBIG"),
-        28 => Some("ENOSPC"),
-        30 => Some("EROFS"),
-        #[cfg(target_os = "linux")]
-        122 => Some("EDQUOT"),
-        #[cfg(target_vendor = "apple")]
-        69 => Some("EDQUOT"),
-        _ => None,
-    };
-    #[cfg(windows)]
-    let name = match code {
-        2 => Some("ERROR_FILE_NOT_FOUND"),
-        3 => Some("ERROR_PATH_NOT_FOUND"),
-        5 => Some("ERROR_ACCESS_DENIED"),
-        19 => Some("ERROR_WRITE_PROTECT"),
-        39 => Some("ERROR_HANDLE_DISK_FULL"),
-        112 => Some("ERROR_DISK_FULL"),
-        _ => None,
-    };
-    #[cfg(not(any(unix, windows)))]
-    let name = {
-        let _ = code;
-        None
-    };
-    name
 }
 
 #[cfg(test)]

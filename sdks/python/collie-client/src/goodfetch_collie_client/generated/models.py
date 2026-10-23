@@ -373,6 +373,48 @@ class DaemonStopping(BaseModel):
     """How many live Runs it stops, each resumable from its own state."""
 
 
+class DownloadId(RootModel[str]):
+    root: str
+    """
+    A Download of a Run, named by the engine when it keeps its file:
+    `<run_id>.download-<position>`.
+    """
+
+
+class DownloadSaveAsParams(BaseModel):
+    """What `download.save_as` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    download_id: DownloadId
+    """The Download."""
+    path: str | None = None
+    """
+    The program's path, absolute, which an Attached engine writes
+    itself; any other engine leaves it to the SDK and sends the file's
+    bytes instead.
+    """
+
+
+class DownloadSaved(BaseModel):
+    """What `download.save_as` answers once the file is whole."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    sha256: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+    written: bool
+    """
+    Whether the engine wrote the program's path itself; when not, the
+    `$/chunk` notifications before this answer carried every byte, and
+    the SDK writes the path.
+    """
+
+
 class EndingError(BaseModel):
     """An Error code a Run's ending raises, with its message and details."""
 

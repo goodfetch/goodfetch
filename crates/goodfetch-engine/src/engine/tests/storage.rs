@@ -34,7 +34,7 @@ const MB: u64 = 1_000_000;
 
 /// Writes `settings` as the test home's user configuration, in the folder
 /// of the tests' engines' major, after a short sample interval.
-fn configure(env: &TestEnv, settings: &str) {
+pub(super) fn configure(env: &TestEnv, settings: &str) {
     let folder = env.home().join("1");
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(

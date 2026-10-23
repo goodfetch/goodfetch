@@ -1,0 +1,39 @@
+//! A Run's files the engine holds for the program (ADRs 0001, 0002, 0085,
+//! 0116 and 0122): the files of its Downloads now, and through Foxhound's
+//! crates its Exports and WARC files. Each is kept content-addressed in the
+//! Run's folder, under `files/`, named by the lowercase hex SHA-256 of its
+//! bytes and written whole before its name appears, and recorded in a table
+//! of the Run's run state, by its position in the Run, so a resume finds
+//! it. A Checkpoint carries the bytes of every file its run state records,
+//! in chunks of a table of its own, and the file a Checkpoint becomes on
+//! another machine has them back in its Run's folder, so a kept file
+//! survives a resume there too. A file is deleted with its Run, when the
+//! Run is discarded, since it lives in the Run's folder.
+//!
+//! A kept file reaches the program's path through [`save`], under ADR
+//! 0116's rule: a hidden temporary file beside the path,
+//! `.<name>.<random>.partial`, synced, then renamed over the path, so the
+//! path holds the whole file or what it held before, and a failure says
+//! whether the path (`path_not_writable`) or the storage
+//! (`file_write_failed`) failed.
+
+mod carry;
+mod save;
+mod store;
+
+pub(crate) use carry::{CarryError, drop_chunks, pack, unpack};
+pub(crate) use save::{SaveError, os_code, reason_of, save};
+pub use store::{FileKind, KeepError, Kept, Record};
+pub(crate) use store::{file, find, record, store};
+
+use crate::run_state::RunStateTables;
+
+/// The tables of a Run's files, which every run file holds: what the Run
+/// keeps, and the chunks of their bytes, which only a Checkpoint holds.
+pub const TABLES: RunStateTables = RunStateTables {
+    name: "run-files",
+    statements: &[
+        "CREATE TABLE IF NOT EXISTS run_files (position INTEGER NOT NULL PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL) STRICT",
+        "CREATE TABLE IF NOT EXISTS run_file_chunks (sha256 TEXT NOT NULL, offset INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sha256, offset)) STRICT",
+    ],
+};

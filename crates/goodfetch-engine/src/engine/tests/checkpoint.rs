@@ -295,7 +295,20 @@ where
     F: FnOnce(Talk, Talk) -> Fut,
     Fut: Future<Output = T>,
 {
-    let engine = engine();
+    two_machines_on(&engine(), first, second, talk)
+}
+
+/// [`two_machines`], with `engine` on both.
+pub(super) fn two_machines_on<F, Fut, T>(
+    engine: &Engine,
+    first: &TestEnv,
+    second: &TestEnv,
+    talk: F,
+) -> T
+where
+    F: FnOnce(Talk, Talk) -> Fut,
+    Fut: Future<Output = T>,
+{
     goodfetch_test_support::runtime().block_on(async {
         // The test `tracing` subscriber writes the dispatch records into the
         // test's exercise record (ADR 0072), as `attached_with`'s does.
@@ -803,8 +816,9 @@ fn a_checkpoint_that_cannot_be_written_fails_and_leaves_no_file() {
 
 /// The `head/` set's real Checkpoint (ADR 0066): its size and digest are
 /// those its record states, and an engine of today resumes the Run it holds
-/// at the next run epoch, keeping its Clean-up rules digest.
-/// Covers: story:3-37, story:3-38
+/// at the next run epoch, keeping its Clean-up rules digest and the
+/// Download's file it carries, which saves whole.
+/// Covers: story:3-37, story:3-38, story:6-17
 #[test]
 fn the_head_sets_checkpoint_matches_its_record_and_resumes() {
     let head = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../compat/run-state/head");
@@ -815,6 +829,8 @@ fn the_head_sets_checkpoint_matches_its_record_and_resumes() {
     std::fs::copy(head.join("checkpoint.sqlite"), &copy).unwrap();
     let location = copy.display().to_string();
     let (size, digest) = (std::fs::metadata(&copy).unwrap().len(), sha256(&copy));
+    let saved = env.folder().join("books.csv");
+    let path = saved.display().to_string();
 
     let resumed = attached_on(&engine(), &env, |client| async move {
         let mut talk = Talk::open(client).await;
@@ -825,7 +841,13 @@ fn the_head_sets_checkpoint_matches_its_record_and_resumes() {
                 json!({ "run_id": "paused", "checkpoint": location }),
             )
             .await;
-        talk.ok(3, "run.finish", json!({ "run_id": "paused" }))
+        talk.ok(
+            3,
+            "download.save_as",
+            json!({ "download_id": "paused.download-1", "path": path }),
+        )
+        .await;
+        talk.ok(4, "run.finish", json!({ "run_id": "paused" }))
             .await;
         resumed
     });
@@ -835,6 +857,7 @@ fn the_head_sets_checkpoint_matches_its_record_and_resumes() {
             (record["size"].clone(), record["digest"].clone()),
             resumed["started_as"].clone(),
             run_row(&run_folder(&env, "paused").join("run.sqlite")),
+            std::fs::read(&saved).ok(),
         ),
         (
             (json!(size), json!(digest)),
@@ -845,6 +868,7 @@ fn the_head_sets_checkpoint_matches_its_record_and_resumes() {
                 "stop_reason": null,
                 "clean_up_digest": "6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b",
             }),
+            Some(b"title,price\nDune,9.99\n".to_vec()),
         )
     );
 }

@@ -10,6 +10,12 @@
 //! return when the mount ends. Ending the mount (`unmount`, or dropping the
 //! value) first syncs every file, as a clean shutdown would, so only
 //! `clear_cache` loses data. A remount is a second `mount` of the same folder.
+//!
+//! The kernel refuses an unmount while anything holds the mount: a process
+//! using the folder, which fails the end, or a lookup that only passes
+//! through it, as `lsof` and `df` make when they stat every mount point on
+//! the machine. When no process uses the folder, the end detaches the mount
+//! and waits for LazyFS to exit, which it does once such a lookup is done.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support mounts, polls and reads files, reads LazyFS's answers on a thread of its own and times its deadlines on the real clock, outside any async worker and any simulated clock (ADR 0062)"
@@ -221,30 +227,33 @@ impl LazyFs {
         if ended.is_err() {
             // Whatever failed, LazyFS stops and the mount goes, so the test's
             // folder is never left mounted.
-            let _ = Command::new("fusermount3")
-                .arg("-uz")
-                .arg(&self.folder)
-                .stdin(Stdio::null())
-                .output();
+            let _ = fusermount(&["-uz"], &self.folder);
         }
         self.end_unmounted();
         ended
     }
 
-    /// Syncs every file, unmounts and waits for LazyFS to exit.
+    /// Syncs every file, unmounts and waits for LazyFS to exit. A refused
+    /// unmount with no process using the folder was held by a passing
+    /// lookup: the mount is detached instead, and LazyFS exits once the
+    /// lookup is done.
     fn end_mounted(&mut self) -> Result<(), LazyFsError> {
         sync_tree(&self.folder).map_err(LazyFsError::Sync)?;
-        let unmounted = Command::new("fusermount3")
-            .arg("-u")
-            .arg(&self.folder)
-            .stdin(Stdio::null())
-            .output()
-            .map_err(LazyFsError::Unmount)?;
+        let unmounted = fusermount(&["-u"], &self.folder)?;
         if !unmounted.status.success() {
-            return Err(LazyFsError::NotUnmounted {
-                status: unmounted.status,
-                stderr: String::from_utf8_lossy(&unmounted.stderr).into_owned(),
-            });
+            let users = users_of(&self.folder);
+            let refused = |output: std::process::Output| LazyFsError::NotUnmounted {
+                status: output.status,
+                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                users: users.clone(),
+            };
+            if !users.is_empty() {
+                return Err(refused(unmounted));
+            }
+            let detached = fusermount(&["-uz"], &self.folder)?;
+            if !detached.status.success() {
+                return Err(refused(detached));
+            }
         }
         let deadline = Instant::now() + LAZYFS_DEADLINE;
         loop {
@@ -421,6 +430,71 @@ fn restore(folder: &Path, backing: &Path) {
     }
 }
 
+/// Runs `fusermount3` with `options` on `folder`.
+fn fusermount(options: &[&str], folder: &Path) -> Result<std::process::Output, LazyFsError> {
+    Command::new("fusermount3")
+        .args(options)
+        .arg(folder)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(LazyFsError::Unmount)
+}
+
+/// The processes using `folder`, as `<pid> <name>: <what>`: a working or
+/// root folder, an open file or a mapping in it. Read from `/proc` without
+/// looking into the folder, and only for the processes this user may
+/// inspect, which every process a test starts is.
+fn users_of(folder: &Path) -> Vec<String> {
+    let Ok(processes) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    let inside = |target: &Path| target.starts_with(folder);
+    let mut users = Vec::new();
+    for process in processes.flatten() {
+        let proc = process.path();
+        if !process
+            .file_name()
+            .to_string_lossy()
+            .bytes()
+            .all(|byte| byte.is_ascii_digit())
+        {
+            continue;
+        }
+        let mut found = Vec::new();
+        for link in ["cwd", "root"] {
+            if std::fs::read_link(proc.join(link)).is_ok_and(|target| inside(&target)) {
+                found.push(link.to_owned());
+            }
+        }
+        if let Ok(files) = std::fs::read_dir(proc.join("fd")) {
+            found.extend(files.flatten().filter_map(|file| {
+                std::fs::read_link(file.path())
+                    .ok()
+                    .filter(|target| inside(target))
+                    .map(|target| format!("open {}", target.display()))
+            }));
+        }
+        if let Ok(maps) = std::fs::read_to_string(proc.join("maps")) {
+            found.extend(
+                maps.lines()
+                    .filter_map(|line| line.find('/').and_then(|start| line.get(start..)))
+                    .filter(|target| inside(Path::new(target)))
+                    .map(|target| format!("mapped {target}")),
+            );
+        }
+        if !found.is_empty() {
+            let name = std::fs::read_to_string(proc.join("comm")).unwrap_or_default();
+            users.push(format!(
+                "{} {}: {}",
+                process.file_name().to_string_lossy(),
+                name.trim_end(),
+                found.join(", ")
+            ));
+        }
+    }
+    users
+}
+
 /// Syncs every regular file under `folder`, as a clean shutdown would.
 fn sync_tree(folder: &Path) -> io::Result<()> {
     for entry in std::fs::read_dir(folder)? {
@@ -500,13 +574,17 @@ pub enum LazyFsError {
     /// `fusermount3 -u` cannot run, or LazyFS's exit cannot be awaited.
     #[error("the unmount cannot run: {0}")]
     Unmount(io::Error),
-    /// `fusermount3 -u` refused, such as while a process still uses the
-    /// folder.
-    #[error("fusermount3 -u refused ({status}): {stderr}")]
+    /// `fusermount3` refused the unmount while a process still uses the
+    /// folder, or refused to detach it.
+    #[error(
+        "fusermount3 refused the unmount ({status}): {stderr}; processes using the folder: {users:?}"
+    )]
     NotUnmounted {
         /// Its exit status.
         status: ExitStatus,
         /// What it printed.
         stderr: String,
+        /// The processes using the folder, as `<pid> <name>: <what>`.
+        users: Vec<String>,
     },
 }

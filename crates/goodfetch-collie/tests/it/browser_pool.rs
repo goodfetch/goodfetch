@@ -349,6 +349,40 @@ fn an_idle_browser_closes_and_the_next_session_gets_a_new_one() {
     );
 }
 
+/// A browser is not idle while a Session is seated in it or opens a page
+/// there: with `governor.browser.recycle_idle` shorter than any launch,
+/// each Session still gets its page instead of a browser recycled before
+/// the page opens, again and again.
+/// Covers: story:3-62, setting:governor.browser.recycle_idle, operation:session.new_page
+#[cfg(unix)]
+#[test]
+fn a_browser_launching_for_a_session_is_not_idle_before_its_page_opens() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "launching",
+        &pool(json!({ "recycle_idle": 1 })),
+        |_| {},
+    );
+
+    let session = new_session(&mut engine, 2, "launching");
+    let page = page_in(&mut engine, 3, &session);
+    let stored = store(&mut engine, 4, &proving_ground, &page, "launching");
+    let _ = call(
+        &mut engine,
+        5,
+        "run.finish",
+        &json!({ "run_id": "launching" }),
+    );
+    let _ = engine.finish();
+
+    assert_eq!(stored, json!(200));
+}
+
 /// The identity seed of each Session the Run's run state keeps, by its
 /// position.
 fn identity_seeds(env: &TestEnv, run_id: &str) -> Vec<(u32, i64)> {

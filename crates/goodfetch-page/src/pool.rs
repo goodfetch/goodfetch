@@ -8,7 +8,8 @@
 //! A browser is recycled after `governor.browser.recycle_pages` pages, past
 //! its memory cap (`governor.browser.memory_cap`, else twice what it used
 //! once its first page had run), or once it held no open page for
-//! `governor.browser.recycle_idle`. Recycled, it opens no new page: each of
+//! `governor.browser.recycle_idle`, the time a Session spends seated in it
+//! or opening a page there not counted. Recycled, it opens no new page: each of
 //! its Sessions takes its next page in another browser, launched for it
 //! when none has room, carrying its cookies and `localStorage` there (ADR
 //! 0040: a Session is not its browser); the pages a Session left behind
@@ -82,12 +83,15 @@ struct Pooled {
     open: BTreeMap<u64, usize>,
     /// How many of its pages are held.
     held: usize,
+    /// How many Sessions are being seated in it or opening a page there,
+    /// which keeps it from being idle or closing.
+    opening: usize,
     /// What it used once its first page had run.
     warm_up: Option<u64>,
     /// Where it is in its life.
     stage: Stage,
-    /// Counts each time it went from no open page to one, so an idle wait
-    /// started before knows it was outlived.
+    /// Counts each time it went from no open or opening page to one, so an
+    /// idle wait started before knows it was outlived.
     busy: u64,
     /// Whether an idle wait is on.
     waiting: bool,
@@ -154,8 +158,9 @@ impl Pool {
     }
 
     /// Seats `seat` in a browser under `placement`: the first of the Run
-    /// with room, or one launched for it.
-    fn place(&self, seat: &Arc<SeatShared>) -> (u64, Arc<LocalBrowser>) {
+    /// with room, or one launched for it, which is not idle until the
+    /// returned [`Opening`] drops.
+    fn place(&self, seat: &Arc<SeatShared>) -> (u64, Arc<LocalBrowser>, Opening) {
         let mut browsers = lock(&self.shared.browsers);
         let found = rules::place(
             browsers.list.iter().map(|(number, pooled)| {
@@ -189,6 +194,7 @@ impl Pool {
                     served: 0,
                     open: BTreeMap::new(),
                     held: 0,
+                    opening: 0,
                     warm_up: None,
                     stage: Stage::Serving,
                     busy: 0,
@@ -203,8 +209,28 @@ impl Pool {
             .expect("invariant: the browser was just found or made");
         pooled.seated.insert(seat.number, Arc::downgrade(seat));
         let browser = Arc::clone(&pooled.browser);
+        let opening = self.opening_in(&mut browsers, number);
         self.settle(&mut browsers, number);
-        (number, browser)
+        (number, browser, opening)
+    }
+
+    /// A Session is seated in the browser `number` or opens a page there:
+    /// the browser is not idle, nor does it close, until the value drops.
+    fn opening(&self, number: u64) -> Opening {
+        self.opening_in(&mut lock(&self.shared.browsers), number)
+    }
+
+    fn opening_in(&self, browsers: &mut Browsers, number: u64) -> Opening {
+        if let Some(pooled) = browsers.list.get_mut(&number) {
+            if pooled.open_pages() == 0 && pooled.opening == 0 {
+                pooled.busy += 1;
+            }
+            pooled.opening += 1;
+        }
+        Opening {
+            pool: self.clone(),
+            number,
+        }
     }
 
     /// Whether the browser `number` is recycled now: it was already, or it
@@ -306,12 +332,17 @@ impl Pool {
     }
 
     /// Acts on what changed in the browser `number`: once recycled with no
-    /// open or held page it closes, and with none it waits to be idle.
+    /// open, held or opening page it closes, and with none it waits to be
+    /// idle.
     fn settle(&self, browsers: &mut Browsers, number: u64) {
         let Some(pooled) = browsers.list.get_mut(&number) else {
             return;
         };
-        if pooled.stage == Stage::Closing || pooled.open_pages() > 0 || pooled.held > 0 {
+        if pooled.stage == Stage::Closing
+            || pooled.open_pages() > 0
+            || pooled.held > 0
+            || pooled.opening > 0
+        {
             return;
         }
         if pooled.stage == Stage::Retiring {
@@ -403,6 +434,23 @@ impl Drop for InBrowser {
     }
 }
 
+/// A Session being seated in a browser of the pool or opening a page there,
+/// until this value drops.
+struct Opening {
+    pool: Pool,
+    number: u64,
+}
+
+impl Drop for Opening {
+    fn drop(&mut self) {
+        let mut browsers = lock(&self.pool.shared.browsers);
+        if let Some(pooled) = browsers.list.get_mut(&self.number) {
+            pooled.opening -= 1;
+        }
+        self.pool.settle(&mut browsers, self.number);
+    }
+}
+
 /// A held page's hold on its browser.
 #[expect(
     dead_code,
@@ -470,14 +518,16 @@ impl Seat {
         navigation_timeout: Duration,
     ) -> Result<(PageDriver, InBrowser), CallError> {
         let mut place = self.shared.place.lock().await;
-        let (number, driver) = loop {
-            let (number, driver) = self.shared.seated(&mut place).await?;
+        let (number, driver, opening) = loop {
+            let (number, driver, opening) = self.shared.seated(&mut place).await?;
             if !self.shared.pool.recycled(number).await {
-                break (number, driver);
+                break (number, driver, opening);
             }
+            drop(opening);
             self.shared.leave(&mut place).await;
         };
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
+        drop(opening);
         let page = driver.new_page(navigation_timeout).await?;
         let events = page.events().await;
         self.shared
@@ -505,12 +555,16 @@ impl Seat {
 
 impl SeatShared {
     /// The browser the Session is seated in and its driver there, seating
-    /// it with what it carries when it is in none.
-    async fn seated(self: &Arc<Self>, place: &mut Place) -> Result<(u64, Driver), CallError> {
+    /// it with what it carries when it is in none; the browser is not idle
+    /// while the [`Opening`] lives.
+    async fn seated(
+        self: &Arc<Self>,
+        place: &mut Place,
+    ) -> Result<(u64, Driver, Opening), CallError> {
         if let Some((number, driver)) = &place.at {
-            return Ok((*number, Arc::clone(driver)));
+            return Ok((*number, Arc::clone(driver), self.pool.opening(*number)));
         }
-        let (number, browser) = self.pool.place(self);
+        let (number, browser, opening) = self.pool.place(self);
         let driver = Arc::new(SessionDriver::new(browser, self.proxy.clone()));
         let opened = match driver.open().await {
             Ok(()) => driver.restore(&place.carried).await,
@@ -522,7 +576,7 @@ impl SeatShared {
         }
         place.carried = Carried::default();
         place.at = Some((number, Arc::clone(&driver)));
-        Ok((number, driver))
+        Ok((number, driver, opening))
     }
 
     /// The Session leaves its browser, recycled, taking its cookies and

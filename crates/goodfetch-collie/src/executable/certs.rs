@@ -8,8 +8,10 @@
 
 use std::process::ExitCode;
 
+use clap::Subcommand;
 use goodfetch_cli::engine_choice::{self, Answer, CommandCall};
 use goodfetch_cli::exit_codes;
+use goodfetch_cli::generated::{Joined, Joining};
 use goodfetch_cli::output::{self, Human};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::{ErrorGroup, Operation};
@@ -22,10 +24,68 @@ use goodfetch_protocol::tls::{
 };
 use serde_json::{Map, Value, json};
 
+// The `certs` group's commands: the catalog's `certs` commands, listed
+// first, then its own. No doc comment: clap would make it the group's help.
+#[derive(Subcommand)]
+pub(super) enum CertsCommand {
+    #[command(flatten)]
+    Generated(Joining<OwnCertsCommand>),
+    #[command(flatten)]
+    Own(OwnCertsCommand),
+}
+
+// The `certs` group's hand-written commands; no doc comment either.
+#[derive(Subcommand)]
+pub(super) enum OwnCertsCommand {
+    /// Pins the changed key that stopped a host in place of its pin: a
+    /// person's answer, asked at the terminal, and refused with
+    /// `person_required` under `--json` or when stdin is no terminal.
+    Accept {
+        /// The pinned host.
+        host: String,
+        /// Refused: a person answers at a terminal, never under `--json`.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Removes a host's pin, so its next connection under trust on first
+    /// use pins again: a person's answer, asked at the terminal, and
+    /// refused with `person_required` under `--json` or when stdin is no
+    /// terminal.
+    Forget {
+        /// The pinned host.
+        host: String,
+        /// Refused: a person answers at a terminal, never under `--json`.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+impl Joined for OwnCertsCommand {
+    const NAMESPACE: &'static str = "certs";
+}
+
+/// Runs the `certs` command `command`.
+pub(super) fn run(
+    command: CertsCommand,
+    engine: &Engine,
+    dependencies: Dependencies,
+    human: &Human,
+) -> ExitCode {
+    match command {
+        CertsCommand::Generated(joining) => joining.call().run(engine, dependencies, human),
+        CertsCommand::Own(OwnCertsCommand::Accept { host, json }) => {
+            accept(engine, dependencies, &host, json, human)
+        }
+        CertsCommand::Own(OwnCertsCommand::Forget { host, json }) => {
+            forget(engine, dependencies, &host, json, human)
+        }
+    }
+}
+
 /// Asks the person at the terminal to pin the changed key that stopped
 /// `host` in place of its pin, and pins it on `engine` when they answer
 /// yes.
-pub(super) fn accept(
+fn accept(
     engine: &Engine,
     mut dependencies: Dependencies,
     host: &str,
@@ -77,7 +137,7 @@ pub(super) fn accept(
 
 /// Asks the person at the terminal to remove `host`'s pin, and removes it
 /// on `engine` when they answer yes.
-pub(super) fn forget(
+fn forget(
     engine: &Engine,
     mut dependencies: Dependencies,
     host: &str,

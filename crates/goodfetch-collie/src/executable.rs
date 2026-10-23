@@ -135,7 +135,7 @@ enum Command {
     /// known-certificates store.
     Certs {
         #[command(subcommand)]
-        command: CertsCommand,
+        command: certs::CertsCommand,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -241,46 +241,6 @@ enum OwnUsageCommand {
 
 impl Joined for OwnUsageCommand {
     const NAMESPACE: &'static str = "usage";
-}
-
-// The `certs` group's commands: the catalog's `certs` commands, listed
-// first, then its own. No doc comment: clap would make it the group's help.
-#[derive(Subcommand)]
-enum CertsCommand {
-    #[command(flatten)]
-    Generated(Joining<OwnCertsCommand>),
-    #[command(flatten)]
-    Own(OwnCertsCommand),
-}
-
-// The `certs` group's hand-written commands; no doc comment either.
-#[derive(Subcommand)]
-enum OwnCertsCommand {
-    /// Pins the changed key that stopped a host in place of its pin: a
-    /// person's answer, asked at the terminal, and refused with
-    /// `person_required` under `--json` or when stdin is no terminal.
-    Accept {
-        /// The pinned host.
-        host: String,
-        /// Refused: a person answers at a terminal, never under `--json`.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Removes a host's pin, so its next connection under trust on first
-    /// use pins again: a person's answer, asked at the terminal, and
-    /// refused with `person_required` under `--json` or when stdin is no
-    /// terminal.
-    Forget {
-        /// The pinned host.
-        host: String,
-        /// Refused: a person answers at a terminal, never under `--json`.
-        #[arg(long)]
-        json: bool,
-    },
-}
-
-impl Joined for OwnCertsCommand {
-    const NAMESPACE: &'static str = "certs";
 }
 
 #[derive(Subcommand)]
@@ -779,27 +739,9 @@ fn run(
             warn_of_a_temporary_ledger(&home, human);
             usage_command(command, engine, dependencies, human)
         }
-        Command::Certs { command, .. } => certs_command(command, engine, dependencies, human),
+        Command::Certs { command, .. } => certs::run(command, engine, dependencies, human),
         Command::UpgradeFiles { from, json, .. } => {
             upgrade::upgrade(engine.identity(), &home, from.as_deref(), json)
-        }
-    }
-}
-
-/// Runs the `certs` command `command`.
-fn certs_command(
-    command: CertsCommand,
-    engine: &Engine,
-    dependencies: Dependencies,
-    human: &Human,
-) -> ExitCode {
-    match command {
-        CertsCommand::Generated(joining) => joining.call().run(engine, dependencies, human),
-        CertsCommand::Own(OwnCertsCommand::Accept { host, json }) => {
-            certs::accept(engine, dependencies, &host, json, human)
-        }
-        CertsCommand::Own(OwnCertsCommand::Forget { host, json }) => {
-            certs::forget(engine, dependencies, &host, json, human)
         }
     }
 }

@@ -35,7 +35,7 @@ impl Fake {
                     kinds: vec![ProxyKind::Datacenter, ProxyKind::Residential],
                     countries: Some(vec![country("US"), country("DE")]),
                 }],
-                longest_lifetime: Some(Duration::from_secs(30 * 60)),
+                longest_lifetime: Some(Duration::from_mins(30)),
             },
         }
     }
@@ -120,12 +120,12 @@ fn the_driver_refuses_a_kind_or_a_country_the_provider_lacks(
     Some(30 * 60)
 )]
 #[case::a_shorter_sticky_lifetime(
-    Wanted { sticky_lifetime: Some(Duration::from_secs(10 * 60)), ..wanted(None, None) },
+    Wanted { sticky_lifetime: Some(Duration::from_mins(10)), ..wanted(None, None) },
     "account-session-run.session-1-kind-datacenter-country-any-life-10m",
     Some(10 * 60)
 )]
 #[case::a_longer_one_held_to_the_providers_longest(
-    Wanted { sticky_lifetime: Some(Duration::from_secs(90 * 60)), ..wanted(None, None) },
+    Wanted { sticky_lifetime: Some(Duration::from_mins(90)), ..wanted(None, None) },
     "account-session-run.session-1-kind-datacenter-country-any-life-30m",
     Some(30 * 60)
 )]
@@ -163,7 +163,7 @@ fn a_session_that_outlives_its_sticky_lifetime_is_warned_of(
 }
 
 /// The `list` provider of `servers`, with `username`.
-fn listed(servers: serde_json::Value) -> ProxyDriver {
+fn listed(servers: &serde_json::Value) -> ProxyDriver {
     let configuration = ProxyProviderConfiguration::read(&json!({
         "username": "me",
         "password": "env:PROXY_PASSWORD",
@@ -186,7 +186,7 @@ fn given(chosen: &Chosen) -> (String, ProxyKind, Option<String>) {
 /// Covers: story:8-88, story:8-106, setting:proxy.provider, setting:proxy.providers
 #[test]
 fn the_list_provider_gives_each_session_one_of_the_users_servers_of_its_kind_in_turn() {
-    let driver = listed(json!([
+    let driver = listed(&json!([
         { "server": "http://127.0.0.1:3001", "kind": "datacenter", "country": "US" },
         { "server": "socks5://127.0.0.1:3002", "kind": "residential" },
         { "server": "http://127.0.0.1:3003", "kind": "datacenter", "country": "DE" },

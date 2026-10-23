@@ -13,10 +13,18 @@ pub(crate) mod list;
 
 use std::time::Duration;
 
+use std::sync::OnceLock;
+
+use goodfetch_engine::CallError;
+use goodfetch_engine::ledger::Refusal as LedgerRefusal;
+use goodfetch_engine::run::{limit_not_understood, limit_reached};
+use goodfetch_engine::runs::{ChargeError, Run};
 use goodfetch_protocol::catalog::PriceValue;
 use goodfetch_protocol::page::proxy::{CountryCode, ProxyKind, ProxyServer};
 use goodfetch_protocol::run::RunWarning;
 use goodfetch_protocol::run::warning::PROXY_EXIT_MAY_CHANGE;
+use goodfetch_protocol::usage::PROXY_BYTES;
+use tokio::sync::Mutex;
 
 /// A GB, the unit a metered proxy is priced in.
 const GB: u128 = 1_000_000_000;
@@ -44,6 +52,13 @@ pub(crate) struct Offer {
 
 /// What a provider's sticky username names for one Session.
 #[derive(Clone, Debug)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "`list` names no sticky session; the providers whose usernames do (bright_data, oxylabs, apify) read every field"
+    )
+)]
 pub(crate) struct Sticky<'a> {
     /// The Session's ID, which names its sticky session.
     pub(crate) session: &'a str,
@@ -312,6 +327,83 @@ impl Tally {
     /// The price's currency, if it has one.
     pub(crate) fn currency(&self) -> Option<&str> {
         self.price.as_ref().map(|price| price.currency.as_str())
+    }
+}
+
+/// What a Session's provider proxy charges its Run (ADRs 0021, 0041 and
+/// 0101): every byte on its connections, as `proxy_bytes` under its proxy
+/// kind, and their price, reserved as paid, in its currency.
+pub(crate) struct ProxyUsage {
+    run: Run,
+    kind: ProxyKind,
+    tally: Mutex<Tally>,
+    /// The Limit's refusal that stopped the proxy, which the Session's
+    /// failed calls raise in place of the browser's network error.
+    refusal: OnceLock<CallError>,
+}
+
+impl ProxyUsage {
+    /// The usage of a Session of `run` whose proxy is of `kind`, priced at
+    /// `price` per GB.
+    pub(crate) fn new(run: Run, kind: ProxyKind, price: Option<PriceValue>) -> Self {
+        Self {
+            run,
+            kind,
+            tally: Mutex::new(Tally::new(price)),
+            refusal: OnceLock::new(),
+        }
+    }
+
+    /// The Limit's refusal that stopped the proxy, once one did.
+    pub(crate) fn refusal(&self) -> Option<&CallError> {
+        self.refusal.get()
+    }
+
+    /// Keeps `error`'s refusal, a Limit's, for the Session's failed calls.
+    fn refused(&self, error: &ChargeError) {
+        let refusal = match error {
+            ChargeError::Refused(LedgerRefusal::Reached(reached)) => limit_reached(reached),
+            ChargeError::Refused(LedgerRefusal::NotUnderstood(limit)) => {
+                limit_not_understood(limit.as_ref().clone())
+            }
+            _ => return,
+        };
+        let _ = self.refusal.set(refusal);
+    }
+
+    /// Charges `bytes` the proxy carried: whether it may carry more, false
+    /// once a Limit refused them, when the connection must carry no more.
+    pub(crate) async fn charge(&self, bytes: u64) -> bool {
+        if bytes == 0 {
+            return true;
+        }
+        let mut tally = self.tally.lock().await;
+        let (bytes, owed) = tally.add(bytes);
+        if let Err(error) = self
+            .run
+            .charge_part(PROXY_BYTES, self.kind.as_str(), bytes)
+            .await
+        {
+            tracing::debug!(%error, "a Session's proxy bytes were refused");
+            self.refused(&error);
+            return false;
+        }
+        let (Some(owed), Some(currency)) = (owed.filter(|owed| *owed > 0), tally.currency()) else {
+            return true;
+        };
+        match self.run.reserve(PROXY_BYTES, Some(currency), owed).await {
+            // A price already paid is its own worst case: it stays
+            // charged as reserved.
+            Ok(reservation) => {
+                drop(reservation);
+                true
+            }
+            Err(error) => {
+                tracing::debug!(%error, "the price of a Session's proxy bytes was refused");
+                self.refused(&error);
+                false
+            }
+        }
     }
 }
 

@@ -63,12 +63,30 @@ pub(crate) fn started_with<'env>(
     settings: &Map<String, Value>,
     change: impl FnOnce(&mut Command),
 ) -> Attached<'env> {
+    started_after(env, cache, proving_ground, run_id, settings, change, &[])
+}
+
+/// As [`started_with`], once the engine answered `before`, calls such as
+/// `usage.set` the Run's start depends on, each with an ID from 100.
+pub(crate) fn started_after<'env>(
+    env: &'env TestEnv,
+    cache: &Path,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    settings: &Map<String, Value>,
+    change: impl FnOnce(&mut Command),
+    before: &[(&str, Value)],
+) -> Attached<'env> {
     let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
         command.env(BROWSERS_PATH_VARIABLE, cache);
         change(command);
     });
     engine.send(&hello("collie", "0.1"));
     let _ = engine.next();
+    for ((method, params), id) in before.iter().zip(100..) {
+        let answered = call(&mut engine, id, method, params);
+        assert!(answered.get("result").is_some(), "{answered}");
+    }
     let resolve: Map<String, Value> = proving_ground
         .description()
         .resolve

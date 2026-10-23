@@ -133,6 +133,9 @@ jobs:
       # namespaces, so `DnsNamespace` comes up through `sudo` (ADR 0067);
       # declared, a fallback to another way fails.
       GOODFETCH_TEST_DNS_NAMESPACE: sudo
+      # xtask's own `dev` build with line tables only, as the `ci-test`
+      # profile's: a third less of the runner's disk (3.0 to 2.1 GB).
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -141,6 +144,10 @@ jobs:
           persist-credentials: false
           # `xtask perf`'s base is the commit's first parent.
           fetch-depth: 2
+      # The runner's disk holds toolchains the suite never uses, and the
+      # cell's builds need the room (ci/host/free-disk.sh).
+      - name: Free the runner's disk
+        run: ci/host/free-disk.sh
       - name: Install the toolchains, tools and runtimes
         uses: ./.github/actions/host-tools
         with:
@@ -298,6 +305,9 @@ jobs:
       # namespaces, so `DnsNamespace` comes up through `sudo` (ADR 0067);
       # declared, a fallback to another way fails.
       GOODFETCH_TEST_DNS_NAMESPACE: sudo
+      # xtask's own `dev` build with line tables only, as the `ci-test`
+      # profile's: a third less of the runner's disk (3.0 to 2.1 GB).
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -306,6 +316,10 @@ jobs:
           persist-credentials: false
           # `xtask perf`'s base is the commit's first parent.
           fetch-depth: 2
+      # The runner's disk holds toolchains the suite never uses, and the
+      # cell's builds need the room (ci/host/free-disk.sh).
+      - name: Free the runner's disk
+        run: ci/host/free-disk.sh
       - name: Install the toolchains, tools and runtimes
         uses: ./.github/actions/host-tools
         with:
@@ -403,6 +417,8 @@ jobs:
       CELL: windows-x64
       TARGET: x86_64-pc-windows-msvc
       SHARD: 1/1
+      # xtask's own `dev` build with line tables only, as on Linux.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -419,6 +435,10 @@ jobs:
         with:
           shared-key: release-suite-windows-x64
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # `target` is a junction to the Dev Drive, a VHDX file on D: that
+      # host-tools creates; the toolchains and caches sit on C:.
+      - name: "Show the free space on C:, D: and the Dev Drive"
+        run: df -h
       - name: Build the tests and both executables once
         run: ci/release/cell.sh build
       - name: Measure both Products' sizes
@@ -763,7 +783,15 @@ jobs:
   # TESTING.md's table, opening or updating one needs-triage issue per
   # breached suite or job. It never fails a run, so its step is no test step.
   # While ADR 0135 keeps the ingest off, the store holds only the runs
-  # ingested before.
+  # ingested before. It needs the Actions secret TEST_RESULTS_TOKEN, a
+  # fine-grained token on the `<owner>/test-results` repository with
+  # Contents: Read, the least it needs (only the ingest, which pushes, needs
+  # Read and write); the owner creates that repository and adds the secret
+  # (TESTING.md, the results store; ADR 0135's amendment of 2026-10-22).
+  # `github.token` cannot read another private repository, so nothing falls
+  # back to it: without the secret the job fails on its first step, naming it,
+  # never a silent pass. It runs after every cell and is none, so it leaves
+  # their verdict as it is.
   budgets:
     name: budgets
     needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, caches]
@@ -775,6 +803,14 @@ jobs:
       # The breach issues.
       issues: write
     steps:
+      - name: Require the results store's token
+        env:
+          TEST_RESULTS_TOKEN: ${{ secrets.TEST_RESULTS_TOKEN }}
+        run: |
+          if [[ -z "$TEST_RESULTS_TOKEN" ]]; then
+            echo "::error::The results store $GITHUB_REPOSITORY_OWNER/test-results or its TEST_RESULTS_TOKEN secret is missing (ADR 0064): budgets not checked."
+            exit 1
+          fi
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

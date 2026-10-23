@@ -160,3 +160,105 @@ fn two_sessions_of_one_run_keep_their_own_cookies_and_storage_in_one_browser_pro
         )
     );
 }
+
+/// The Error code of `answer`'s error, if it failed.
+fn code_of(answer: &Value) -> &Value {
+    &answer["error"]["data"]["code"]
+}
+
+/// Covers: story:5-60, operation:session.close, operation:run.new_page, error:closed
+#[cfg(unix)]
+#[test]
+fn a_closed_session_closes_its_pages_gives_their_admissions_back_and_closes_again_as_a_no_op() {
+    let env = TestEnv::new();
+    // One browser page at a time: a page of a closed Session that kept its
+    // admission would hold the next page's opening for good.
+    env.user_configuration("[settings.governor.browser_page]\nfloor = 1\nceiling = 1\n");
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "closing");
+
+    let first = session_of(&call(
+        &mut engine,
+        2,
+        "run.new_session",
+        &json!({ "run_id": "closing" }),
+    ));
+    let first_page = page_in(&mut engine, 3, &first);
+    let stored = store(&mut engine, 4, &proving_ground, &first_page, "first");
+    let closed = call(
+        &mut engine,
+        5,
+        "session.close",
+        &json!({ "session_id": first }),
+    );
+    let closed_again = call(
+        &mut engine,
+        6,
+        "session.close",
+        &json!({ "session_id": first }),
+    );
+    let gone_page = call(
+        &mut engine,
+        7,
+        "page.goto",
+        &json!({
+            "page_id": first_page.page_id,
+            "url": proving_ground.url("scope.test", "/about"),
+        }),
+    );
+    let no_new_page = call(
+        &mut engine,
+        8,
+        "session.new_page",
+        &json!({ "session_id": first }),
+    );
+    let default_page = opened(&call(
+        &mut engine,
+        9,
+        "run.new_page",
+        &json!({ "run_id": "closing" }),
+    ));
+    let fresh = store(&mut engine, 10, &proving_ground, &default_page, "default");
+    let default_closed = call(
+        &mut engine,
+        11,
+        "session.close",
+        &json!({ "session_id": default_page.session_id }),
+    );
+    let no_default_page = call(
+        &mut engine,
+        12,
+        "run.new_page",
+        &json!({ "run_id": "closing" }),
+    );
+    let finished = call(
+        &mut engine,
+        13,
+        "run.finish",
+        &json!({ "run_id": "closing" }),
+    );
+    let _ = engine.finish();
+
+    assert_eq!(
+        (
+            (stored, fresh),
+            (&closed["result"], &closed_again["result"]),
+            (code_of(&gone_page), code_of(&no_new_page)),
+            (&default_closed["result"], code_of(&no_default_page)),
+            storage_requests(&proving_ground, "/storage?"),
+            &finished["result"]["lifecycle"],
+        ),
+        (
+            (json!(200), json!(200)),
+            (&json!({}), &json!({})),
+            (&json!("closed"), &json!("closed")),
+            (&json!({}), &json!("closed")),
+            vec![
+                ("/storage?mark=first".to_owned(), json!([])),
+                ("/storage?mark=default".to_owned(), json!([])),
+            ],
+            &json!("finished"),
+        )
+    );
+}

@@ -61,6 +61,37 @@ pub const ADDRESS: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+fn none() -> serde_json::Value {
+    serde_json::Value::Null
+}
+
+/// `console.content_address` (ADR 0031): where the Daemon serves the
+/// Console's content origin, the second origin that shows scraped HTML,
+/// screenshots, DOM snapshots and page bodies.
+pub const CONTENT_ADDRESS: Setting = Setting {
+    name: "console.content_address",
+    description: "Where the Daemon serves the Console's content origin, which shows scraped HTML, screenshots, DOM snapshots and page bodies, as `host:port`. None by default: the Console's host on a free port, or, when `console.content_public_url` is set, the Console's own listener, which tells the two origins apart by the `Host` each request names. Set in user configuration or an Operator policy only.",
+    kind: ValueKind::Text,
+    default: none,
+    clearable: true,
+    authority: Authority::Machine,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `console.content_public_url` (ADR 0049): the content origin's address
+/// behind a proxy.
+pub const CONTENT_PUBLIC_URL: Setting = Setting {
+    name: "console.content_public_url",
+    description: "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only.",
+    kind: ValueKind::Text,
+    default: none,
+    clearable: true,
+    authority: Authority::Machine,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// The Console's port, taken by another program.
 pub const CONSOLE_PORT_IN_USE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "console_port_in_use",
@@ -130,7 +161,7 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[CONSOLE_PORT_IN_USE],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[ADDRESS],
+    settings: &[ADDRESS, CONTENT_ADDRESS, CONTENT_PUBLIC_URL],
     hook_stages: &[],
     shared_type_values: &[],
 };

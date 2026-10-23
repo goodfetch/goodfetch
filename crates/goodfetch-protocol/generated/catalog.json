@@ -2477,6 +2477,40 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "Where the Daemon serves the Console's content origin, which shows scraped HTML, screenshots, DOM snapshots and page bodies, as `host:port`. None by default: the Console's host on a free port, or, when `console.content_public_url` is set, the Console's own listener, which tells the two origins apart by the `Host` each request names. Set in user configuration or an Operator policy only.",
+      "name": "console.content_address",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only.",
+      "name": "console.content_public_url",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "operator_policy",
       "clearable": false,
       "default": 2592000000,

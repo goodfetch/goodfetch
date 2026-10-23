@@ -267,6 +267,26 @@ fn the_daemon_page_calls_the_address_its_query_names() {
     assert_eq!(capture(&page, r#"data-daemon="([^"]+)""#), "127.0.0.1:9");
 }
 
+/// The escape and Daemon pages answer on `adversarial.localhost` too, a
+/// name a browser resolves to loopback itself, so a served test opens them
+/// in a browser with no resolver of its own, as a local page (spec #592).
+#[test]
+fn the_escape_and_daemon_pages_answer_on_adversarial_localhost() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let escape = proving_ground.get(&proving_ground.url("adversarial.localhost", "/escape"));
+    let daemon = proving_ground
+        .get(&proving_ground.url("adversarial.localhost", "/daemon?daemon=127.0.0.1:9"));
+
+    assert_eq!(escape.status, 200);
+    assert!(escape.body.contains("data-landing="), "{}", escape.body);
+    assert_eq!(daemon.status, 200);
+    assert_eq!(
+        capture(&daemon.body, r#"data-daemon="([^"]+)""#),
+        "127.0.0.1:9"
+    );
+}
+
 #[test]
 fn a_report_that_is_not_one_is_refused() {
     let proving_ground = ProvingGround::start(SEED);

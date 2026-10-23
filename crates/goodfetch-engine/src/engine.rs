@@ -224,6 +224,7 @@ impl Engine {
                     listener,
                     url,
                     sign_in,
+                    content,
                 },
             ) => {
                 let sign_ins = SignInDriver::new(SignIns {
@@ -246,6 +247,9 @@ impl Engine {
                             major_name(&self.identity().product_version)
                         ),
                         sockets: opened_sockets,
+                        runs: runs.clone(),
+                        clock,
+                        content,
                     },
                     owner.child(),
                 ));

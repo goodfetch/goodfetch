@@ -261,6 +261,31 @@ fn the_engine_and_its_children_past_the_pressure_share_halve_every_target() {
     );
 }
 
+/// At pressure nothing new is admitted (ADR 0040's shedding ladder): from
+/// the first sample under pressure, a Run takes no admission of a kind
+/// past its floor, though each target only halved.
+///
+/// Covers: story:3-59, setting:governor.pressure
+#[test]
+fn at_pressure_nothing_new_is_admitted_past_each_floor() {
+    let env = TestEnv::new();
+    env.user_configuration(SAMPLED);
+    let proc = Proc::new();
+    // 220 MiB of a 256 MiB allowance is 85.9 %, past `governor.pressure`.
+    proc.file("self/smaps_rollup", &rollup(220 * MIB));
+
+    let (target, admitted) = governed(&env, &proc, async |governor| {
+        let info = Samples::of(&governor).next().await;
+        let run = governor.join(100);
+        let admitted = (0..8)
+            .filter_map(|_| run.try_admit(WorkKind::BrowserPage).map(std::mem::forget))
+            .count();
+        (info.concurrency.browser_page.target, admitted)
+    });
+
+    assert_eq!((target, admitted), (16, 1));
+}
+
 /// The host's own memory pressure counts as the engine's, though the
 /// engine's own memory has headroom: three Attached engines never each
 /// claim half the machine.

@@ -312,7 +312,7 @@ impl Sampler {
                     in_use: self.shares.in_use(),
                 },
             );
-            self.shares.set_targets(decision.targets);
+            self.shares.set_targets(decision.admits);
             let cpu = CpuReading {
                 parallelism: u32::try_from(parallelism).unwrap_or(u32::MAX),
                 busy: u32::try_from(cpu_busy).unwrap_or(u32::MAX),

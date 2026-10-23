@@ -129,7 +129,7 @@ table inet goodfetch_egress {
 		oifname "lo" accept
 		ct state established,related accept
 		udp sport 68 udp dport 67 accept
-		icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } accept
+		icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert, mld-listener-report, mld-listener-done, mld2-listener-report } accept
 		ip daddr . tcp dport @allowed_ipv4 accept
 		ip6 daddr . tcp dport @allowed_ipv6 accept
 		meta skuid != 501 counter name "background" reject

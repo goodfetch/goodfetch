@@ -388,6 +388,41 @@
         }
       ]
     },
+    "BrowserName": {
+      "description": "A browser family, as ADR 0056 names them.",
+      "oneOf": [
+        {
+          "const": "chrome",
+          "description": "Google Chrome.",
+          "type": "string"
+        },
+        {
+          "const": "edge",
+          "description": "Microsoft Edge.",
+          "type": "string"
+        },
+        {
+          "const": "brave",
+          "description": "Brave.",
+          "type": "string"
+        },
+        {
+          "const": "chromium",
+          "description": "Chromium.",
+          "type": "string"
+        },
+        {
+          "const": "firefox",
+          "description": "Firefox.",
+          "type": "string"
+        },
+        {
+          "const": "safari",
+          "description": "Safari.",
+          "type": "string"
+        }
+      ]
+    },
     "CertificatePin": {
       "description": "One pin of the known-certificates store, as `certs.list` answers it and\nas the store's rows hold it: a host whose certificate was accepted on\nfirst use, and the key it must keep presenting.",
       "properties": {
@@ -2844,7 +2879,7 @@
     },
     "NewSessionParams": {
       "additionalProperties": false,
-      "description": "What `run.new_session` takes: the Run whose Session it opens.",
+      "description": "What `run.new_session` takes: the Run whose Session it opens, the\nSession's own source and its own settings.",
       "properties": {
         "_meta": {
           "$ref": "#/$defs/TraceContext",
@@ -2854,6 +2889,24 @@
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
           "description": "The Run."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Session's own settings, nested by key; `session.source` is\nrefused here with `setting_not_applicable`, as the call's own\n`source` sets it.",
+          "type": "object"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "`session.source` for this Session alone: left out, the Run's or the\nconnection's applies; `null`, the Session opens fresh (ADRs 0083\nand 0092)."
         }
       },
       "required": [
@@ -5435,6 +5488,267 @@
       ],
       "type": "object"
     },
+    "SessionSource": {
+      "description": "Where a Session's login comes from (ADR 0056): exactly one kind.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A Saved identity, by its name.",
+          "properties": {
+            "kind": {
+              "const": "saved_identity",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "Its name.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A file of cookies and storage, read on the program's machine and\nsent over the connection.",
+          "properties": {
+            "domains": {
+              "arrived_in": "0.1",
+              "description": "The registrable domains its navigation is bound to.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "format": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/StateFileFormat"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "arrived_in": "0.1",
+              "description": "Its format, detected when left out."
+            },
+            "key": {
+              "arrived_in": "0.1",
+              "description": "The Secret reference that opens a session export bundle.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "state_file",
+              "type": "string"
+            },
+            "path": {
+              "arrived_in": "0.1",
+              "description": "The file.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A `Cookie` header's cookies, for one domain.",
+          "properties": {
+            "domain": {
+              "arrived_in": "0.1",
+              "description": "Its domain.",
+              "type": "string"
+            },
+            "header": {
+              "arrived_in": "0.1",
+              "description": "The header's value.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "cookie_header",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "header",
+            "domain"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A Profile directory, used in place.",
+          "properties": {
+            "browser": {
+              "$ref": "#/$defs/BrowserName",
+              "arrived_in": "0.1",
+              "description": "Its browser family."
+            },
+            "chromium_profile": {
+              "arrived_in": "0.1",
+              "description": "A Chromium-family profile within it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "domains": {
+              "arrived_in": "0.1",
+              "description": "The registrable domains its navigation is bound to.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "profile_directory",
+              "type": "string"
+            },
+            "path": {
+              "arrived_in": "0.1",
+              "description": "The directory.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "browser",
+            "domains"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The data of a browser the person installed, read once.",
+          "properties": {
+            "browser": {
+              "$ref": "#/$defs/BrowserName",
+              "arrived_in": "0.1",
+              "description": "Its browser family."
+            },
+            "chromium_profile": {
+              "arrived_in": "0.1",
+              "description": "A Chromium-family profile of it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "domains": {
+              "arrived_in": "0.1",
+              "description": "The registrable domains its data is read for.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "installed_browser",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "browser",
+            "domains"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A browser the person runs, reached through its consented connection.",
+          "properties": {
+            "browser": {
+              "$ref": "#/$defs/BrowserName",
+              "arrived_in": "0.1",
+              "description": "Its browser family."
+            },
+            "domains": {
+              "arrived_in": "0.1",
+              "description": "The registrable domains its navigation is bound to.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "running_browser",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "browser",
+            "domains"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A browser at a CDP address (ADR 0115).",
+          "properties": {
+            "domains": {
+              "arrived_in": "0.1",
+              "description": "The registrable domains its navigation is bound to.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "exclusive": {
+              "arrived_in": "0.1",
+              "description": "Whether nothing else drives the browser (ADR 0114).",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "headers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "arrived_in": "0.1",
+              "description": "Headers its connection sends, each value a Secret reference.",
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "cdp_url",
+              "type": "string"
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "The address.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SetLogLevelParams": {
       "additionalProperties": false,
       "description": "What `connection.set_log_level` takes.",
@@ -5823,6 +6137,31 @@
         {
           "const": "resumed",
           "description": "It was interrupted and goes on from its committed state, its run\nfile or a Checkpoint, at the next run epoch (ADRs 0002, 0003 and\n0102).",
+          "type": "string"
+        }
+      ]
+    },
+    "StateFileFormat": {
+      "description": "The format of a `state_file`, detected when left out.",
+      "oneOf": [
+        {
+          "const": "storage_state",
+          "description": "Playwright's `storageState`.",
+          "type": "string"
+        },
+        {
+          "const": "cookies_txt",
+          "description": "A Netscape `cookies.txt`.",
+          "type": "string"
+        },
+        {
+          "const": "cdp_cookies",
+          "description": "A CDP `Network.Cookie` array.",
+          "type": "string"
+        },
+        {
+          "const": "session_export",
+          "description": "A session export bundle, opened with `key` (ADR 0015).",
           "type": "string"
         }
       ]
@@ -6544,6 +6883,16 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "call_cancelled",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A capability this engine cannot provide where a setting asks for it, such as a Session opening from a Session source of a kind this engine does not read: the details name the setting, the layer that set it and what it asked for, and its fix names the value that does without it.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "capability_unavailable",
       "product": "collie",
       "retryable": false
     },
@@ -8468,7 +8817,7 @@
       "cancellable": false,
       "class": "effect",
       "deprecated": null,
-      "description": "Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. The Run's first Session launches its browser, so a missing browser build raises its code from this call.",
+      "description": "Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call.",
       "events": [],
       "kind": "round_trip",
       "name": "run.new_session",
@@ -10174,7 +10523,7 @@
       "authority": "not_by_recipe",
       "clearable": true,
       "default": null,
-      "description": "Where a Session's login comes from. A Recipe never sets or locks it; it may only expose it to its users.",
+      "description": "Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users.",
       "name": "session.source",
       "product": "collie",
       "products": [
@@ -10182,7 +10531,380 @@
         "foxhound"
       ],
       "value": {
-        "type": "string"
+        "description": "Where a Session's login comes from (ADR 0056): exactly one kind.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "A Saved identity, by its name.",
+            "properties": {
+              "kind": {
+                "const": "saved_identity",
+                "type": "string"
+              },
+              "name": {
+                "arrived_in": "0.1",
+                "description": "Its name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A file of cookies and storage, read on the program's machine and\nsent over the connection.",
+            "properties": {
+              "domains": {
+                "arrived_in": "0.1",
+                "description": "The registrable domains its navigation is bound to.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "format": {
+                "anyOf": [
+                  {
+                    "description": "The format of a `state_file`, detected when left out.",
+                    "oneOf": [
+                      {
+                        "const": "storage_state",
+                        "description": "Playwright's `storageState`.",
+                        "type": "string"
+                      },
+                      {
+                        "const": "cookies_txt",
+                        "description": "A Netscape `cookies.txt`.",
+                        "type": "string"
+                      },
+                      {
+                        "const": "cdp_cookies",
+                        "description": "A CDP `Network.Cookie` array.",
+                        "type": "string"
+                      },
+                      {
+                        "const": "session_export",
+                        "description": "A session export bundle, opened with `key` (ADR 0015).",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "arrived_in": "0.1",
+                "description": "Its format, detected when left out."
+              },
+              "key": {
+                "arrived_in": "0.1",
+                "description": "The Secret reference that opens a session export bundle.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "const": "state_file",
+                "type": "string"
+              },
+              "path": {
+                "arrived_in": "0.1",
+                "description": "The file.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "path"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A `Cookie` header's cookies, for one domain.",
+            "properties": {
+              "domain": {
+                "arrived_in": "0.1",
+                "description": "Its domain.",
+                "type": "string"
+              },
+              "header": {
+                "arrived_in": "0.1",
+                "description": "The header's value.",
+                "type": "string"
+              },
+              "kind": {
+                "const": "cookie_header",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "header",
+              "domain"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A Profile directory, used in place.",
+            "properties": {
+              "browser": {
+                "arrived_in": "0.1",
+                "description": "Its browser family.",
+                "oneOf": [
+                  {
+                    "const": "chrome",
+                    "description": "Google Chrome.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "edge",
+                    "description": "Microsoft Edge.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "brave",
+                    "description": "Brave.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "chromium",
+                    "description": "Chromium.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "firefox",
+                    "description": "Firefox.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "safari",
+                    "description": "Safari.",
+                    "type": "string"
+                  }
+                ]
+              },
+              "chromium_profile": {
+                "arrived_in": "0.1",
+                "description": "A Chromium-family profile within it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "domains": {
+                "arrived_in": "0.1",
+                "description": "The registrable domains its navigation is bound to.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "kind": {
+                "const": "profile_directory",
+                "type": "string"
+              },
+              "path": {
+                "arrived_in": "0.1",
+                "description": "The directory.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "path",
+              "browser",
+              "domains"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The data of a browser the person installed, read once.",
+            "properties": {
+              "browser": {
+                "arrived_in": "0.1",
+                "description": "Its browser family.",
+                "oneOf": [
+                  {
+                    "const": "chrome",
+                    "description": "Google Chrome.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "edge",
+                    "description": "Microsoft Edge.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "brave",
+                    "description": "Brave.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "chromium",
+                    "description": "Chromium.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "firefox",
+                    "description": "Firefox.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "safari",
+                    "description": "Safari.",
+                    "type": "string"
+                  }
+                ]
+              },
+              "chromium_profile": {
+                "arrived_in": "0.1",
+                "description": "A Chromium-family profile of it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "domains": {
+                "arrived_in": "0.1",
+                "description": "The registrable domains its data is read for.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "kind": {
+                "const": "installed_browser",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "browser",
+              "domains"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A browser the person runs, reached through its consented connection.",
+            "properties": {
+              "browser": {
+                "arrived_in": "0.1",
+                "description": "Its browser family.",
+                "oneOf": [
+                  {
+                    "const": "chrome",
+                    "description": "Google Chrome.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "edge",
+                    "description": "Microsoft Edge.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "brave",
+                    "description": "Brave.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "chromium",
+                    "description": "Chromium.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "firefox",
+                    "description": "Firefox.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "safari",
+                    "description": "Safari.",
+                    "type": "string"
+                  }
+                ]
+              },
+              "domains": {
+                "arrived_in": "0.1",
+                "description": "The registrable domains its navigation is bound to.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "kind": {
+                "const": "running_browser",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "browser",
+              "domains"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A browser at a CDP address (ADR 0115).",
+            "properties": {
+              "domains": {
+                "arrived_in": "0.1",
+                "description": "The registrable domains its navigation is bound to.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "exclusive": {
+                "arrived_in": "0.1",
+                "description": "Whether nothing else drives the browser (ADR 0114).",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "headers": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "arrived_in": "0.1",
+                "description": "Headers its connection sends, each value a Secret reference.",
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "kind": {
+                "const": "cdp_url",
+                "type": "string"
+              },
+              "url": {
+                "arrived_in": "0.1",
+                "description": "The address.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "url"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "weakens": false
     },

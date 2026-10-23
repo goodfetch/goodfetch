@@ -70,7 +70,7 @@ fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Con
             &RUN_NEW_SESSION,
             move |params: NewSessionParams, context: CallContext| {
                 let sessions = opening.clone();
-                async move { sessions.new_session(&params.run_id, &context).await }
+                async move { sessions.new_session(params, &context).await }
             },
         ))
         .with_handler(Handler::new(

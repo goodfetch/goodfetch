@@ -262,3 +262,116 @@ fn a_closed_session_closes_its_pages_gives_their_admissions_back_and_closes_agai
         )
     );
 }
+
+/// The Error code of `answer`'s error and the details that name the key,
+/// its layer and the Session source's kind.
+fn refusal_of(answer: &Value) -> (Value, Value, Value, Value) {
+    let data = &answer["error"]["data"];
+    (
+        data["code"].clone(),
+        data["key"].clone(),
+        data["layer"].clone(),
+        data["kind"].clone(),
+    )
+}
+
+/// Covers: story:5-62, operation:run.new_session, error:setting_not_applicable, error:capability_unavailable
+#[cfg(unix)]
+#[test]
+fn session_source_is_refused_in_a_sessions_own_settings_and_the_runs_is_the_default_beneath() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut settings = serde_json::Map::new();
+    settings.insert(
+        "session".to_owned(),
+        json!({ "source": { "kind": "saved_identity", "name": "portal" } }),
+    );
+    let mut engine =
+        crate::page::started_with(&env, &cache, &proving_ground, "sourced", &settings, |_| {});
+
+    let in_settings = call(
+        &mut engine,
+        2,
+        "run.new_session",
+        &json!({
+            "run_id": "sourced",
+            "settings": { "session": { "source": { "kind": "saved_identity", "name": "other" } } },
+        }),
+    );
+    let other_setting = call(
+        &mut engine,
+        3,
+        "run.new_session",
+        &json!({ "run_id": "sourced", "settings": { "browser": { "headless": true } } }),
+    );
+    let inherited = call(
+        &mut engine,
+        4,
+        "run.new_session",
+        &json!({ "run_id": "sourced" }),
+    );
+    let default_inherited = call(
+        &mut engine,
+        5,
+        "run.new_page",
+        &json!({ "run_id": "sourced" }),
+    );
+    let own = call(
+        &mut engine,
+        6,
+        "run.new_session",
+        &json!({
+            "run_id": "sourced",
+            "source": { "kind": "cookie_header", "header": "mark=own", "domain": "scope.test" },
+        }),
+    );
+    let fresh = session_of(&call(
+        &mut engine,
+        7,
+        "run.new_session",
+        &json!({ "run_id": "sourced", "source": null }),
+    ));
+    let page = page_in(&mut engine, 8, &fresh);
+    let stored = store(&mut engine, 9, &proving_ground, &page, "fresh");
+    let _ = call(
+        &mut engine,
+        10,
+        "run.finish",
+        &json!({ "run_id": "sourced" }),
+    );
+    let _ = engine.finish();
+
+    let refused =
+        |code: &str, key: &str, kind: Value| (json!(code), json!(key), json!("run"), kind);
+    assert_eq!(
+        (
+            refusal_of(&in_settings),
+            refusal_of(&other_setting),
+            refusal_of(&inherited),
+            refusal_of(&default_inherited),
+            refusal_of(&own),
+            stored,
+        ),
+        (
+            refused("setting_not_applicable", "session.source", Value::Null),
+            refused("setting_not_applicable", "browser.headless", Value::Null),
+            refused(
+                "capability_unavailable",
+                "session.source",
+                json!("saved_identity")
+            ),
+            refused(
+                "capability_unavailable",
+                "session.source",
+                json!("saved_identity")
+            ),
+            refused(
+                "capability_unavailable",
+                "session.source",
+                json!("cookie_header")
+            ),
+            json!(200),
+        )
+    );
+}

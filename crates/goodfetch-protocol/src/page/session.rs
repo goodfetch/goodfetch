@@ -8,18 +8,51 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use super::{ARRIVED_IN, PageOpened, SessionId};
 use crate::catalog::{Operation, OperationClass, OperationKind, Reach, Stability, schema_of};
 use crate::run::RunId;
+use crate::settings::session_source::SessionSource;
 
-/// What `run.new_session` takes: the Run whose Session it opens.
+/// What `run.new_session` takes: the Run whose Session it opens, the
+/// Session's own source and its own settings.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NewSessionParams {
     /// The Run.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
+    /// `session.source` for this Session alone: left out, the Run's or the
+    /// connection's applies; `null`, the Session opens fresh (ADRs 0083
+    /// and 0092).
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub source: Option<Option<SessionSource>>,
+    /// The Session's own settings, nested by key; `session.source` is
+    /// refused here with `setting_not_applicable`, as the call's own
+    /// `source` sets it.
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: Map<String, Value>,
+}
+
+/// A field that is present, `null` included, as `Some`; one left out stays
+/// `None` through `#[serde(default)]`.
+#[expect(
+    clippy::option_option,
+    reason = "a setting's three states (ADR 0083): left out inherits, `null` clears, a value sets"
+)]
+fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 /// What `run.new_session` answers: the Session it opened.
@@ -46,7 +79,7 @@ pub struct SessionClosed {}
 /// `run.new_session`.
 pub const RUN_NEW_SESSION: Operation = Operation {
     name: "run.new_session",
-    description: "Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. The Run's first Session launches its browser, so a missing browser build raises its code from this call.",
+    description: "Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,

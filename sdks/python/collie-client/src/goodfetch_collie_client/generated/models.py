@@ -154,6 +154,23 @@ class AxisReason(BaseModel):
     """What it says, for people."""
 
 
+class BrowserName(StrEnum):
+    """A browser family, as ADR 0056 names them."""
+
+    chrome = "chrome"
+    """Google Chrome."""
+    edge = "edge"
+    """Microsoft Edge."""
+    brave = "brave"
+    """Brave."""
+    chromium = "chromium"
+    """Chromium."""
+    firefox = "firefox"
+    """Firefox."""
+    safari = "safari"
+    """Safari."""
+
+
 class CertsListParams(BaseModel):
     """What `certs.list` takes: nothing."""
 
@@ -1314,6 +1331,92 @@ class SessionParams(BaseModel):
     """The Session."""
 
 
+class SessionSource1(BaseModel):
+    """A Saved identity, by its name."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["saved_identity"]
+    name: str
+    """Its name."""
+
+
+class SessionSource3(BaseModel):
+    """A `Cookie` header's cookies, for one domain."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domain: str
+    """Its domain."""
+    header: str
+    """The header's value."""
+    kind: Literal["cookie_header"]
+
+
+class SessionSource4(BaseModel):
+    """A Profile directory, used in place."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    browser: BrowserName
+    """Its browser family."""
+    chromium_profile: str | None = None
+    """A Chromium-family profile within it."""
+    domains: list[str]
+    """The registrable domains its navigation is bound to."""
+    kind: Literal["profile_directory"]
+    path: str
+    """The directory."""
+
+
+class SessionSource5(BaseModel):
+    """The data of a browser the person installed, read once."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    browser: BrowserName
+    """Its browser family."""
+    chromium_profile: str | None = None
+    """A Chromium-family profile of it."""
+    domains: list[str]
+    """The registrable domains its data is read for."""
+    kind: Literal["installed_browser"]
+
+
+class SessionSource6(BaseModel):
+    """A browser the person runs, reached through its consented connection."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    browser: BrowserName
+    """Its browser family."""
+    domains: list[str]
+    """The registrable domains its navigation is bound to."""
+    kind: Literal["running_browser"]
+
+
+class SessionSource7(BaseModel):
+    """A browser at a CDP address (ADR 0115)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domains: list[str] | None = None
+    """The registrable domains its navigation is bound to."""
+    exclusive: bool | None = None
+    """Whether nothing else drives the browser (ADR 0114)."""
+    headers: dict[str, Any] | None = None
+    """Headers its connection sends, each value a Secret reference."""
+    kind: Literal["cdp_url"]
+    url: str
+    """The address."""
+
+
 class SetLogLevelParams(BaseModel):
     """What `connection.set_log_level` takes."""
 
@@ -1410,6 +1513,19 @@ class StartedAs(StrEnum):
     file or a Checkpoint, at the next run epoch (ADRs 0002, 0003 and
     0102).
     """
+
+
+class StateFileFormat(StrEnum):
+    """The format of a `state_file`, detected when left out."""
+
+    storage_state = "storage_state"
+    """Playwright's `storageState`."""
+    cookies_txt = "cookies_txt"
+    """A Netscape `cookies.txt`."""
+    cdp_cookies = "cdp_cookies"
+    """A CDP `Network.Cookie` array."""
+    session_export = "session_export"
+    """A session export bundle, opened with `key` (ADR 0015)."""
 
 
 class StopReason2(BaseModel):
@@ -2275,16 +2391,6 @@ class NewPageParams(BaseModel):
     """The Run."""
 
 
-class NewSessionParams(BaseModel):
-    """What `run.new_session` takes: the Run whose Session it opens."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    run_id: RunId
-    """The Run."""
-
-
 class NothingDone1(BaseModel):
     """The start found the Run ended."""
 
@@ -2613,6 +2719,49 @@ class SessionRouteParams(BaseModel):
     """The Session."""
     url: UrlMatcher
     """The URLs it answers."""
+
+
+class SessionSource2(BaseModel):
+    """
+    A file of cookies and storage, read on the program's machine and
+    sent over the connection.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domains: list[str] | None = None
+    """The registrable domains its navigation is bound to."""
+    format: StateFileFormat | None = None
+    """Its format, detected when left out."""
+    key: str | None = None
+    """The Secret reference that opens a session export bundle."""
+    kind: Literal["state_file"]
+    path: str
+    """The file."""
+
+
+class SessionSource(
+    RootModel[
+        SessionSource1
+        | SessionSource2
+        | SessionSource3
+        | SessionSource4
+        | SessionSource5
+        | SessionSource6
+        | SessionSource7
+    ]
+):
+    root: (
+        SessionSource1
+        | SessionSource2
+        | SessionSource3
+        | SessionSource4
+        | SessionSource5
+        | SessionSource6
+        | SessionSource7
+    )
+    """Where a Session's login comes from (ADR 0056): exactly one kind."""
 
 
 class SettingsFile(BaseModel):
@@ -2979,6 +3128,31 @@ class LimitUsage(BaseModel):
     """When the next period starts; none for a Limit without one."""
     standing: LimitStanding
     """What the engine that read it makes of it."""
+
+
+class NewSessionParams(BaseModel):
+    """
+    What `run.new_session` takes: the Run whose Session it opens, the
+    Session's own source and its own settings.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    run_id: RunId
+    """The Run."""
+    settings: dict[str, Any] | None = None
+    """
+    The Session's own settings, nested by key; `session.source` is
+    refused here with `setting_not_applicable`, as the call's own
+    `source` sets it.
+    """
+    source: SessionSource | None = None
+    """
+    `session.source` for this Session alone: left out, the Run's or the
+    connection's applies; `null`, the Session opens fresh (ADRs 0083
+    and 0092).
+    """
 
 
 class NotUnderstoodLimit(BaseModel):

@@ -386,6 +386,12 @@ number = 3
 kind = "error"
 prefix = "setting_"
 
+# ADR 0083's refusal of a capability the engine cannot provide (#697).
+[[area]]
+number = 3
+kind = "error"
+prefix = "capability_unavailable"
+
 [[area]]
 number = 3
 kind = "format"

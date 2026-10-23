@@ -26,19 +26,23 @@ use goodfetch_engine::browser_cache::{PinnedArtifact, Pins};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::governor::Permit;
+use goodfetch_engine::run::settings_error;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::runs::{Run, RunError};
+use goodfetch_engine::settings::{SettingsError, Values};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::governor::WorkKind;
-use goodfetch_protocol::page::session::SessionOpened;
+use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
 use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use goodfetch_protocol::run::{RUN_NOT_FOUND, RunDetails, RunId};
+use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{
-    SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_NAVIGATION,
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SESSION_SOURCE, SettingLimit,
+    SettingsLayer, TIMEOUT_ACTION, TIMEOUT_NAVIGATION,
 };
-use serde_json::json;
+use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
 
 use crate::driver::{LocalBrowser, PageDriver, SessionDriver};
@@ -173,14 +177,17 @@ impl Sessions {
         }
     }
 
-    /// Opens a Session of the live Run `run_id`: its browser context is made
+    /// Opens a Session of the live Run `params` names, from its own source,
+    /// else the Run's, under its own settings: its browser context is made
     /// now, launching the Run's browser when no Session has.
     pub(crate) async fn new_session(
         &self,
-        run_id: &RunId,
+        params: NewSessionParams,
         context: &CallContext,
     ) -> Result<SessionOpened, CallError> {
-        let run = live(run_id, context).await?;
+        let run = live(&params.run_id, context).await?;
+        own_settings(&params.settings, context)?;
+        opening_source(&run, params.source)?;
         let (position, browser) = {
             let mut state = self.state.lock().await;
             let runs = self.reach(&mut state, &run, context).await?;
@@ -213,6 +220,7 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
         let run = live(run_id, context).await?;
+        opening_source(&run, None)?;
         let session = {
             let mut state = self.state.lock().await;
             let runs = self.reach(&mut state, &run, context).await?;
@@ -529,6 +537,82 @@ impl Sessions {
             })
             .await
             .map_err(|error| unavailable(run, &error, context))
+    }
+}
+
+/// Refuses every key of a Session's own `settings` with
+/// `setting_not_applicable`: `session.source`, which the call's own `source`
+/// sets (ADRs 0083 and 0092), first; any other, since no setting takes
+/// effect on one Session apart from the Run's yet, so none is ignored.
+fn own_settings(settings: &Map<String, Value>, context: &CallContext) -> Result<(), CallError> {
+    if settings.is_empty() {
+        return Ok(());
+    }
+    let values = Values::read(SettingsLayer::Run, settings, context.identity().product)
+        .map_err(|error| settings_error(&error, context.identity()))?;
+    let refused = if values.get(SESSION_SOURCE.name).is_some() {
+        Some((
+            SESSION_SOURCE.name,
+            "pass it as `run.new_session`'s own `source`",
+        ))
+    } else {
+        values
+            .keys()
+            .next()
+            .map(|key| (key, "set it on the Run, whose Sessions all take it"))
+    };
+    match refused {
+        Some((key, fix)) => Err(settings_error(
+            &SettingsError::NotApplicable {
+                key: key.to_owned(),
+                layer: SettingsLayer::Run,
+                fix: fix.to_owned(),
+            },
+            context.identity(),
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Checks the Session source a Session of `run` opens from: `own`, the
+/// call's own `source` when it gave one (`null` for a fresh Session), else
+/// the Run's `session.source`. A fresh Session is all this engine opens:
+/// any source kind raises `capability_unavailable` naming it, until the
+/// ticket of that kind builds its reader (ADR 0056).
+#[expect(
+    clippy::option_option,
+    reason = "a setting's three states (ADR 0083): left out inherits, `null` clears, a value sets"
+)]
+fn opening_source(run: &Run, own: Option<Option<SessionSource>>) -> Result<(), CallError> {
+    let source = match own {
+        Some(own) => own.map(|source| (source, SettingsLayer::Run)),
+        None => run
+            .settings()
+            .and_then(|settings| settings.resolved().get(SESSION_SOURCE.name))
+            .and_then(|effective| {
+                serde_json::from_value::<SessionSource>(effective.value.clone())
+                    .ok()
+                    .map(|source| (source, effective.layer))
+            }),
+    };
+    match source {
+        None => Ok(()),
+        Some((source, layer)) => {
+            let kind = source.kind();
+            Err(CallError::new(
+                &CAPABILITY_UNAVAILABLE,
+                format!(
+                    "This engine opens no Session from a `{kind}` Session source, which `session.source` names in {}: open a fresh Session with `source: null`, or leave `session.source` unset.",
+                    layer.as_str()
+                ),
+                &CapabilityUnavailableDetails {
+                    key: SESSION_SOURCE.name.to_owned(),
+                    layer,
+                    kind: kind.to_owned(),
+                    fix: "`source: null`".to_owned(),
+                },
+            ))
+        }
     }
 }
 

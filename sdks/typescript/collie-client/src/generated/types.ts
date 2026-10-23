@@ -54,6 +54,13 @@ export type ArtifactKind =
  */
 export type Asked = true;
 /**
+ * A browser family, as ADR 0056 names them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "BrowserName".
+ */
+export type BrowserName = "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari";
+/**
  * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -264,6 +271,123 @@ export type MainContent = "found" | "none";
  * via the `definition` "MarkdownContent".
  */
 export type MarkdownContent = "main";
+/**
+ * Where a Session's login comes from (ADR 0056): exactly one kind.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionSource".
+ */
+export type SessionSource =
+  | {
+      kind: "saved_identity";
+      /**
+       * Its name.
+       */
+      name: string;
+    }
+  | {
+      /**
+       * The registrable domains its navigation is bound to.
+       */
+      domains?: string[] | null;
+      /**
+       * Its format, detected when left out.
+       */
+      format?: StateFileFormat | null;
+      /**
+       * The Secret reference that opens a session export bundle.
+       */
+      key?: string | null;
+      kind: "state_file";
+      /**
+       * The file.
+       */
+      path: string;
+    }
+  | {
+      /**
+       * Its domain.
+       */
+      domain: string;
+      /**
+       * The header's value.
+       */
+      header: string;
+      kind: "cookie_header";
+    }
+  | {
+      /**
+       * Its browser family.
+       */
+      browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari";
+      /**
+       * A Chromium-family profile within it.
+       */
+      chromium_profile?: string | null;
+      /**
+       * The registrable domains its navigation is bound to.
+       */
+      domains: string[];
+      kind: "profile_directory";
+      /**
+       * The directory.
+       */
+      path: string;
+    }
+  | {
+      /**
+       * Its browser family.
+       */
+      browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari";
+      /**
+       * A Chromium-family profile of it.
+       */
+      chromium_profile?: string | null;
+      /**
+       * The registrable domains its data is read for.
+       */
+      domains: string[];
+      kind: "installed_browser";
+    }
+  | {
+      /**
+       * Its browser family.
+       */
+      browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari";
+      /**
+       * The registrable domains its navigation is bound to.
+       */
+      domains: string[];
+      kind: "running_browser";
+    }
+  | {
+      /**
+       * The registrable domains its navigation is bound to.
+       */
+      domains?: string[] | null;
+      /**
+       * Whether nothing else drives the browser (ADR 0114).
+       */
+      exclusive?: boolean | null;
+      /**
+       * Headers its connection sends, each value a Secret reference.
+       */
+      headers?: {
+        [k: string]: string;
+      } | null;
+      kind: "cdp_url";
+      /**
+       * The address.
+       */
+      url: string;
+    };
+/**
+ * The format of a `state_file`, detected when left out.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StateFileFormat".
+ */
+export type StateFileFormat = "storage_state" | "cookies_txt" | "cdp_cookies" | "session_export";
 /**
  * Why the Frontier did not add a request (ADRs 0093 and 0120).
  *
@@ -2062,7 +2186,8 @@ export interface NewPageParams {
   run_id: string;
 }
 /**
- * What `run.new_session` takes: the Run whose Session it opens.
+ * What `run.new_session` takes: the Run whose Session it opens, the
+ * Session's own source and its own settings.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "NewSessionParams".
@@ -2072,6 +2197,20 @@ export interface NewSessionParams {
    * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
+  /**
+   * The Session's own settings, nested by key; `session.source` is
+   * refused here with `setting_not_applicable`, as the call's own
+   * `source` sets it.
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
+  /**
+   * `session.source` for this Session alone: left out, the Run's or the
+   * connection's applies; `null`, the Session opens fresh (ADRs 0083
+   * and 0092).
+   */
+  source?: SessionSource | null;
 }
 /**
  * A Limit flagged *must understand* that a Run's engine cannot evaluate,

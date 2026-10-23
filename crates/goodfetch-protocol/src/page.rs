@@ -358,6 +358,32 @@ pub struct ResponseTruncatedDetails {
     pub expected: Option<u64>,
 }
 
+/// Which of a site's preferences refused a navigation (ADR 0086, as ADR
+/// 0093 amends it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SitePreference {
+    /// The site's robots.txt disallows the URL.
+    RobotsTxt,
+    /// The site's robots.txt `Crawl-delay` asks for a wait longer than the
+    /// crawl allows.
+    CrawlDelay,
+    /// A use signal the site sends (aipref's `Content-Usage` header,
+    /// `TDMRep`'s headers, RSL's `Link`) refuses the crawl's Purpose.
+    UseSignals,
+}
+
+/// What `site_preferences_refused` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SitePreferencesRefusedDetails {
+    /// The URL of the navigation or request it refused.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// The preference that refused it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reason: SitePreference,
+}
+
 /// What `page.download` reports: a navigation of a page that the browser
 /// turned into a download.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -458,6 +484,17 @@ pub const RESPONSE_TRUNCATED: ErrorCodeDefinition = ErrorCodeDefinition {
     description: "The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.",
     group: ErrorGroup::Page,
     retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A navigation or request a site's preferences refused, at the page's
+/// navigation gate (ADRs 0086, 0087 and 0093).
+pub const SITE_PREFERENCES_REFUSED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "site_preferences_refused",
+    description: "The site's preferences refused the navigation or the request before it left, or refused the document once its response arrived, leaving the page on a blank document: its robots.txt disallows the URL (`robots_txt`), its `Crawl-delay` asks for more than the crawl allows (`crawl_delay`), or a use signal it sends refuses the crawl's Purpose (`use_signals`). Only a crawl handler's page asks a site's preferences; a page a program opens never raises it. The details name the URL and the reason.",
+    group: ErrorGroup::Refused,
+    retryable: false,
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
@@ -1097,6 +1134,7 @@ pub const ENTRIES: Entries = Entries {
         NAVIGATION_INTERRUPTED,
         TOO_MANY_REDIRECTS,
         RESPONSE_TRUNCATED,
+        SITE_PREFERENCES_REFUSED,
         PAGE_CRASHED,
         BROWSER_LAUNCH_FAILED,
         BROWSER_HOST_OUTDATED,

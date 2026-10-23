@@ -105,6 +105,9 @@ goodfetch-frontier = { path = "crates/foxhound/goodfetch-frontier" }
 # Collie's pages, Sessions and browsers (spec #577).
 goodfetch-page = { path = "crates/goodfetch-page" }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
+# The page's recording navigation gate, lease check and response observer, a
+# test adapter: only ever a dev-dependency (ADR 0125).
+goodfetch-recording-gate = { path = "crates/goodfetch-recording-gate" }
 # Foxhound's Session pool; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-session-pool = { path = "crates/foxhound/goodfetch-session-pool" }
 # Only ever a dev-dependency (ADR 0062; `xtask dependency-direction`).

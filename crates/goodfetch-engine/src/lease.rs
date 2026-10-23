@@ -27,4 +27,40 @@ pub trait LeaseCheck: Debug + Send + Sync {
     ///
     /// Why it ended, once it did.
     fn check(&self) -> Result<(), LeaseEnded>;
+
+    /// Holds the lease while its page waits for a navigation gate's permit
+    /// for `url`, a wait that counts against no timeout (ADR 0093): the
+    /// lease is renewed and the Run's live status names the wait until the
+    /// answer is dropped. A lease with nothing to renew answers
+    /// [`PermitWait::none`].
+    fn permit_wait(&self, url: &str) -> PermitWait {
+        let _ = url;
+        PermitWait::none()
+    }
+}
+
+/// A wait for a navigation gate's permit, under way until dropped.
+#[must_use = "the wait ends when this is dropped"]
+pub struct PermitWait(Option<Box<dyn Send + Sync>>);
+
+impl PermitWait {
+    /// A wait that holds `held` until it ends, which ends the hold once
+    /// dropped.
+    pub fn holding(held: impl Send + Sync + 'static) -> Self {
+        Self(Some(Box::new(held)))
+    }
+
+    /// A wait with nothing to hold.
+    pub fn none() -> Self {
+        Self(None)
+    }
+}
+
+impl Debug for PermitWait {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("PermitWait")
+            .field(&self.0.is_some())
+            .finish()
+    }
 }

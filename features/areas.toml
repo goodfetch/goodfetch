@@ -632,6 +632,13 @@ number = 6
 kind = "operation"
 prefix = "page.formats"
 
+# The refusal the page's navigation gate raises, which area 6 declares
+# (spec #578; #720 builds the gate).
+[[area]]
+number = 6
+kind = "error"
+prefix = "site_preferences_refused"
+
 [[area]]
 number = 5
 kind = "error"

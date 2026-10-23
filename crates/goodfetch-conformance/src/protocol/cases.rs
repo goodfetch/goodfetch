@@ -1,7 +1,8 @@
 //! The exchanges the protocol and page suites' case IDs name, each judged
 //! against what `goodfetch-protocol` says the protocol is: its JSON-RPC
 //! failures, its Error codes and its operations' types. A crawl's delivery
-//! cases are `delivery`'s, and a page's formats cases `formats`'s.
+//! cases are `delivery`'s, a page's formats cases `formats`'s and its
+//! route cases `routes`'s.
 
 mod delivery;
 mod fetch_edge;
@@ -9,6 +10,7 @@ mod formats;
 mod guard;
 mod launch;
 mod navigation;
+mod routes;
 
 use std::collections::BTreeMap;
 
@@ -67,6 +69,8 @@ pub(crate) enum Case {
     KeyReachesAField,
     StillAmbiguous,
     NeverActionable,
+    /// A route case.
+    Route(routes::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -151,8 +155,9 @@ impl Site {
 }
 
 /// The Proving ground's host names that belong to no task and that a case
-/// reaches, which `resolve` maps too: the fetch edge's (ADR 0118).
-const NAMED_HOSTS: [&str; 1] = ["fetch-edge.test"];
+/// reaches, which `resolve` maps too: the fetch edge's (ADR 0118), and the
+/// scope family's site and off-site host the route cases load.
+const NAMED_HOSTS: [&str; 3] = ["fetch-edge.test", "scope.test", "elsewhere.test"];
 
 /// The host name of an `http` URL.
 fn host_of(url: &str) -> Option<&str> {
@@ -234,7 +239,11 @@ impl Case {
             "a-target-never-actionable-raises-deadline-exceeded-naming-the-step" => {
                 Self::NeverActionable
             }
-            _ => return fetch_edge::Case::from_id(id).map(Self::FetchEdge),
+            _ => {
+                return fetch_edge::Case::from_id(id)
+                    .map(Self::FetchEdge)
+                    .or_else(|| routes::Case::from_id(id).map(Self::Route));
+            }
         })
     }
 
@@ -345,6 +354,7 @@ impl Case {
             ),
             Self::StillAmbiguous => guard::still_ambiguous(connection, site, checks),
             Self::NeverActionable => guard::never_actionable(connection, site, checks),
+            Self::Route(case) => case.run(connection, site, checks),
         }
     }
 }

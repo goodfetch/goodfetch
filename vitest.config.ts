@@ -14,6 +14,7 @@ import { readFeatureIds } from "@goodfetch/test-support/features";
 import { browserCommands } from "@goodfetch/test-support/vitest-browser/commands";
 import { VITEST_VISUAL_TESTS, visualConfig } from "@goodfetch/test-support/visual-config";
 import { lingui } from "@lingui/vite-plugin";
+import { storybookTest } from "@storybook/addon-vitest/vitest-plugin";
 import { playwright } from "@vitest/browser-playwright";
 import {
   defineConfig,
@@ -53,6 +54,28 @@ const component: TestProjectInlineConfiguration = {
     },
   },
 };
+
+// Each Storybook story of the Console renders as a test through Storybook's
+// Vitest addon, which runs the a11y addon's axe pass on it, once in light
+// and once in dark (TESTING.md, Components and Accessibility): one project
+// per colour scheme, each pinning the stories' `theme` global.
+const storybookConfig = join(import.meta.dirname, "console", "collie", ".storybook");
+const componentStories = (theme: "light" | "dark"): TestProjectInlineConfiguration => ({
+  extends: true,
+  plugins: [storybookTest({ configDir: storybookConfig, initialGlobals: { theme } })],
+  test: {
+    name: `component-stories-${theme}`,
+    testTimeout: 300_000,
+    setupFiles: ["@goodfetch/test-support/vitest-browser/setup"],
+    browser: {
+      enabled: true,
+      headless: true,
+      provider: playwright(),
+      instances: [{ browser: "chromium", name: `component-stories-${theme} (chromium)` }],
+      commands: browserCommands,
+    },
+  },
+});
 
 // The Release suite reruns the Console's screens under WCAG's text-spacing
 // values and 200% text (ADR 0073; TESTING.md, Accessibility), a style sheet
@@ -181,6 +204,7 @@ const config: ViteUserConfig = defineConfig({
         },
       },
       component,
+      ...(existsSync(storybookConfig) ? [componentStories("light"), componentStories("dark")] : []),
       ...(process.env["GOODFETCH_TEST_SUITE"] === "release" ? [componentTextSpacing] : []),
       ...visual.projects,
     ],

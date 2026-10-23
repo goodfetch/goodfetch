@@ -752,6 +752,7 @@ dependencies = [
 name = "goodfetch-page"
 version = "0.0.0"
 dependencies = [
+ "data-encoding",
  "goodfetch-cdp",
  "goodfetch-engine",
  "goodfetch-extractor",

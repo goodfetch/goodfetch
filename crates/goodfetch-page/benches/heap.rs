@@ -1,5 +1,6 @@
 //! The page crate's heap metrics, under gungraun's DHAT with the system
-//! allocator (ADR 0071): the guard's check-and-arm round trip.
+//! allocator (ADR 0071): the guard's check-and-arm round trip and the
+//! interception's per-request pipeline.
 
 mod scenarios;
 
@@ -16,7 +17,15 @@ fn check_and_arm(count: usize) -> usize {
 
 library_benchmark_group!(name = guard, benchmarks = check_and_arm);
 
+#[library_benchmark]
+#[bench::thousand_requests(1000)]
+fn intercept(count: usize) -> usize {
+    black_box(scenarios::intercept(black_box(count)))
+}
+
+library_benchmark_group!(name = interception, benchmarks = intercept);
+
 main!(
     config = LibraryBenchmarkConfig::default().default_tool(Tool::DHAT),
-    library_benchmark_groups = guard
+    library_benchmark_groups = [guard, interception]
 );

@@ -211,8 +211,9 @@ pub enum Reach {
     AllSurfaces,
     /// The SDKs only, to the program's own code: a Session's cookies and a
     /// page's storage (ADR 0092), `page.lend` (ADR 0089), `effect.open` and
-    /// `effect.close` (ADR 0106). No CLI command, MCP tool, skill, Code mode
-    /// global or Framework adapter offers it.
+    /// `effect.close` (ADR 0106), and the routes and their answers, whose
+    /// handler is the program's own code (ADR 0085). No CLI command, MCP
+    /// tool, skill, Code mode global or Framework adapter offers it.
     SdkOnly,
     /// A person's answer, given in the Console or an interactive CLI prompt
     /// only (ADR 0011's list, such as a certificate's acceptance or a Limit

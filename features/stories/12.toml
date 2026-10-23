@@ -31,6 +31,21 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 94
+title = "As a user, I want Engine & settings to show every effective value with its layer and lock, as `config explain` does, so that I see where each value comes from (ADR 0031; J-009; ADR 0037 / RT-22)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 102
+title = "As a user, I want a setting only Foxhound honours listed as Foxhound's, never hidden, on a Collie engine, so that a shared configuration file reads honestly (ADR 0087)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 109
 title = "As a user of a single-user local Daemon, I want my OS user to be the person, with no sign-in beyond the cookie, and the Audit log to record that user and the surface, so that one person's machine needs no account (ADR 0031)."
 milestone = "M1 Core"

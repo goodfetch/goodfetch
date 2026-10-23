@@ -121,6 +121,17 @@
       ]
     },
     {
+      "id": "command:certs.list",
+      "kind": "command",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:config.explain",
       "kind": "command",
       "area": 3,
@@ -974,6 +985,17 @@
       ]
     },
     {
+      "id": "error:page_handler_failed",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:path_not_writable",
       "kind": "error",
       "area": 3,
@@ -1046,6 +1068,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:route_already_handled",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -1149,6 +1182,17 @@
     },
     {
       "id": "error:secret_domain_not_allowed",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:secret_input_refused",
       "kind": "error",
       "area": 4,
       "milestone": null,
@@ -1686,6 +1730,17 @@
       ]
     },
     {
+      "id": "format:known-certificates",
+      "kind": "format",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:operator-policy",
       "kind": "format",
       "area": 3,
@@ -1764,6 +1819,17 @@
     },
     {
       "id": "operation:audit.verify",
+      "kind": "operation",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:certs.list",
       "kind": "operation",
       "area": 4,
       "milestone": null,
@@ -2035,6 +2101,72 @@
       ]
     },
     {
+      "id": "operation:page.route",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:route.abort",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:route.continue",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:route.fallback",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:route.fetch",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:route.fulfill",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:run.abort",
       "kind": "operation",
       "area": 3,
@@ -2219,6 +2351,17 @@
       "id": "operation:sample.echo",
       "kind": "operation",
       "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:session.route",
+      "kind": "operation",
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -4144,6 +4287,17 @@
       "id": "row:silent-false-success",
       "kind": "row",
       "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "screen:/settings",
+      "kind": "screen",
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [
@@ -9731,6 +9885,17 @@
       ]
     },
     {
+      "id": "story:12-102",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:12-109",
       "kind": "story",
       "area": 12,
@@ -9809,6 +9974,17 @@
     },
     {
       "id": "story:12-5",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-94",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",

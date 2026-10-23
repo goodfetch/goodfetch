@@ -12,6 +12,10 @@
 //!   `shop.scope.test/cart`.
 //! - `scope.test/moved`, linked from nowhere, redirects (`302`) off site to
 //!   `elsewhere.test/offsite`, for a crawl's redirect leaving its scope.
+//! - `scope.test/cached`, linked from nowhere, may be kept by a browser's
+//!   cache for an hour (`Cache-Control: max-age=3600`), so a second load
+//!   the cache serves never reaches the Proving ground: the interception's
+//!   cases read it (ADR 0085).
 //!
 //! Every other page is an article with its ID; any other path is `404`.
 //! No task names the family: the engine's scope cases read it.
@@ -38,6 +42,9 @@ pub(super) const HOSTS: [&str; 5] = [
 
 /// The generator place of the family's values.
 const FAMILY_PLACE: u64 = 33;
+
+/// The generator place of the cached page's title, after the pages'.
+const CACHED_PLACE: u64 = 7;
 
 /// Each page but the index: its scheme, host and path, and its ID.
 const PAGES: [(&str, &str, &str, &str); 6] = [
@@ -74,6 +81,11 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
             document("Moved", "<p>This page has moved.</p>\n"),
         )
         .header("location", link("http", "elsewhere.test", "/offsite")),
+        (HOST, "/cached") => {
+            let title = name(visit.seed, &[FAMILY_PLACE, CACHED_PLACE]);
+            Page::ok(article("S-CACHED", &title, &[]))
+                .header("cache-control", "max-age=3600".to_owned())
+        }
         (host, path) => PAGES
             .iter()
             .zip(1_u64..)

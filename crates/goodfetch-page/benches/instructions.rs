@@ -1,6 +1,7 @@
 //! The page crate's instruction counts, under gungraun's Callgrind with
 //! mimalloc as the global allocator, as the executables ship (ADR 0071):
-//! the guard's check-and-arm round trip (ADR 0019's speed target).
+//! the guard's check-and-arm round trip (ADR 0019's speed target) and the
+//! interception's per-request pipeline (spec #577).
 
 mod scenarios;
 
@@ -19,4 +20,12 @@ fn check_and_arm(count: usize) -> usize {
 
 library_benchmark_group!(name = guard, benchmarks = check_and_arm);
 
-main!(library_benchmark_groups = guard);
+#[library_benchmark]
+#[bench::thousand_requests(1000)]
+fn intercept(count: usize) -> usize {
+    black_box(scenarios::intercept(black_box(count)))
+}
+
+library_benchmark_group!(name = interception, benchmarks = intercept);
+
+main!(library_benchmark_groups = [guard, interception]);

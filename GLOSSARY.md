@@ -362,6 +362,14 @@ _Avoid_: tab, target (for a page)
 A glob or a regular expression that a wait, a route or a kept response matches URLs against, in the engine, so that it matches the same URLs from every SDK; a predicate is no URL pattern, since it runs in the program.
 _Avoid_: URL filter, URL match
 
+**Route**:
+A program's handler for the requests of a page, or of every page of a Session, whose URL its URL pattern matches: it answers each by sending it on, answering it with a response of its own, failing it, or passing it to the route armed before; one that answers nothing passes it on (ADR 0085).
+_Avoid_: interceptor, request handler
+
+**Interception**:
+The engine's one pipeline that every request of a page passes, in one written order: routes, the egress check and the domain policy, the Filter lists, the Response cache, the navigation gate and lease check, then the engine's own additions, such as the Session's cookies, which no route sees (ADR 0085).
+_Avoid_: middleware, request interception (for Playwright's routing)
+
 **Access mode**:
 How a Session presents itself to sites, fixed when it opens: standard (an ordinary browser), identified (a declared, signed agent) or stealth (masked).
 _Avoid_: profile, access profile, stealth level

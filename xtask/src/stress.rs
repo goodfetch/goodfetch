@@ -7,6 +7,9 @@
 //!   in every suite. The base's listings are read from those the
 //!   cache-warming job saved for its commit, else listed from a checkout of
 //!   the base in the same job.
+//!   The incremental gate (ADR 0135) narrows it `--within` the members the
+//!   change since an earlier gate run reaches, and adds every test whose
+//!   file that change (`--since` the earlier run's head) changed.
 //! - **listings**: saves the head's four listings for later changes' bases.
 //!
 //! A count is never lowered and nothing skips the run.
@@ -22,6 +25,7 @@ use std::process::{Command as Process, ExitCode};
 
 use anyhow::{Context as _, Result, bail};
 
+use crate::affected::{Kind, UNOWNED, WorkspaceMembers};
 use crate::environment::Environment;
 use crate::metadata::{self, Package};
 use crate::output;
@@ -92,23 +96,75 @@ impl Runners<'_> {
 /// The base's target folder, within the head's, as `xtask perf` keeps its own.
 const BASE_TARGET: &str = "stress-base";
 
+/// The incremental gate's narrowing of a stress run (ADR 0135).
+struct Narrowing {
+    /// The members whose new and changed tests run: crates by name, pnpm
+    /// and uv packages by folder; a runner none of them is tested by lists
+    /// nothing.
+    within: BTreeSet<String>,
+    /// The earlier gate run's head: each test whose file changed since then
+    /// runs too. Such a file lies in a member the change reaches, so its
+    /// runner lists.
+    since: Option<String>,
+    members: WorkspaceMembers,
+}
+
+impl Narrowing {
+    /// Whether some member within is tested by `runner`.
+    fn lists(&self, runner: Runner) -> bool {
+        let kind = match runner {
+            Runner::Nextest => Kind::Crate,
+            Runner::Vitest | Runner::Playwright => Kind::TypeScript,
+            Runner::Pytest => Kind::Python,
+        };
+        let unowned = kind != Kind::Crate && self.within.contains(UNOWNED);
+        unowned
+            || self
+                .members
+                .all()
+                .any(|(name, member)| member == kind && self.within.contains(&name))
+    }
+
+    /// Whether the test lies within: its member is, or it lies in no member
+    /// and [`UNOWNED`] is within.
+    fn holds(&self, location: &Location) -> bool {
+        let member = match location {
+            Location::Target { package, .. } => Some(package.clone()),
+            Location::File(Some(file)) => self.members.owner(file),
+            Location::File(None) => None,
+        };
+        self.within.contains(member.as_deref().unwrap_or(UNOWNED))
+    }
+}
+
+/// The paths the working tree at `root` changes since `commit`.
+fn changed_since(root: &Path, commit: &str) -> Result<BTreeSet<String>> {
+    Ok(git(
+        root,
+        &["diff", "--name-only", "--no-renames", "-z"],
+        &[commit, "--"],
+    )?
+    .split('\0')
+    .filter(|path| !path.is_empty())
+    .map(str::to_owned)
+    .collect())
+}
+
 /// The tests the change from `base` to the workspace at `root` stresses.
 fn select(
     root: &Path,
     runners: &Runners<'_>,
     base: &str,
     saved: Option<&Path>,
+    narrowing: Option<&Narrowing>,
 ) -> Result<Vec<Selected>> {
     let base = commit(root, base)?;
-    let changed: BTreeSet<String> = git(
-        root,
-        &["diff", "--name-only", "--no-renames", "-z"],
-        &[&base, "--"],
-    )?
-    .split('\0')
-    .filter(|path| !path.is_empty())
-    .map(str::to_owned)
-    .collect();
+    let changed = changed_since(root, &base)?;
+    let since = match narrowing.and_then(|narrowing| narrowing.since.as_deref()) {
+        Some(since) => changed_since(root, &commit(root, since)?)?,
+        None => BTreeSet::new(),
+    };
+    let lists = |runner: Runner| narrowing.is_none_or(|narrowing| narrowing.lists(runner));
     let quarantined = |entries: Vec<quarantine::Entry>| -> BTreeSet<(Runner, TestId)> {
         entries
             .into_iter()
@@ -121,12 +177,12 @@ fn select(
         BTreeSet::new()
     };
     let base_list = quarantined(base_quarantine(root, &base)?);
-    let base_listings = base_listings(root, runners, &base, saved)?;
+    let base_listings = base_listings(root, runners, &base, saved, &lists)?;
     let packages = metadata::packages(runners.cargo, root)?;
     let root = canonical(root)?;
 
     let mut selection = Vec::new();
-    for runner in Runner::ALL {
+    for runner in Runner::ALL.into_iter().filter(|runner| lists(*runner)) {
         let head = listing::parse(runner, &root, &runners.output(runner, &root, None)?)?;
         let reached: BTreeSet<TestId> = match runner {
             Runner::Vitest | Runner::Playwright => {
@@ -142,15 +198,25 @@ fn select(
             if head_list.contains(&(runner, test.clone())) {
                 continue;
             }
-            let count = if base_list.contains(&(runner, test.clone())) {
-                UNQUARANTINED_RUNS
+            let test_file = file(&root, &packages, &location, &test);
+            let pull_request = if base_list.contains(&(runner, test.clone())) {
+                Some(UNQUARANTINED_RUNS)
             } else if !listed_at_base.contains(&test)
                 || reached.contains(&test)
-                || file(&root, &packages, &location, &test)
-                    .is_some_and(|file| changed.contains(&file))
+                || test_file
+                    .as_ref()
+                    .is_some_and(|file| changed.contains(file))
             {
-                CHANGED_RUNS
+                Some(CHANGED_RUNS)
             } else {
+                None
+            }
+            .filter(|_| narrowing.is_none_or(|narrowing| narrowing.holds(&location)));
+            let changed_since_earlier = test_file
+                .as_ref()
+                .is_some_and(|file| since.contains(file))
+                .then_some(CHANGED_RUNS);
+            let Some(count) = pull_request.max(changed_since_earlier) else {
                 continue;
             };
             selection.push(Selected {
@@ -187,10 +253,11 @@ fn base_listings(
     runners: &Runners<'_>,
     base: &str,
     saved: Option<&Path>,
+    lists: &dyn Fn(Runner) -> bool,
 ) -> Result<BTreeMap<Runner, BTreeSet<TestId>>> {
     let mut listings = BTreeMap::new();
     let mut missing = Vec::new();
-    for runner in Runner::ALL {
+    for runner in Runner::ALL.into_iter().filter(|runner| lists(*runner)) {
         let file = saved.map(|folder| folder.join(base).join(saved_file(runner)));
         match file {
             Some(file) if file.is_file() => {
@@ -449,6 +516,15 @@ pub(crate) enum Command {
         /// The Cargo profile nextest builds its listings with.
         #[arg(long)]
         cargo_profile: Option<String>,
+        /// Only the new and changed tests of these members, crates by name
+        /// and pnpm or uv packages by folder, `:unowned` for the tests no
+        /// member owns (the incremental gate, ADR 0135); repeatable.
+        #[arg(long)]
+        within: Vec<String>,
+        /// The earlier gate run's head, with `--within`: each test whose
+        /// file changed since then runs too.
+        #[arg(long, requires = "within")]
+        since: Option<String>,
     },
     /// Saves each runner's listing of the workspace into `<out>/<HEAD's
     /// commit>/`, for the changes whose base it is.
@@ -468,13 +544,24 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             base,
             saved,
             cargo_profile,
+            within,
+            since,
         } => {
             let runners = Runners {
                 cargo: &environment.cargo,
                 cargo_profile: cargo_profile.as_deref(),
             };
             let saved = saved.map(|folder| environment.path(&folder));
-            for selected in select(root, &runners, &base, saved.as_deref())? {
+            let narrowing = if within.is_empty() {
+                None
+            } else {
+                Some(Narrowing {
+                    within: within.into_iter().collect(),
+                    since,
+                    members: WorkspaceMembers::read(&environment.cargo, root)?,
+                })
+            };
+            for selected in select(root, &runners, &base, saved.as_deref(), narrowing.as_ref())? {
                 output::line(&format!(
                     "{}\t{}\t{}",
                     selected.count,

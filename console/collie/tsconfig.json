@@ -9,5 +9,13 @@
     "lib": ["es2024", "dom", "dom.iterable"],
     "types": ["vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "tests/**/*.ts",
+    "tests/**/*.tsx",
+    ".storybook/*.ts",
+    ".storybook/*.tsx",
+    "*.ts"
+  ]
 }

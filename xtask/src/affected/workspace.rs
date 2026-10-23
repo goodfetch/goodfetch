@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
-use super::RepoPath;
-use crate::{metadata, package_dependencies, tlc};
+use super::{RepoPath, imports};
+use crate::{console, metadata, package_dependencies, tlc};
 
 pub(crate) struct Workspace {
     pub(crate) crates: Vec<Crate>,
@@ -26,6 +26,18 @@ pub(crate) struct Workspace {
     /// projects look for them.
     pub(crate) visual_tests: Vec<RepoPath>,
     pub(crate) models: Vec<Model>,
+    /// The packages whose build a crate embeds: a change to one changes
+    /// that crate's executable.
+    pub(crate) embedded: Vec<Embedded>,
+}
+
+/// A package whose build a crate embeds, as Collie's executable embeds the
+/// Console's (ADR 0057).
+pub(crate) struct Embedded {
+    /// The package's folder.
+    pub(crate) package: RepoPath,
+    /// The crate that embeds it.
+    pub(crate) krate: String,
 }
 
 /// A TLA+ model (ADR 0060).
@@ -68,13 +80,23 @@ pub(crate) struct Package {
     pub(crate) ecosystem: Ecosystem,
     pub(crate) name: String,
     pub(crate) folder: RepoPath,
-    /// The members of its own workspace it depends on.
+    /// The members of its own workspace it depends on, or its files
+    /// import.
     pub(crate) dependencies: BTreeSet<String>,
+    /// The members its build and its code at run time depend on, not its
+    /// tests alone: a pnpm package's `dependencies`, a uv project's
+    /// `dependencies`.
+    pub(crate) runtime_dependencies: BTreeSet<String>,
     /// The crates whose executables its tests run through the test tool
     /// manifest, from `goodfetch.runs` in `package.json` or
     /// `[tool.goodfetch] runs` in `pyproject.toml`: a change to one reaches
     /// it as a dependency's would.
     pub(crate) runs: BTreeSet<String>,
+    /// Whether every run of its runner loads it, whatever the tested
+    /// package declares: a package the root Vitest or Playwright config
+    /// imports, or a pytest plugin. A change to it reaches every package
+    /// of its ecosystem.
+    pub(crate) loaded_by_every_run: bool,
 }
 
 pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Workspace> {
@@ -87,8 +109,10 @@ pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Workspace> {
     let mut visual_tests = Vec::new();
     find_visual_tests(root, root, &mut visual_tests)?;
     visual_tests.sort();
+    let crates = crates(cargo, root)?;
+    let embedded = embedded(&crates, &packages);
     Ok(Workspace {
-        crates: crates(cargo, root)?,
+        crates,
         packages,
         visual_tests,
         models: tlc::models(root)?
@@ -99,7 +123,47 @@ pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Workspace> {
                 traces: model.traces.into_iter().map(RepoPath::new).collect(),
             })
             .collect(),
+        embedded,
     })
+}
+
+/// The Console, whose build Collie's executable embeds (ADR 0057), when
+/// both exist: the crate is the one whose folder holds the build's.
+fn embedded(crates: &[Crate], packages: &[Package]) -> Vec<Embedded> {
+    let console = RepoPath::new(console::PACKAGE);
+    let build = RepoPath::new(console::BUILD);
+    let krate = crates
+        .iter()
+        .filter(|krate| build.is_in(krate.folder.as_str()))
+        .max_by_key(|krate| krate.folder.as_str().len());
+    match krate {
+        Some(krate) if packages.iter().any(|package| package.folder == console) => {
+            vec![Embedded {
+                package: console,
+                krate: krate.name.clone(),
+            }]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The root files whose imports every run of a pnpm runner loads: the
+/// Vitest and Playwright configs.
+fn runner_config_imports(root: &Path, names: &BTreeSet<String>) -> Result<BTreeSet<String>> {
+    let mut loaded = BTreeSet::new();
+    for entry in std::fs::read_dir(root).with_context(|| format!("reading {}", root.display()))? {
+        let entry = entry.with_context(|| format!("reading {}", root.display()))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let config = ["vitest.config.", "playwright.config."]
+            .iter()
+            .any(|prefix| name.starts_with(prefix));
+        if config && entry.file_type()?.is_file() {
+            let text = std::fs::read_to_string(entry.path())
+                .with_context(|| format!("reading {}", entry.path().display()))?;
+            loaded.extend(imports::typescript(&text, names));
+        }
+    }
+    Ok(loaded)
 }
 
 /// Folders the visual projects never look in, wherever they are: build
@@ -263,10 +327,29 @@ fn typescript_packages(root: &Path) -> Result<Vec<Package>> {
         .iter()
         .map(|(_, manifest)| manifest.name.clone())
         .collect();
+    let loaded = runner_config_imports(root, &names)?;
+    let mut imported = Vec::new();
+    for (folder, manifest) in &manifests {
+        let mut found = imports::of_folder(
+            &root.join(folder.as_str()),
+            &imports::SCRIPT_EXTENSIONS,
+            |text| imports::typescript(text, &names),
+        )?;
+        found.remove(&manifest.name);
+        imported.push(found);
+    }
     Ok(manifests
         .into_iter()
-        .map(|(folder, manifest)| Package {
+        .zip(imported)
+        .map(|((folder, manifest), imported)| Package {
             ecosystem: Ecosystem::TypeScript,
+            loaded_by_every_run: loaded.contains(&manifest.name),
+            runtime_dependencies: manifest
+                .dependencies
+                .keys()
+                .filter(|name| names.contains(*name))
+                .cloned()
+                .collect(),
             dependencies: [
                 &manifest.dependencies,
                 &manifest.dev_dependencies,
@@ -277,6 +360,7 @@ fn typescript_packages(root: &Path) -> Result<Vec<Package>> {
             .flat_map(BTreeMap::keys)
             .filter(|name| names.contains(*name))
             .cloned()
+            .chain(imported)
             .collect(),
             name: manifest.name,
             runs: runs(manifest.goodfetch),
@@ -300,6 +384,10 @@ struct Project {
     dependencies: Vec<String>,
     #[serde(default, rename = "optional-dependencies")]
     optional_dependencies: BTreeMap<String, Vec<String>>,
+    /// `[project.entry-points]`: a `pytest11` group makes it a pytest
+    /// plugin, which every pytest run of the workspace loads.
+    #[serde(default, rename = "entry-points")]
+    entry_points: BTreeMap<String, toml::Value>,
 }
 
 #[derive(Deserialize)]
@@ -371,19 +459,35 @@ fn python_packages(root: &Path) -> Result<Vec<Package>> {
                     .filter_map(|entry| entry.as_str().map(str::to_owned)),
             )
             .collect();
+        let plugin = project.entry_points.contains_key("pytest11");
+        let runtime: Vec<String> = project.dependencies.clone();
         members.push((
             relative(root, &folder)?,
             python_name(&project.name),
             requirements,
             runs,
+            (plugin, runtime),
         ));
     }
-    let names: BTreeSet<String> = members.iter().map(|(_, name, _, _)| name.clone()).collect();
-    Ok(members
-        .into_iter()
-        .map(|(folder, name, requirements, runs)| Package {
+    let names: BTreeSet<String> = members
+        .iter()
+        .map(|(_, name, _, _, _)| name.clone())
+        .collect();
+    let mut packages = Vec::new();
+    for (folder, name, requirements, runs, (plugin, runtime)) in members {
+        let mut imported = imports::of_folder(&root.join(folder.as_str()), &["py"], |text| {
+            imports::python(text, &names)
+        })?;
+        imported.remove(&name);
+        packages.push(Package {
             ecosystem: Ecosystem::Python,
             dependencies: requirements
+                .iter()
+                .map(|requirement| python_name(requirement))
+                .filter(|dependency| names.contains(dependency))
+                .chain(imported)
+                .collect(),
+            runtime_dependencies: runtime
                 .iter()
                 .map(|requirement| python_name(requirement))
                 .filter(|dependency| names.contains(dependency))
@@ -391,8 +495,10 @@ fn python_packages(root: &Path) -> Result<Vec<Package>> {
             name,
             folder,
             runs,
-        })
-        .collect())
+            loaded_by_every_run: plugin,
+        });
+    }
+    Ok(packages)
 }
 
 fn read_if_present(path: &Path) -> Result<Option<String>> {

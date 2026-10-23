@@ -49,6 +49,7 @@ use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
 
 use crate::driver::PageDriver;
+use crate::hiding::{Hiding, PageHiding};
 use crate::interception::{Interception, SESSION_KEYS};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
 
@@ -81,6 +82,7 @@ pub(crate) struct Sessions {
     state: Arc<Mutex<State>>,
     pins: Vec<PinnedArtifact>,
     interception: Interception,
+    hiding: Hiding,
 }
 
 #[derive(Default)]
@@ -124,6 +126,8 @@ pub(crate) struct OpenPage {
     pub(crate) action_timeout: (SettingLimit, Duration),
     /// Its Run's clock.
     pub(crate) clock: Clock,
+    /// Its live hiding, when it hides anything.
+    pub(crate) hiding: Option<Arc<PageHiding>>,
     /// Its admission of the governor's `browser_page` kind, given back once
     /// the page leaves and no call holds it.
     _admission: Arc<Permit>,
@@ -184,6 +188,7 @@ impl Sessions {
             state: Arc::new(Mutex::new(State::default())),
             pins,
             interception,
+            hiding: Hiding::default(),
         }
     }
 
@@ -291,9 +296,22 @@ impl Sessions {
             state.opened_pages += 1;
             PageId(format!("page-{}", state.opened_pages))
         };
-        self.interception
+        let clean_up = self
+            .interception
             .start(&page, session, &driver, &run, &open.settings)
             .await?;
+        let hiding = match self
+            .hiding
+            .start(&page, session, &driver, &run, &clean_up)
+            .await
+        {
+            Ok(hiding) => hiding,
+            Err(error) => {
+                self.interception
+                    .close(std::slice::from_ref(&page), session);
+                return Err(error);
+            }
+        };
         let mut state = self.state.lock().await;
         if !state.sessions.contains_key(session) {
             drop(state);
@@ -309,6 +327,7 @@ impl Sessions {
                 session: session.clone(),
                 driver,
                 action_timeout,
+                hiding,
                 _admission: Arc::new(admission),
                 _in_browser: Arc::new(in_browser),
             },
@@ -357,6 +376,7 @@ impl Sessions {
             pages
         };
         self.interception.close(&pages, session);
+        self.hiding.close(session).await;
         open.seat.close().await;
         let position = open.position;
         open.run
@@ -531,6 +551,7 @@ impl Sessions {
             for session in &gone {
                 let pages = pages.remove(session).unwrap_or_default();
                 sessions.interception.close(&pages, session);
+                sessions.hiding.close(session).await;
             }
         });
     }

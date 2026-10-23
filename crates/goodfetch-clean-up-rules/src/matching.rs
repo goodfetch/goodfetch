@@ -80,6 +80,18 @@ pub enum List {
     Annoyances,
 }
 
+impl List {
+    /// Its name, the last part of the `filter_lists.*` setting that turns
+    /// it on, as Provenance names it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Ads => "ads",
+            Self::Trackers => "trackers",
+            Self::Annoyances => "annoyances",
+        }
+    }
+}
+
 /// What a Session's settings choose (ADRs 0047 and 0117): which Filter
 /// lists are on, whether a site's own scripts pass them, and which
 /// resource kinds `browser.block_resources` blocks.

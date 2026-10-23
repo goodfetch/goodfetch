@@ -2,7 +2,7 @@
 //! tier calls with the document it holds, and the composition of the
 //! main-content step and the converters behind it.
 
-use crate::main_content::main_content;
+use crate::main_content::{main_content, main_text_length};
 use crate::markdown::markdown;
 use goodfetch_protocol::page::{Asked, FormatsRequest, MainContent, MarkdownFormat, PageFormats};
 
@@ -47,6 +47,13 @@ pub fn formats(
             .markdown
             .map(|_| main.as_deref().map(markdown).unwrap_or_default()),
     }
+}
+
+/// The length of the text of `document`'s main content, white space
+/// aside, in characters; 0 when it has none: how a caller measures what
+/// extraction-side removal took of it (ADR 0047).
+pub fn main_content_length(document: &Document<'_>) -> usize {
+    main_text_length(document.html, document.url)
 }
 
 /// The fuzz target of the HTML entry point (ADR 0067): reads `data` as a

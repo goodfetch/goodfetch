@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, AuditVerified, AuditVerifyParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PageRouteParams, PressParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
+from .models import Acted, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageExchange, PageFormats, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRouteParams, PressParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForRequestFinishedParams
 
 
 class AsyncCaller(Protocol):
@@ -173,6 +173,13 @@ class AsyncCollieOperations:
         """
         return Navigated.model_construct(**_fields(await self._caller.call("page.goto", params)))
 
+    async def page_on(self, params: PageOnParams) -> PageOnEnded:
+        """Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the page on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call, as closing its `Subscription` does, removes the listener, and once no call listens the event is no longer published; it answers when the page closes or its Run ends. The page's console and uncaught exceptions are read only while a call listens to `console` or `page_error`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageOnEnded.model_construct(**_fields(await self._caller.call("page.on", params)))
+
     async def page_reload(self, params: PageParams) -> Navigated:
         """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
 
@@ -186,6 +193,20 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RouteEnded.model_construct(**_fields(await self._caller.call("page.route", params)))
+
+    async def page_wait_for_request_finished(self, params: WaitForRequestFinishedParams) -> PageExchange:
+        """Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past `timeout.wait`, it fails with `deadline_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageExchange.model_construct(**_fields(await self._caller.call("page.wait_for_request_finished", params)))
+
+    async def response_body(self, params: ResponseBodyParams) -> BodyHandle:
+        """Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser. A body the browser no longer holds raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return BodyHandle.model_construct(**_fields(await self._caller.call("response.body", params)))
 
     async def route_abort(self, params: RouteAbortParams) -> RouteAnswered:
         """Answers a route's request by failing it with a network error its page sees, `failed` unless named; nothing reaches the network.
@@ -470,6 +491,13 @@ class CollieOperations:
         """
         return Navigated.model_construct(**_fields(self._caller.call("page.goto", params)))
 
+    def page_on(self, params: PageOnParams) -> PageOnEnded:
+        """Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the page on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call, as closing its `Subscription` does, removes the listener, and once no call listens the event is no longer published; it answers when the page closes or its Run ends. The page's console and uncaught exceptions are read only while a call listens to `console` or `page_error`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageOnEnded.model_construct(**_fields(self._caller.call("page.on", params)))
+
     def page_reload(self, params: PageParams) -> Navigated:
         """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
 
@@ -483,6 +511,20 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RouteEnded.model_construct(**_fields(self._caller.call("page.route", params)))
+
+    def page_wait_for_request_finished(self, params: WaitForRequestFinishedParams) -> PageExchange:
+        """Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past `timeout.wait`, it fails with `deadline_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageExchange.model_construct(**_fields(self._caller.call("page.wait_for_request_finished", params)))
+
+    def response_body(self, params: ResponseBodyParams) -> BodyHandle:
+        """Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser. A body the browser no longer holds raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return BodyHandle.model_construct(**_fields(self._caller.call("response.body", params)))
 
     def route_abort(self, params: RouteAbortParams) -> RouteAnswered:
         """Answers a route's request by failing it with a network error its page sees, `failed` unless named; nothing reaches the network.

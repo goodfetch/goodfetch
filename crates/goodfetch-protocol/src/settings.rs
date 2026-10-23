@@ -639,6 +639,18 @@ pub const TIMEOUT_NAVIGATION: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `timeout.wait` (ADRs 0080 and 0083), an app-state wait's.
+pub const TIMEOUT_WAIT: Setting = Setting {
+    name: "timeout.wait",
+    description: "How long a wait for an application state, such as `page.wait_for_request_finished`, may take before it fails with `deadline_exceeded`: 30 s.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `timeout.first_byte` (ADRs 0080 and 0083).
 pub const TIMEOUT_FIRST_BYTE: Setting = Setting {
     name: "timeout.first_byte",
@@ -691,6 +703,7 @@ pub const ENTRIES: Entries = Entries {
         TIMEOUT_CLOSE,
         TIMEOUT_ACTION,
         TIMEOUT_NAVIGATION,
+        TIMEOUT_WAIT,
         TIMEOUT_FIRST_BYTE,
         ADMISSION_MAX_REQUESTS_PER_MINUTE,
     ],

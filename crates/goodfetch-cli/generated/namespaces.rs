@@ -37,6 +37,11 @@
         about: "Calls the catalog's `locator` operations",
     },
     Namespace {
+        name: "response",
+        spelled: "response",
+        about: "Calls the catalog's `response` operations",
+    },
+    Namespace {
         name: "key_value_store",
         spelled: "key-value-store",
         about: "Calls the catalog's `key_value_store` operations",

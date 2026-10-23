@@ -556,6 +556,13 @@ number = 5
 kind = "setting"
 prefix = "browser."
 
+# Live hiding (#715): ADR 0083 names ADR 0047's `live_hiding`
+# `live_view.hiding`.
+[[area]]
+number = 5
+kind = "setting"
+prefix = "live_view.hiding"
+
 # Area 5, Site access (specs #576 to #579): a Run's pages, their navigations
 # and the Error codes of their browsers (#695, #698).
 [[area]]

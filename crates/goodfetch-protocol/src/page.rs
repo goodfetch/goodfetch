@@ -798,6 +798,26 @@ fn no_resources() -> serde_json::Value {
     serde_json::Value::Array(Vec::new())
 }
 
+/// The values `live_view.hiding` takes (ADR 0047).
+pub const LIVE_HIDING_MODES: &[&str] = &["auto", "off", "always"];
+
+/// `live_view.hiding` (ADR 0047's `live_hiding`, by ADR 0083's name;
+/// spec #577).
+pub const LIVE_VIEW_HIDING: Setting = Setting {
+    name: "live_view.hiding",
+    description: "Whether a Session's pages hide, on the live page, the elements the Filter lists' cosmetic rules match: `auto` (the default) and `always` hide them through a style sheet the site cannot see on Chromium, in every frame and every new document; `off` leaves the live page as served. When the guard finds an action's target hidden, it lifts the rule for the Session and acts. Extracted content has the elements removed whatever this says.",
+    kind: ValueKind::Choice(LIVE_HIDING_MODES),
+    default: auto,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn auto() -> serde_json::Value {
+    serde_json::Value::String("auto".to_owned())
+}
+
 /// A format asked for as `true`: with its default options.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Asked;
@@ -1010,7 +1030,7 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[BROWSER_HEADLESS, BROWSER_BLOCK_RESOURCES],
+    settings: &[BROWSER_HEADLESS, BROWSER_BLOCK_RESOURCES, LIVE_VIEW_HIDING],
     hook_stages: &[],
     shared_type_values: &[],
 };

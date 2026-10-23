@@ -539,7 +539,8 @@ fn a_gate_run_while_another_holds_the_records_fails_before_any_step() {
 #[case::vitest("VITEST_MODE")]
 #[case::playwright("PWTEST_SHARD")]
 #[case::playwright_test("PW_TEST_REPORTER")]
-#[case::nextest("NEXTEST_RETRIES")]
+#[case::nextest_retries("NEXTEST_RETRIES")]
+#[case::nextest_no_tests("NEXTEST_NO_TESTS")]
 fn a_whole_workspace_gate_run_that_narrows_what_runs_is_refused(#[case] variable: &str) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
@@ -590,18 +591,37 @@ pre-merge\tpart\ttest-support/typescript\tVitest, Playwright and pytest rerun ev
 }
 
 /// The host's own settings that select no test, such as where Playwright's
-/// browsers are installed, leave the gate run as it is.
+/// browsers are installed or how many tests nextest runs at once, leave the
+/// gate run as it is, and so does every variable the justfile itself
+/// exports to its recipes, `just pre-merge` among them.
 #[test]
-fn a_whole_workspace_gate_run_keeps_the_hosts_own_settings() {
+fn a_whole_workspace_gate_run_keeps_the_hosts_own_settings_and_the_justfiles() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
+    let justfile =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../justfile")).unwrap();
+    let exported: Vec<(String, String)> = justfile
+        .lines()
+        .filter_map(|line| line.strip_prefix("export "))
+        .filter_map(|rest| rest.split_once(":="))
+        .map(|(name, value)| {
+            (
+                name.trim().to_owned(),
+                value.trim().trim_matches('"').to_owned(),
+            )
+        })
+        .collect();
+    assert!(!exported.is_empty(), "the justfile exports nothing");
+    let mut variables: Vec<(&str, &str)> = exported
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    variables.extend([
+        ("PLAYWRIGHT_BROWSERS_PATH", "/opt/browsers"),
+        ("NEXTEST_TEST_THREADS", "4"),
+    ]);
 
-    let run = pre_merge_with_env(
-        &workspace,
-        &stand_in,
-        &["all"],
-        &[("PLAYWRIGHT_BROWSERS_PATH", "/opt/browsers")],
-    );
+    let run = pre_merge_with_env(&workspace, &stand_in, &["all"], &variables);
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
 }

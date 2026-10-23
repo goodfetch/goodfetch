@@ -89,13 +89,16 @@ trap '[[ ${#pids[@]} -eq 0 ]] || kill "${pids[@]}" 2>/dev/null || true; [[ -z $l
 # run then reuses, so it fails before any step (ADR 0135): the test
 # selection, engine and order seed; pytest's added options and plugins
 # (`PYTEST_ADDOPTS` can add `-k` or `--deselect`); and every variable of
-# insta (`INSTA_FORCE_PASS`, `INSTA_GLOB_FILTER`, `INSTA_UPDATE`…), Vitest,
-# nextest (retries, profiles, filters) and Playwright's test runner
-# (`PWTEST_*`, `PW_TEST_*`). The rest of the environment that changes how
-# tests run is part of the record's host fingerprint.
+# insta (`INSTA_FORCE_PASS`, `INSTA_GLOB_FILTER`, `INSTA_UPDATE`…), Vitest
+# and Playwright's test runner (`PWTEST_*`, `PW_TEST_*`), and of nextest
+# (retries, profiles, `NEXTEST_NO_TESTS`…) but those that change only its
+# output and its parallelism, such as the justfile's own
+# `NEXTEST_DOUBLE_SPAWN`. The rest of the environment that changes how tests
+# run is part of the record's host fingerprint.
 if [[ $all == all ]]; then
   narrowing=$(compgen -e | grep -E \
-    '^(GOODFETCH_TEST_SELECTION|GOODFETCH_TEST_ENGINE|GOODFETCH_ORDER_SEED|PYTEST_ADDOPTS|PYTEST_PLUGINS|PYTEST_DISABLE_PLUGIN_AUTOLOAD|INSTA_.*|VITEST_.*|NEXTEST_.*|PWTEST_.*|PW_TEST_.*)$' || true)
+    '^(GOODFETCH_TEST_SELECTION|GOODFETCH_TEST_ENGINE|GOODFETCH_ORDER_SEED|PYTEST_ADDOPTS|PYTEST_PLUGINS|PYTEST_DISABLE_PLUGIN_AUTOLOAD|INSTA_.*|VITEST_.*|NEXTEST_.*|PWTEST_.*|PW_TEST_.*)$' |
+    grep -vxE 'NEXTEST_(DOUBLE_SPAWN|TEST_THREADS|HIDE_PROGRESS_BAR|SHOW_PROGRESS|STATUS_LEVEL|FINAL_STATUS_LEVEL|FAILURE_OUTPUT|SUCCESS_OUTPUT|VERBOSE)' || true)
   for variable in $narrowing; do
     echo "error: $variable is set, which narrows or changes what \`just pre-merge all\` runs; unset it for a gate run" >&2
   done

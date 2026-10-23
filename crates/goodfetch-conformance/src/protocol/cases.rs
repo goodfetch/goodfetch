@@ -4,11 +4,13 @@
 //! cases are `delivery`'s, a page's formats cases `formats`'s, its route
 //! cases `routes`'s, a Run's Session cases `sessions`', their proxy cases
 //! `proxies`', its events and bodies cases `events`'s, its `page.request`
-//! cases `page_request`'s and the reset gate's cases `reset`'s.
+//! cases `page_request`'s, its dialog cases `dialogs`', its popup cases `popups`' and the reset
+//! gate's cases `reset`'s.
 
 mod clean_up;
 mod consent;
 mod delivery;
+mod dialogs;
 mod events;
 mod fetch_edge;
 mod fetch_tiers;
@@ -17,6 +19,7 @@ mod guard;
 mod launch;
 mod navigation;
 mod page_request;
+mod popups;
 mod proxies;
 mod reset;
 mod routes;
@@ -98,6 +101,10 @@ pub(crate) enum Case {
     PageRequest(page_request::Case),
     /// A fetch tier case, Foxhound's.
     FetchTier(fetch_tiers::Case),
+    /// A dialog case.
+    Dialog(dialogs::Case),
+    /// A popup case.
+    Popup(popups::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -301,7 +308,9 @@ impl Case {
                     .or_else(|| reset::Case::from_id(id).map(Self::Reset))
                     .or_else(|| service_workers::Case::from_id(id).map(Self::ServiceWorker))
                     .or_else(|| page_request::Case::from_id(id).map(Self::PageRequest))
-                    .or_else(|| fetch_tiers::Case::from_id(id).map(Self::FetchTier));
+                    .or_else(|| fetch_tiers::Case::from_id(id).map(Self::FetchTier))
+                    .or_else(|| dialogs::Case::from_id(id).map(Self::Dialog))
+                    .or_else(|| popups::Case::from_id(id).map(Self::Popup));
             }
         })
     }
@@ -347,6 +356,8 @@ impl Case {
             }
             Self::FetchEdge(case) => case.run(connection, site, checks),
             Self::PageRequest(case) => case.run(connection, site, checks),
+            Self::Dialog(case) => case.run(connection, site, checks),
+            Self::Popup(case) => case.run(connection, site, checks),
             Self::MarkdownMatchesTheOracle => {
                 formats::markdown_matches_the_oracle(connection, site, checks)
             }

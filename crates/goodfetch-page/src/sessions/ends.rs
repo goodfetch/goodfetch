@@ -43,6 +43,7 @@ impl Sessions {
                 }
                 self.state.lock().await.pages.remove(page_id);
                 self.events.close(pages);
+                self.dialogs.close(pages);
                 self.interception.close(pages, session);
             }
             // A crashed page releases what is left, its admission and its
@@ -57,6 +58,7 @@ impl Sessions {
                 }
                 drop(state);
                 self.events.close(pages);
+                self.dialogs.close(pages);
                 self.interception.close(pages, session);
             }
             PageEffect::Nothing

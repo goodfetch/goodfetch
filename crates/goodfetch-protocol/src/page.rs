@@ -10,7 +10,9 @@
 //! and the Session's routes, its `session` module a Run's own Sessions,
 //! its `events` module the page's events and its responses' bodies, its
 //! `request` module `page.request`, the request API on a page's Session,
-//! and its `proxy` module a Session's proxy.
+//! its `proxy` module a Session's proxy, its `dialog` module a page's
+//! JavaScript dialogs, and its `tabs` module a Session's pages and popups
+//! and `page.close`.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -39,12 +41,17 @@ use crate::jsonrpc::{ErrorData, RequestId};
 use crate::run::RunId;
 use crate::settings::SettingLimit;
 
+pub mod dialog;
 pub mod events;
 pub mod proxy;
 pub mod request;
 pub mod route;
 pub mod session;
+pub mod tabs;
 
+use self::dialog::{
+    DIALOG_ACCEPT, DIALOG_ALREADY_HANDLED, DIALOG_DISMISS, DIALOG_HANDLE, PAGE_ON_DIALOG,
+};
 use self::events::{
     BODY_UNAVAILABLE, PAGE_CLOSE, PAGE_CONSOLE, PAGE_CRASH, PAGE_DOM_CONTENT_LOADED, PAGE_LOAD,
     PAGE_ON, PAGE_PAGE_ERROR, PAGE_REQUEST, PAGE_REQUEST_FAILED, PAGE_REQUEST_FINISHED,
@@ -56,6 +63,7 @@ use self::route::{
     ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL, ROUTE_HANDLE, SESSION_ROUTE,
 };
 use self::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
+use self::tabs::{PAGE_POPUP, SESSION_ON, SESSION_PAGE, SESSION_PAGES};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -1108,6 +1116,12 @@ pub const ENTRIES: Entries = Entries {
         RESPONSE_BODY,
         PAGE_WAIT_FOR_REQUEST_FINISHED,
         request::PAGE_REQUEST,
+        PAGE_ON_DIALOG,
+        DIALOG_ACCEPT,
+        DIALOG_DISMISS,
+        SESSION_ON,
+        SESSION_PAGES,
+        tabs::PAGE_CLOSE,
     ],
     events: &[
         PAGE_DOWNLOAD,
@@ -1125,8 +1139,10 @@ pub const ENTRIES: Entries = Entries {
         PAGE_DOM_CONTENT_LOADED,
         PAGE_CRASH,
         PAGE_CLOSE,
+        PAGE_POPUP,
+        SESSION_PAGE,
     ],
-    handler_requests: &[ROUTE_HANDLE],
+    handler_requests: &[ROUTE_HANDLE, DIALOG_HANDLE],
     error_codes: &[
         BODY_NOT_FOUND,
         BODY_UNAVAILABLE,
@@ -1142,6 +1158,7 @@ pub const ENTRIES: Entries = Entries {
         PATTERN_UNSUPPORTED,
         PAGE_HANDLER_FAILED,
         ROUTE_ALREADY_HANDLED,
+        DIALOG_ALREADY_HANDLED,
     ],
     plugin_kinds: &[],
     metrics: &[],

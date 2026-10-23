@@ -23,6 +23,9 @@ use crate::handler_page::{Program, RUN, settled, settled_or, with_handler_page};
 /// The navigation test whose page links to `/b`.
 const HISTORY: &str = "2.navigation.test";
 
+/// The access family's host, whose popup page opens a popup.
+const POPUP_HOST: &str = "1.access.test";
+
 /// The fetch edge pages: redirects and refresh stubs.
 const FETCH_EDGE: &str = "fetch-edge.test";
 
@@ -504,6 +507,59 @@ fn a_service_workers_request_carrying_a_navigation_is_admitted_once(#[case] navi
         assert_eq!(
             reloaded,
             vec![("/service-worker/".to_owned(), NavigationKind::ServiceWorker)]
+        );
+    });
+}
+
+/// A popup a handler's page opens takes the page's value (A05-26): its
+/// first navigation is admitted by the opener's gate before it leaves, and
+/// once the lease ended a call on the popup raises `attempt_ended` and
+/// nothing more reaches the site.
+/// Covers: event:page.popup, operation:locator.click, operation:page.goto
+#[test]
+fn a_popup_takes_its_openers_gate_and_lease_check() {
+    let gate = RecordingGate::new();
+    with_handler_page(&gate, Map::new(), async |program| {
+        program.goto(POPUP_HOST, "/popup").await;
+        program.listen("popup").await;
+        let opened = admitted_by(&gate, program, 1, async |program| {
+            let clicked = program
+                .call(
+                    "locator.click",
+                    &json!({ "locator": { "page_id": program.page, "selector": "#open" } }),
+                )
+                .await;
+            assert!(clicked.get("result").is_some(), "{clicked}");
+        })
+        .await;
+        let opener_page = program.page.clone();
+        program
+            .until_event("page.popup", |popup| popup["page_id"] == json!(opener_page))
+            .await;
+        let popup = program.events("page.popup")[0]["popup"]["page_id"].clone();
+
+        gate.end_lease(LeaseEnded::Lost);
+        let after = program
+            .call(
+                "page.goto",
+                &json!({
+                    "page_id": popup,
+                    "url": program.proving_ground.url(POPUP_HOST, "/popup/after-lease"),
+                }),
+            )
+            .await;
+
+        assert_eq!(
+            (
+                opened,
+                after["error"]["data"]["code"].clone(),
+                program.requested(POPUP_HOST, "/popup/after-lease"),
+            ),
+            (
+                vec![("/popup/opened".to_owned(), NavigationKind::Document)],
+                json!("attempt_ended"),
+                false,
+            )
         );
     });
 }

@@ -34,7 +34,6 @@
   window.addEventListener("beforeunload", (event) => {
     if (guarded) {
       event.preventDefault();
-      event.returnValue = "";
     }
   });
 

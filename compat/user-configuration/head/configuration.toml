@@ -100,6 +100,7 @@ echo_repeats = 4
 resolve = { "example.test" = ["127.0.0.1"] }
 
 [settings.consent]
+handling = true
 domains = ["example"]
 
 [settings.wall]

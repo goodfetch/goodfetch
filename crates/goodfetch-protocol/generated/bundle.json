@@ -10895,6 +10895,10 @@
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "handling": {
+                    "description": "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -12262,6 +12266,10 @@
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "handling": {
+                    "description": "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -13645,6 +13653,10 @@
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "handling": {
+                    "description": "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"

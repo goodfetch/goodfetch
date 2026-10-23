@@ -52,6 +52,7 @@ Decided in [Decoding a response the same way on every tier](https://github.com/g
 - **As Chrome decodes them:**
   - the codings `Content-Encoding` lists are decoded in reverse order (RFC 9110 §8.4): gzip, deflate (zlib-wrapped or raw), br and zstd, up to 10;
   - `identity` or an unknown coding passes the body through as it is. That is Chrome's rule, and it covers the common misconfiguration `Content-Encoding: utf-8` on a plain body.
+    > Note (agent decision, pending owner review), 2026-10-23, [#759](https://github.com/goodfetch/goodfetch/issues/759): as Chrome's `URLRequestHttpJob` builds its filters, a list naming `identity` or an unknown coding beside known ones, such as `gzip, utf-8`, passes the whole body through undecoded, and bytes after a gzip or deflate stream's end are ignored, as Chrome's gzip filter ignores them. The `http` tier asks for `gzip, deflate, br, zstd`, Chrome's `Accept-Encoding`.
 
   Every tier then holds the same bytes, so the comparison sees one result.
 - **A listed coding that fails to decode** fails as Chrome fails it, on every tier: ADR 0085's `navigation_failed`, carrying the network error `net::ERR_CONTENT_DECODING_FAILED`. It is retryable, so a crawl retries it under `crawl.retry.max` (ADR 0093). A body labelled gzip that is plain is therefore a failed request, never a page of garbage.

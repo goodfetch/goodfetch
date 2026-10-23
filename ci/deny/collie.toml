@@ -126,11 +126,19 @@ reason = "test-only executable (ADR 0062)"
 
 # xtask codegen: begin, Foxhound's crates, which Collie's executable never ships (ADR 0087). Never edit by hand; run `xtask codegen`.
 [[bans.deny]]
+crate = "goodfetch-crawl"
+reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
 crate = "goodfetch-foxhound"
 reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
 crate = "goodfetch-frontier"
+reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
+crate = "goodfetch-session-pool"
 reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]

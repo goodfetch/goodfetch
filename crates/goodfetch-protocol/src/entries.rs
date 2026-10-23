@@ -2,15 +2,44 @@
 //! catalog, and what each Product's catalog holds, by the Product mark of
 //! where each entry is defined (ADRs 0095 and 0099).
 
-use crate::catalog::{Entries, Operation, Product};
-use crate::{connection, engine, foxhound, sample};
+use crate::catalog::{Entries, Operation, Product, SharedType};
+use crate::{
+    audit, block, browser_cache, checkpoint, connection, console, daemon, dns, engine, events,
+    executables, foxhound, key_value_store, log, page, politeness, run, sample, secrets, settings,
+    usage, versions,
+};
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 4] = [
+pub const MODULES: [&Entries; 29] = [
     &connection::ENTRIES,
+    &log::ENTRIES,
+    &console::ENTRIES,
+    &daemon::ENTRIES,
+    &browser_cache::ENTRIES,
+    &dns::ENTRIES,
     &engine::ENTRIES,
+    &events::ENTRIES,
+    &page::ENTRIES,
+    &executables::ENTRIES,
+    &run::ENTRIES,
+    &checkpoint::ENTRIES,
+    &key_value_store::ENTRIES,
+    &audit::ENTRIES,
+    &secrets::ENTRIES,
     &sample::ENTRIES,
+    &settings::ENTRIES,
+    &usage::ENTRIES,
+    &versions::ENTRIES,
+    &politeness::ENTRIES,
+    &block::ENTRIES,
     &foxhound::ENTRIES,
+    &foxhound::crawl::ENTRIES,
+    &foxhound::frontier::ENTRIES,
+    &foxhound::outcomes::ENTRIES,
+    &foxhound::session_pool::ENTRIES,
+    &foxhound::settings::ENTRIES,
+    &foxhound::block::ENTRIES,
+    &foxhound::usage::ENTRIES,
 ];
 
 /// The operations of `product`'s catalog: Collie's own for Collie, every
@@ -20,6 +49,19 @@ pub fn operations_of(product: Product) -> impl Iterator<Item = &'static Operatio
         .into_iter()
         .filter(move |entries| product.contains(Product::of_module(entries.defined_in)))
         .flat_map(|entries| entries.operations)
+}
+
+/// The Product that carries the value `name` of `shared_type`, such as the
+/// Usage kind `requests`; none for a value neither Product knows, which a
+/// newer engine wrote.
+pub fn product_of_value(shared_type: SharedType, name: &str) -> Option<Product> {
+    MODULES.into_iter().find_map(|entries| {
+        entries
+            .shared_type_values
+            .iter()
+            .any(|value| value.shared_type == shared_type && value.name == name)
+            .then(|| Product::of_module(entries.defined_in))
+    })
 }
 
 #[cfg(test)]
@@ -32,7 +74,88 @@ mod tests {
         let collie: Vec<&str> = operations_of(Product::Collie).map(|op| op.name).collect();
         let foxhound: Vec<&str> = operations_of(Product::Foxhound).map(|op| op.name).collect();
 
-        assert_eq!(collie, ["engine.info", "sample.echo"]);
-        assert_eq!(foxhound, ["engine.info", "sample.echo", "sample.crawl"]);
+        assert_eq!(
+            collie,
+            [
+                "connection.set_log_level",
+                "daemon.status",
+                "daemon.stop",
+                "engine.info",
+                "events.subscribe",
+                "run.new_page",
+                "page.goto",
+                "page.reload",
+                "page.go_back",
+                "page.go_forward",
+                "page.formats",
+                "page.body",
+                "locator.click",
+                "locator.fill",
+                "locator.press",
+                "run.start",
+                "run.finish",
+                "run.abort",
+                "run.set_progress_message",
+                "run.checkpoint",
+                "run.pause",
+                "run.migrate",
+                "run.resume",
+                "key_value_store.get",
+                "key_value_store.set",
+                "key_value_store.delete",
+                "key_value_store.keys",
+                "audit.verify",
+                "sample.echo",
+                "config.explain",
+                "usage.list",
+                "usage.set",
+                "usage.raise"
+            ]
+        );
+        assert_eq!(
+            foxhound,
+            [
+                "connection.set_log_level",
+                "daemon.status",
+                "daemon.stop",
+                "engine.info",
+                "events.subscribe",
+                "run.new_page",
+                "page.goto",
+                "page.reload",
+                "page.go_back",
+                "page.go_forward",
+                "page.formats",
+                "page.body",
+                "locator.click",
+                "locator.fill",
+                "locator.press",
+                "run.start",
+                "run.finish",
+                "run.abort",
+                "run.set_progress_message",
+                "run.checkpoint",
+                "run.pause",
+                "run.migrate",
+                "run.resume",
+                "key_value_store.get",
+                "key_value_store.set",
+                "key_value_store.delete",
+                "key_value_store.keys",
+                "audit.verify",
+                "sample.echo",
+                "config.explain",
+                "usage.list",
+                "usage.set",
+                "usage.raise",
+                "sample.crawl",
+                "crawl.start",
+                "crawl.serve",
+                "run.seeds",
+                "crawl_request.enqueue",
+                "run.outcomes",
+                "run.failed_requests"
+            ]
+        );
     }
 }

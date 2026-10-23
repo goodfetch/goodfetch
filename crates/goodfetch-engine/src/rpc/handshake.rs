@@ -1,14 +1,18 @@
 //! The answer to a Client's `hello` (ADRs 0024, 0066 and 0095): the Product
 //! check first, since its fix makes the version moot, then ADR 0030's
 //! default rule on the protocol's `major.minor`. Product versions are
-//! reported, never compared. A Browser host needs no Product.
+//! reported, never compared. A Browser host needs no Product, and it and
+//! the engine settle on the lower of their minors, only another major
+//! refused (ADR 0096). A refusal by Product or version is kept apart, so a
+//! Daemon can mark the one it hands over on (ADR 0098).
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::connection::EngineInstance;
 use goodfetch_protocol::connection::{
-    HelloParams, HelloResult, PROTOCOL_VERSION_UNSUPPORTED, ProtocolVersionUnsupportedDetails,
-    Surface,
+    HelloParams, HelloResult, NOT_IN_PRODUCT, NotInProductDetails, PROTOCOL_VERSION_UNSUPPORTED,
+    ProtocolVersionUnsupportedDetails, Surface,
 };
-use goodfetch_protocol::formats::{self, Compatibility};
+use goodfetch_protocol::formats::{self, Compatibility, Rule};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 
 use crate::composition::CallError;
@@ -24,58 +28,120 @@ pub(crate) struct Accepted {
     pub(crate) behind_gateway: bool,
 }
 
-/// Accepts `hello`, or refuses it with the Error code its reply carries.
-pub(crate) fn answer(identity: &Identity, hello: &HelloParams) -> Result<Accepted, CallError> {
+/// A `hello` the engine refused.
+pub(crate) enum Refused {
+    /// Its params were not a Client's `hello`.
+    Invalid(CallError),
+    /// The Client needs a Product this engine's does not contain.
+    NotInProduct(String, NotInProductDetails),
+    /// The Client speaks a protocol version this engine does not accept.
+    Version(String, ProtocolVersionUnsupportedDetails),
+}
+
+impl Refused {
+    /// Whether it refuses by Product or by version, on which a Daemon that
+    /// is not its major's pick may hand over (ADR 0098).
+    pub(crate) fn by_product_or_version(&self) -> bool {
+        !matches!(self, Self::Invalid(_))
+    }
+
+    /// The reply's error, marked as a handover when `handover`.
+    pub(crate) fn into_error(self, handover: bool) -> CallError {
+        match self {
+            Self::Invalid(error) => error,
+            Self::NotInProduct(message, mut details) => {
+                details.handover = handover;
+                CallError::new(&NOT_IN_PRODUCT, message, &details)
+            }
+            Self::Version(message, mut details) => {
+                details.handover = handover;
+                CallError::new(&PROTOCOL_VERSION_UNSUPPORTED, message, &details)
+            }
+        }
+    }
+}
+
+/// Accepts `hello`, naming the engine as `instance`, or refuses it.
+pub(crate) fn answer(
+    identity: &Identity,
+    instance: &EngineInstance,
+    hello: &HelloParams,
+) -> Result<Accepted, Refused> {
     let behind_gateway = hello.surface == Surface::Cloud;
     if hello.surface != Surface::BrowserHost {
         let Some(needs) = hello.needs else {
-            return Err(CallError::protocol(
+            return Err(Refused::Invalid(CallError::protocol(
                 ProtocolFailure::InvalidParams,
                 "a Client's `hello` names the Product it needs in `needs`",
-            ));
+            )));
         };
         if !identity.product.contains(needs) {
-            return Err(super::not_in_product(
-                identity,
-                Requested::Hello,
-                needs,
-                behind_gateway,
-            ));
+            let (message, details) =
+                identity.not_in_product(Requested::Hello, needs, behind_gateway);
+            return Err(Refused::NotInProduct(message, details));
         }
     }
     let client = hello.protocol_version;
-    let hint = match formats::PROTOCOL
-        .rule
-        .compatibility(PROTOCOL_VERSION, client)
-    {
+    // During `0.y` previews each `0.y` minor counts as a major (ADR 0030),
+    // so a preview engine accepts its own version alone.
+    let preview = PROTOCOL_VERSION.major == 0;
+    let line = if preview {
+        PROTOCOL_VERSION.to_string()
+    } else {
+        format!("{}.x", PROTOCOL_VERSION.major)
+    };
+    let (rule, sender, accepts, matching) = if hello.surface == Surface::BrowserHost {
+        (
+            Rule::LowerMinor,
+            "Browser host",
+            if preview {
+                line.clone()
+            } else {
+                format!("any {line}")
+            },
+            "of the engine's major",
+        )
+    } else {
+        (
+            formats::PROTOCOL.rule,
+            "Client",
+            if preview {
+                line.clone()
+            } else {
+                format!("{}.0 to {PROTOCOL_VERSION}", PROTOCOL_VERSION.major)
+            },
+            "of the engine's own version",
+        )
+    };
+    let fix = match rule.compatibility(PROTOCOL_VERSION, client) {
         Compatibility::Compatible => {
             return Ok(Accepted {
                 result: HelloResult {
-                    protocol_version: PROTOCOL_VERSION,
+                    protocol_version: PROTOCOL_VERSION.min(client),
                     product: identity.product,
                     product_version: identity.product_version.clone(),
+                    engine_instance: instance.clone(),
+                    private_endpoint: None,
                 },
                 behind_gateway,
             });
         }
         Compatibility::NewerMinor | Compatibility::NewerMajor => format!(
-            "Upgrade the engine to a version that speaks protocol {client}, or use a Client of the engine's own version."
+            "Upgrade the engine to a version that speaks protocol {client}, or use a {sender} {matching}."
         ),
-        Compatibility::OlderMajor => format!(
-            "Upgrade the Client to one that speaks protocol {}.x.",
-            PROTOCOL_VERSION.major
-        ),
+        Compatibility::OlderMajor => {
+            format!("Upgrade the {sender} to one that speaks protocol {line}.")
+        }
     };
-    Err(CallError::new(
-        &PROTOCOL_VERSION_UNSUPPORTED,
+    Err(Refused::Version(
         format!(
-            "This Client speaks protocol {client}, and this engine speaks {PROTOCOL_VERSION}: it accepts {}.0 to {PROTOCOL_VERSION}.",
-            PROTOCOL_VERSION.major
+            "This {sender} speaks protocol {client}, and this engine speaks {PROTOCOL_VERSION}: it accepts {accepts}."
         ),
-        &ProtocolVersionUnsupportedDetails {
+        ProtocolVersionUnsupportedDetails {
             engine_protocol_version: PROTOCOL_VERSION,
             client_protocol_version: client,
-            hint,
+            fix,
+            handover: false,
         },
     ))
 }

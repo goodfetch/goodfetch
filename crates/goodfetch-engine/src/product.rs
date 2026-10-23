@@ -113,6 +113,7 @@ impl Identity {
                 Requested::Name(name) => Some(name.to_owned()),
             },
             fix,
+            handover: false,
         };
         (message, details)
     }

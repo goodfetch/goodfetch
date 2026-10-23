@@ -6,23 +6,37 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./case-log": "./src/case-log.ts",
+    "./conformance": "./src/conformance.ts",
+    "./features": "./src/features.ts",
+    "./journey": "./src/journey.ts",
     "./playwright": "./src/playwright.ts",
+    "./protocol-adapter": "./src/protocol-adapter.ts",
+    "./result-document-reporter": "./src/result-document-reporter.ts",
+    "./screens": "./src/screens.ts",
     "./screenshot": "./src/screenshot.ts",
+    "./visual-config": "./src/visual-config.ts",
     "./vitest-browser": "./src/vitest-browser.ts",
     "./vitest-browser/setup": "./src/vitest-browser-setup.ts",
+    "./vitest-browser/text-spacing": "./src/vitest-browser-text-spacing.ts",
     "./vitest-browser/commands": "./src/vitest-browser-commands.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@goodfetch/collie-client": "workspace:*",
+    "@guidepup/virtual-screen-reader": "0.33.0",
     "ajv": "8.20.0",
-    "ajv-formats": "3.0.1"
+    "ajv-formats": "3.0.1",
+    "oidc-provider": "9.12.2",
+    "smol-toml": "1.9.0"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.14.0",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
+    "@types/oidc-provider": "9.12.1",
     "@types/ws": "8.18.2",
     "@vitest/browser-playwright": "catalog:",
     "typescript": "catalog:",

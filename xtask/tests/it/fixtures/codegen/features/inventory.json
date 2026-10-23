@@ -43,6 +43,17 @@
       ]
     },
     {
+      "id": "format:sample-store",
+      "kind": "format",
+      "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:sample.crawl",
       "kind": "operation",
       "area": 1,

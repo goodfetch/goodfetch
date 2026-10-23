@@ -12,13 +12,20 @@
 //! document and the case log's entry (ADRs 0063 and 0069). What later
 //! decisions put in the bundle
 //! joins here once its types exist, through the same `xtask codegen`: the
-//! format registry (ADR 0066), the `--json` output types and the exit-code
-//! table (ADR 0069), and the Feature inventory schemas (ADR 0072). The
+//! Feature inventory schemas (ADR 0072). The catalog's `exit_codes` is ADR
+//! 0069's exit-code table by exit code, each row `{name, product, code,
+//! description}`, whose names are the `exit:` Features.
+//! The bundle's `outputs` maps each hand-written command's path, such as
+//! `daemon.start`, to the type of its `--json` output (ADR 0069); a command
+//! generated from an operation prints the operation's `result`, and every
+//! command that fails prints the bundle's `command_failed`. The
 //! format registry is the bundle's `formats`, which `xtask compat` reads: an
-//! array of `{name, version, storage, rule, schema}`, where `storage` is
-//! `json`, `sqlite` or `transcript`. The bundle's `connection` holds the
+//! array of `{name, version, storage, rule, hello_from, schema}`, where
+//! `storage` is `json`, `sqlite`, `toml` or `transcript`, and `hello_from`
+//! lists who opens a protocol with `hello`. The bundle's `connection` holds the
 //! types of `hello` and `$/cancel`, which open and govern every Connection
-//! outside the catalog; each Error code's entry carries its row of the
+//! outside the catalog, and those of the streaming calls' notifications,
+//! the Client's `$/credit` and the engine's `$/events` and `$/chunk`; each Error code's entry carries its row of the
 //! exit-code table, `exit_code`. A new catalog section
 //! needs no change in `xtask`: each Product's projection, the names only
 //! Foxhound carries and the containment check read every section.
@@ -27,17 +34,31 @@ use schemars::SchemaGenerator;
 use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
+use crate::block::BlockCause;
+use crate::browser_cache::{BrowsersCleanOutput, BrowsersInstallOutput};
 use crate::case_log::CaseLogEntry;
 use crate::catalog::{
-    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Metric, Operation,
-    PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
+    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HandlerRequest, HookStage,
+    Metric, Operation, PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
 };
+use crate::cli::{CommandFailed, ExitCodeRow, exit_code_table};
 use crate::connection::{CancelParams, HelloParams, HelloResult};
+use crate::daemon::{
+    DaemonInstallOutput, DaemonRotateTokenOutput, DaemonStartOutput, DaemonStatusOutput,
+    DaemonStopOutput, DaemonUninstallOutput,
+};
 use crate::entries::MODULES;
+use crate::events::{CreditParams, EventBatch};
 use crate::formats::FORMATS;
 use crate::journey::{Journey, JourneyCatalog};
+use crate::key_value_store::KeyValueStoreKey;
+use crate::log::LogEvent;
+use crate::page::Chunk;
 use crate::releases::ReleasesFile;
 use crate::result_document::ResultDocument;
+use crate::run::RunsReindexOutput;
+use crate::settings::SettingsExplanation;
+use crate::versions::UpgradeFilesOutput;
 
 /// The bundle's `files` key of every Journey file, `journeys/J-NNN.toml`.
 pub const JOURNEY_FILES: &str = "journeys/J-*.toml";
@@ -68,6 +89,7 @@ pub fn emit() -> Emitted {
                 "version": format.version.to_string(),
                 "storage": format.storage.as_str(),
                 "rule": format.rule.as_str(),
+                "hello_from": format.hello_from.iter().map(|from| from.as_str()).collect::<Vec<_>>(),
                 "schema": (format.schema)(&mut generator),
             })
         })
@@ -78,7 +100,28 @@ pub fn emit() -> Emitted {
             "result": generator.subschema_for::<HelloResult>(),
         },
         "cancel": { "params": generator.subschema_for::<CancelParams>() },
+        "credit": { "params": generator.subschema_for::<CreditParams>() },
+        "events": { "params": generator.subschema_for::<EventBatch>() },
+        "chunk": { "params": generator.subschema_for::<Chunk>() },
+        "log": { "params": generator.subschema_for::<LogEvent>() },
+        "key": { "params": generator.subschema_for::<KeyValueStoreKey>() },
     });
+    let outputs = json!({
+        "browsers.clean": generator.subschema_for::<BrowsersCleanOutput>(),
+        "browsers.install": generator.subschema_for::<BrowsersInstallOutput>(),
+        "config.explain": generator.subschema_for::<SettingsExplanation>(),
+        "daemon.install": generator.subschema_for::<DaemonInstallOutput>(),
+        "daemon.restart": generator.subschema_for::<DaemonStartOutput>(),
+        "daemon.rotate-token": generator.subschema_for::<DaemonRotateTokenOutput>(),
+        "daemon.start": generator.subschema_for::<DaemonStartOutput>(),
+        "daemon.status": generator.subschema_for::<DaemonStatusOutput>(),
+        "daemon.stop": generator.subschema_for::<DaemonStopOutput>(),
+        "daemon.uninstall": generator.subschema_for::<DaemonUninstallOutput>(),
+        "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
+        "upgrade-files": generator.subschema_for::<UpgradeFilesOutput>(),
+    });
+    let command_failed = generator.subschema_for::<CommandFailed>();
+    let shared_types = json!({ "block_cause": generator.subschema_for::<BlockCause>() });
     let result_document = generator.subschema_for::<ResultDocument>();
     let case_log_entry = generator.subschema_for::<CaseLogEntry>();
     let definitions = generator.take_definitions(true);
@@ -94,6 +137,9 @@ pub fn emit() -> Emitted {
             },
             "formats": formats,
             "connection": connection,
+            "outputs": outputs,
+            "command_failed": command_failed,
+            "shared_types": shared_types,
             "documents": {
                 "result_document": result_document,
                 "case_log_entry": case_log_entry,
@@ -108,6 +154,7 @@ pub fn emit() -> Emitted {
 struct Sections {
     operations: Vec<Value>,
     events: Vec<Value>,
+    handler_requests: Vec<Value>,
     error_codes: Vec<Value>,
     plugin_kinds: Vec<Value>,
     metrics: Vec<Value>,
@@ -130,6 +177,12 @@ impl Sections {
                 .events
                 .iter()
                 .map(|event| event_entry(product, event, generator)),
+        );
+        self.handler_requests.extend(
+            entries
+                .handler_requests
+                .iter()
+                .map(|request| handler_request_entry(product, request, generator)),
         );
         self.error_codes.extend(
             entries
@@ -174,8 +227,10 @@ impl Sections {
             "protocol_version": PROTOCOL_VERSION.to_string(),
             "operations": sorted(self.operations),
             "events": sorted(self.events),
+            "handler_requests": sorted(self.handler_requests),
             "error_groups": ErrorGroup::ALL.iter().map(|group| error_group_entry(*group)).collect::<Vec<_>>(),
             "error_codes": sorted(self.error_codes),
+            "exit_codes": exit_code_table().iter().map(exit_code_entry).collect::<Vec<_>>(),
             "plugin_kinds": sorted(self.plugin_kinds),
             "metrics": sorted(self.metrics),
             "settings": sorted(self.settings),
@@ -208,6 +263,8 @@ fn operation_entry(
         "product": product.as_str(),
         "description": operation.description,
         "class": operation.class.as_str(),
+        "kind": operation.kind.as_str(),
+        "reach": operation.reach.as_str(),
         "params": (operation.params)(generator),
         "result": (operation.result)(generator),
         "events": operation.events.iter().map(|event| event.name).collect::<Vec<_>>(),
@@ -223,10 +280,28 @@ fn event_entry(product: Product, event: &Event, generator: &mut SchemaGenerator)
         "name": event.name,
         "product": product.as_str(),
         "description": event.description,
+        "class": event.class.as_str(),
         "payload": (event.payload)(generator),
         "stability": event.stability.as_str(),
         "deprecated": deprecation(event.deprecated),
         "arrived_in": event.arrived_in.to_string(),
+    })
+}
+
+fn handler_request_entry(
+    product: Product,
+    request: &HandlerRequest,
+    generator: &mut SchemaGenerator,
+) -> Value {
+    json!({
+        "name": request.name,
+        "product": product.as_str(),
+        "description": request.description,
+        "params": (request.params)(generator),
+        "result": (request.result)(generator),
+        "stability": request.stability.as_str(),
+        "deprecated": deprecation(request.deprecated),
+        "arrived_in": request.arrived_in.to_string(),
     })
 }
 
@@ -249,6 +324,17 @@ fn error_code_entry(product: Product, code: &ErrorCodeDefinition) -> Value {
         "retryable": code.retryable,
         "exit_code": code.exit_code,
         "arrived_in": code.arrived_in.to_string(),
+    })
+}
+
+/// A row of ADR 0069's exit-code table, which both Products' executables
+/// share (ADR 0090).
+fn exit_code_entry(row: &ExitCodeRow) -> Value {
+    json!({
+        "name": row.name,
+        "product": Product::Collie.as_str(),
+        "code": row.code,
+        "description": row.description,
     })
 }
 
@@ -291,11 +377,26 @@ fn metric_entry(product: Product, metric: &Metric) -> Value {
     })
 }
 
+/// A setting's entry in the settings schema: its value's schema, default and
+/// authority, and the Products that honour it, read from its mark: both for
+/// Collie's, which Foxhound contains, only Foxhound for Foxhound's (ADRs
+/// 0087 and 0095).
 fn setting_entry(product: Product, setting: &Setting) -> Value {
+    let products: Vec<&str> = [Product::Collie, Product::Foxhound]
+        .into_iter()
+        .filter(|honours| honours.contains(product))
+        .map(Product::as_str)
+        .collect();
     json!({
         "name": setting.name,
         "product": product.as_str(),
+        "products": products,
         "description": setting.description,
+        "value": setting.kind.schema(),
+        "default": (setting.default)(),
+        "clearable": setting.clearable,
+        "authority": setting.authority.as_str(),
+        "weakens": setting.weakens.is_some(),
         "arrived_in": setting.arrived_in.to_string(),
     })
 }

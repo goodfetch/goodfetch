@@ -4,7 +4,7 @@
 
 use serde_json::Value;
 
-use super::entry::Entry;
+use super::entry::{Carriers, Entry};
 use super::files::{Kind, Status};
 
 pub(super) fn entries(bundle: &Value) -> Vec<Entry> {
@@ -19,7 +19,7 @@ pub(super) fn entries(bundle: &Value) -> Vec<Entry> {
             area: None,
             milestone: None,
             status: Status::Active,
-            section: None,
+            carriers: Carriers::Both,
         })
         .collect()
 }

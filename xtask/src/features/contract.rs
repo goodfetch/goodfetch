@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 
-use super::entry::Entry;
+use super::entry::{Carriers, Entry};
 use super::files::{Kind, Status};
 
 /// Each kind, with the catalog section that defines its Features.
@@ -32,7 +32,7 @@ pub(super) fn entries(catalog: &Value) -> Vec<Entry> {
                     area: None,
                     milestone: None,
                     status: Status::Active,
-                    section: Some(section),
+                    carriers: Carriers::Table(section),
                 })
         })
         .collect()

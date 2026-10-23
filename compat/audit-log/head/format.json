@@ -1,0 +1,243 @@
+{
+  "name": "audit-log",
+  "schema": {
+    "$defs": {
+      "Actor": {
+        "description": "Who an entry's event was done by.",
+        "oneOf": [
+          {
+            "description": "A person, by the name their account or OS user goes by.",
+            "properties": {
+              "kind": {
+                "const": "person",
+                "type": "string"
+              },
+              "name": {
+                "arrived_in": "0.1",
+                "description": "Their name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "A named token (area 12), by its name.",
+            "properties": {
+              "kind": {
+                "const": "named_token",
+                "type": "string"
+              },
+              "name": {
+                "arrived_in": "0.1",
+                "description": "Its name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "A Client, by the surface its `hello` named.",
+            "properties": {
+              "kind": {
+                "const": "client_surface",
+                "type": "string"
+              },
+              "surface": {
+                "$ref": "#/$defs/Surface",
+                "arrived_in": "0.1",
+                "description": "Its surface."
+              }
+            },
+            "required": [
+              "kind",
+              "surface"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The engine itself.",
+            "properties": {
+              "kind": {
+                "const": "engine",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "AuditEntry": {
+        "description": "One entry of the Audit log, as its hash covers it.",
+        "properties": {
+          "actor": {
+            "$ref": "#/$defs/Actor",
+            "arrived_in": "0.1",
+            "description": "Who did what it records."
+          },
+          "details": {
+            "arrived_in": "0.1",
+            "description": "What its kind records, such as a Secret reference and the domain it\nwas sent to, never a secret's value."
+          },
+          "kind": {
+            "arrived_in": "0.1",
+            "description": "Its kind, a value of the shared type `audit_kind`.",
+            "type": "string"
+          },
+          "layer": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SettingsLayer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "The settings layer its event came from, such as an Operator policy\nthat switched a control off; none where no layer applies."
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RunId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "The Run it happened in; none outside a Run."
+          },
+          "sequence": {
+            "arrived_in": "0.1",
+            "description": "Its place in the chain, from 1.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "time": {
+            "$ref": "#/$defs/PointInTime",
+            "arrived_in": "0.1",
+            "description": "When it was recorded."
+          }
+        },
+        "required": [
+          "sequence",
+          "time",
+          "kind",
+          "actor",
+          "details"
+        ],
+        "type": "object"
+      },
+      "PointInTime": {
+        "description": "A point in time in UTC, as RFC 3339.",
+        "format": "date-time",
+        "type": "string"
+      },
+      "RunId": {
+        "description": "A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
+        "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
+        "type": "string"
+      },
+      "SettingsLayer": {
+        "description": "The layers settings resolve through, lowest first (ADRs 0028 and 0083).",
+        "oneOf": [
+          {
+            "const": "default",
+            "description": "The built-in default.",
+            "type": "string"
+          },
+          {
+            "const": "operator_policy",
+            "description": "An Operator policy.",
+            "type": "string"
+          },
+          {
+            "const": "user_configuration",
+            "description": "User configuration.",
+            "type": "string"
+          },
+          {
+            "const": "project_configuration",
+            "description": "Project configuration.",
+            "type": "string"
+          },
+          {
+            "const": "recipe",
+            "description": "A Recipe.",
+            "type": "string"
+          },
+          {
+            "const": "run",
+            "description": "The run: a program's settings, a call's argument, a CLI flag or an\nIntegration's form.",
+            "type": "string"
+          }
+        ]
+      },
+      "Surface": {
+        "description": "The surface a `hello` comes from (ADR 0024).",
+        "oneOf": [
+          {
+            "const": "sdk_typescript",
+            "description": "The TypeScript SDK.",
+            "type": "string"
+          },
+          {
+            "const": "sdk_python",
+            "description": "The Python SDK.",
+            "type": "string"
+          },
+          {
+            "const": "rust",
+            "description": "A Rust program, through a Product's crate.",
+            "type": "string"
+          },
+          {
+            "const": "cli",
+            "description": "The CLI, as a Client of its own Attached engine or of a Daemon.",
+            "type": "string"
+          },
+          {
+            "const": "mcp",
+            "description": "The MCP server, as a Client of a Daemon.",
+            "type": "string"
+          },
+          {
+            "const": "console",
+            "description": "The Console.",
+            "type": "string"
+          },
+          {
+            "const": "cloud",
+            "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).",
+            "type": "string"
+          },
+          {
+            "const": "browser_host",
+            "description": "A Browser host, which is never a Client and needs no Product\n(ADR 0095).",
+            "type": "string"
+          },
+          {
+            "const": "worker",
+            "description": "A Script sandbox worker.",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "$ref": "#/$defs/AuditEntry"
+  },
+  "storage": "sqlite",
+  "version": "0.1"
+}

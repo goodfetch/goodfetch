@@ -1,0 +1,54 @@
+# A JSON Schema from outside with a reference to a file, a URL or a private
+# address is refused with `schema_ref_not_allowed` before it is used (ADR
+# 0067): no reference is resolved, so no file is read and no connection is
+# made. `SchemaRef::schema()` gives the schema a runner hands to the layer.
+# A layer's runner pairs these with its own positive control: a reference
+# into the schema's own `$defs` is resolved.
+
+[[cases]]
+name = "file_url"
+input = { uses = ["extraction_schema", "structured_output", "site_tool_input", "dataset_schema"], keyword = "$ref", reference = "file:///etc/passwd" }
+expected = { code = "schema_ref_not_allowed" }
+served_by = "program_input"
+
+[[cases]]
+name = "absolute_file_path"
+input = { uses = ["extraction_schema", "structured_output", "site_tool_input", "dataset_schema"], keyword = "$ref", reference = "/etc/passwd" }
+expected = { code = "schema_ref_not_allowed" }
+served_by = "program_input"
+
+[[cases]]
+name = "relative_file"
+input = { uses = ["extraction_schema", "structured_output", "site_tool_input", "dataset_schema"], keyword = "$ref", reference = "../record.schema.json" }
+expected = { code = "schema_ref_not_allowed" }
+served_by = "program_input"
+
+[[cases]]
+name = "https_url"
+input = { uses = ["extraction_schema", "structured_output", "site_tool_input", "dataset_schema"], keyword = "$ref", reference = "https://schemas.test/record.schema.json" }
+expected = { code = "schema_ref_not_allowed" }
+served_by = "program_input"
+
+[[cases]]
+name = "url_with_a_fragment"
+input = { uses = ["extraction_schema", "structured_output", "site_tool_input", "dataset_schema"], keyword = "$ref", reference = "https://schemas.test/record.schema.json#/$defs/price" }
+expected = { code = "schema_ref_not_allowed" }
+served_by = "program_input"
+
+[[cases]]
+name = "cloud_metadata_address"
+input = { uses = ["extraction_schema", "structured_output", "site_tool_input", "dataset_schema"], keyword = "$ref", reference = "http://169.254.169.254/latest/meta-data/" }
+expected = { code = "schema_ref_not_allowed" }
+served_by = "program_input"
+
+[[cases]]
+name = "loopback_address"
+input = { uses = ["extraction_schema", "structured_output", "site_tool_input", "dataset_schema"], keyword = "$ref", reference = "http://127.0.0.1:9/schema.json" }
+expected = { code = "schema_ref_not_allowed" }
+served_by = "program_input"
+
+[[cases]]
+name = "dynamic_ref_to_a_url"
+input = { uses = ["extraction_schema", "structured_output", "site_tool_input", "dataset_schema"], keyword = "$dynamicRef", reference = "https://schemas.test/record.schema.json#meta" }
+expected = { code = "schema_ref_not_allowed" }
+served_by = "program_input"

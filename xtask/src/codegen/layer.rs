@@ -3,7 +3,7 @@
 //! from Collie's client package, read once from the projections' JSON so
 //! each language's generator works on parsed values.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context as _, Result};
 use goodfetch_protocol::catalog::Product;
@@ -66,6 +66,17 @@ pub(super) struct Operation {
     pub(super) cancellable: bool,
     pub(super) stability: Stability,
     pub(super) deprecated: Option<Deprecation>,
+    /// Which surfaces offer it; absent from a catalog that marks none.
+    #[serde(default)]
+    reach: Option<String>,
+}
+
+impl Operation {
+    /// Whether an SDK offers it: not a person's answer, which only the
+    /// Console and the CLI's interactive prompt give (ADR 0041).
+    fn offered(&self) -> bool {
+        self.reach.as_deref() != Some("person_only")
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -82,6 +93,8 @@ pub(super) struct Event {
 pub(super) struct ErrorGroup {
     pub(super) name: String,
     pub(super) description: String,
+    /// The JSON-RPC error code the wire carries for the group's codes.
+    pub(super) json_rpc_class: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,15 +123,68 @@ pub(super) struct PluginKind {
     pub(super) stability: Stability,
 }
 
+#[derive(Debug, Deserialize)]
+struct SharedTypeValue {
+    name: String,
+    product: Product,
+    #[serde(rename = "type")]
+    shared_type: String,
+    description: String,
+}
+
+/// A type both Products share (ADR 0095), as one package spells it: the
+/// values its Product adds, which an SDK keeps open to a value it does not
+/// know (ADR 0079).
+#[derive(Debug)]
+pub(super) struct SharedType {
+    /// Its `snake_case` name, such as `block_cause`.
+    pub(super) name: String,
+    /// Whether Collie's client package spells it too, so that this layer's
+    /// values add to Collie's.
+    pub(super) extends_collie: bool,
+    /// The values this layer adds, by name, each with its description.
+    pub(super) values: Vec<(String, String)>,
+}
+
+/// The shared types of `values`, each with the values `own` keeps, by name.
+fn shared_types(
+    values: &[SharedTypeValue],
+    own: impl Fn(Product) -> bool,
+    extends_collie: impl Fn(&str) -> bool,
+) -> Vec<SharedType> {
+    let mut types: BTreeMap<&str, Vec<(String, String)>> = BTreeMap::new();
+    for value in values.iter().filter(|value| own(value.product)) {
+        types
+            .entry(value.shared_type.as_str())
+            .or_default()
+            .push((value.name.clone(), value.description.clone()));
+    }
+    types
+        .into_iter()
+        .map(|(name, mut values)| {
+            values.sort();
+            SharedType {
+                name: name.to_owned(),
+                extends_collie: extends_collie(name),
+                values,
+            }
+        })
+        .collect()
+}
+
 /// The sections of a projection that the SDK layers read; any other section
 /// is no SDK's (metrics, for instance).
 #[derive(Deserialize)]
 struct Projection {
+    protocol_version: String,
     operations: Vec<Operation>,
     events: Vec<Event>,
     error_groups: Vec<ErrorGroup>,
     error_codes: Vec<ErrorCode>,
     plugin_kinds: Vec<PluginKind>,
+    /// Absent from a catalog that defines no shared type.
+    #[serde(default)]
+    shared_type_values: Vec<SharedTypeValue>,
     #[serde(rename = "$defs")]
     definitions: Map<String, Value>,
 }
@@ -126,12 +192,16 @@ struct Projection {
 /// One SDK package's layer.
 pub(super) struct Layer {
     pub(super) product: Product,
+    /// The protocol version `major.minor` the catalog speaks.
+    pub(super) protocol_version: String,
     pub(super) operations: Vec<Operation>,
     pub(super) events: Vec<Event>,
     /// The seven groups, generated once, in Collie's client package.
     pub(super) error_groups: Vec<ErrorGroup>,
     pub(super) error_codes: Vec<ErrorCode>,
     pub(super) plugin_kinds: Vec<PluginKind>,
+    /// The types both Products share that this layer adds values to.
+    pub(super) shared_types: Vec<SharedType>,
     /// The types this layer defines.
     pub(super) definitions: Map<String, Value>,
     /// The types this layer's entries take from Collie's client package.
@@ -140,21 +210,49 @@ pub(super) struct Layer {
 
 impl Layer {
     /// The layer of `product`'s package: Collie's entries for Collie's client
-    /// package, Foxhound's own for Foxhound's, which builds on it.
-    pub(super) fn new(collie: &Value, foxhound: &Value, product: Product) -> Result<Self> {
+    /// package, with the types of the bundle's `connection` section, which
+    /// every engine speaks and the client package's runtime sends; Foxhound's
+    /// own for Foxhound's, which builds on it.
+    pub(super) fn new(
+        bundle: &Value,
+        collie: &Value,
+        foxhound: &Value,
+        product: Product,
+    ) -> Result<Self> {
         let collie: Projection =
             Projection::deserialize(collie).context("reading Collie's projection")?;
         match product {
-            Product::Collie => Ok(Self {
-                product,
-                operations: collie.operations,
-                events: collie.events,
-                error_groups: collie.error_groups,
-                error_codes: collie.error_codes,
-                plugin_kinds: collie.plugin_kinds,
-                definitions: collie.definitions,
-                collie_types: BTreeSet::new(),
-            }),
+            Product::Collie => {
+                let mut definitions = collie.definitions;
+                let bundle_definitions = bundle
+                    .get("$defs")
+                    .and_then(Value::as_object)
+                    .context("the bundle has no `$defs`")?;
+                let connection = bundle.get("connection").cloned().unwrap_or(Value::Null);
+                for name in projection::reached(&connection, bundle_definitions)? {
+                    if let Some(schema) = bundle_definitions.get(&name) {
+                        definitions.insert(name, schema.clone());
+                    }
+                }
+                definitions.sort_keys();
+                let shared_types = shared_types(&collie.shared_type_values, |_| true, |_| false);
+                Ok(Self {
+                    product,
+                    protocol_version: collie.protocol_version,
+                    operations: collie
+                        .operations
+                        .into_iter()
+                        .filter(Operation::offered)
+                        .collect(),
+                    events: collie.events,
+                    error_groups: collie.error_groups,
+                    error_codes: collie.error_codes,
+                    plugin_kinds: collie.plugin_kinds,
+                    shared_types,
+                    definitions,
+                    collie_types: BTreeSet::new(),
+                })
+            }
             Product::Foxhound => {
                 let all: Projection =
                     Projection::deserialize(foxhound).context("reading Foxhound's projection")?;
@@ -162,7 +260,7 @@ impl Layer {
                 let operations: Vec<Operation> = all
                     .operations
                     .into_iter()
-                    .filter(|entry| own(entry.product))
+                    .filter(|entry| own(entry.product) && entry.offered())
                     .collect();
                 let events: Vec<Event> = all
                     .events
@@ -179,6 +277,12 @@ impl Layer {
                     .into_iter()
                     .filter(|entry| own(entry.product))
                     .collect();
+                let shared_types = shared_types(&all.shared_type_values, own, |name| {
+                    collie
+                        .shared_type_values
+                        .iter()
+                        .any(|value| value.shared_type == name)
+                });
                 let roots = roots(&operations, &events, &plugin_kinds);
                 let reached = projection::reached(&roots, &all.definitions)?;
                 let (collie_types, own_types): (BTreeSet<String>, BTreeSet<String>) = reached
@@ -186,11 +290,13 @@ impl Layer {
                     .partition(|name| collie.definitions.contains_key(name));
                 Ok(Self {
                     product,
+                    protocol_version: all.protocol_version,
                     operations,
                     events,
                     error_groups: Vec::new(),
                     error_codes,
                     plugin_kinds,
+                    shared_types,
                     definitions: all
                         .definitions
                         .into_iter()
@@ -279,5 +385,72 @@ fn replace_collie_references(
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use goodfetch_protocol::catalog::Product;
+    use serde_json::{Value, json};
+
+    use super::Layer;
+
+    /// An operation of a projection, offered on the surfaces `reach` names.
+    fn operation(name: &str, product: &str, reach: &str) -> Value {
+        json!({
+            "name": name,
+            "product": product,
+            "description": "An operation.",
+            "reach": reach,
+            "params": { "$ref": "#/$defs/Empty" },
+            "result": { "$ref": "#/$defs/Empty" },
+            "cancellable": false,
+            "stability": "experimental",
+            "deprecated": null,
+        })
+    }
+
+    fn projection(operations: &[Value]) -> Value {
+        json!({
+            "protocol_version": "0.1",
+            "operations": operations,
+            "events": [],
+            "error_groups": [],
+            "error_codes": [],
+            "plugin_kinds": [],
+            "$defs": { "Empty": { "type": "object" } },
+        })
+    }
+
+    /// Covers: story:3-75
+    #[test]
+    fn an_sdk_layer_offers_no_persons_answer() {
+        let collie = projection(&[
+            operation("widget.spin", "collie", "all_surfaces"),
+            operation("widget.lend", "collie", "sdk_only"),
+            operation("widget.raise", "collie", "person_only"),
+        ]);
+        let foxhound = projection(&[
+            operation("crawl.spin", "foxhound", "all_surfaces"),
+            operation("crawl.accept", "foxhound", "person_only"),
+        ]);
+        let bundle = json!({ "$defs": {} });
+
+        let offered = |product| {
+            Layer::new(&bundle, &collie, &foxhound, product)
+                .unwrap()
+                .operations
+                .into_iter()
+                .map(|operation| operation.name)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            (offered(Product::Collie), offered(Product::Foxhound)),
+            (
+                vec!["widget.spin".to_owned(), "widget.lend".to_owned()],
+                vec!["crawl.spin".to_owned()]
+            )
+        );
     }
 }

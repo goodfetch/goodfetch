@@ -1000,7 +1000,7 @@ status = "active"
 
 [[story]]
 id = 128
-title = "As a developer, I want a keep-alive run that waits for new work until its input is closed, so that a run can serve work as it arrives (RT-12)."
+title = "As a developer, I want a keep-alive run that waits for new work until `finish()` lets it end once drained, so that a run can serve work as it arrives (RT-12)."
 milestone = "M1 Core"
 journey = true
 status = "active"
@@ -1019,7 +1019,8 @@ title = "As a developer, I want user state persisted with the run and restored o
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "ADR 0103 declines `useState`: a program's state lives in the Key-value store (area 6), staged with the attempt."
 
 [[story]]
 id = 131
@@ -1147,4 +1148,52 @@ title = "As a developer whose program is traced with OpenTelemetry, I want each 
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
+status = "active"
+
+[[story]]
+id = 147
+title = "As a crawl operator, I want the engine's resolver to keep each DNS answer for its TTL, an NXDOMAIN or an empty answer for its negative TTL and a server failure or a timeout not at all, and to drop an answer whose every address failed to connect, so that a site whose name moves is reached at its new address without pinning a stale answer (ADR 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 148
+title = "As a crawl operator, I want the engine's HTTP transports to race a host's IPv6 and IPv4 addresses under RFC 8305, with `resolver.resolution_delay` and `resolver.attempt_delay` as settings, only the family a Session's local address holds, and the proxy's addresses behind a proxy, so that a site whose IPv6 path is broken is reached over IPv4 without waiting out a dead address (ADR 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 149
+title = "As a developer or a person following a crawl, I want to read each crawl request's ending in commit order, with its request, its attempts and each failed attempt's error, when it ended and what its kind carries (Records per Dataset, the error, the skip reason, the Block cause), filtered by kind and Label in the engine, from the first ending or with `after: \"now\"` from the next commit, following new commits until the Run ends, and a re-admitted request's later outcome superseding the earlier by its ID, so that I see what happened to every page with no callback and without slowing the crawl (ADRs 0102, 0117)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 150
+title = "As a developer, I want `run.failed_requests` to list, from committed state and on a Run no program holds too, the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome, exactly those `run.retry_failed` re-admits with the same option and never a skip, so that what I see failed is what a retry runs again (ADR 0117)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 151
+title = "As a maintainer, I want a Run's state table written out with its states (`running`, `stopped`, `finished`, `failed`), its events, its allowed transitions and the code of each refused pair, every pair a named test case, the registry changing a Run's Lifecycle only through it and its model-based tests using it as their reference, so that a late event changes nothing and an invalid transition is refused, never a warning (ADR 0128)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 152
+title = "As a maintainer, I want the engine's state table written out for a Connection (opening, open, closing, closed) and for the engine process (an Attached engine, a Daemon serving, handing over, draining, stopping), with their events, allowed transitions and the code of each refused pair, every pair a named test case, so that a Client's loss, an idle stop, a handover or a drain never leaves the engine in a state no one designed (ADR 0128)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
 status = "active"

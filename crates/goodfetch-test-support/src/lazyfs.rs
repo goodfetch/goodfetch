@@ -1,0 +1,473 @@
+//! A folder mounted through LazyFS (ADR 0060, Linux): a FUSE file system
+//! whose own cache holds every write until it is synced, so that
+//! `clear_cache` after a kill drops what never reached the disk, as a power
+//! cut would. The executable is the pinned build `xtask lazyfs build` makes,
+//! named by `GOODFETCH_LAZYFS`. A mount that cannot be made is an error, which
+//! fails the test; it is never a skip (ADR 0067's rule, applied here).
+//!
+//! The folder keeps its path: its files move to a backing folder beside it,
+//! `<name>.lazyfs/backing`, which LazyFS mounts back at the folder's path, and
+//! return when the mount ends. Ending the mount (`unmount`, or dropping the
+//! value) first syncs every file, as a clean shutdown would, so only
+//! `clear_cache` loses data. A remount is a second `mount` of the same folder.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "test support mounts, polls and reads files outside any async worker (ADR 0062)"
+)]
+
+use std::ffi::OsString;
+use std::fs::{File, OpenOptions};
+use std::io::{self, BufRead as _, BufReader, Write as _};
+use std::os::unix::fs::MetadataExt as _;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::mpsc::{self, Receiver};
+use std::time::{Duration, Instant};
+
+use crate::variables::{LAZYFS_VARIABLE, Variables};
+
+/// How long a mount, an unmount or a command may take.
+pub const LAZYFS_DEADLINE: Duration = Duration::from_secs(10);
+
+/// How often a mount and an unmount are checked for.
+const POLL: Duration = Duration::from_millis(10);
+
+/// LazyFS's cache: large enough for any test's unsynced writes, since a full
+/// cache without eviction refuses writes.
+const CACHE_SIZE: &str = "512mb";
+
+/// The command that drops every unsynced write, and LazyFS's answer to it.
+const CLEAR_CACHE: &[u8] = b"lazyfs::clear-cache\n";
+const CACHE_CLEARED: &str = "finished::clear-cache";
+
+/// A folder mounted through LazyFS until the value drops.
+#[derive(Debug)]
+pub struct LazyFs {
+    folder: PathBuf,
+    state: PathBuf,
+    child: Option<Child>,
+    /// LazyFS's answers FIFO, opened for reading and writing before LazyFS
+    /// starts, so that LazyFS's own open of it never waits, and so that a
+    /// line written here at the end wakes the reader thread.
+    answers_fifo: File,
+    /// Each line LazyFS answers, read from the FIFO by a thread.
+    answers: Option<Receiver<io::Result<String>>>,
+}
+
+impl LazyFs {
+    /// Mounts `folder` through the LazyFS that `GOODFETCH_LAZYFS` names,
+    /// creating the folder if its parent exists.
+    pub fn mount(folder: impl AsRef<Path>) -> Result<Self, LazyFsError> {
+        let program = Variables::from_process()
+            .get(LAZYFS_VARIABLE)
+            .map(PathBuf::from)
+            .ok_or(LazyFsError::Unset)?;
+        Self::mount_program(&program, folder)
+    }
+
+    /// Mounts `folder` through the LazyFS executable at `program`.
+    pub fn mount_program(program: &Path, folder: impl AsRef<Path>) -> Result<Self, LazyFsError> {
+        let folder = folder.as_ref().to_owned();
+        let in_folder = |source| LazyFsError::Folder {
+            path: folder.clone(),
+            source,
+        };
+        match std::fs::create_dir(&folder) {
+            Err(error) if error.kind() != io::ErrorKind::AlreadyExists => {
+                return Err(in_folder(error));
+            }
+            _ => {}
+        }
+        let mut state_name = folder
+            .file_name()
+            .map(ToOwned::to_owned)
+            .unwrap_or_default();
+        state_name.push(".lazyfs");
+        let state = folder.with_file_name(state_name);
+        std::fs::create_dir(&state).map_err(|source| {
+            if source.kind() == io::ErrorKind::AlreadyExists {
+                LazyFsError::InUse {
+                    state: state.clone(),
+                }
+            } else {
+                in_folder(source)
+            }
+        })?;
+        let backing = state.join("backing");
+        let faults = state.join("faults.fifo");
+        let answers = state.join("answers.fifo");
+        let config = state.join("config.toml");
+        let output = state.join("output.txt");
+        let prepared = (|| {
+            make_fifo(&faults)?;
+            make_fifo(&answers)?;
+            std::fs::write(&config, configuration(&faults, &answers))?;
+            // Linux opens a FIFO for reading and writing at once, without
+            // waiting for another end.
+            let fifo = OpenOptions::new().read(true).write(true).open(&answers)?;
+            let reader = fifo.try_clone()?;
+            std::fs::rename(&folder, &backing)?;
+            std::fs::create_dir(&folder)?;
+            Ok((fifo, reader))
+        })();
+        let (answers_fifo, reader) = match prepared {
+            Ok(ends) => ends,
+            Err(source) => {
+                restore(&folder, &backing);
+                let _ = std::fs::remove_dir_all(&state);
+                return Err(in_folder(source));
+            }
+        };
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(reader).lines() {
+                if sender.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        let mut mounted = Self {
+            folder,
+            state,
+            child: None,
+            answers_fifo,
+            answers: Some(receiver),
+        };
+        let started = File::create(&output).and_then(|out| {
+            let err = out.try_clone()?;
+            Command::new(program)
+                .arg(&mounted.folder)
+                .arg("--config-path")
+                .arg(&config)
+                .args(["-o", "modules=subdir", "-o"])
+                .arg(subdir_option(&backing))
+                .arg("-f")
+                .stdin(Stdio::null())
+                .stdout(out)
+                .stderr(err)
+                .spawn()
+        });
+        match started {
+            Ok(child) => mounted.child = Some(child),
+            Err(source) => {
+                mounted.end_unmounted();
+                return Err(LazyFsError::Start {
+                    program: program.to_owned(),
+                    source,
+                });
+            }
+        }
+        if let Err(error) = mounted.wait_for_mount() {
+            mounted.end_unmounted();
+            return Err(error);
+        }
+        Ok(mounted)
+    }
+
+    /// The mounted folder.
+    pub fn folder(&self) -> &Path {
+        &self.folder
+    }
+
+    /// Drops every write LazyFS holds that was never synced, and returns once
+    /// LazyFS says it has.
+    pub fn clear_cache(&self) -> Result<(), LazyFsError> {
+        OpenOptions::new()
+            .write(true)
+            .open(self.state.join("faults.fifo"))
+            .and_then(|mut fifo| fifo.write_all(CLEAR_CACHE))
+            .map_err(LazyFsError::Command)?;
+        let answer = self.read_answer()?;
+        if answer == CACHE_CLEARED {
+            Ok(())
+        } else {
+            Err(LazyFsError::Answer {
+                answer,
+                output: self.output(),
+            })
+        }
+    }
+
+    /// Ends the mount: syncs every file, unmounts, and moves the files back
+    /// into the folder.
+    pub fn unmount(mut self) -> Result<(), LazyFsError> {
+        self.end()
+    }
+
+    fn end(&mut self) -> Result<(), LazyFsError> {
+        if self.child.is_none() {
+            return Ok(());
+        }
+        sync_tree(&self.folder).map_err(LazyFsError::Sync)?;
+        let unmounted = Command::new("fusermount3")
+            .arg("-u")
+            .arg(&self.folder)
+            .stdin(Stdio::null())
+            .output()
+            .map_err(LazyFsError::Unmount)?;
+        if !unmounted.status.success() {
+            return Err(LazyFsError::NotUnmounted {
+                status: unmounted.status,
+                stderr: String::from_utf8_lossy(&unmounted.stderr).into_owned(),
+            });
+        }
+        let deadline = Instant::now() + LAZYFS_DEADLINE;
+        loop {
+            let exited = self
+                .child
+                .as_mut()
+                .expect("invariant: a mounted LazyFS has its process")
+                .try_wait()
+                .map_err(LazyFsError::Unmount)?;
+            if exited.is_some() {
+                break;
+            }
+            if Instant::now() >= deadline {
+                return Err(LazyFsError::Deadline {
+                    waiting_for: "LazyFS to exit after its unmount",
+                    output: self.output(),
+                });
+            }
+            std::thread::sleep(POLL);
+        }
+        self.child = None;
+        self.end_unmounted();
+        Ok(())
+    }
+
+    /// Stops the reader thread, moves the files back into the folder and
+    /// removes the state folder, once nothing is mounted.
+    fn end_unmounted(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            // Best effort: a LazyFS that never mounted is stopped either way.
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        // The reader thread wakes on this line, finds no receiver and ends.
+        if self.answers.take().is_some() {
+            let _ = self.answers_fifo.write_all(b"\n");
+        }
+        let backing = self.state.join("backing");
+        restore(&self.folder, &backing);
+        if !backing.exists() {
+            let _ = std::fs::remove_dir_all(&self.state);
+        }
+    }
+
+    fn wait_for_mount(&mut self) -> Result<(), LazyFsError> {
+        let deadline = Instant::now() + LAZYFS_DEADLINE;
+        loop {
+            if is_mount_point(&self.folder) {
+                return Ok(());
+            }
+            let child = self
+                .child
+                .as_mut()
+                .expect("invariant: a starting LazyFS has its process");
+            if let Some(status) = child.try_wait().map_err(LazyFsError::Command)? {
+                return Err(LazyFsError::NotMounted {
+                    status: Some(status),
+                    output: self.output(),
+                });
+            }
+            if Instant::now() >= deadline {
+                return Err(LazyFsError::NotMounted {
+                    status: None,
+                    output: self.output(),
+                });
+            }
+            std::thread::sleep(POLL);
+        }
+    }
+
+    /// One line LazyFS answered, waiting at most [`LAZYFS_DEADLINE`].
+    fn read_answer(&self) -> Result<String, LazyFsError> {
+        let answers = self
+            .answers
+            .as_ref()
+            .expect("invariant: a mounted LazyFS has its reader");
+        match answers.recv_timeout(LAZYFS_DEADLINE) {
+            Ok(line) => line.map_err(LazyFsError::Command),
+            Err(_) => Err(LazyFsError::Deadline {
+                waiting_for: "LazyFS's answer to a command",
+                output: self.output(),
+            }),
+        }
+    }
+
+    /// What LazyFS printed, for an error.
+    fn output(&self) -> String {
+        std::fs::read(self.state.join("output.txt"))
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for LazyFs {
+    fn drop(&mut self) {
+        if let Err(error) = self.end()
+            && !std::thread::panicking()
+        {
+            panic!(
+                "the LazyFS mount of {} cannot end: {error}",
+                self.folder.display()
+            );
+        }
+    }
+}
+
+/// LazyFS's configuration: its cache without eviction, and its two FIFOs.
+/// A JSON string is a TOML basic string, escapes included.
+fn configuration(faults: &Path, answers: &Path) -> String {
+    let string = |path: &Path| {
+        serde_json::to_string(&path.display().to_string())
+            .expect("invariant: a string serializes to JSON")
+    };
+    format!(
+        "[faults]\nfifo_path = {}\nfifo_path_completed = {}\n\n\
+         [cache]\napply_eviction = false\n\n\
+         [cache.simple]\ncustom_size = \"{CACHE_SIZE}\"\nblocks_per_page = 1\n\n\
+         [filesystem]\nlog_all_operations = false\nlogfile = \"\"\n",
+        string(faults),
+        string(answers),
+    )
+}
+
+/// FUSE's `subdir` option, its `\` and `,` escaped as FUSE's option parser
+/// reads them.
+fn subdir_option(backing: &Path) -> OsString {
+    let path = backing.display().to_string();
+    OsString::from(format!(
+        "subdir={}",
+        path.replace('\\', "\\\\").replace(',', "\\,")
+    ))
+}
+
+/// Makes a FIFO with coreutils' `mkfifo`, which the standard library lacks.
+fn make_fifo(path: &Path) -> io::Result<()> {
+    let output = Command::new("mkfifo")
+        .args(["-m", "600", "--"])
+        .arg(path)
+        .stdin(Stdio::null())
+        .output()?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "mkfifo {} failed ({}): {}",
+            path.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        )))
+    }
+}
+
+/// Whether `path` is the root of another file system than its parent's.
+fn is_mount_point(path: &Path) -> bool {
+    let (Some(parent), Ok(folder)) = (path.parent(), std::fs::metadata(path)) else {
+        return false;
+    };
+    std::fs::metadata(parent).is_ok_and(|parent| parent.dev() != folder.dev())
+}
+
+/// Moves the backing folder's files back to the folder's path, if they are
+/// still beside it.
+fn restore(folder: &Path, backing: &Path) {
+    if backing.exists() {
+        // Best effort: the empty mount point goes first, and a failure leaves
+        // the files in the backing folder, where the kept test folder shows
+        // them.
+        let _ = std::fs::remove_dir(folder);
+        let _ = std::fs::rename(backing, folder);
+    }
+}
+
+/// Syncs every regular file under `folder`, as a clean shutdown would.
+fn sync_tree(folder: &Path) -> io::Result<()> {
+    for entry in std::fs::read_dir(folder)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            sync_tree(&entry.path())?;
+        } else if kind.is_file() {
+            File::open(entry.path())?.sync_all()?;
+        }
+    }
+    Ok(())
+}
+
+/// Why a folder cannot be mounted through LazyFS, or its mount used or
+/// ended. Each fails the test.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum LazyFsError {
+    /// `GOODFETCH_LAZYFS` is not set.
+    #[error(
+        "{LAZYFS_VARIABLE} is not set: run the LazyFS tests with `just lazyfs-test`, which builds the pinned LazyFS and names it"
+    )]
+    Unset,
+    /// The folder, or its state folder beside it, cannot be prepared.
+    #[error("the folder {} cannot be prepared for LazyFS: {source}", path.display())]
+    Folder {
+        /// The folder.
+        path: PathBuf,
+        /// Why.
+        source: io::Error,
+    },
+    /// The folder's state folder exists: a mount of it has not ended.
+    #[error("{} exists: the folder is mounted through LazyFS already, or a mount of it did not end", state.display())]
+    InUse {
+        /// The state folder.
+        state: PathBuf,
+    },
+    /// LazyFS cannot be started.
+    #[error("LazyFS ({}) cannot start: {source}", program.display())]
+    Start {
+        /// The executable.
+        program: PathBuf,
+        /// Why.
+        source: io::Error,
+    },
+    /// LazyFS exited, or did not mount the folder within [`LAZYFS_DEADLINE`].
+    #[error("LazyFS did not mount the folder ({}); it printed:\n{output}", status.map_or_else(|| "still running at the deadline".to_owned(), |status| status.to_string()))]
+    NotMounted {
+        /// How it exited, if it did.
+        status: Option<ExitStatus>,
+        /// What it printed.
+        output: String,
+    },
+    /// A command could not be sent to LazyFS, or its answer read.
+    #[error("a command to LazyFS failed: {0}")]
+    Command(io::Error),
+    /// LazyFS answered something other than the command's answer.
+    #[error("LazyFS answered `{answer}`; it printed:\n{output}")]
+    Answer {
+        /// The answer.
+        answer: String,
+        /// What it printed.
+        output: String,
+    },
+    /// LazyFS did not answer or exit within [`LAZYFS_DEADLINE`].
+    #[error("waited {LAZYFS_DEADLINE:?} for {waiting_for}; it printed:\n{output}")]
+    Deadline {
+        /// What was awaited.
+        waiting_for: &'static str,
+        /// What it printed.
+        output: String,
+    },
+    /// The files cannot be synced before the unmount.
+    #[error("the mounted files cannot be synced before the unmount: {0}")]
+    Sync(io::Error),
+    /// `fusermount3 -u` cannot run, or LazyFS's exit cannot be awaited.
+    #[error("the unmount cannot run: {0}")]
+    Unmount(io::Error),
+    /// `fusermount3 -u` refused, such as while a process still uses the
+    /// folder.
+    #[error("fusermount3 -u refused ({status}): {stderr}")]
+    NotUnmounted {
+        /// Its exit status.
+        status: ExitStatus,
+        /// What it printed.
+        stderr: String,
+    },
+}

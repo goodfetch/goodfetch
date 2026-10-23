@@ -1,0 +1,25 @@
+[package]
+name = "goodfetch-cdp"
+description = "The Chrome DevTools Protocol of the pinned Chromium builds: its generated bindings and the client's connection over a pipe (spec #577; ADRs 0017, 0085 and 0127)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "sync", "time", "macros"] }
+tracing.workspace = true
+
+[dev-dependencies]
+goodfetch-test-support.workspace = true
+rstest.workspace = true
+tokio = { workspace = true, features = ["rt", "test-util"] }
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

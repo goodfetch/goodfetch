@@ -1,0 +1,41 @@
+# The delivery suite's case list (spec #213, #217): what any target that
+# serves a crawl must answer about its work items' leases (ADRs 0003 and
+# 0093): at-least-once delivery, exactly-once commits and a late commit
+# refused, with the refusal of a fabricated `hello` on a Connection of its
+# own (ADR 0066). A crawl is Foxhound's, so the suite announces Foxhound and
+# runs on Foxhound's executable (ADR 0094). `goodfetch-conformance` runs it
+# as it runs the protocol suite (`conformance/protocol/cases.toml`): every
+# case in order over one Connection it opens with `hello`. Each case that
+# waits for a lease to end takes the lease's 10 s margin. Bump the version
+# whenever a case changes.
+
+product = "foxhound"
+
+[suite]
+name = "delivery"
+version = "1"
+
+[[capability]]
+name = "connection.hello"
+
+[[capability.case]]
+id = "a-fabricated-hello-is-refused-before-any-other-message-and-the-connection-closes"
+covers = ["story:3-3", "story:3-132"]
+
+[[capability]]
+name = "delivery.at_least_once"
+
+[[capability.case]]
+id = "a-work-item-whose-lease-ends-unanswered-is-delivered-again"
+covers = ["story:3-40", "story:3-41"]
+
+[[capability]]
+name = "delivery.exactly_once"
+
+[[capability.case]]
+id = "a-work-item-answered-in-time-commits-once"
+covers = ["story:3-41"]
+
+[[capability.case]]
+id = "an-answer-after-the-lease-ended-is-a-late-commit-and-refused"
+covers = ["story:3-40", "story:3-41"]

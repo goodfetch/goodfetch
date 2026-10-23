@@ -1,0 +1,150 @@
+# The page suite's case list (spec #577, tickets #695, #696, #698, #699 and #700;
+# spec #580, ticket #783): a Collie program's pages, their locator actions
+# and their formats over the protocol, run by `goodfetch-conformance`'s
+# engine harness against an Attached engine of Collie's executable on the
+# local Proving ground (ADR 0094), each case on a Run of its own whose
+# `network.resolve` maps the Proving ground's host names to its address
+# (ADR 0059). The engine finds its browser in the Browser cache its
+# environment names. Bump the version whenever a case changes.
+
+product = "collie"
+
+[suite]
+name = "page"
+version = "6"
+
+[[capability]]
+name = "sessions.default"
+
+[[capability.case]]
+id = "pages-open-in-the-runs-default-session"
+covers = ["story:5-61", "operation:run.new_page"]
+
+[[capability]]
+name = "navigation"
+
+[[capability.case]]
+id = "goto-answers-the-documents-response"
+covers = ["story:5-61", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "an-error-status-is-the-documents-response"
+covers = ["story:5-23", "operation:page.goto", "operation:page.reload"]
+
+[[capability.case]]
+id = "back-and-forward-across-sites-answer-the-documents-response"
+covers = ["story:5-23", "operation:page.goto", "operation:page.go_back", "operation:page.go_forward"]
+
+[[capability]]
+name = "navigation.back_forward_cache"
+
+[[capability.case]]
+id = "going-back-loads-the-document-again"
+covers = ["story:5-24", "operation:page.go_back"]
+
+[[capability]]
+name = "navigation.failures"
+
+[[capability.case]]
+id = "a-name-that-does-not-resolve-fails-apart-from-a-refused-connection"
+covers = ["story:5-26", "operation:page.goto", "error:navigation_failed"]
+
+[[capability.case]]
+id = "a-navigation-superseded-before-it-committed-is-interrupted"
+covers = ["operation:page.goto", "error:navigation_interrupted"]
+
+[[capability]]
+name = "navigation.redirects"
+
+[[capability.case]]
+id = "a-redirect-loop-raises-too-many-redirects"
+covers = ["story:5-29", "operation:page.goto", "error:too_many_redirects"]
+
+[[capability.case]]
+id = "a-redirect-is-followed-without-waiting-its-retry-after"
+covers = ["operation:page.goto"]
+
+[[capability]]
+name = "navigation.cut_documents"
+
+[[capability.case]]
+id = "a-cut-document-raises-response-truncated-unless-the-navigation-returned-at-commit"
+covers = ["story:5-29", "operation:page.goto", "error:response_truncated"]
+
+[[capability]]
+name = "navigation.decoding"
+
+[[capability.case]]
+id = "a-coding-that-fails-to-decode-fails-the-navigation-and-an-unknown-one-passes"
+covers = ["story:5-30", "operation:page.goto", "error:navigation_failed"]
+
+[[capability.case]]
+id = "each-document-response-names-its-decoded-encoding"
+covers = ["operation:page.goto"]
+
+[[capability]]
+name = "navigation.downloads"
+
+[[capability.case]]
+id = "a-goto-to-a-file-emits-download-and-answers-no-response"
+covers = ["story:5-31", "operation:page.goto", "operation:page.reload", "event:page.download"]
+
+[[capability]]
+name = "formats"
+
+[[capability.case]]
+id = "markdown-matches-the-oracle-on-the-markdown-pages"
+covers = ["story:6-1", "story:6-12", "operation:page.formats"]
+
+[[capability.case]]
+id = "a-format-the-request-does-not-name-is-left-out"
+covers = ["story:6-8", "operation:page.formats"]
+
+[[capability.case]]
+id = "a-page-with-no-main-content-answers-empty-markdown-and-none"
+covers = ["story:6-12", "operation:page.formats"]
+
+[[capability]]
+name = "launch"
+
+[[capability.case]]
+id = "a-headless-page-shows-the-site-its-windows-identity"
+covers = ["story:5-56", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-page-behind-another-keeps-its-timer-and-its-focus"
+covers = ["story:5-11", "operation:run.new_page", "operation:page.goto"]
+
+[[capability]]
+name = "locators.guard"
+
+[[capability.case]]
+id = "a-click-on-a-covered-target-lands-once-the-cover-leaves"
+covers = ["story:5-2", "operation:locator.click"]
+
+[[capability.case]]
+id = "an-ambiguous-target-that-becomes-unique-is-acted-on"
+covers = ["story:5-3", "operation:locator.click"]
+
+[[capability.case]]
+id = "a-locator-survives-a-re-render-that-replaces-its-element"
+covers = ["story:5-18", "operation:locator.click"]
+
+[[capability.case]]
+id = "a-target-still-ambiguous-raises-target-not-unique"
+covers = ["story:5-3", "operation:locator.click", "error:target_not_unique", "setting:timeout.action"]
+
+[[capability.case]]
+id = "a-target-never-actionable-raises-deadline-exceeded-naming-the-step"
+covers = ["story:5-2", "operation:locator.click", "error:deadline_exceeded", "setting:timeout.action"]
+
+[[capability]]
+name = "locators.input"
+
+[[capability.case]]
+id = "typed-text-reaches-a-controlled-field-as-trusted-input"
+covers = ["story:5-10", "operation:locator.fill", "operation:locator.click"]
+
+[[capability.case]]
+id = "a-pressed-key-reaches-a-field-as-a-trusted-key"
+covers = ["story:5-10", "operation:locator.press"]

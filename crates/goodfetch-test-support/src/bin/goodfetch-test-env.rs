@@ -1,21 +1,39 @@
 //! `goodfetch-test-env` (ADR 0062): a test's setup for TypeScript and
 //! Python. It builds a `TestEnv`, prints its description as one JSON line on
 //! stdout, and tears it down when its stdin closes. It exits non-zero, with a
-//! message on stderr, when a start fails. `--print-schemas` prints the JSON
-//! Schemas of the crate's file types for `xtask codegen` and starts nothing.
+//! message on stderr, when a start fails. `--proving-ground <seed>` also
+//! starts the commit's Proving ground on that seed, which the description
+//! names and which stops before the folder is removed. `--daemon` also
+//! starts the Daemon of the tool manifest's Collie executable in the test's
+//! home, or of Foxhound's with `--daemon=foxhound` (ADR 0094); the
+//! description names its socket and token, and at teardown it is stopped
+//! with its executable's `daemon stop` and must leave no runtime file.
+//! `--print-schemas` prints the JSON
+//! Schemas of the crate's file types for `xtask codegen` and starts nothing;
+//! `--print-canary-rule` prints the Secret canaries' `gitleaks` rule for it.
+//! On Linux, `dns-namespace` runs a program in a network and mount
+//! namespace whose resolver is the DNS fixture (`DnsNamespace`), and exits
+//! with its status; it exits 125 when the namespace cannot be made.
 
 use std::io::{self, Read as _, Write as _};
 use std::process::ExitCode;
 
 use clap::Parser;
-use goodfetch_test_support::{Description, TestEnv, Variables, schemas, tools};
+use goodfetch_test_support::{
+    DAEMON_DEADLINE, Daemon, Description, PROVING_GROUND_DEADLINE, Product, ProvingGround, TestEnv,
+    Tool, Variables, gitleaks_rule, schemas, tools,
+};
 
 #[derive(Parser)]
 #[command(
     name = "goodfetch-test-env",
-    about = "Prepares one test's setup and prints its description"
+    about = "Prepares one test's setup and prints its description",
+    args_conflicts_with_subcommands = true
 )]
 struct Arguments {
+    #[cfg(target_os = "linux")]
+    #[command(subcommand)]
+    command: Option<Subcommand>,
     /// The locale tag whose `LANG` the environment takes, such as `tr-TR`.
     #[arg(long)]
     locale: Option<String>,
@@ -26,16 +44,104 @@ struct Arguments {
     /// come.
     #[arg(long, default_value = "goodfetch-test-env")]
     test_name: String,
-    /// Prints the JSON Schemas of test support's file types, keyed by file
-    /// name, and starts nothing.
+    /// Starts the commit's Proving ground on this seed, and describes it
+    /// under `proving_ground`.
+    #[arg(long, value_name = "SEED")]
+    proving_ground: Option<u64>,
+    /// Starts the Daemon of this Product's executable from the test tool
+    /// manifest in the test's home, Collie's unless `--daemon=foxhound`,
+    /// and describes its socket and token under `daemon`.
+    #[arg(
+        long,
+        value_name = "PRODUCT",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "collie"
+    )]
+    daemon: Option<Product>,
+    /// Prints the JSON Schemas of test support's file types, keyed by their
+    /// paths under `test-support/fixtures/`, and starts nothing.
     #[arg(long, exclusive = true)]
     print_schemas: bool,
+    /// Prints the Secret canaries' `gitleaks` rule, generated from their
+    /// kinds, and starts nothing.
+    #[arg(long, exclusive = true)]
+    print_canary_rule: bool,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(clap::Subcommand)]
+enum Subcommand {
+    /// Runs a program in a network and mount namespace of its own, whose
+    /// resolver relays to the DNS fixture.
+    DnsNamespace(DnsNamespaceArguments),
+}
+
+#[cfg(target_os = "linux")]
+#[derive(clap::Args)]
+struct DnsNamespaceArguments {
+    /// The DNS fixture's address.
+    #[arg(long)]
+    dns: std::net::SocketAddr,
+    /// A folder whose files are each mounted over `/etc/<their name>`.
+    #[arg(long)]
+    etc: std::path::PathBuf,
+    /// The `<uid>:<gid>` to start the program as, when run as root
+    /// through sudo; without it, a user namespace is made too.
+    #[arg(long)]
+    user: Option<goodfetch_test_support::InsideUser>,
+    /// One variable of the program's environment, as `NAME=VALUE`.
+    #[arg(long = "env", value_name = "NAME=VALUE")]
+    env: Vec<String>,
+    /// The program and its arguments; with none, the namespace is made and
+    /// left.
+    #[arg(last = true)]
+    child: Vec<std::ffi::OsString>,
+}
+
+/// The status a namespace that cannot be made exits with, as `env` and
+/// `unshare` exit when they cannot run their command.
+#[cfg(target_os = "linux")]
+const NAMESPACE_FAILED: u8 = 125;
+
+#[cfg(target_os = "linux")]
+fn dns_namespace(arguments: DnsNamespaceArguments) -> ExitCode {
+    let inside = goodfetch_test_support::Inside {
+        dns: arguments.dns,
+        etc: arguments.etc,
+        user: arguments.user,
+        env: arguments.env,
+        child: arguments.child,
+    };
+    match inside.run() {
+        Ok(status) => ExitCode::from(u8::try_from(status).unwrap_or(u8::MAX)),
+        Err(error) => {
+            #[expect(
+                clippy::print_stderr,
+                reason = "goodfetch-test-env reports a namespace it could not make on its own stderr (ADR 0067)"
+            )]
+            {
+                eprintln!("goodfetch-test-env: dns-namespace: {error}");
+            }
+            ExitCode::from(NAMESPACE_FAILED)
+        }
+    }
 }
 
 fn main() -> ExitCode {
-    let arguments = Arguments::parse();
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(unused_mut, reason = "only Linux takes the subcommand out")
+    )]
+    let mut arguments = Arguments::parse();
+    #[cfg(target_os = "linux")]
+    if let Some(Subcommand::DnsNamespace(namespace)) = arguments.command.take() {
+        return dns_namespace(namespace);
+    }
     let result = if arguments.print_schemas {
         print_schemas()
+    } else if arguments.print_canary_rule {
+        write_text(&gitleaks_rule())
     } else {
         serve(&arguments)
     };
@@ -69,24 +175,55 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
     if let Some(zone) = &arguments.time_zone {
         env = env.with_time_zone(zone);
     }
-    let description = Description::new(&env, tools()?);
+    let tools = tools()?;
+    let mut description = Description::new(&env, tools.clone());
+    let proving_ground = match arguments.proving_ground {
+        Some(seed) => {
+            let program = tools.path(Tool::ProvingGround)?;
+            // Its process joins the TestEnv's record, which stops it if it is
+            // still alive at teardown (ADR 0062).
+            let started =
+                ProvingGround::start_program(&env, program, seed, PROVING_GROUND_DEADLINE)?;
+            description = description.with_proving_ground(started.description().clone());
+            Some(started)
+        }
+        None => None,
+    };
+    let daemon = match arguments.daemon {
+        Some(product) => {
+            // Its process joins the TestEnv's record too.
+            let started =
+                Daemon::start_program(&env, tools.path(product.tool())?, DAEMON_DEADLINE)?;
+            description = description.with_daemon(started.description().clone());
+            Some(started)
+        }
+        None => None,
+    };
     write_line(&serde_json::to_string(&description)?)?;
     #[expect(
         clippy::disallowed_methods,
         reason = "goodfetch-test-env tears down when its stdin closes (ADR 0062)"
     )]
     io::stdin().read_to_end(&mut Vec::new())?;
+    if let Some(daemon) = daemon {
+        daemon.stop(&env)?;
+    }
+    drop(proving_ground);
     drop(env);
     Ok(())
 }
 
 fn write_line(line: &str) -> Result<(), Failure> {
+    write_text(&format!("{line}\n"))
+}
+
+fn write_text(text: &str) -> Result<(), Failure> {
     #[expect(
         clippy::disallowed_methods,
         reason = "goodfetch-test-env writes its description to its own stdout (ADR 0062)"
     )]
     let mut stdout = io::stdout().lock();
-    writeln!(stdout, "{line}")?;
+    stdout.write_all(text.as_bytes())?;
     stdout.flush()?;
     Ok(())
 }

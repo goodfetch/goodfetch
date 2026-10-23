@@ -1,6 +1,6 @@
 [package]
 name = "goodfetch-frontier"
-description = "The Frontier of a Foxhound crawl."
+description = "The Frontier of a Foxhound crawl: its domain keys and its per-domain queues, which fill the engine's gate in admission (ADRs 0004 and 0087)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,8 +10,24 @@ publish.workspace = true
 # benches/scenarios.rs is a module of the bench targets, not a target.
 autobenches = false
 
+[dependencies]
+data-encoding.workspace = true
+goodfetch-engine.workspace = true
+goodfetch-page.workspace = true
+goodfetch-protocol.workspace = true
+psl.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["time"] }
+url.workspace = true
+
 [dev-dependencies]
+goodfetch-test-support.workspace = true
 gungraun.workspace = true
+proptest.workspace = true
+proptest-state-machine.workspace = true
+rstest.workspace = true
 
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
 [[bench]]

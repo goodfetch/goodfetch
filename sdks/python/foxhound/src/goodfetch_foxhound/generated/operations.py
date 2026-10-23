@@ -9,7 +9,8 @@ from typing import Any, cast
 
 from goodfetch_collie_client.generated.operations import AsyncCaller, Caller
 
-from .models import SampleCrawlParams, SampleCrawlResult
+from goodfetch_collie_client.generated.models import RunParams, RunReport, RunStarted
+from .models import CrawlRequestEnqueueParams, CrawlRequestOutcomes, CrawlStartParams, Enqueued, FailedRequests, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
 
 
 def _fields(result: object) -> dict[str, Any]:
@@ -24,6 +25,48 @@ class AsyncFoxhoundOperations:
         """Takes the runtime that sends each call."""
         self._caller = caller
 
+    async def crawl_serve(self, params: RunParams) -> RunReport:
+        """Offers this Connection's handler to a live crawl another Connection started, as each of `workers=N` handler processes does (ADR 0024): the engine leases the crawl's work items to it as `crawl_request.handle` requests too, as many at once as `crawl.handler.concurrency` allows on each Connection. Answers the crawl's Run report once the Run ends; cancelling the call stops new work items, while those already sent still expect their answers. A Run this engine does not run as a crawl fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(await self._caller.call("crawl.serve", params)))
+
+    async def crawl_start(self, params: CrawlStartParams) -> RunStarted:
+        """Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done, or, with `crawl.keep_alive`, once `run.finish` lets it and every work item is done. A Run ID works as `run.start`'s.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunStarted.model_construct(**_fields(await self._caller.call("crawl.start", params)))
+
+    async def crawl_request_enqueue(self, params: CrawlRequestEnqueueParams) -> Enqueued:
+        """Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Enqueued.model_construct(**_fields(await self._caller.call("crawl_request.enqueue", params)))
+
+    async def run_failed_requests(self, params: RunFailedRequestsParams) -> FailedRequests:
+        """Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return FailedRequests.model_construct(**_fields(await self._caller.call("run.failed_requests", params)))
+
+    async def run_outcomes(self, params: RunOutcomesParams) -> CrawlRequestOutcomes:
+        """Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: "now"` from the next commit. Its filters, `kinds` and `labels`, run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return CrawlRequestOutcomes.model_construct(**_fields(await self._caller.call("run.outcomes", params)))
+
+    async def run_seeds(self, params: RunSeedsParams) -> RunSeeds:
+        """Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunSeeds.model_construct(**_fields(await self._caller.call("run.seeds", params)))
+
     async def sample_crawl(self, params: SampleCrawlParams) -> SampleCrawlResult:
         """Visits sample pages, each repeating a text."""
         return SampleCrawlResult.model_construct(**_fields(await self._caller.call("sample.crawl", params)))
@@ -35,6 +78,48 @@ class FoxhoundOperations:
     def __init__(self, caller: Caller) -> None:
         """Takes the runtime that sends each call."""
         self._caller = caller
+
+    def crawl_serve(self, params: RunParams) -> RunReport:
+        """Offers this Connection's handler to a live crawl another Connection started, as each of `workers=N` handler processes does (ADR 0024): the engine leases the crawl's work items to it as `crawl_request.handle` requests too, as many at once as `crawl.handler.concurrency` allows on each Connection. Answers the crawl's Run report once the Run ends; cancelling the call stops new work items, while those already sent still expect their answers. A Run this engine does not run as a crawl fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(self._caller.call("crawl.serve", params)))
+
+    def crawl_start(self, params: CrawlStartParams) -> RunStarted:
+        """Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done, or, with `crawl.keep_alive`, once `run.finish` lets it and every work item is done. A Run ID works as `run.start`'s.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunStarted.model_construct(**_fields(self._caller.call("crawl.start", params)))
+
+    def crawl_request_enqueue(self, params: CrawlRequestEnqueueParams) -> Enqueued:
+        """Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Enqueued.model_construct(**_fields(self._caller.call("crawl_request.enqueue", params)))
+
+    def run_failed_requests(self, params: RunFailedRequestsParams) -> FailedRequests:
+        """Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return FailedRequests.model_construct(**_fields(self._caller.call("run.failed_requests", params)))
+
+    def run_outcomes(self, params: RunOutcomesParams) -> CrawlRequestOutcomes:
+        """Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: "now"` from the next commit. Its filters, `kinds` and `labels`, run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return CrawlRequestOutcomes.model_construct(**_fields(self._caller.call("run.outcomes", params)))
+
+    def run_seeds(self, params: RunSeedsParams) -> RunSeeds:
+        """Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunSeeds.model_construct(**_fields(self._caller.call("run.seeds", params)))
 
     def sample_crawl(self, params: SampleCrawlParams) -> SampleCrawlResult:
         """Visits sample pages, each repeating a text."""

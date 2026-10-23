@@ -12,12 +12,15 @@ mod acceptance;
 mod affected;
 mod all_green;
 mod allure;
+mod axe_exceptions;
 mod budgets;
 mod ceiling;
 mod check;
+mod clients;
 mod codegen;
 mod commit_messages;
 mod compat;
+mod console;
 mod containment;
 mod dco;
 mod dependency_direction;
@@ -28,10 +31,12 @@ mod features;
 mod fixture_size;
 mod foxhound_side;
 mod github;
+mod image_pins;
 mod issues;
 mod journeys;
 mod junit;
 mod junit_summary;
+mod lazyfs;
 mod license_allowlist;
 mod metadata;
 mod mocking_lockfile;
@@ -40,21 +45,26 @@ mod no_retry;
 mod notices;
 mod os_services;
 mod output;
+mod output_scans;
 mod package_dependencies;
 mod perf;
+mod pinned;
 mod quarantine;
 mod rate;
 mod release_suite;
 mod repeat;
 mod results;
+mod rss;
 mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
 mod stress;
+mod telemetry;
 mod test_tools;
 mod tlc;
 mod tree;
+mod watchlist;
 mod wording;
 mod workflow;
 
@@ -81,15 +91,27 @@ enum Command {
     /// The "all green" check: every needed job succeeded, and no earlier
     /// attempt of the run had a failed test step (ADR 0064).
     AllGreen(all_green::Arguments),
+    /// The axe exception file, `console/axe-exceptions.toml` (ADR 0073).
+    AxeExceptions {
+        #[command(subcommand)]
+        command: axe_exceptions::Command,
+    },
     /// The budget check (ADR 0061): opens or updates one `needs-triage`
     /// issue per suite or job whose median of its last 20 runs in its own
     /// tier, read from the results store, is past its budget in TESTING.md;
     /// never fails.
     Budgets(budgets::Arguments),
+    /// The Client conformance case list under `conformance/clients/` (ADR
+    /// 0069).
+    Clients {
+        #[command(subcommand)]
+        command: clients::Command,
+    },
     /// Regenerates every file generated from `goodfetch-protocol`'s types:
     /// the JSON Schema bundle and catalog file, each Product's projection,
-    /// the names only Foxhound carries, the cargo-deny `wrappers` list and
-    /// each SDK package's `generated/` layer (ADR 0038).
+    /// the names only Foxhound carries, the namespaces of the commands
+    /// `goodfetch-cli` generates, the cargo-deny `wrappers` list and each
+    /// SDK package's `generated/` layer (ADR 0038).
     Codegen(codegen::Arguments),
     /// Fails on a commit from `--base` to `--head`, merges and the ancestors
     /// of `--since` aside, whose subject is not a Conventional Commit
@@ -109,6 +131,11 @@ enum Command {
     Compat {
         #[command(subcommand)]
         command: compat::Command,
+    },
+    /// The Console's build, which each executable embeds (ADR 0057).
+    Console {
+        #[command(subcommand)]
+        command: console::Command,
     },
     /// Fails unless every generated contract of Collie's is in Foxhound's,
     /// unchanged (ADR 0094).
@@ -142,6 +169,10 @@ enum Command {
     },
     /// Fails on any file over 256 KiB under a `fixtures/` folder (ADR 0062).
     FixtureSize,
+    /// Fails on a container image a workflow runs that is not pinned by
+    /// digest: in a workflow, an action, a Containerfile, a pin file or a
+    /// script (ADR 0067).
+    ImagePins,
     /// The Journey catalog under `journeys/` (ADR 0063).
     Journeys {
         #[command(subcommand)]
@@ -151,6 +182,12 @@ enum Command {
     /// each with its failure's first lines and its seeds; fails on a JUnit
     /// file it cannot read (ADR 0061).
     JunitSummary(junit_summary::Arguments),
+    /// LazyFS, built from pinned source archives, which power-cuts a real
+    /// executable on Linux (ADR 0060).
+    Lazyfs {
+        #[command(subcommand)]
+        command: lazyfs::Command,
+    },
     /// Fails when `uv.lock` holds a mocking library such as pytest-mock (ADR 0062).
     MockingLockfile,
     /// Fails on an import between top-level modules that a crate's
@@ -165,6 +202,9 @@ enum Command {
     /// with its license and where its source is; fails on a license ADR
     /// 0018's allowlist refuses for its use (ADRs 0018, 0043 and 0047).
     Notices(notices::Arguments),
+    /// Fails on an upload of a job's outputs that does not follow a passing
+    /// `gitleaks` scan of what it uploads (ADR 0067).
+    OutputScans,
     /// The real OS services the tests meet: the extra loopback addresses and
     /// the Secret Service (ADR 0059).
     OsServices {
@@ -201,6 +241,12 @@ enum Command {
         #[command(subcommand)]
         command: ResultsCommand,
     },
+    /// The resident-memory check (ADRs 0071, 0094 and 0134): each
+    /// scenario's peak on each Product's executable, held to its ceiling.
+    Rss {
+        #[command(subcommand)]
+        command: rss::Command,
+    },
     /// Reference screenshots (ADR 0073).
     Screenshots {
         #[command(subcommand)]
@@ -224,6 +270,9 @@ enum Command {
         #[command(subcommand)]
         command: stress::Command,
     },
+    /// Fails on a setting that could turn telemetry on and on an analytics
+    /// client in `Cargo.lock`, `uv.lock` or `pnpm-lock.yaml` (ADR 0043).
+    Telemetry,
     /// Builds the commit's executables that tests run with the tests' own
     /// Cargo profile and writes the test tool manifest of their paths, which
     /// `just test` puts in `GOODFETCH_TEST_TOOLS` (ADRs 0062 and 0094).
@@ -234,6 +283,10 @@ enum Command {
         #[command(subcommand)]
         command: tlc::Command,
     },
+    /// The watchlist job (story 61): opens one `watchlist` issue for each
+    /// vendor webappanalyzer or Scrapfly's Antibot-Detector lists that no
+    /// block-detection rule covers, reading their names only (ADR 0035).
+    Watchlist(watchlist::Arguments),
     /// Fails on a term of `wording.toml` in the prose of any text published
     /// about either Product (ADRs 0035 and 0097).
     Wording,
@@ -366,12 +419,15 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
     match command {
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
+        Command::AxeExceptions { command } => axe_exceptions::run(command, environment),
         Command::Budgets(arguments) => budgets::run(&arguments, environment),
+        Command::Clients { command } => clients::run(&command, environment),
         Command::Codegen(arguments) => codegen::run(arguments, environment),
         Command::CommitMessages { base, head, since } => Ok(check::report(
             &commit_messages::check(root, &base, &head, &since)?,
         )),
         Command::Compat { command } => compat::run(command, environment),
+        Command::Console { command } => console::run(&command, environment),
         Command::Containment => Ok(check::report(&containment::check(root)?)),
         Command::Dco { base, head } => Ok(check::report(&dco::check(root, &base, &head)?)),
         Command::DependencyDirection => {
@@ -381,25 +437,33 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::Features { command } => features::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
-        Command::Journeys { command } => journeys::run(&command, environment),
+        Command::ImagePins => Ok(check::report(&image_pins::check(root)?)),
+        Command::Journeys { command } => {
+            journeys::run(&command, environment, features::manual_exceptions)
+        }
         Command::JunitSummary(arguments) => junit_summary::run(&arguments, environment),
+        Command::Lazyfs { command } => lazyfs::run(&command, environment),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules => Ok(check::report(&modules::check(cargo, root)?)),
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
         Command::Notices(arguments) => notices::run(&arguments, environment),
         Command::OsServices { command } => os_services::run(command, environment),
+        Command::OutputScans => Ok(check::report(&output_scans::check(root)?)),
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
         Command::Perf { command } => perf::run(command, environment),
         Command::Quarantine { command } => quarantine::run(command, environment),
         Command::ReleaseSuite { command } => release_suite::run(command, environment),
         Command::Repeat(arguments) => repeat::run(arguments, environment),
         Command::Results { command } => run_results(command, environment),
+        Command::Rss { command } => rss::run(command, environment),
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
         Command::Stress { command } => stress::run(command, environment),
+        Command::Telemetry => Ok(check::report(&telemetry::check(root)?)),
         Command::TestTools(arguments) => test_tools::run(&arguments, environment),
         Command::Tlc { command } => tlc::run(command, environment),
+        Command::Watchlist(arguments) => watchlist::run(&arguments, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),
     }
 }

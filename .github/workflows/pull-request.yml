@@ -74,8 +74,12 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh vm
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/vm/exec.sh ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-quick-pull-request-linux-x64-1
@@ -96,6 +100,7 @@ jobs:
       jobs: ${{ steps.select.outputs.jobs }}
       bench-targets: ${{ steps.select.outputs.bench-targets }}
       models: ${{ steps.select.outputs.models }}
+      mutants-shards: ${{ steps.mutants.outputs.mutants-shards }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -113,6 +118,21 @@ jobs:
         run: |
           cat target/affected.txt
           cat target/affected.txt >> "$GITHUB_OUTPUT"
+      # The in-diff mutation job's shards: listing the mutants builds nothing.
+      # The mutation job is outside "all green" (ADR 0072), so a listing
+      # that fails, such as cargo-mutants refusing new syntax, warns and
+      # plans no shard instead of failing this job, which "all green" needs.
+      - name: Count the shards of the change's mutants
+        run: |
+          if ! ci/vm/exec.sh bash -c "ci/mutants.sh plan HEAD^1 > target/mutants-plan.txt"; then
+            echo "::warning title=Mutation testing::listing the change's mutants failed, so the in-diff mutation job does not run; the pull request's Verification section says so"
+            echo 'mutants-shards=[]' > target/mutants-plan.txt
+          fi
+      - name: Write the shards to the job's outputs
+        id: mutants
+        run: |
+          cat target/mutants-plan.txt
+          cat target/mutants-plan.txt >> "$GITHUB_OUTPUT"
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh
@@ -147,6 +167,12 @@ jobs:
         run: ci/egress/egress.sh canary
       - name: "Test: just test-affected pre-merge"
         run: ci/vm/exec.sh just test-affected pre-merge --base HEAD^1 --head HEAD
+      # ADR 0072's exercise audit over the Rust tests that just ran, before
+      # the stress run replaces their JUnit file. With the justfile's
+      # `exercise_audit` at `gate`, a declaring test that never reached its
+      # Feature fails it, so it is a test step (ADR 0064).
+      - name: "Test: audit what each declaring test reached"
+        run: ci/vm/exec.sh just features-audit
       # ADR 0064's stress run: each new or changed test 20 times, and each
       # test the change takes off the quarantine list 200 times, in the
       # order the merge commit's tree seeds. Its JUnit files go to
@@ -155,6 +181,8 @@ jobs:
         run: ci/vm/exec.sh just stress HEAD^1
       - name: Check the Journeys' task lists against the Proving ground
         run: ci/vm/exec.sh just journeys-tasks --check
+      - name: Check each Journey variant's tests, every runner's Feature declarations and the Client conformance cases' tests
+        run: ci/vm/exec.sh just features-tests clients-tests
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -164,8 +192,12 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh vm
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/vm/exec.sh ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-pre-merge-pull-request-linux-x64-1
@@ -228,21 +260,27 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      - name: Write the table to the job's summary page
-        if: always()
-        run: if [[ -f target/perf-summary.md ]]; then cat target/perf-summary.md >>"$GITHUB_STEP_SUMMARY"; fi
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/vm/exec.sh ci/leaks.sh target/junit/ target/perf-summary.md
       # gungraun's and size-limit's reports (target/junit/perf/) and the
       # head's figures (perf-figures.json) go with the JUnit files.
       - name: Upload the JUnit files and the performance reports
-        if: always()
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-perf-pull-request-linux-x64-1
           path: target/junit/
           if-no-files-found: ignore
+      # The summary page is an output too: the table goes to it only once
+      # the scan passed.
+      - name: Write the table to the job's summary page
+        if: always() && steps.leaks.outcome == 'success'
+        run: if [[ -f target/perf-summary.md ]]; then cat target/perf-summary.md >>"$GITHUB_STEP_SUMMARY"; fi
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh
@@ -273,7 +311,11 @@ jobs:
         run: ci/vm/start.sh read-only
       - name: Set up the OS services the tests use
         run: ci/vm/exec.sh ci/os-services.sh setup
+      # The tools are a release asset of this repository, read with the
+      # job's token while the repository is private (ADR 0060).
       - name: Fetch the pinned TLA+ tools
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ci/vm/exec.sh just tlc-fetch
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
@@ -337,15 +379,19 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh vm
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/vm/exec.sh ci/leaks.sh target/junit/ target/vitest-attachments/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-visual-pull-request-linux-x64-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Upload the expected, actual and diff images
-        if: failure()
+        if: failure() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: visual-differences-pull-request
@@ -361,8 +407,11 @@ jobs:
   # build, cargo-hack over each Product's SDK crate, Miri on opted-in
   # `unsafe`, the DCO sign-off and the Conventional Commits subject of every
   # commit the pull request adds, and the third-party notice inventory's
-  # license check over every ecosystem and declared input (#137). cargo-deny's licenses, bans, sources and the
-  # boundary checks run in the Quick job's lints.
+  # license check over every ecosystem and declared input (#137); and two of
+  # ADR 0067's security parts of the Pre-merge suite, gitleaks over those
+  # commits and `cargo fuzz check` (#317). cargo-deny's licenses, bans,
+  # sources and the boundary checks, the image digest pins and the secret
+  # scan before every upload run in the Quick job's lints.
   # The audits read public advisory databases, so they run before the egress
   # deny; Miri runs tests, so it runs under it (ci/egress/endpoints.toml).
   supply-chain:
@@ -387,6 +436,16 @@ jobs:
         run: ci/vm/exec.sh just dco HEAD^1 HEAD^2
       - name: Check every commit's message
         run: ci/vm/exec.sh just commit-messages HEAD^1 HEAD^2
+      # gitleaks over the commits the pull request adds, while the repository
+      # is private; GitHub secret scanning and push protection take over once
+      # it is public (ADR 0067; .github/security-settings.md).
+      - name: Scan every commit for secrets
+        if: github.event.repository.private
+        run: ci/vm/exec.sh just commit-leaks HEAD^1 HEAD^2
+      # Every fuzz target still builds with fuzzing's flags; nothing fuzzes
+      # in a pull request (ADR 0067).
+      - name: Check every fuzz target with cargo fuzz check
+        run: ci/vm/exec.sh just fuzz-check
       - name: Audit the locked dependencies
         run: ci/vm/exec.sh just audit
       - name: Build on the MSRV
@@ -406,6 +465,82 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
+      - name: Destroy the VM
+        if: always()
+        run: ci/vm/stop.sh
+
+  # ADR 0072's in-diff mutation job: cargo-mutants with nextest over the Rust
+  # code the change touches (ci/mutants.sh), in the shards `affected` counts,
+  # each within the 15-minute job budget; skipped when the change touches no
+  # Rust code. It is outside "all green" (not in its `needs`) and fails on no
+  # surviving mutant: each shard's survivors go to its job summary and its
+  # report is attached to the run, for the pull request's Evidence section.
+  # While the repository is private it runs on the owner's machine with the
+  # rest of the tier, using no included minutes, so no shard cap and no
+  # minute threshold apply (ADR 0135). Its steps are not test steps.
+  mutants:
+    name: mutants ${{ matrix.shard }}
+    needs: [affected]
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && needs.affected.result == 'success'
+      && needs.affected.outputs.mutants-shards != '[]'
+    runs-on: [self-hosted, owner-machine]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.affected.outputs.mutants-shards) }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Start the VM
+        run: ci/vm/start.sh read-only
+      - name: Set up the OS services the tests use
+        run: ci/vm/exec.sh ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: Mutate the change's Rust code, one shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
+        run: ci/vm/exec.sh ci/mutants.sh run HEAD^1 "$SHARD/$SHARDS"
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/vm/exec.sh ci/leaks.sh target/mutants/
+      - name: Attach the mutation report
+        id: report
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutants-${{ matrix.shard }}
+          path: target/mutants/
+          if-no-files-found: ignore
+      # The summary page is an output too: it is written only once the scan
+      # of target/mutants/, which holds summary.md, passed. It links the
+      # report, for the pull request's Evidence section.
+      - name: Write the surviving mutants to the job's summary page
+        if: always() && steps.leaks.outcome == 'success'
+        env:
+          URL: ${{ steps.report.outputs.artifact-url }}
+        run: |
+          if [[ -f target/mutants/summary.md ]]; then
+            {
+              cat target/mutants/summary.md
+              [[ -z "$URL" ]] || { echo; echo "Report: $URL"; }
+            } >>"$GITHUB_STEP_SUMMARY"
+          fi
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh

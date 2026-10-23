@@ -27,7 +27,7 @@ use toml::value::Datetime;
 use crate::check::Finding;
 use crate::environment::Environment;
 use crate::github::{self, Api};
-use crate::issues::Label as IssueLabel;
+use crate::issues::{self, Label as IssueLabel};
 use crate::output;
 
 /// The list's file, at the workspace's root.
@@ -171,41 +171,22 @@ pub(crate) struct Sources<'a> {
     pub(crate) cargo_profile: Option<&'a str>,
 }
 
-#[derive(Deserialize)]
-struct Issue {
-    state: String,
-    #[serde(default)]
-    labels: Vec<Label>,
-    /// Present when the number is a pull request's.
-    pull_request: Option<serde::de::IgnoredAny>,
-}
-
-#[derive(Deserialize)]
-struct Label {
-    name: String,
-}
-
 pub(crate) fn check(root: &Path, sources: &Sources<'_>) -> Result<Vec<Finding>> {
     let entries = read(root)?;
     let mut findings = Vec::new();
     for entry in &entries {
-        let path = format!("/repos/{}/issues/{}", sources.repository, entry.issue);
-        let issue: Option<Issue> = sources.api.find(&path)?;
+        let issue = issues::find(&sources.api, sources.repository, entry.issue)?;
         let problem = match issue {
-            None
-            | Some(Issue {
-                pull_request: Some(_),
-                ..
-            }) => Some((
+            None => Some((
                 "quarantine-issue-missing",
                 "is no issue of the repository, or the token cannot read it",
             )),
-            Some(issue) if issue.state != "open" => Some(("quarantine-issue-closed", "is closed")),
+            Some(issue) if !issue.open => Some(("quarantine-issue-closed", "is closed")),
             Some(issue)
                 if !issue
                     .labels
                     .iter()
-                    .any(|label| label.name == IssueLabel::FlakyTest.name()) =>
+                    .any(|label| label == IssueLabel::FlakyTest.name()) =>
             {
                 Some((
                     "quarantine-issue-not-flaky-test",
@@ -311,8 +292,22 @@ pub(crate) fn exclusions(root: &Path) -> Result<Vec<(&'static str, String)>> {
 /// The pattern that matches exactly `tests` of Playwright, which matches a
 /// pattern against the project, the file and the titles joined by spaces.
 pub(crate) fn playwright_pattern(tests: &[&TestId]) -> String {
-    let paths = alternation(tests.iter().map(|test| test.0.replace(" › ", " ")));
-    format!("(?:^| )(?:{paths})(?: |$)")
+    let (before, after) = PLAYWRIGHT_AROUND;
+    let paths = tests
+        .iter()
+        .map(|test| playwright_alternative(test))
+        .collect::<Vec<_>>()
+        .join("|");
+    format!("{before}{paths}{after}")
+}
+
+/// What a Playwright pattern of tests puts before and after their
+/// alternatives, joined by `|`, so that each matches a whole path.
+pub(crate) const PLAYWRIGHT_AROUND: (&str, &str) = ("(?:^| )(?:", ")(?: |$)");
+
+/// A Playwright test's alternative in such a pattern: its path, literal.
+pub(crate) fn playwright_alternative(test: &TestId) -> String {
+    alternation(std::iter::once(test.0.replace(" › ", " ")))
 }
 
 /// The texts as a JavaScript regular expression's alternatives, each literal.

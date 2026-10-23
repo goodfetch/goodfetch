@@ -1,0 +1,515 @@
+//! The engine's event stream (ADRs 0024, 0031 and 0081): one actor, a task
+//! of the engine's owner, that gives every event the next position of the
+//! engine instance, keeps the last lossless ones, and holds each subscription's
+//! queue, from which the subscription takes as many events as its Client's
+//! credits allow.
+//!
+//! No producer ever waits for a subscriber. A lossless event (an axis
+//! change, a "Needs you" item) is never dropped without notice: each
+//! subscription takes them in the order they were published, and one whose
+//! queue is full falls behind instead, its queued lossless events dropped,
+//! and next takes `events.resync`, the axes of every Run the stream has
+//! reported, then the stream (ADRs 0024 and 0031). A telemetry event
+//! (progress, logs) replaces the unsent one of the same kind and scope in
+//! each queue, which the one sent counts as `dropped`. A subscription that
+//! names the position its Client last read resumes after it from the kept
+//! events, and one the engine no longer holds, or another engine instance
+//! gave, as before a Daemon restart, starts behind, with `events.resync`.
+//!
+//! Also the credits a Client grants a streaming call, which the protocol
+//! server adds and the call takes.
+
+use std::collections::{BTreeMap, VecDeque};
+use std::sync::Arc;
+
+use goodfetch_protocol::catalog::{Event, EventClass};
+use goodfetch_protocol::connection::EngineInstance;
+use goodfetch_protocol::events::{EventEnvelope, LastRead, Position, RESYNC, Resync};
+use goodfetch_protocol::run::{RUN_AXES_CHANGED, RunAxes, RunId};
+use serde::Serialize;
+use serde_json::Value;
+use tokio::sync::{Semaphore, mpsc, oneshot};
+
+use crate::tasks::TaskOwner;
+
+/// How many commands wait for the stream's actor before their senders wait.
+const COMMANDS: usize = 1024;
+
+/// The most credits a streaming call holds unspent; a grant past it is
+/// capped.
+const MAX_CREDITS: usize = 1 << 20;
+
+/// How big the stream's buffers are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventsOptions {
+    /// How many lossless events a subscription's queue holds before it
+    /// falls behind to an `events.resync`.
+    pub queue: usize,
+    /// How many of the last lossless events the engine keeps for a
+    /// subscription that resumes.
+    pub retained: usize,
+}
+
+impl Default for EventsOptions {
+    fn default() -> Self {
+        Self {
+            queue: 64,
+            retained: 4096,
+        }
+    }
+}
+
+/// The engine's event stream: a handle to its actor, which any task may
+/// clone.
+#[derive(Clone, Debug)]
+pub struct Events {
+    commands: mpsc::Sender<Command>,
+    instance: EngineInstance,
+}
+
+/// One subscription to the stream, as the call that reads it holds it;
+/// dropping it ends the subscription.
+#[derive(Debug)]
+pub(crate) struct Subscription {
+    id: u64,
+    events: Events,
+    _alive: oneshot::Sender<()>,
+}
+
+/// The credits a Client grants one streaming call with `$/credit`.
+#[derive(Clone, Debug)]
+pub(crate) struct Credits(Arc<Semaphore>);
+
+enum Command {
+    Publish(Publish),
+    Subscribe {
+        after: Option<LastRead>,
+        alive: oneshot::Receiver<()>,
+        answer: oneshot::Sender<u64>,
+    },
+    Take {
+        subscription: u64,
+        most: usize,
+        answer: oneshot::Sender<Vec<EventEnvelope>>,
+    },
+    Unsubscribe(u64),
+}
+
+struct Publish {
+    event: &'static Event,
+    scope: Option<String>,
+    data: Value,
+    axes: Option<RunAxes>,
+    accepted: oneshot::Sender<()>,
+}
+
+impl Events {
+    /// Starts the stream's actor as a task of `owner`, its positions those
+    /// of `instance`.
+    pub(crate) fn start(
+        options: EventsOptions,
+        instance: EngineInstance,
+        owner: &TaskOwner,
+    ) -> Self {
+        let (commands, mailbox) = mpsc::channel(COMMANDS);
+        let stream = Stream {
+            options,
+            instance: instance.clone(),
+            last: 0,
+            floor: 0,
+            retained: VecDeque::new(),
+            runs: BTreeMap::new(),
+            subscriptions: BTreeMap::new(),
+            next_subscription: 0,
+        };
+        let token = owner.token().clone();
+        owner.spawn(async move {
+            tokio::select! {
+                () = stream.run(mailbox) => {}
+                () = token.cancelled() => {}
+            }
+        });
+        Self { commands, instance }
+    }
+
+    /// The engine instance whose positions it gives.
+    pub(crate) fn instance(&self) -> &EngineInstance {
+        &self.instance
+    }
+
+    /// Publishes `event`, with `data` as its payload; `scope` (such as a
+    /// Run ID) tells telemetry events of the same kind apart, which
+    /// coalesce only within one scope.
+    ///
+    /// It answers once the stream has given the event its position, which
+    /// no subscriber's queue delays: a full queue falls behind instead.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the event was sent still publishes it.
+    pub async fn publish(&self, event: &'static Event, scope: Option<&str>, data: &impl Serialize) {
+        let data =
+            serde_json::to_value(data).expect("invariant: an event's payload encodes as JSON");
+        self.send(event, scope.map(str::to_owned), data, None).await;
+    }
+
+    /// Publishes a Run's axes as `run.axes_changed`, which a resync then
+    /// reports.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Events::publish`]'s.
+    pub(crate) async fn publish_axes(&self, axes: RunAxes) {
+        let data = serde_json::to_value(&axes).expect("invariant: a Run's axes encode as JSON");
+        let scope = Some(axes.run_id.as_str().to_owned());
+        self.send(&RUN_AXES_CHANGED, scope, data, Some(axes)).await;
+    }
+
+    async fn send(
+        &self,
+        event: &'static Event,
+        scope: Option<String>,
+        data: Value,
+        axes: Option<RunAxes>,
+    ) {
+        let (accepted, acceptance) = oneshot::channel();
+        let publish = Publish {
+            event,
+            scope,
+            data,
+            axes,
+            accepted,
+        };
+        if self.commands.send(Command::Publish(publish)).await.is_ok() {
+            let _ = acceptance.await;
+        }
+    }
+
+    /// Opens a subscription that resumes after `after`, or starts with the
+    /// next event; `None` once the stream has stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after it was sent opens a subscription the
+    /// stream ends at its next event.
+    pub(crate) async fn subscribe(&self, after: Option<LastRead>) -> Option<Subscription> {
+        let (alive, watched) = oneshot::channel();
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Subscribe {
+                after,
+                alive: watched,
+                answer,
+            })
+            .await
+            .ok()?;
+        let id = answered.await.ok()?;
+        Some(Subscription {
+            id,
+            events: self.clone(),
+            _alive: alive,
+        })
+    }
+}
+
+impl Subscription {
+    /// Waits for at least one event, and takes at most `most`, in the
+    /// order of their positions; `None` once the stream has stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses the events it took; drop it only with the
+    /// subscription.
+    pub(crate) async fn next(&mut self, most: usize) -> Option<Vec<EventEnvelope>> {
+        let (answer, answered) = oneshot::channel();
+        self.events
+            .commands
+            .send(Command::Take {
+                subscription: self.id,
+                most: most.max(1),
+                answer,
+            })
+            .await
+            .ok()?;
+        answered.await.ok()
+    }
+}
+
+impl Drop for Subscription {
+    fn drop(&mut self) {
+        // A full mailbox has commands the actor reads, and each one makes
+        // it find this subscription gone, so a failed send loses nothing.
+        let _ = self.events.commands.try_send(Command::Unsubscribe(self.id));
+    }
+}
+
+impl Credits {
+    /// No credits yet.
+    pub(crate) fn new() -> Self {
+        Self(Arc::new(Semaphore::new(0)))
+    }
+
+    /// Adds `credits`, capped so that at most [`MAX_CREDITS`] stay unspent.
+    pub(crate) fn grant(&self, credits: u32) {
+        let room = MAX_CREDITS.saturating_sub(self.0.available_permits());
+        let credits = usize::try_from(credits).unwrap_or(usize::MAX).min(room);
+        self.0.add_permits(credits);
+    }
+
+    /// Waits for at least one credit, and spends at most `most`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future spends nothing.
+    pub(crate) async fn spend(&self, most: usize) -> usize {
+        let Ok(first) = self.0.acquire().await else {
+            return 0;
+        };
+        first.forget();
+        let more = self.0.available_permits().min(most.saturating_sub(1));
+        let more = u32::try_from(more).unwrap_or(u32::MAX);
+        if more > 0
+            && let Ok(permits) = self.0.try_acquire_many(more)
+        {
+            permits.forget();
+            return 1 + usize::try_from(more).unwrap_or(0);
+        }
+        1
+    }
+
+    /// Gives back `credits` spent on nothing.
+    pub(crate) fn refund(&self, credits: usize) {
+        self.0.add_permits(credits);
+    }
+}
+
+/// One subscription's queue.
+struct Queue {
+    lossless: VecDeque<Arc<EventEnvelope>>,
+    /// Whether it fell behind, or started behind: its next take starts with
+    /// `events.resync`, and it queues no lossless event until then.
+    behind: bool,
+    telemetry: BTreeMap<(&'static str, Option<String>), EventEnvelope>,
+    waiting: Option<(usize, oneshot::Sender<Vec<EventEnvelope>>)>,
+    alive: oneshot::Receiver<()>,
+}
+
+impl Queue {
+    fn is_gone(&mut self) -> bool {
+        matches!(
+            self.alive.try_recv(),
+            Err(oneshot::error::TryRecvError::Closed)
+        )
+    }
+
+    fn is_empty(&self) -> bool {
+        !self.behind && self.lossless.is_empty() && self.telemetry.is_empty()
+    }
+
+    /// Takes at most `most` events, in the order of their positions.
+    fn take(&mut self, most: usize) -> Vec<EventEnvelope> {
+        let mut telemetry: Vec<(Position, (&'static str, Option<String>))> = self
+            .telemetry
+            .iter()
+            .map(|(key, envelope)| (envelope.position, key.clone()))
+            .collect();
+        telemetry.sort_unstable();
+        let mut telemetry = VecDeque::from(telemetry);
+        let mut taken = Vec::new();
+        while taken.len() < most {
+            let lossless = self.lossless.front().map(|envelope| envelope.position);
+            let coalesced = telemetry.front().map(|(position, _)| *position);
+            let next = match (lossless, coalesced) {
+                (Some(lossless), Some(coalesced)) if coalesced < lossless => None,
+                (Some(_), _) => self.lossless.pop_front().map(Arc::unwrap_or_clone),
+                (None, _) => None,
+            };
+            if let Some(envelope) = next {
+                taken.push(envelope);
+                continue;
+            }
+            let Some((_, key)) = telemetry.pop_front() else {
+                break;
+            };
+            if let Some(envelope) = self.telemetry.remove(&key) {
+                taken.push(envelope);
+            }
+        }
+        taken
+    }
+}
+
+/// The actor's state.
+struct Stream {
+    options: EventsOptions,
+    /// The engine instance whose positions it gives.
+    instance: EngineInstance,
+    /// The last position given.
+    last: u64,
+    /// The last position no longer kept: a subscription may resume after
+    /// any position from it to `last`.
+    floor: u64,
+    retained: VecDeque<Arc<EventEnvelope>>,
+    runs: BTreeMap<RunId, RunAxes>,
+    subscriptions: BTreeMap<u64, Queue>,
+    next_subscription: u64,
+}
+
+impl Stream {
+    async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
+        while let Some(command) = mailbox.recv().await {
+            match command {
+                Command::Publish(publish) => self.accept(publish),
+                Command::Subscribe {
+                    after,
+                    alive,
+                    answer,
+                } => {
+                    let id = self.subscribe(after, alive);
+                    if answer.send(id).is_err() {
+                        self.subscriptions.remove(&id);
+                    }
+                }
+                Command::Take {
+                    subscription,
+                    most,
+                    answer,
+                } => {
+                    if let Some(queue) = self.subscriptions.get_mut(&subscription) {
+                        queue.waiting = Some((most, answer));
+                        serve(queue, &mut self.last, &self.runs);
+                    }
+                }
+                Command::Unsubscribe(subscription) => {
+                    self.subscriptions.remove(&subscription);
+                }
+            }
+            self.subscriptions.retain(|_, queue| !queue.is_gone());
+        }
+    }
+
+    fn accept(&mut self, publish: Publish) {
+        let Publish {
+            event,
+            scope,
+            data,
+            axes,
+            accepted,
+        } = publish;
+        let envelope = EventEnvelope {
+            position: next_position(&mut self.last),
+            event: event.name.to_owned(),
+            data,
+            dropped: 0,
+        };
+        match event.class {
+            EventClass::Lossless => {
+                if let Some(axes) = axes {
+                    self.runs.insert(axes.run_id.clone(), axes);
+                }
+                let envelope = Arc::new(envelope);
+                self.retained.push_back(Arc::clone(&envelope));
+                while self.retained.len() > self.options.retained {
+                    if let Some(gone) = self.retained.pop_front() {
+                        self.floor = gone.position.0;
+                    }
+                }
+                for (id, queue) in &mut self.subscriptions {
+                    if queue.behind {
+                        continue;
+                    }
+                    if queue.lossless.len() >= self.options.queue {
+                        tracing::debug!(
+                            subscription = id,
+                            "a subscription fell behind: its next take is a resync"
+                        );
+                        queue.lossless.clear();
+                        queue.behind = true;
+                        continue;
+                    }
+                    queue.lossless.push_back(Arc::clone(&envelope));
+                    serve(queue, &mut self.last, &self.runs);
+                }
+            }
+            EventClass::Telemetry => {
+                for queue in self.subscriptions.values_mut() {
+                    let key = (event.name, scope.clone());
+                    let dropped = queue
+                        .telemetry
+                        .get(&key)
+                        .map_or(0, |unsent| unsent.dropped + 1);
+                    queue.telemetry.insert(
+                        key,
+                        EventEnvelope {
+                            dropped,
+                            ..envelope.clone()
+                        },
+                    );
+                    serve(queue, &mut self.last, &self.runs);
+                }
+            }
+        }
+        let _ = accepted.send(());
+    }
+
+    fn subscribe(&mut self, after: Option<LastRead>, alive: oneshot::Receiver<()>) -> u64 {
+        let id = self.next_subscription;
+        self.next_subscription += 1;
+        let mut queue = Queue {
+            lossless: VecDeque::new(),
+            behind: false,
+            telemetry: BTreeMap::new(),
+            waiting: None,
+            alive,
+        };
+        match after {
+            None => {}
+            Some(LastRead {
+                engine_instance,
+                position: Position(after),
+            }) if engine_instance == self.instance && (self.floor..=self.last).contains(&after) => {
+                queue.lossless.extend(
+                    self.retained
+                        .iter()
+                        .filter(|envelope| envelope.position.0 > after)
+                        .cloned(),
+                );
+            }
+            Some(_) => queue.behind = true,
+        }
+        self.subscriptions.insert(id, queue);
+        id
+    }
+}
+
+/// The position after `last`, which it becomes.
+fn next_position(last: &mut u64) -> Position {
+    *last += 1;
+    Position(*last)
+}
+
+/// Answers the queue's waiting take, if any, once it has an event; a queue
+/// behind first takes `events.resync`, at the next position, with the axes
+/// of every Run in `runs`.
+fn serve(queue: &mut Queue, last: &mut u64, runs: &BTreeMap<RunId, RunAxes>) {
+    if queue.is_empty() {
+        return;
+    }
+    if let Some((most, answer)) = queue.waiting.take() {
+        if queue.behind {
+            let resync = Resync {
+                runs: runs.values().cloned().collect(),
+            };
+            queue.lossless.push_back(Arc::new(EventEnvelope {
+                position: next_position(last),
+                event: RESYNC.name.to_owned(),
+                data: serde_json::to_value(resync).expect("invariant: a resync encodes as JSON"),
+                dropped: 0,
+            }));
+            queue.behind = false;
+        }
+        let taken = queue.take(most);
+        // A take whose reader is gone ends with its subscription.
+        let _ = answer.send(taken);
+    }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "web-support",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./include": "./include.mjs"
+  }
+}

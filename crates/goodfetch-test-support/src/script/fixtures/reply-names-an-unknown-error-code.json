@@ -1,0 +1,31 @@
+{
+  "description": "A hello refused with an Error code the catalog does not have, which the check refuses.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.1.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "Refused.",
+          "data": {
+            "code": "hello_refused",
+            "retryable": false
+          }
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

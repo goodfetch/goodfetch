@@ -1,0 +1,122 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings.log]
+format = "text"
+
+[settings.otlp]
+traces_endpoint = "example"
+
+[settings.console]
+address = "example"
+
+[settings.daemon]
+idle_timeout = 30000
+address = "example"
+drain_grace = 30000
+
+[settings.browser_cache]
+max_unused_age = 30000
+
+[settings.resolver]
+resolution_delay = 30000
+attempt_delay = 30000
+
+[settings.browser]
+headless = true
+
+[settings.run_state]
+location = "example"
+durability = "full"
+layout = "per_run"
+key_reference = "env:EXAMPLE"
+
+[settings.checkpoint]
+interval = 30000
+
+[settings.timeout]
+secret = 30000
+run = 30000
+action = 30000
+navigation = 30000
+first_byte = 30000
+handler = 30000
+
+[settings.sample]
+echo_repeats = 4
+
+[settings.egress]
+offline = true
+
+[settings.network]
+resolve = { "example.test" = ["127.0.0.1"] }
+
+[settings.tls]
+trusted_cas = { "example.test" = ["example"] }
+accept_invalid_certs = { "example.test" = "example" }
+
+[settings.consent]
+domains = ["example"]
+
+[settings.wall]
+domains = ["example"]
+refetch_domains = ["example"]
+denied_domains = ["example"]
+
+[settings.filter_lists]
+extra = ["example"]
+
+[settings.session]
+source = "example"
+
+[settings.session.pool]
+max_size = 4
+max_uses = 4
+max_age = 30000
+max_error_score = 4
+
+[settings.secrets]
+by_reference = true
+
+[settings.webhook]
+signing = true
+
+[settings.admission]
+max_requests_per_minute = 4
+
+[settings.version]
+age_notice = true
+
+[settings.politeness]
+sharing = "shared"
+
+[settings.politeness.domain]
+concurrency = 4
+delay = 30000
+
+[settings.crawl]
+sample_pages = 4
+domain_keys = { "example.test" = "example" }
+keep_alive = true
+
+[settings.crawl.retry]
+max = 4
+handler_failed = true
+
+[settings.crawl.handler]
+concurrency = 4
+
+[settings.crawl.scope]
+strategy = "same_hostname"
+include = ["example"]
+exclude = ["example"]
+
+[settings.paid_fetch]
+domains = ["example"]
+max_price_per_page = "0.05 USD"
+exchange_rates = { "example.test" = "example" }
+chain_rpc_endpoints = { "example.test" = "example" }
+
+[settings.delivery]
+write_ids_and_epochs = true
+report_guarantee_class = true

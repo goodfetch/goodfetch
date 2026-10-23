@@ -1,0 +1,3 @@
+{"test":"sample::it receives_the_echoed_event"}
+{"timestamp":"2026-01-05T09:00:00Z","level":"TRACE","fields":{"message":"request answered","method":"sample.echo"},"target":"goodfetch::rpc::dispatch"}
+{"timestamp":"2026-01-05T09:00:00Z","level":"TRACE","fields":{"message":"event sent","event":"sample.echoed"},"target":"goodfetch::rpc::dispatch"}

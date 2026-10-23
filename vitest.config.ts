@@ -5,13 +5,15 @@
 // fails and none is written.
 //
 // Screenshot tests (`*.visual.test.ts[x]`) form the `visual` project, which
-// exists only inside the pinned Playwright image (ADR 0073; ci/visual/), where
-// ci/visual/run.sh sets GOODFETCH_VISUAL_IMAGE. Reference screenshots are
-// named without the platform, and each one a test reads is recorded under
-// target/visual/read/ for the orphan check (`xtask screenshots orphans`).
-import { appendFileSync, mkdirSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+// test support's shared visual config gives only inside the pinned Playwright
+// image (ADR 0073; ci/visual/).
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { CaseLogReporter, clientCaseTags, readClientCases } from "@goodfetch/test-support/case-log";
+import { readFeatureIds } from "@goodfetch/test-support/features";
 import { browserCommands } from "@goodfetch/test-support/vitest-browser/commands";
+import { VITEST_VISUAL_TESTS, visualConfig } from "@goodfetch/test-support/visual-config";
+import { lingui } from "@lingui/vite-plugin";
 import { playwright } from "@vitest/browser-playwright";
 import {
   defineConfig,
@@ -27,7 +29,7 @@ const outside = [
   "ci/proofs/**",
   "target/**",
 ];
-const visualTests = "**/*.visual.test.{ts,tsx}";
+const visualTests = VITEST_VISUAL_TESTS;
 
 // A `.test.tsx` file renders or needs the DOM, so it runs in Vitest Browser
 // Mode with the Playwright provider (ADR 0068; TESTING.md, Components), never
@@ -52,41 +54,33 @@ const component: TestProjectInlineConfiguration = {
   },
 };
 
-const visual: TestProjectInlineConfiguration = {
+// The Release suite reruns the Console's screens under WCAG's text-spacing
+// values and 200% text (ADR 0073; TESTING.md, Accessibility), a style sheet
+// test support's setup injects into each test's page, where `clippedText`
+// checks no text is cut off. Served tests cannot take it: the production CSP
+// refuses an injected style sheet.
+const componentTextSpacing: TestProjectInlineConfiguration = {
   extends: true,
   test: {
-    name: "visual",
-    include: [visualTests],
-    exclude: outside,
+    name: "component-text-spacing",
+    include: ["console/**/tests/screens/**/*.test.tsx"],
+    exclude: [...outside, visualTests],
     testTimeout: 300_000,
-    // A failed comparison's actual and diff images, uploaded by the visual job.
-    attachmentsDir: "target/vitest-attachments",
+    setupFiles: [
+      "@goodfetch/test-support/vitest-browser/setup",
+      "@goodfetch/test-support/vitest-browser/text-spacing",
+    ],
     browser: {
       enabled: true,
       headless: true,
       provider: playwright(),
-      instances: [{ browser: "chromium" }],
-      expect: {
-        toMatchScreenshot: {
-          resolveScreenshotPath: (reference) => {
-            const path = resolve(
-              reference.root,
-              reference.testFileDirectory,
-              reference.screenshotDirectory,
-              reference.testFileName,
-              `${reference.arg}-${reference.browserName}${reference.ext}`,
-            );
-            const records = join(reference.root, "target", "visual", "read");
-            mkdirSync(records, { recursive: true });
-            const line = relative(reference.root, path).split(sep).join("/");
-            appendFileSync(join(records, `vitest-${process.pid}.txt`), `${line}\n`);
-            return path;
-          },
-        },
-      },
+      instances: [{ browser: "chromium", name: "component-text-spacing (chromium)" }],
+      commands: browserCommands,
     },
   },
 };
+
+const visual = visualConfig.vitest(process.env, playwright, { exclude: outside });
 
 // The order seed (ci/order-seed.sh) is the tree under test's first 8 bytes;
 // the constrained test-health run (ADR 0064; ci/test-health/constrained.sh)
@@ -97,8 +91,53 @@ const orderSeedText = process.env["GOODFETCH_ORDER_SEED"];
 const orderSeed =
   orderSeedText === undefined ? undefined : Number(BigInt(orderSeedText) % 2n ** 53n);
 
+// The tags a Journey test carries (ADR 0063; TESTING.md, Journeys): its
+// Journey's ID, one per file of the catalog, and its surface, of those
+// Vitest runs. `strictTags` refuses any other tag.
+const journeyTags = readdirSync(join(import.meta.dirname, "journeys"))
+  .filter((name) => /^J-\d{3,9}\.toml$/.test(name))
+  .map((name) => ({ name: name.slice(0, -".toml".length) }));
+const surfaceTags = [{ name: "sdk-typescript" }];
+// A test declares a Feature with a tag of its ID (ADR 0072), one per Feature
+// of the inventory, validated against its schema. Vitest takes the IDs as
+// they are: its tag names accept `:` and `.` (checked on Vitest 5.0.5).
+const featureTags = readFeatureIds(import.meta.dirname).map((name) => ({ name }));
+// A Client conformance test carries its case as `client_case/<id>`, one tag
+// per case of the case list, and its mode as `attached` or `daemon` (ADR
+// 0069). The case-log reporter writes one entry per case each run ran, for
+// `goodfetch-conformance write`; `xtask clients check` reads the same tags
+// from Vitest's listing.
+const caseList = join(import.meta.dirname, "conformance", "clients", "cases.toml");
+const caseTags = clientCaseTags(readClientCases(caseList));
+
+// `just coverage` (ADR 0072; TESTING.md, Code coverage) names the folder its
+// reports go to: Vitest's `v8` provider then measures every project, in Node
+// and in Browser Mode, with no threshold.
+const coverageFolder = process.env["GOODFETCH_COVERAGE"];
+
+// The Console's components render their messages through Lingui's macros
+// and its catalog, compiled as the Console's build compiles them (ADR 0073).
+// A copy of this config in a folder without the Console, as test support's
+// own runs of it make, takes no plugin.
+const consoleMessages = join(import.meta.dirname, "console", "collie", "lingui.config.ts");
+
 const config: ViteUserConfig = defineConfig({
+  plugins: existsSync(consoleMessages)
+    ? [lingui({ macroTransform: true, configPath: consoleMessages })]
+    : [],
   test: {
+    ...(visual.update === undefined ? {} : { update: visual.update }),
+    ...(coverageFolder === undefined
+      ? {}
+      : {
+          coverage: {
+            enabled: true,
+            provider: "v8",
+            reporter: ["text-summary", "html", "lcov"],
+            reportsDirectory: join(coverageFolder, "vitest"),
+            exclude: [...outside, "**/generated/**"],
+          },
+        }),
     retry: 0,
     restoreMocks: true,
     unstubEnvs: true,
@@ -109,12 +148,18 @@ const config: ViteUserConfig = defineConfig({
     },
     detectAsyncLeaks: process.env["GOODFETCH_DETECT_ASYNC_LEAKS"] === "1",
     passWithNoTests: true,
+    tags: [...journeyTags, ...surfaceTags, ...featureTags, ...caseTags],
+    strictTags: true,
     // Attachments, a failed browser test's screenshot among them, go beside
     // the JUnit files, never into the source tree.
     attachmentsDir: "target/vitest-attachments",
     // The Quick suite passes `--slowTestThreshold=1000`; Vitest sets it per run, not per project.
     slowTestThreshold: 30_000,
-    reporters: ["default", "junit"],
+    reporters: [
+      "default",
+      "junit",
+      new CaseLogReporter({ out: "target/case-logs/vitest.jsonl", caseList }),
+    ],
     outputFile: { junit: "target/junit/vitest.xml" },
     projects: [
       {
@@ -136,7 +181,8 @@ const config: ViteUserConfig = defineConfig({
         },
       },
       component,
-      ...(process.env["GOODFETCH_VISUAL_IMAGE"] === undefined ? [] : [visual]),
+      ...(process.env["GOODFETCH_TEST_SUITE"] === "release" ? [componentTextSpacing] : []),
+      ...visual.projects,
     ],
   },
 });

@@ -1,0 +1,2353 @@
+# Area 11's user stories (spec #604, Client surfaces, Collie, parts 1 and 2),
+# the declared `story:11-<id>` Features of ADR 0072: every story of Collie's
+# part, 1 to 299, with the flag the spec gives it inline. Each story's
+# milestone is that of the earliest ticket that makes it tested; a story
+# without a Journey carries ADR 0075's reason (`actor`, `part` or `reach`).
+# The spec's issue keeps the full text; this copy is the one the Feature
+# check reads. Foxhound's part adds its stories from 1001. Never renumber or
+# reuse an ID: a removed story stays with `status = "retired"` and a
+# `reason`.
+
+[[story]]
+id = 1
+title = "As a developer, I want one package per language (`@goodfetch/collie` on npm, `goodfetch-collie` on PyPI, the `goodfetch-collie` crate) with `goodfetch_collie` as the Python and Rust module, so that I start with one install, no install script and no browser download until a call first needs one (ADRs 0024, 0090; SDK-01; P24, P51, K09)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 2
+title = "As a developer, I want `Collie.connect()` with no options to find or start the engine and finish `hello` before it returns, so that a missing binary or a refused version fails there with a message that names the fix (ADR 0078; P24, K09; G6)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 3
+title = "As a developer, I want the connection to be the Product (`collie.start(…)`, `AsyncCollie` beside the sync `Collie` in Python, `goodfetch_collie::Collie` and `goodfetch_collie::blocking` in Rust), so that what I type matches the executable I installed and Foxhound's connection adds members under the same names (ADRs 0078, 0090, 0095; SDK-01, SDK-02)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 4
+title = "As a developer, I want `engine` to take `auto` (a Daemon when one is configured or running, else an Attached engine, in Rust the linked engine), `attached` (TypeScript, Python), `linked` (Rust), `daemon` or `{ url, token }`, so that one program runs on my laptop, a shared Daemon or Goodfetch Cloud (ADRs 0078, 0024, 0049; SDK-06)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 5
+title = "As a developer, I want `GOODFETCH_URL` and `GOODFETCH_TOKEN` to fill `engine` only when my code leaves it at `auto`, a value in code to win, and the token never to appear in a log, an error or `EngineInfo`, so that deployment sets the address and code stays the authority (ADRs 0078, 0083, 0092)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 6
+title = "As a developer on a serverless or edge platform, I want to reach an Exposed Daemon or Goodfetch Cloud over WebSocket (subprotocol `goodfetch.v<major>`) that reconnects with backoff (250 ms, doubling to 10 s, within `timeout.connect`) and resubscribes from the last position, so that a dropped connection loses no events (ADRs 0049, 0024; pain 12)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 7
+title = "As a developer on Cloudflare Workers, Vercel Functions or Deno Deploy, I want a request that needs something to outlive it (a crawl's handlers, an SDK handler, a Hook in code, `page.lend`) to fail at once with `edge_handlers_unsupported` and a fix that runs it as a Recipe on the Daemon, so that I do not learn it when the request ends (ADRs 0049, 0079)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 8
+title = "As a developer, I want `collie.engine()` to report the kind reached, the engine's Product and versions, the protocol version, the project file, the Goodfetch home, the engine path and the address, logged at info, so that I can tell which engine my program reached (ADRs 0078, 0083, 0095; G6)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 9
+title = "As a developer, I want `engine: \"auto\"` to run the engine it would run with no Daemon when the Daemon refuses the Connection by Product or protocol version and cannot hand over, recording why in `EngineInfo.fallback` and logging it once at warning, and `engine: \"daemon\"` to fail with the refusal naming the `daemon restart` of my executable, so that a mismatch never changes where my program runs unseen (ADR 0098; G4, G6)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 10
+title = "As a developer with Collie installed, I want a Foxhound-only setting or operation to answer `not_in_product` through `NotInProductError`, naming the engine's Product, the Product needed and a per-channel install command, so that I know what to install (ADRs 0087, 0090)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 11
+title = "As a Rust developer, I want the SDK crate to link the engine in-process and the install docs to list CMake, a C/C++ compiler, libclang and git, so that `cargo add goodfetch-collie` builds on my machine without a surprise (ADRs 0124, 0078)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 12
+title = "As a developer, I want `import goodfetch_collie` and each package entry to load no Framework adapter, AI provider or Playwright until used, and `engine: \"auto\"`'s Daemon probe to sit inside the startup benchmark, so that start-up stays fast and measured, each TypeScript entry and the Collie client package's browser entry staying under its size limit (ADR 0071; K09)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 13
+title = "As a developer, I want browsers fetched on first use into the shared Browser cache and, offline or on a failed download, `browser_not_installed`, `artifact_unavailable_offline` or `artifact_download_failed` with a fix naming `browser install` of my executable, so that a first run needs one command at most (ADRs 0115, 0098; P24, K09)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 14
+title = "As a developer, I want the SDK to send nothing anywhere except to the engine I connect to, no telemetry and not even an opt-in one, so that my program's egress is only what I configured (ADRs 0043, 0101; P13)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 15
+title = "As a developer embedding Collie in a web service or a notebook, I want many connections in one process, each with its own settings and its own engine when it starts one, `connect()` to work again after `close()`, and nothing at import (no logging setup, event-loop patch, signal handler or `atexit` hook), so that Collie is a guest in my program (ADR 0078; P05; G2, G4)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 16
+title = "As a developer, I want every value to close its children and nothing it did not start, in the tree Connection, Run, Session, Page, so that a Borrowed browser's tabs and a Daemon outlive my close (ADR 0078; P06)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 17
+title = "As a developer, I want the scoped form of my language (`await using`, `async with` or `with`, `Collie::scope`) beside a first-class idempotent `close()`, and every later call on a closed value to fail `closed`, so that teardown is one line and a leak is a typed error (ADR 0078; P06)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 18
+title = "As a developer, I want closing a running Run to stop it at its next safe point with a Checkpoint, ended `stopped` and `incomplete` and resumable by Run ID, and closing a detached Run's value to free only the value, so that closing loses no work and never kills work meant to outlive me (ADRs 0078, 0102, 0029)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 19
+title = "As a developer, I want a connection's `close()` to cancel in-flight calls, close the Runs it opened except detached ones, end every borrow, then stop an Attached engine (and wait for it) but only disconnect from a Daemon, so that the engine's life follows whoever started it (ADRs 0078, 0024)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 20
+title = "As a developer, I want a failed close to raise a typed error (a `SuppressedError` when `await using` is already unwinding, a chained exception in Python), so that no failure is swallowed (ADR 0078; G1)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 21
+title = "As a Rust developer, I want `Drop` never to block or fail, to cancel without waiting when the last clone of an unclosed value drops (with a `tracing` warning), and the child processes the crate starts to use `kill_on_drop`, so that dropping a handle inside a request handler is safe (ADRs 0078, 0081; P06)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 22
+title = "As a developer, I want no signal handler from the SDK, an Attached engine in its own process group so Ctrl+C reaches only my program, unwinding (Python `KeyboardInterrupt`) to close the connection and checkpoint, and docs advising closing the Run on `SIGINT` and `SIGTERM`, so that interrupting my script loses nothing (ADRs 0078, 0093)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 23
+title = "As a developer whose program forks, I want a Connection, or any value hanging from it, used in another process to fail with `connection_forked` and the fix \"connect in the child process\", so that two processes never share one pipe (ADR 0078)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 24
+title = "As a developer, I want an Attached engine that ends without being closed to raise `engine_exited` (an `UnavailableError`, not retryable, with exit code, signal and the last 64 KiB of stderr), so that a crash arrives with its evidence (ADRs 0078, 0079)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 25
+title = "As a developer, I want the SDK to print nothing and log through my logger: a `logger` option of `{ debug, info, warn, error }` in TypeScript (silent without one), loggers under `goodfetch` with only a `NullHandler` in Python, `tracing` targets `goodfetch::…` in Rust with no subscriber installed, logger names under semver and message text not, so that Collie's output reaches my logs and my stdout stays mine (ADR 0078; P44; G4)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 26
+title = "As a developer, I want the engine's logs filtered at the level my logger records, sent as `log_level` in `hello` and by `connection.set_log_level` when it changed at `connect()` or when a Run starts or opens (TypeScript: `logger.level` when it is a known name, else `info`, no logger `off`; Python: the `goodfetch.engine` logger's effective level; Rust: the highest level `tracing` records for `goodfetch::engine`), so that debug logs are free when unread (ADR 0078)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 27
+title = "As a developer, I want an Attached engine's stderr piped, never inherited, re-emitted line by line at warning through my logger, with the last 64 KiB kept for the error on an unexpected exit, so that its age notice and crash output reach my host's logging (ADRs 0078, 0122)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 28
+title = "As a developer, I want one generated class per Error code under `ProgramError`, `RefusedError`, `PageError`, `ModelError`, `DeadlineExceededError`, `UnavailableError` and `InternalError`, with `code` a literal union I can check without `instanceof`, so that I choose retry, change or abort by remedy, and Python's sync and async clients raise the same classes (ADR 0079; RT-05; P10)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 29
+title = "As a developer, I want a call to raise when it could not do what its name promises and return a value when its promise includes \"no\" (`count()` 0, `isVisible()` false, `goto()` meeting a 404 returns the `Response`), in Rust as `Result<T, Error>` with outcomes inside `T`, so that no failure looks like a result and no expected outcome is thrown (ADR 0079; P04; G1)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 30
+title = "As a developer, I want every error to carry `code`, `group`, `retryable`, `message`, `operation`, `callId`, `runId` and, where they apply, `target`, `url`, `observed`, `limit` (setting, value, layer and origin), `fix`, `callLog` and typed `details`, never a Secret's value, so that a failure says what was tried, what was seen, where the limit came from and what to change (ADR 0079; P10; G6)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 31
+title = "As a developer, I want each SDK to declare its language in `hello` so the engine renders targets and names in my spelling (`page.getByRole('button', { name: 'Next' })`, `page.wait_for_url`) while `operation` and `limit` stay canonical, so that a message reads as code I could write (ADRs 0079, 0099)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 32
+title = "As a developer, I want the SDK never to retry a call by itself and, after reconnecting a dropped connection, to re-send an in-flight call only when the catalog classes it read or idempotent write, an Effect raising `UnavailableError`, so that a retry never repeats an Effect (ADR 0079)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 33
+title = "As a developer talking to a newer engine, I want an unknown Error code to raise its group's class with the code kept, and unknown outcome kinds, Verdicts, Block causes, skip reasons, Usage kinds, Limit scopes, Notification events and Hook stages kept as strings (an unknown Verdict never `verified`), so that nothing new raises, including values only Foxhound carries (ADRs 0079, 0095; G3)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 34
+title = "As a developer, I want AI work that can claim success to report `ended`, `verdict` and `reported` apart, with `requireVerified()` (`require_verified()`) returning the output or raising `not_verified` with the Verdict and its reasons, so that a model's \"done\" is never taken for proof (ADRs 0079, 0100, 0117; P04)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 35
+title = "As a developer, I want data gathered before a failure to travel on the error's details, an early end to carry a partial-typed field, and a call over many items to report one outcome per item, so that a value of a declared type is always complete (ADR 0079; G1)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 36
+title = "As a Rust developer, I want one opaque `Error` with an accessor per field, `ErrorCode` an open newtype with constants, details read by type with `details::<D>()`, and `BoxError` accepted from my own code, so that `?` works and unknown codes survive (ADRs 0079, 0099, 0109; SDK-06)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 37
+title = "As a developer, I want every Error code to have a generated class under its group in the package of its Product, none shadowing a built-in name, including `NotInProductError`, `BrowserHostOutdatedError`, `BrowserHostUnreachableError`, `ChallengeUnsolvedError`, `ExecutableBlockedError` and `PluginCrashedError`, and the CLI's `person_required` (a `RefusedError`, not retryable), so that no code is a bare string (ADRs 0079, 0087; P10)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 38
+title = "As a developer, I want Block causes spelled as the catalog's wire values (`rate_limit`, `ip_block`, `challenge`, `captcha`, `payment_required`, `consent_required`, …) in every SDK, and `retryAfter` a point in time on `BlockedError` and `ResponseUnavailableError` but a duration on `ModelUnavailableError`, each documented beside its type, so that I branch on the cause the engine reports (ADRs 0035, 0092, 0101, 0118)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 39
+title = "As a developer, I want `TooManyRedirectsError.details.max` and a `limit` naming the setting or option that set it (absent for a browser navigation's fixed 20), `effect_uncertain` details to name the crawl request (null on a Collie Run), `secret_unavailable` to say `no_code` when a one-time code never came, and Rust's `PageNavigatedDuringCallDetails { url, navigated_to }`, so that details are complete in every language (ADRs 0118, 0106, 0092, 0114; pitfalls U12, U13, H02, H05, H07, H15, H24)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 40
+title = "As a developer, I want one duration type per language (a `number` of milliseconds named `timeout` in TypeScript, `datetime.timedelta` only in Python, `std::time::Duration` in Rust), so that Playwright's `timeout=30000` is a type error in Python and no unit is guessed (ADR 0080; P38; S1)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 41
+title = "As a developer, I want timeouts to nest (an inner call never outlasts its outer one), every phase to have a finite default held as a setting (connect, action, navigation and wait 30 s, close 30 s, `ai` 120 s, `model` 60 s, `agent` 10 min, `human_pause` 24 h), and `timeout.run` to have none, so that nothing hangs without naming the phase (ADR 0080; RT-06; P08)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 42
+title = "As a developer, I want a timeout omitted to mean the setting's default, `null` (`None`, `.no_timeout()`) to mean none, and `0`, a negative or a non-finite value to raise `setting_invalid` with `limit.origin = \"argument\"` and a fix naming the null form, so that a typo never disables a deadline (ADR 0080)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 43
+title = "As a developer, I want every timeout to raise `DeadlineExceededError` (`deadline_exceeded`) with the call, the setting that set it and its layer, the timeout, the elapsed time, what was waited for and, when an outer timeout ended it, that call's `operation` and `callId`, so that I find the phase that was slow (ADR 0080; P08, P10; G6)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 44
+title = "As a developer filling a form, I want a waiter armed when it is called (TypeScript `const r = page.waitForResponse(u); await click(); await r`, Python `async with page.expect_response(u) as info`, Rust `page.wait_for_response(u).during(action)`), so that the response my click triggers is never missed (ADR 0080; SA-14; P01, P02)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 45
+title = "As a developer, I want Playwright's waits plus `waitForRequestFinished` and `locator.waitForCount(n | { min, max })`, with `networkidle` defined as no request in flight for 500 ms (WebSockets and server-sent events excluded), so that I wait for application state, not for an element (ADR 0080; SA-14; P01)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 46
+title = "As a developer, I want `waitForTimeout` to be a tombstone that cannot type-check (and in TypeScript and Python fails with `removed` naming the replacement), so that a fixed sleep has a pointer to a real wait (ADR 0080; P37)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 47
+title = "As a developer, I want a `signal` in TypeScript, task cancellation in Python and a dropped future in Rust to each send `$/cancel` and stop the engine's work, so that a disconnected caller leaves no browser running (ADRs 0080, 0081; P23)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 48
+title = "As a developer, I want `call_cancelled` (`UnavailableError`, not retryable) raised only when someone other than the caller stops a call, with `by`, `closed` and `person` in its details, so that my own cancellation is never an error (ADRs 0080, 0113)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 49
+title = "As a developer, I want a Human pause to stop every enclosing clock, so that a person's time never fails my call (ADRs 0080, 0092)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 50
+title = "As a developer, I want a Run's own `timeout` (`timeout.run`, no built-in default) to stop it with a Checkpoint, `stopped` and `incomplete`, resumable with a fresh clock, so that a whole-Run bound is a resumable stop, not a failure (ADRs 0080, 0029)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 51
+title = "As a developer, I want `limits` on `connect()` and on a Run's start, typed per Usage kind with a price as `Money` (TypeScript `{ amount: \"0.50\", currency: \"USD\" }`, Python `Decimal`, Rust `Money::new`), lowered and never raised, a resume with a higher one raising `limit_raise_refused`, so that my code can only make a Run safer (ADRs 0080, 0041; P42)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 52
+title = "As a developer, I want a call refused because a Limit is used up to raise `limit_reached` (a `RefusedError` naming kind, scope, value and where set), AI work stopped by one to end `stopped` naming it, and the Run to end `stopped` and `incomplete` with its partial results, so that a Limit ends work cleanly (ADR 0080; P42)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 53
+title = "As a TypeScript developer, I want an async-only SDK whose connection belongs to the realm that opened it, a `worker_threads` worker opening its own, so that nothing is shared across realms by accident (ADR 0081; P22)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 54
+title = "As a Python developer, I want `AsyncCollie` on AnyIO (asyncio and Trio) and a sync `Collie` that runs the async core on one private thread per connection, works in a notebook, Streamlit or a sync tool, and never keeps the process alive, so that I use the model my program already has (ADR 0081; SDK-06; P22, P05)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 55
+title = "As a Python developer, I want an async value used from another event loop or thread to fail at once with `event_loop_mismatch` (a `ProgramError`) whose fix names the sync client, so that a cross-loop call is never a hang (ADR 0081)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 56
+title = "As a Python developer, I want Ctrl+C or any exception in a thread blocked in a sync call to send `$/cancel` without waiting and propagate unchanged, interruptible on every OS, and another thread closing the value to give `call_cancelled`, so that the sync client cancels the host's way (ADR 0081)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 57
+title = "As a developer, I want my handlers, routes and listeners to run where my code runs (the TypeScript loop, tasks on the connection's loop in Python async, a thread pool the connection owns in Python sync, inside the awaited future in Rust), so that they use my variables and never run in the SDK's thread (ADR 0081)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 58
+title = "As a Windows developer, I want the async Python client to start an Attached engine under asyncio's selector loop with `subprocess.Popen` on a worker thread bridged to the loop, and never to set an event-loop policy, so that it works under either loop with nothing set at import (ADRs 0081, 0078)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 59
+title = "As a Rust developer, I want every handle to be a cheap clone, `Send + Sync + 'static`, with `close()` on any clone closing for all and every call's future `Send`, running on any executor (a single-threaded one included), so that I spawn SDK calls where I like (ADRs 0081, 0112; SDK-06; P22)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 60
+title = "As a Rust developer, I want the SDK to build its own Tokio runtime through the one runtime helper the executables use (a small client runtime for a Daemon or Cloud connection), shut down in the background and never dropped on an async worker, with `goodfetch_collie::blocking` safe inside an async runtime, so that the engine never competes with my runtime (ADRs 0081, 0060)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 61
+title = "As a developer, I want no queue in the SDK (each call goes to the engine when made and the engine orders a page's Gestures), so that nothing is hidden between my code and the engine (ADRs 0081, 0085; K04)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 62
+title = "As a developer, I want side activity on a page as a listener (`page.on('console', listener)` returns a `Subscription`) and a sequence read to its end (a Run's progress, an Agent's steps) as `for await`, `async for` or `for`, in Rust an `EventStream` for both, each subscribed when called, with no `off` and no `once`, so that each event has one obvious form (ADR 0081; SA-18, CO-29; K04)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 63
+title = "As a developer, I want a listener to run one event at a time in order, a lossless sequence I leave unread to slow its producer, a throwing listener removed and `listener_failed` raised once from the next call on its value or its `close()` (else logged at error), and an iterator to unsubscribe on `break`, `close()` or release, so that an event handler never ends my program (ADR 0081)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 64
+title = "As a developer, I want URL globs and regular expressions to run in the engine, a TypeScript `RegExp` mapped (flags `i`, `m`, `s`, `u`; `g` and `y` ignored; `v` refused; `\\d`, `\\w`, `\\s`, `\\b` ASCII as in JavaScript), a Python pattern keeping Unicode classes unless `re.ASCII` is set, and a construct the syntax lacks to fail at the call with `pattern_unsupported` naming it and suggesting a predicate, so that a pattern matches as in its own language or is refused (ADR 0081; G3, G5)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 65
+title = "As a developer, I want a predicate to run in my program on events the engine sends while it is armed, and a page function to take one explicit JSON argument, so that nothing I pass as a predicate runs in the page (ADRs 0081, 0085)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 66
+title = "As a developer, I want a schema in my language's own type (a Standard Schema with Standard JSON Schema in TypeScript such as Zod 4.2, ArkType or Valibot; a Pydantic v2 model or any `TypeAdapter` type in Python; a `schemars` type in Rust through the SDK's re-export) and a hand-written JSON Schema everywhere, so that no schema library is forced on me (ADR 0082; SDK-06; P19; G7)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 67
+title = "As a developer, I want the sent value to have the schema's input type and the received value its output type, my own validators (Zod `.refine()`, `@field_validator`, a custom `Deserialize`) to join the extraction retry loop, and a validator that throws something other than a rejection to fail at once with `schema_validator_failed`, so that my rules shape the model's answer without retry loops hiding bugs (ADRs 0082, 0012)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 68
+title = "As a developer, I want results to keep unknown fields (never validated or stripped) and inputs to stay strict (TypeScript excess-property checks, Pydantic forbidding extras, Rust builders), and only JSON values to cross (a non-JSON value raising from the sending call with its field path), so that a newer engine never breaks my program (ADR 0082; G3)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 69
+title = "As a developer, I want each release's notes to state the supported majors of Zod, Pydantic and `schemars`, so that a dependency's major never moves under me (ADRs 0082, 0030; G7)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 70
+title = "As a developer, I want one `settings` option on each value that opens a scope (`connect()`, a Run's start, a Session, a page), typed from the settings schema as a nested camelCase object in TypeScript, a `TypedDict` in Python and `Settings::new().set(timeout::NAVIGATION, …)` in Rust, so that every setting is reachable and a wrong key is a type error (ADR 0083; RT-22; P38)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 71
+title = "As a developer, I want a key an engine reads only from its configuration (`storage.*`, `log.*`, `http_listener.*`, `notifications.*`, `mcp.*`, `daemon.*`, `browser_cache.max_unused_age`) left out of every `settings` type and refused at `connect()` with `setting_not_applicable` naming the configuration file, with `explainSettings()` still reporting it, so that a setting is never silently ignored (ADR 0083; P38; G3)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 72
+title = "As a developer, I want a setting left out to inherit, `null` to clear where the type allows and a value to set, with TypeScript requiring `exactOptionalPropertyTypes`, and no `setDefaultTimeout`-style setter, so that a scope's value has one writer (ADR 0083)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 73
+title = "As a developer, I want explicit values to beat the environment, which carries only the closed `GOODFETCH_` list read once at `connect()` from my `env` map (an Attached engine gets exactly that map; with none, TypeScript and Python pass the process environment and Rust reads it once), an unknown `GOODFETCH_` name failing with `setting_unknown` naming the closest, so that a stray variable never changes behaviour (ADR 0083; P38)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 74
+title = "As a developer, I want `explainSettings(keys?)` on each scope to report each key's value, the layer and origin that set it (`argument`, `settings`, `flag`, `form`, `registered`), the layer that locked it and the setting that fixed a Session's identity, so that I find why a value is what it is (ADR 0083; P38)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 75
+title = "As a developer, I want `connect()` to read the project file upward from the working directory as the CLI does (`project` naming another file or `null` none), its values reaching an Exposed Daemon or Cloud with run-layer authority only (a key reserved to configuration giving `setting_locked`), so that a project behaves the same locally and remotely (ADR 0083)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 76
+title = "As a developer, I want `setting_unknown` to name the closest valid key, `setting_invalid` the expected type, `setting_not_applicable` the scopes a key applies to, `setting_locked` (a `RefusedError`) the layer or fixing setting, and `capability_unavailable` the setting that turns the capability off, so that each refusal says how to fix it (ADR 0083; G3, G6)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 77
+title = "As a developer coming from Playwright, I want the page API under Playwright's names, with the Session as the context, no active page, popups as values, `session.pages()` and a `page` event, so that I read the docs I already know (ADRs 0085, 0019; SA-04; S3)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 78
+title = "As a developer, I want `getByRole`, `getByText`, `getByLabel`, `getByPlaceholder`, `getByAltText`, `getByTitle`, `getByTestId`, `locator()` for CSS or XPath and `filter`, `and`, `or`, `first`, `last`, `nth`, a Playwright selector extra (`text=`, `:has-text()`) failing `selector_invalid` whose fix names the method, so that a locator says what a user sees (ADR 0085; K11)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 79
+title = "As a developer filling a dependent form and reading the results, I want every action to wait until exactly one element matches and is actionable, an ambiguity at the deadline to raise `target_not_unique` listing the matches in my language, and `isVisible()`, `count()` and `all()` to answer at once, so that \"ready\" means the page is ready (ADR 0085; SA-12; K01, P29, P52)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 80
+title = "As a developer, I want a wrong-kind target to raise `target_unsupported` naming the action, what it accepts and what it found, `force` to mark a call unguarded, and no `page.click(selector)` shortcut, so that there is one obvious way per task (ADRs 0085, 0023; S2)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 81
+title = "As a developer, I want getters (`textContent`, `innerText`, `inputValue`, `getAttribute`, `boundingBox`, `allTextContents`, …) in one round trip and `evaluate(fn, arg)` to take one explicit JSON argument, a non-JSON value raising `page_value_invalid` with its path and a page exception `page_function_failed`, so that getting data out of the page is typed (ADR 0085; P28)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 82
+title = "As a developer, I want routes, dialog handlers and locator handlers to follow the written rules (unanswered falls through, later first, page before Session, a throwing handler aborting the request and raising `page_handler_failed` from the call that waited), so that interception behaves the same in every language, an unhandled `alert`, `confirm` or `prompt` being dismissed and `beforeunload` accepted (ADR 0085; SA-16)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 83
+title = "As a developer, I want page events under Playwright's names (`pageerror` carrying a `WebError`, never `PageError`), `Request.fromServiceWorker()` (Python `from_service_worker`) beside `Response.fromServiceWorker()`, and Rust marker types such as `events::WebError`, so that an event reads the same in every language (ADRs 0085, 0099, 0121; B10, B13, B20, B21)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 84
+title = "As a developer, I want `goBack` and `goForward` to return the document's `Response` (null only for a same-document entry), `goto` a `Response | null` with a 404 a value, `navigation_failed` retryable, `too_many_redirects` past the count and `response_truncated` for a cut body, so that I can tell a site's answer from a failed navigation (ADRs 0085, 0118, 0121; pitfalls U12, U13, H02, H05, H07, H15, H24)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 85
+title = "As a developer, I want `text()` to decode with the response's own encoding, `json()` as UTF-8 ignoring a BOM, a dropped body to raise `body_unavailable` naming `waitForRequestFinished`, and a note on `text()` that a cut body raises `response_truncated`, so that a body read never fails silently (ADRs 0085, 0119; pitfalls H16, H17, H25, D04)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 86
+title = "As a developer, I want `setInputFiles` to stream paths on my machine over the connection, a Download kept with its Run until `saveAs` writes it whole or not at all (`path_not_writable` for my path, `file_write_failed` for storage), and `screenshot()` and `pdf()` with Playwright's options, so that files work against a remote engine (ADRs 0085, 0116; CO-22; P53)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 87
+title = "As a developer, I want `page.request` to go through the page's Session (`maxRedirects` up to 19, a larger value `setting_invalid`, `too_many_redirects` past the count), so that API calls share the page's cookies and proxy (ADRs 0085, 0118)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 88
+title = "As a developer, I want `page.newCDPSession()` (`new_cdp_session`, Rust `CdpSession`) as the way down, `cdp_command_refused` for a command that closes another target, `capability_unavailable` on Firefox and WebKit, and no generated CDP types, so that I can go below the page API with the main path's protections (ADRs 0085, 0099; P33; G8)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 89
+title = "As a developer, I want the browser setup settings (`browser.viewport`, `device_scale_factor`, `locale`, `timezone_id`, `color_scheme`, `java_script_enabled`, `geolocation`, `permissions`, `headless`, `block_resources`, `service_workers`, `network.throttle`) typed where a Session opens, no `BrowserContext`, and the docs for `route` and the Response cache to say \"set `block`\", so that setup is one option, not a context (ADRs 0083, 0121; P54)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 90
+title = "As a developer, I want `locator`'s docs to say open shadow roots are pierced everywhere and closed roots on Chromium only, frames reached only through frame locators (`frameLocator`, `contentFrame()`, `owner()`), and the excluded Playwright calls to fail the type checker, so that multi-frame pages need no frame handle (ADRs 0085, 0121; P34, P41)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 91
+title = "As a developer, I want every point in time to be a `Date`, a UTC `datetime` or a `SystemTime`, with RFC 3339 on the wire and a session cookie's `expires` null, so that dates are never epoch numbers of unknown unit (ADRs 0092, 0099)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 92
+title = "As a developer, I want `run.newSession({ source, login, settings })`, `run.newPage()` in the Run's default Session (opened with the Run's settings by the first call) and `page.session()`, so that I bring a Saved identity or another Session source in and the Session closes with its pages (ADRs 0092, 0078; P40)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 93
+title = "As a developer, I want `session.saveIdentity(name)` and `collie.identities` (`list`, `import` as `import_` in Python, `delete`, `export` as an `age`-encrypted bundle), a Session whose cookies live outside run state raising `session_not_savable` with a fix naming the import, and no SDK writing a clear-text `storageState`, so that an identity is kept without leaking (ADR 0092; P40)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 94
+title = "As a developer, I want `page.pause({ reason, until, timeout })` to wait for a person and return a `HumanPauseResult` (`resolvedBy`, `person`, `waited`), a decline raising `human_pause_declined` with the note, Gestures waiting while reads run, and the pause ending at `timeout.human_pause` with `deadline_exceeded`, so that a program waits for MFA without a sleep (ADR 0092; P40, P08)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 95
+title = "As a developer, I want `session.grantLiveView` to give a person a Live view of my Session, an Attached engine starting the Daemon its link needs, and a grant holder to end a pause only through `until`, so that a person can finish a step without the pause ending early (ADRs 0031, 0092)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 96
+title = "As a developer, I want a page window closed in the browser outside every Client to give `call_cancelled` with `by: \"browser\"` and never `human_pause_declined`, so that a closed tab is not read as a person's answer (ADR 0113)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 97
+title = "As a developer, I want `secret(\"name\")` placeholders accepted only by `fill`, `pressSequentially`, header values (of `page.request` and a route's `continue`, `fallback` and `fetch`) and strings of a JSON body, `%name%` in AI instructions, bound by `secrets.<name>` to a Secret reference and registrable domains, and `keyboard.type(secret(\"x\"))` failing the type checker, so that a password never reaches my code, a Plan or a log (ADR 0092; P14)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 98
+title = "As a developer, I want `resolveSecret` on `connect()` (Rust `ConnectOptions::resolve_secret()` with `secret_requests()`) to answer `caller:` references at the moment of use, the value going straight to the engine with no copy kept, and without the declaration `secret_unavailable`, so that my own vault stays mine (ADRs 0092, 0104)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 99
+title = "As a developer, I want `secret_unbound`, `secret_domain_not_allowed`, `secret_input_refused` (shared browser, CDP attached, lent page) and `secret_unavailable` (with `failure` `missing`, `locked`, `unreachable`, `resolver_failed` or `no_code`) to name the placeholder and reference, never a value, so that a refusal is diagnosable and safe to log (ADR 0092; P14) ."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 100
+title = "As a developer, I want `session.cookies`, `addCookies`, `clearCookies`, `page.localStorage` and `page.sessionStorage` in the SDKs only (no CLI command, MCP tool, skill, Framework adapter or Code mode function), refused outside a bound source's domains, so that session state stays out of agent surfaces (ADRs 0092, 0099; P50)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 101
+title = "As a developer, I want a scripted `login` step (in Rust a closure returning `Result<(), BoxError>` run inside the awaiting future), `session.page_check`, and `logged_out` listing each recovery step and why it did not recover, so that a Session that logs out is recovered or explained (ADRs 0092, 0109)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 102
+title = "As a developer, I want `blocked` raised by the call that waits for the navigation that met the block, naming the Block cause, URL, status and `retryAfter`, and `challenge_unsolved` when the ladder cannot pass it, the Session staying open with its cookies, so that a block is a typed fact (ADRs 0092, 0035)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 103
+title = "As a developer, I want one proxy per Session through `proxy.server`, `bypass`, `username` and `password` (a Secret reference) and `session.http_credentials` with required `domains`, so that proxy and basic auth are settings, not per-request code (ADR 0092; P50)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 104
+title = "As a developer, I want `act`, `observe` and `extract` on a page and on a locator (an element bounding what the model sees), each a Plan step returning a `StepResult` with `output`, `step` (`plan`, `model`, `repair` or `journal`) and `usage`, so that I know whether a step spent a model call (ADR 0091; AI-01, AI-02, AI-03; P03)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 105
+title = "As a developer, I want `extract(instruction, schema)` typed by the schema's output, `mode` `compiled` (the default) or `model`, `observe` returning candidates each with a `Locator` (none gives an empty list), and `act` raising `target_not_found` when nothing fits, so that each verb has one return type (ADR 0091; S2)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 106
+title = "As a developer, I want `act`'s `variables` to fill `%name%` before the model sees the instruction, `variables_mismatch` raised before any request, and a placeholder never typed into a browser other code can read (`secret_input_refused`), so that values stay out of prompts and Plans (ADRs 0091, 0092)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 107
+title = "As a developer, I want `plan` on a Run's start to name a Plan file read and written on my machine (atomically, merging by entry, promoted only after a `verified` Run, pending for a person until accepted) and a failed write to raise `path_not_writable` or `file_write_failed`, so that AI steps replay with no model and the file is reviewed (ADRs 0091, 0116; P03, P36, K02)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 108
+title = "As a developer, I want `plan.frozen` to call no model and write nothing, a missing step to raise `plan_step_missing`, a step in Drift `plan_drift`, and `extract` with `mode: \"model\"` to raise `setting_not_applicable` naming it, so that a test fails instead of spending (ADR 0091; P03)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 109
+title = "As a developer, I want `expect(page | locator | response)` with Playwright's matchers evaluated by the engine as Success checks (the Verdict reads the latest), `success_check_failed` after `timeout.wait` instead of an `AssertionError`, and the docs to advise an alias where a test runner's `expect` is in scope, so that a Success check on the outcome is the one way to say success (ADR 0091; P04)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 110
+title = "As a developer, I want `ariaSnapshot({ mode: \"ai\" })` bounded by `observation.max_size` (40,000 characters) with Element references, `getByRef` raising `target_not_found` for a gone element, row-count lines for virtualized lists, and no read that scrolls, so that observations are small and honest (ADRs 0091, 0121; P25, K10)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 111
+title = "As a developer, I want `extract.locale` and `extract.timezone_id` typed in `settings`, so that a page's numbers and dates are read under the locale and time zone I name, with a model answering each field as page text plus a Value transform the engine applies (ADR 0123; D05)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 112
+title = "As a developer, I want an AI verb that sends page content to a model for a declared Purpose to raise `site_preferences_refused` (reason `use_signals`) before anything is sent while `site_preferences.respect_use_signals` is on, a Plan-replayed step and my page's navigation never refused, so that use signals are honoured where content leaves (ADRs 0085, 0091)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 113
+title = "As a developer, I want `page.agent(task, options)` (`schema`, `successCheck`, `maxSteps`, `domains`, `tools`, `variables`, `model`, `timeout`, `signal`) to return a task handle whose `await` gives an `AgentResult` with `ended`, `verdict`, `reported`, `steps`, `usage` and `page`, so that one call reaches a goal with a verdict (ADR 0100; P04)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 114
+title = "As a developer, I want an Agent stopped early to return a value (`stopped` with reason `max_steps` (20), `no_progress` (3), `timeout` (10 min), `limit`, `abort`, `model_allowance` or `gave_up`) holding `steps` and a Grounded `partial`, and `domains` defaulting to the start page's registrable domain, so that a bound is a result, not a crash (ADRs 0100, 0117, 0107)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 115
+title = "As a developer, I want `successCheck` to state the Success check with `expect`, run each time the model reports done (a failure goes back to the model), and any other exception to raise `success_check_threw`, so that the program, not the model, judges done (ADR 0100)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 116
+title = "As a developer, I want Agent tools (`agentTool`, `@agent_tool`, `AgentTool::new`) to run where my code runs, be Effects unless `readOnly`, support `repeatable` with an `idempotencyKey`, and raise `agent_tool_failed` or `agent_tool_invalid`, so that the model can call my own functions safely (ADRs 0100, 0106)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 117
+title = "As a developer, I want `steps()` as a lossless sequence from the first step (Python `result()` and a `with` block that cancels on leaving) and every action carrying `code` in my language, so that I watch a task and graduate it to code (ADRs 0100, 0081)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 118
+title = "As a developer, I want a Model reference `\"<provider>/<model id>\"` (TypeScript template type, so a bare name fails `tsc`) as `ai.model` for a scope or `model` on one call, no default, and `model_not_configured` naming `ai.model`, so that any model, local ones keyless, is one string (ADR 0101; P19, K08)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 119
+title = "As a developer, I want my own Model provider (`modelProviders`, `model_providers=`, Rust `model_provider` with `model_requests`) with exported `ModelRequest` and `ModelResponse` types and token counts required, a handler error raising `model_handler_failed`, so that no provider SDK is needed (ADR 0101)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 120
+title = "As a developer, I want to declare a provider under `ai.providers.<name>` (`format` `openai`, `anthropic` or `gemini`, `base_url`, `api_key` and header values as Secret references, `models` with capabilities) and `ai.structured_output` (`auto`, `native`, `tool` or `prompt`), so that a gateway or a local server is configuration, not code (ADR 0101; P19, K08)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 121
+title = "As a developer, I want `ModelUsage` (calls, tokens, input and output parts, `price`, `byModel`) on every AI result and on every error from a call that made model calls, price a list-price estimate and `null` when unpriced, so that I see what a step spent, even when it failed (ADR 0101; P42)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 122
+title = "As a developer, I want `run.usage()` to return `RunUsage` with model Usage, browser time, proxy bytes, paid solves, price, the Limits that apply with what remains, `modelAllowance` and `uncapped`, Collie's type lacking the Foxhound-only fields, so that I read my spend and caps (ADRs 0101, 0107, 0095; P42)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 123
+title = "As a developer, I want `ai.allowance.price`, `tokens` and `calls` set at a Run's start or above to refuse further model calls with `model_allowance_reached` once one does not fit (a Plan-replayed step goes on, an Agent returns `stopped` with `model_allowance`, the Run continues), a resume able to raise it, so that a Run finishes without the model (ADR 0107; P42)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 124
+title = "As a developer, I want provider failures typed (`model_unauthorized` and `model_funds_exhausted` not retryable, `model_unavailable` retryable with a duration `retryAfter`, `model_declined`, `model_context_exceeded`), and a Run whose model cannot be priced to fail at its start with `model_price_unknown` under a price Limit or allowance unless `plan.frozen`, so that price caps never run blind (ADRs 0101, 0117)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 125
+title = "As a developer, I want `api_key`, `headers` and `base_url` of a provider settable only by my program, configuration or Operator policy, and no SDK method, MCP tool, Code mode function or `--json` operation to write a price, so that keys and prices stay with their owners (ADR 0101)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 126
+title = "As a developer, I want `collie.start(options)` to return a Run I hold (`run.id()` read without a round trip), always a value I open, so that Limits, Usage and Checkpoints hang from something I can see (ADRs 0078, 0102; P17)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 127
+title = "As a developer, I want `runId` on a start to reach that Run if it exists (resume, or `ended` with `startedAs`), raise `run_in_use` or `run_conflict` when it cannot, and the SDK to log a resume at info and a start that found its Run ended at warning, so that a fixed ID is never mistaken for a label (ADR 0102; P17)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 128
+title = "As a developer, I want `finish()` and `stop()` to return the Run report (Lifecycle, Verdict, Completeness, Usage, `PlanReport`, `recording`, `uncertainEffects`, `weakened`, `nothingDone`, `consoleUrl`), so that I see how a Run ended and what it ran without (ADRs 0102, 0029; K05)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 129
+title = "As a developer, I want `run.progress()` as a sequence of `RunProgress` starting with the progress at once (with `waiting` reasons) and `setProgressMessage`, so that I know what in-flight work waits for (ADR 0102; P09)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 130
+title = "As a developer, I want `openRun(runId)` on every Connection (a Rust trait member) to return a view that reads a Run without resuming it, so that another program can read what a Run kept (ADR 0102)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 131
+title = "As a developer, I want `startRecipe(recipe, options)` and `startCatalogRun(target, options)` (`extract`, `agent`, `plan_replay`), with `detached` taken by only these two, and `detached` on an Attached engine, a linked engine or a Run using an SDK handler raising `detach_unsupported`, so that work that outlives my program is explicit (ADRs 0102, 0036, 0078)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 132
+title = "As a developer, I want every start to take `runId`, `settings`, `tags` (at most 16 of at most 64 characters), `recording`, `plan`, `limits` and `timeout`, `tags` kept clear of Labels, so that a start is one options object in each language (ADRs 0036, 0102, 0105)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 133
+title = "As a developer using a Daemon group, I want a `run_moved` redirect followed once to the named Group member, `groupMember` pinning one, and `lead_unreachable` raised on the call that needed the lead (also a progress `warning`), so that a Run on another machine still resolves (ADR 0055)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 134
+title = "As a developer, I want `run.effect(key, body, options)` to keep the body's value in the Effect journal so that a restart under the same Run ID gets it back (`EffectResult` `performed`, `journal` or `reconciled`), and a body that sent something but did not return to raise `effect_uncertain` (not retryable) until a person reconciles, unless `repeatable`, so that an order is placed once (ADR 0106; Effect key)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 135
+title = "As a developer, I want Effect keys of at most 255 characters, `effect_key_reused` and `effect_output_invalid` named, the Rust body `FnOnce(Effect) -> Fut + Send` taking the `Effect` by value, and no `with` form in Python, so that the declaration is explicit and its future is `Send` (ADRs 0106, 0112)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 136
+title = "As a developer, I want `effect.open` and `effect.close` called only by the SDKs behind `run.effect`, generated for no MCP tool, Framework adapter or CLI command, and a Reconciliation only a person gives (the testing kit's `reconcile` stands for one), so that an agent can never answer for a person (ADRs 0106, 0099)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 137
+title = "As a developer, I want the docs to say that undeclared calls run again when the program runs again, to name the Run when Effects are declared, and to put a crawler's request key in the Effect key when a borrowed page joins another crawler, so that I do not rely on what is not journaled (ADRs 0106, 0089)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 138
+title = "As a developer with a Playwright, Puppeteer or Browser Use program, I want `page.lend()` to return a `CDPEndpoint` (`url()`, `headers()` carrying the token, `close()`) that shows only my page's Session, so that my library drives the page while Collie's Session rules keep holding (ADR 0089; pain 12 `integ-sdk-llm-runtime`; P20)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 139
+title = "As a TypeScript developer, I want `lendToPlaywright(page, chromium)` and `lendToPuppeteer(page, puppeteer)`, taking my own library object and connecting with `noDefaults: true` and `defaultViewport: null`, so that no SDK depends on either library and I need no flag knowledge (ADRs 0089, 0099; G7)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 140
+title = "As a Python developer, I want `lend_to_playwright(page, chromium)` for the sync and async Playwright (chosen by overload on `Page` and `AsyncPage`) and `lend_to_browser_use(page, BrowserSession)` for the async client only, the latter connecting with an empty `permissions` list, so that each library gets its safe options (ADRs 0089, 0099)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 141
+title = "As a Rust developer, I want `page.lend()` to return a `CdpEndpoint` with `url()`, `headers()` and an idempotent `close()`, and no helper because no Rust CDP library is supported, so that I know what is and is not promised (ADR 0089; S1)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 142
+title = "As a developer, I want the attach to end on `close()`, the library's `Browser.close`, its last connection closing, the page closing or the Run ending, with `attach_ended` (reason `closed`, `lease`, `page_closed` or `run_ended`) raised as a typed error by the helper, so that I lend again knowing why it was cut (ADR 0089; G6)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 143
+title = "As a developer, I want a second `page.lend()` on a Session with an open attach to fail with `session_reserved`, and a Firefox or WebKit page to fail with `capability_unavailable`, so that two libraries never fight over one page and an unsupported browser is named (ADRs 0083, 0089)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 144
+title = "As a developer, I want the doc comment of `lend()` and of `run.borrow()` to open with the turn-taking rule (await each of my Collie calls before the library acts) and an AI verb whose document a navigation it did not start replaces to fail with `page_navigated_during_call`, so that a race is a typed error and never a wrong answer (ADRs 0089, 0114, 0117)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 145
+title = "As a developer, I want the lending guide to state what a Lent page keeps and loses (Guard, fencing, Session state, Egress, AI safety, Politeness, Effect journal and Plans, Usage and Limits, Run trace) and to send the library's own HTTP calls through `page.request` and AI work that must be counted to Collie's verbs, so that I choose with the table in front of me (ADR 0089)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 146
+title = "As a developer, I want the endpoint to be a WebSocket under the rules of ADR 0017, with its token in a header and never in the address, and to work through a Daemon or an Exposed Daemon the same way, so that lending behaves alike on every engine (ADRs 0017, 0067, 0089)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 147
+title = "As an agent builder, I want `page.lend` absent from every MCP profile, Framework adapter, Integration and skill, and Code mode never offering it, so that no model is ever handed a CDP address (ADRs 0011, 0070, 0089)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 148
+title = "As a developer with a Crawlee, Scrapy or Crawl4AI program, I want `run.borrow(page)` to turn my crawler's Playwright or Puppeteer page into a Collie `Page` in its scoped form, so that the borrow ends with the handler and `act`, `observe`, `extract` and formats work inside my crawler (ADRs 0056, 0089; pain 12; P20)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 149
+title = "As a developer, I want `run.borrow(browser)` to return a Session, each browser context a borrowed page belongs to being one Session of the Run, and `Collie.close()` to end every borrow, so that a crawler's contexts map onto Sessions and nothing outlives my connection (ADRs 0056, 0078, 0089)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 150
+title = "As a developer, I want a second Run borrowing the same browser to fail with `browser_borrowed` and a Firefox or WebKit page to fail with `borrow_requires_cdp`, so that I learn that borrowing needs one Run and a Chromium page (ADRs 0056, 0089)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 151
+title = "As a developer, I want the crawler guides to say what a borrow keeps (Effect journal, Plans, Success checks, Usage and Limits, extraction) and loses (the Guard's guarantee, typed Secrets, stealth, the Session pool, resuming elsewhere), to put the crawler's request key in my Effect key and to route HTTP through `page.request`, so that a retried handler never repeats an Effect (ADRs 0089, 0106)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 152
+title = "As a developer, I want guides with tested examples for Crawlee for JavaScript (`PlaywrightCrawler`, `PuppeteerCrawler`), Crawlee for Python (`PlaywrightCrawler`) and Scrapy with scrapy-playwright (`playwright_include_page`), all on the async clients and Chromium pages, with no crawler-specific package, so that I add AI to a crawler I keep (ADRs 0089, 0097)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 153
+title = "As a Python developer on the sync client, I want `run.borrow()` to relay my sync Playwright page on the caller's thread while the connection's private thread is pumped through a queue, and until a prototype proves it to raise `capability_unavailable` naming the async client, so that the sync form is never published unproven (ADRs 0056, 0081)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 154
+title = "As a Selenium or other-CDP user, I want `cdp_url` for a browser I drive myself, any other CDP library reaching a lent endpoint under the same rules but untested and outside support, so that the promise stays exactly as wide as the tests (ADRs 0056, 0089, 0115)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 155
+title = "As a maintainer, I want release notes to state each supported library range (Playwright 1.60 as the floor for `noDefaults`) and the Live checks `lend-libraries-newest` and `crawler-examples-newest` to run each library's newest release nightly, the Puppeteer helper sending the token through `wsOptions.headers`, so that a library change surfaces before users hit it (ADRs 0064, 0089)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 156
+title = "As a developer, I want `TestEngine` in each Product's testing kit (`@goodfetch/collie/testing`, `goodfetch_collie.testing`, `goodfetch_collie::testing` behind `test-util`), with the shared part in the Collie client package, so that a test starts a real engine with `await using engine = await TestEngine.start()`, `async with AsyncTestEngine.start()` or `TestEngine::start(options).await?` (ADRs 0069, 0090, 0095, 0105; P31)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 157
+title = "As a developer, I want `engine.connection` to be my Product's own connection type, so that the code under test runs unchanged on it (ADRs 0090, 0105)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 158
+title = "As a developer, I want every Run on a test engine that names no Response recording to replay an empty one, so that a request to a site fails with `response_not_recorded` naming its address and no test reaches the network unnoticed (ADR 0105; K07; P55)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 159
+title = "As a developer, I want to record once with `recording: { mode: \"record\", path }` (Python `recording=Recording(mode=…, path=…)`, Rust `Recording::record(path)`) and replay with `mode: \"replay\"`, the SDK reading and writing the WARC file on my machine, so that a Daemon or Goodfetch Cloud works the same (ADR 0105; P55)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 160
+title = "As a developer, I want a recording to be an input of the Run and never a setting, a resume to name the same file, and Schedules and Watches to take none, so that no project file or Recipe can make a production Run replay (ADRs 0036, 0105)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 161
+title = "As a developer, I want a failed write of a recording at Run end to raise `path_not_writable` or `file_write_failed` from the call that ends the Run, the Run keeping the recording's records until the next successful write or its deletion, and `run.saveRecording(path)` (`save_recording`) to write them again, so that a full disk never loses a capture (ADRs 0105, 0116)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 162
+title = "As a developer, I want the Run report's `recording` to give the mode, the file, the responses used, `recordedFrom`, `recordedTo`, the engine that wrote them and every miss, so that a test asserts `misses` is empty and an old recording is visible but never a failure (ADR 0105; G1)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 163
+title = "As a developer, I want `scriptedModel(replies)` registered as `modelProviders: { scripted: … }` with `ai.model: \"scripted/any\"`, each reply a response or a provider error made with `fakeError`, so that my AI code runs without a live model (ADRs 0065, 0069, 0105)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 164
+title = "As a developer, I want a call beyond the replies to raise `scripted_model_exhausted`, closing the engine with replies left to raise `scripted_model_unused`, a retryable error reply to be retried with the next reply, and every request to be recorded on the model, so that a test fails when the script and the program disagree (ADR 0105)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 165
+title = "As a developer, I want `scriptedExtraction(data)` (`scripted_extraction`, Rust `ScriptedReply::Extraction`) to answer one `extract` call in its mode, a value not on the page giving `extraction_incomplete`, so that an extraction test needs no model wiring (ADRs 0105, 0117, 0123)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 166
+title = "As a developer, I want a model call with no model configured to fail `model_not_configured` before any request, and a frozen Plan (`plan` with `plan.frozen: true`) to replay an Agent's task and AI steps with `usage.model.calls == 0`, a missing step giving `plan_step_missing`, so that tests of AI steps fail loudly and cost nothing (ADRs 0091, 0100, 0105; P03)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 167
+title = "As a developer, I want `fakeError(PlanDriftError, { message, details })` (`fake_error`) and, in Rust, `Error::fake(code, message)` and a `fake` constructor on each `#[non_exhaustive]` result type behind `test-util`, with TypeScript results as plain literals and Python results built by constructors, so that I unit-test my own error handling (ADRs 0069, 0105)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 168
+title = "As a developer, I want the test engine to use a temporary Goodfetch home removed on close, a cleared environment, `offline`, short durations, no project file unless `project` names one and a `resolve` setting whose loopback hosts are reached live, so that tests are alike on every machine (ADRs 0059, 0069, 0105)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 169
+title = "As a developer, I want the test engine to read browsers and its Product's executable from the browser cache of my Goodfetch home (never written) or from `GOODFETCH_BROWSERS_PATH` and my Product's engine-path variable, reading only those three from the `env` map, and `artifact_unavailable_offline` to name its executable's `browser install` when none is installed, so that a test never downloads (ADRs 0024, 0090, 0105)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 170
+title = "As a developer, I want `engine.reconcile(runId, key, answer)` in the kit only, so that a test stands for the person's answer about an uncertain Effect without any SDK, Integration or skill offering it (ADRs 0029, 0106)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 171
+title = "As a developer, I want the kit to need no runner plugin (Vitest, Jest, `node:test`, pytest with AnyIO, `unittest`, `cargo test`), Python's `TestEngine` to carry `__test__ = False`, and the guide to show a three-line pytest fixture and an alias for a runner's `expect`, so that my runner stays mine (ADRs 0091, 0105)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 172
+title = "As a Python developer, I want the same tests to run on asyncio, on trio and through the generated sync API, with the sync `TestEngine` beside `AsyncTestEngine`, so that my choice of loop never changes a test (ADRs 0069, 0105; P22)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 173
+title = "As a developer, I want the guide to say a test uses a Response recording and never the Response cache (whose `replay` mode stays the development loop), and that `page.clock`, `routeFromHAR`, `routeWebSocket` and `toHaveScreenshot` are not in the SDK API, with `addInitScript` and `route.fulfill` as the way, so that I do not look for them (ADRs 0046, 0105)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 174
+title = "As a Rust developer, I want `test-util` to build only test values (`Error::fake`, `StepResult::fake`, the testing kit) and never a capability, so that ADR 0087's rule that a capability is a setting holds (ADRs 0069, 0087)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 175
+title = "As a maintainer, I want the kits under semver, checked by `cargo-semver-checks`, API Extractor and `griffe check`, and Client conformance cases for the kit declared once and implemented by each SDK, so that a test written today still compiles after a minor (ADRs 0030, 0069)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 176
+title = "As a developer, I want one canonical snake_case name per catalog entry spelled by one rule per language (camelCase members in TypeScript, snake_case in Python and Rust, initialisms in capitals in TypeScript and Python type names and one word in Rust), so that a name I know in one language is predictable in the others (ADR 0099; SDK-02, SDK-06; P43, K06)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 177
+title = "As a developer, I want no alias, a Playwright name kept when Playwright has it, and `waitForTimeout` a tombstone that cannot type-check and raises `removed` at run time pointing at the waiters, so that a fixed sleep never compiles quietly (ADRs 0080, 0099; P37)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 178
+title = "As a developer, I want the kinds to give one form each (waiter, side-activity event, sequence, opener, cancellable, duration, point in time), so that I read the form from the operation's kind, not from habit (ADR 0099)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 179
+title = "As a developer, I want `Connection` as the type both Products' connections implement (a TypeScript interface, Python `Connection` and `AsyncConnection`, Rust `trait Connection` and `blocking::Connection`) with `openRun` among its members, so that a function accepts either Product (ADRs 0095, 0099; SDK-02)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 180
+title = "As a library author, I want to import the Collie client package myself, as a peer dependency on npm and a semver range on PyPI and crates.io, so that my one copy of its values serves both Products (ADR 0095)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 181
+title = "As a developer, I want `call(operation, params?, options?)` on the connection and every handle, taking and returning wire JSON, refusing an operation outside the handle's namespace before sending, never retrying, and marked raw in the Run trace, so that I reach a newer engine's operation without waiting for the SDK (ADR 0099; P33; G8)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 182
+title = "As a developer, I want a deprecated name marked in my language's own way (TSDoc `@deprecated`, PEP 702, `#[deprecated]`), a runtime warning once per process through the host's channel, and a Python plain-data field listed in the release notes, so that churn is visible before a removal (ADRs 0030, 0099; P07)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 183
+title = "As an agent builder, I want a deprecated MCP tool to open its description with \"Deprecated: use `<tool>`, removed in <major>\" and carry `deprecated: true` in its schema, and a deprecated CLI command to warn on stderr and name its replacement in `--help`, so that a model and a script both learn of it (ADR 0099)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 184
+title = "As a developer, I want Experimental members marked by TSDoc `@experimental`, a docstring line and rustdoc, with ADR 0030's once-per-process warning, so that I know what may change in a minor (ADRs 0030, 0099)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 185
+title = "As a coding agent, I want one description per operation, at most 2,048 characters, serving as the MCP tool description, the SDK docstring and the reference page, so that the three never disagree (ADRs 0038, 0065; SDK-07)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 186
+title = "As a developer, I want every hand-written member listed in its SDK's manifest with the catalog entry it serves or a reason it has none, checked in the Quick suite, so that a member never drifts from the catalog (ADRs 0069, 0099; P43)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 187
+title = "As a developer, I want one error class per Error code under its group's class in my Product's package, a code from outside as its group's class with the code kept, Rust's `ErrorCode` an open value with constants and `details::<D>()` reading typed details, so that `catch`, `except` and `match` work from either connection (ADRs 0038, 0079, 0095, 0099; P10)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 188
+title = "As a developer, I want a Usage kind, Limit scope, Notification event, Plugin kind or Hook stage my Collie SDK does not know kept as a string, so that a Foxhound engine's value never breaks my Collie program (ADRs 0079, 0095; G3)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 189
+title = "As a developer, I want `NotInProductError` (`not_in_product`, `UnavailableError`, not retryable, details `{ engineProduct, engineVersion, neededProduct, recipe }`) with an install command per channel in its `fix`, built from ADR 0090's package names, so that the remedy is one line I can run (ADRs 0087, 0090)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 190
+title = "As a developer, I want the Error codes areas 5, 7 and 8 added to have generated classes (`BrowserHostUnreachableError` retryable, `BrowserHostOutdatedError`, `ExecutableBlockedError` and `ConfinementUnavailableError` as `RefusedError`, `ChallengeUnsolvedError`, `PluginCrashedError`) and `person_required` to be a `RefusedError`, so that every code has a class (ADRs 0038, 0079)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 191
+title = "As a developer, I want Block causes spelled as wire values (`rate_limit`, `ip_block`, `challenge`, `captcha`, `payment_required`, `consent_required`) in every SDK, and `retryAfter` a point in time on `BlockedError` and `ResponseUnavailableError` and a duration on `ModelUnavailableError`, each documented beside its type, so that I branch on the same words everywhere (ADRs 0035, 0092, 0101, 0118)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 192
+title = "As a developer, I want messages to show names in my form (`page.waitForURL`, `page.wait_for_url`), with `operation` and `limit` fields staying canonical, so that an error reads in my language and parses in every one (ADR 0099; P38)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 193
+title = "As a developer, I want doc comments to open with the rule a user missed (ADR 0117's first lines: the AI verbs, start and close, `CrawlContext.page`'s navigation rule), `text()` to state ADR 0119's encoding note and `text()` and `json()` to document `response_truncated`, so that the first line answers the first question (ADRs 0117, 0118, 0119; P45; H15, H17, H25)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 194
+title = "As a developer, I want `locator` to warn about the cross-browser difference of closed roots, `route` and the Response cache to say \"set `block`\" for service workers, `extract`, `observe` and `ariaSnapshot` to say a read never scrolls, the `ai` snapshot to document its count line, and `goBack` and `goForward` to return the document's `Response` (null only for a same-document entry), so that browser behaviour is never a surprise (ADR 0121; B10, B13, B20, B21)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 195
+title = "As a developer, I want a docs sample for the virtualized-list recipe built on `scrollCollect`, and an alias for a test runner's `expect` in the AI guide, so that a list is read whole and an import clash is solved (ADRs 0091, 0121; B10)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 196
+title = "As a developer running my program in a service, I want the guides to advise closing the Run on `SIGINT` and `SIGTERM`, so that a stopped process leaves a Checkpoint and not a lost Run (ADRs 0078, 0093; P06)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 197
+title = "As a developer, I want `goodfetch-collie <namespace> <member>` generated from the catalog, words joined by `-`, groups singular (`run reindex`, `browser install`, `skill install`, `cert accept`, `schedule apply`, `plugin add`), a value's ID as first positional argument and flags `--<parameter>` in kebab-case, so that a command is predictable from the SDK's name (ADRs 0011, 0099; SDK-05)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 198
+title = "As a developer, I want the CLI to offer every catalog operation of Collie whose kind is round trip, query, read, opener or cancellable, except SDK-only entries and person-only entries, with event and waiter kinds offered as `--follow` printing one JSON object per line under `--json`, so that the CLI is the catalog and nothing more (ADR 0099)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 199
+title = "As a developer, I want value-bound commands to reach a Daemon, started on demand, unless `--attached` is given, and commands needing no value to run on an Attached engine unless a Daemon runs or `--daemon` is given, so that a Run outlives one command exactly when it must (ADRs 0024, 0088, 0099)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 200
+title = "As a developer, I want `recipe start <recipe>` to start a Recipe by name taking each start parameter as a flag (`--run-id`, `--tags`, `--recording`, `--limits`, `--timeout`, `--detached`) beside `--set` and `--settings`, so that I start a repeatable automation from a shell or a CI step (ADRs 0036, 0102; SDK-05)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 201
+title = "As a developer, I want `catalog-run start` for the code-free runs (`extract` with a URL, a schema and an instruction, `agent` with a URL and a task, `plan_replay` with a Plan), so that I get typed data from a page with no program (ADRs 0036, 0102; SDK-05)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 202
+title = "As a developer, I want `page agent <page> --task <text> [--expect <json>]… [--expect-file <file>] [--schema <file>] [--max-steps <n>]`, the `--expect` JSON being the catalog's `expect` parameters evaluated each time the model reports done, so that a Success check guards the task, not the answer after it (ADRs 0099, 0100)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 203
+title = "As a developer, I want `--set <key>=<value>` (repeatable, JSON when it parses, else a string) and `--settings <file|->` as the run layer's `flag` origin, and durations as milliseconds or a suffixed string (`45s`, `2m`, `1h`), so that every setting is reachable from a command line (ADRs 0080, 0083, 0099)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 204
+title = "As a script author, I want `--json` to leave exactly one JSON value on stdout, the operation's result in snake_case or `{ \"error\": … }` with `code`, `group`, `retryable`, `message`, `operation` and the error's fields, and warnings, hints, deprecations and the age notice on stderr, so that I parse stdout with no care (ADR 0069; SDK-05)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 205
+title = "As a script author, I want exit codes `0` success, `1` internal, `2` usage, `3` program, `4` refused, `5` page, `6` model, `7` deadline, `8` unavailable, `10` `not_in_product`, `11` `protocol_version_unsupported`, `12` `browser_host_outdated`, `13` `path_not_writable`, `14` `file_write_failed`, `15` `resources_exhausted`, `16` `limit_reached`, a code without a row taking its group's, so that CI branches on a number (ADR 0069)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 206
+title = "As a script author, I want exit `20` for a Run that ended `stopped` and is resumable, `21` for a Verdict other than `verified` when `--require-verified` is given, and `130` or `143` after `SIGINT` or `SIGTERM` once the Run was checkpointed, so that a pipeline retries, rejects or resumes correctly (ADRs 0069, 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 207
+title = "As a person at a terminal, I want human output in English with `.` decimals and ISO 8601, times in my local zone with their offset, reading no locale, and `--json` always UTC, so that two machines print the same instant alike (ADR 0073)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 208
+title = "As a person at a terminal, I want `--color auto|always|never`, colour that never carries meaning alone, `NO_COLOR` non-empty turning it off, an empty one not, and no escape bytes when stdout is not a terminal, so that pipes and screen readers stay clean (ADR 0073)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 209
+title = "As a person at a terminal, I want Effect reconciliation, `cert accept` and `cert forget`, widening `consent_domains`, `wall_domains` or `pay_domains`, `ask` answers, Limit raises, `schedule activate --major <n>`, a Schedule period-Limit raise, `plan review` and a clear-text `storageState` export to be interactive prompts offered only on a terminal, so that a person decides what no script may (ADRs 0011, 0029, 0041, 0042, 0048, 0052, 0056, 0091)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 210
+title = "As a script author, I want those prompts under `--json`, in a pipe or from a script to be refused with `person_required` (a `RefusedError`, not retryable, naming the Console or the interactive command) and exit `4`, so that a script cannot answer for a person (ADR 0011; person-only marker)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 211
+title = "As a developer, I want `plan review` to accept a Plan file's pending versions interactively, so that a reviewed Plan is the only one that replays (ADR 0091)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 212
+title = "As a developer, I want `--follow` on a Run to print its progress as NDJSON, `usage` to report Usage and Limits, `config explain` to show where a setting came from, and `doctor` to check my installation, so that I see what a Run did and why (ADRs 0069, 0083, 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 213
+title = "As a script author, I want a Daemon that refuses my CLI's protocol version to end the command with exit `11` and a hint naming this executable's `daemon restart`, a dead PID in the runtime file to be replaced and a connection dropped mid-command to be reported, so that a stale Daemon is a one-line fix (ADRs 0024, 0066, 0069)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 214
+title = "As a developer, I want `daemon start|restart|install`, `console`, `browser install` and `browser clean [--dry-run]`, `upgrade-files` and the `--group-member` flag on a start, so that I manage the engine without leaving the CLI (ADRs 0024, 0055, 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 215
+title = "As a developer, I want `cache stats|clear|verify`, `run reindex` and the recording and `--plan` options on a start, with replay marked in the output, so that area 6 and 9 features reach the CLI in the catalog's forms (ADRs 0046, 0091, 0105)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 216
+title = "As a developer on Collie, I want a Foxhound command such as `crawl` to be refused with `not_in_product` and exit `10`, whose `fix` names the install command for my channel, so that I learn I need Foxhound (ADRs 0069, 0087)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 217
+title = "As a developer, I want `config explain` to list the other Product's keys from a shared file as Foxhound's, never hiding them, and a key neither Product knows to stay `setting_unknown`, so that one file serves both executables (ADRs 0083, 0087)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 218
+title = "As a developer, I want cookies, page storage, `page.lend` and `effect.open` or `effect.close` to have no CLI command, so that the CLI exposes only what a person or script may do (ADRs 0011, 0089, 0092, 0106)."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 219
+title = "As a developer, I want `--help` to be rendered from the same command tree the binary runs, in English, so that the help I read is the CLI I have (ADRs 0069, 0073)."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 220
+title = "As an agent builder, I want `goodfetch-collie mcp` to serve over stdio by default and Streamable HTTP with `--http [address]`, loopback by default, `Host` and `Origin` checked and a per-launch token required, so that an MCP host connects to Collie with one config line (ADRs 0011, 0017; AI-07; pain 3 `integ-mcp-agent-tooling`)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 221
+title = "As an agent builder, I want a remote Streamable HTTP server to need TLS and OAuth 2.1 as the MCP specification defines, the token's audience checked and no passthrough, so that a remote host holds no shared secret (ADRs 0017, 0067)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 222
+title = "As an agent builder, I want the server to announce itself as `goodfetch-collie`, stdout to carry only JSON-RPC lines and logs to go through `tracing`, so that a host config is the same everywhere and a stray line never breaks framing (ADRs 0070, 0090)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 223
+title = "As an agent builder, I want `--profile <name>` or `mcp.profile` to choose `browser` (the default: Session, page navigation and reading, locator actions, `ariaSnapshot` in `ai` mode, `act`, `observe`, `extract`, `expect`, Run start, finish, stop, progress and report, Saved identity list), `agent`, `run`, `code` or `full`, so that a model sees only the tools its task needs (ADR 0095)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 224
+title = "As an agent builder, I want `agent` to be `browser` plus `page_agent`, `run` to hold Runs, Run reports, `recipe.start`, `catalog_run.start`, `schedule.*`, `usage` and Run index reads, and `full` to hold every agent-surface operation of Collie, so that the profile name says what a model can do (ADRs 0095, 0100)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 225
+title = "As an agent builder, I want a Collie profile to be identical in the Collie and Foxhound servers, so that moving a host config changes the executable only (ADRs 0090, 0095)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 226
+title = "As an agent builder, I want tool names to be the canonical name with `_` for `.` in `[a-z0-9_]` and at most 39 characters, and annotations from the operation's class (read, idempotent write, Effect), so that every host accepts them and treats Effects with care (ADRs 0011, 0099)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 227
+title = "As an agent builder, I want `page_agent`'s `success_check` argument to be a list of `expect` assertions evaluated each time the model reports done, so that the task cannot end on a false success (ADR 0100; P04)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 228
+title = "As an agent builder, I want observations to keep diffs and stable references within an MCP session, and screenshots only when the page changed, so that a long session costs few tokens (ADRs 0011, 0091; P25, K10)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 229
+title = "As an agent builder, I want each Error code to come back as a tool result with its code, group, retryable flag and `fix`, cancellation to stop the engine's work and progress to stream, so that a host handles a failure like an SDK does (ADR 0070)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 230
+title = "As an agent builder, I want `search_web`, `run_research`, `success_check_evaluate`, `code_mode_run` and the WebMCP tools of a site (Effects unless the site marks them read-only) to come with the profiles that hold their operations, `full` holding all of them, so that a profile's list is the catalog's list (ADRs 0011, 0095)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 231
+title = "As an agent builder, I want two Streamable HTTP sessions to keep their own Limits and cancellation, so that one agent cannot spend another's allowance (ADRs 0041, 0070)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 232
+title = "As a maintainer, I want each profile's `tools/list` bytes and each tool result in the named scenarios to be snapshots, the MCP projection snapshotted per Product and profile, and every TypeScript package entry held to size-limit with the +5 kB increase check, so that context cost and bundle weight only change on purpose (ADRs 0065, 0071)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 233
+title = "As an agent builder, I want the server to speak the revisions `2025-03-26`, `2025-06-18`, `2025-11-25` and `2026-07-28`, answering an older, unknown or stale-`_meta` request as the specification requires, and a new revision to join with its expected-failures file and matrix cells in one pull request, so that every host negotiates safely (ADR 0070)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 234
+title = "As an agent builder, I want the server's docs of the installed version served as MCP resources, and the rendered skills through `skills/list` and `skills/get` with digests, so that a host reads Collie's own docs and skills, never a copy that has drifted (ADRs 0070, 0097)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 235
+title = "As an agent builder, I want reconciliation, raising a Limit, widening `consent_domains` or `wall_domains`, trusting certificates, cookies and page storage, writing prices, `page.lend` and `effect.open` or `effect.close` to be absent from every profile, and a granting operation never in `full`, so that no model grants itself power (ADRs 0011, 0029, 0041, 0042, 0089, 0092, 0101, 0106; P14)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 236
+title = "As an agent builder, I want Code mode opt-in through the `code` profile or `--code-mode` on any profile, one tool for a model-written program in the Script sandbox with declarations trimmed to the profile, every catalog call journaled and repeated `script_crashed` ending in `script_quarantined`, so that a model writes one program instead of fifty calls (ADRs 0011, 0051, 0088)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 237
+title = "As a coding agent, I want `skill install [--for claude-code|codex|cursor|agents] [--project|--user]` to write the Agent Skills folders of my host, so that I learn Collie from skills that name only real operations and whose example commands run (ADRs 0011, 0065; SDK-07)."
+milestone = "M2 Client surfaces"
+journey = true
+status = "active"
+
+[[story]]
+id = 238
+title = "As a coding agent, I want skills `goodfetch-collie` (overview), `-page`, `-ai`, `-agent`, `-sessions`, `-runs`, `-testing`, `-cli` and `-mcp`, each one source rendered with the docs and shipped in the executable and the SDK packages, so that a skill and a page say the same thing (ADRs 0065, 0090, 0095, 0097)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 239
+title = "As a coding agent, I want a Claude Code plugin per Product generated from the same source and checked with `claude plugin validate --strict`, so that the plugin I install is valid (ADR 0065)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 240
+title = "As a maintainer, I want skills limited to the Agent Skills frontmatter limits and to the wording policy (never \"bypass\", \"undetectable\", \"solve any CAPTCHA\"), with Skill Evaluations showing a skill beats no skill, so that skills help and say nothing we would not publish (ADRs 0035, 0065, 0097)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 241
+title = "As an agent builder using the Vercel AI SDK, I want `@goodfetch/collie-ai-sdk`, offering Collie's operations as AI SDK tools under the MCP tool names, so that a `generateText` or `ToolLoopAgent` agent drives a browser (ADRs 0011, 0095, 0099; AI-06)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 242
+title = "As an agent builder using LangChain or LangGraph, I want `@goodfetch/collie-langchain` and `goodfetch-collie-langchain`, LangGraph using the LangChain tools, so that my graph calls Collie in TypeScript or Python (ADRs 0011, 0095; AI-06)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 243
+title = "As an agent builder using Mastra, I want `@goodfetch/collie-mastra`, so that a Mastra agent drives Collie with the same tool names (ADRs 0011, 0095; AI-06)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 244
+title = "As an agent builder, I want each adapter to depend on its Product's SDK package and declare the framework's current major at its first publish, and the previous major when its tool interface is unchanged, stated in its README and release notes, so that I know which framework versions work (ADRs 0070, 0090)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 245
+title = "As an agent builder, I want each adapter to offer only agent-surface operations, so that a framework never exposes `page.lend`, a granting operation or a price write (ADRs 0011, 0070)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 246
+title = "As an agent builder, I want a failing call to reach my framework as a tool error carrying the Error code and `fix`, and a read, an Effect and a failing call to be scripted in each adapter's tests through the framework's own model double, so that the agent loop recovers (ADR 0070)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 247
+title = "As an agent builder using the OpenAI Agents SDK, Pydantic AI, CrewAI, Google ADK, LlamaIndex or Strands, I want a docs page with an example that connects through that framework's MCP client, tested without a model, so that frameworks with no adapter still work (ADRs 0011, 0070)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 248
+title = "As a Python developer, I want `import goodfetch_collie` to load no adapter, no AI provider and no Playwright until used, held by the import-cost snapshot, so that importing the SDK stays cheap (ADR 0071; P24)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 249
+title = "As a workflow-tool user, I want an n8n node, `@goodfetch/n8n-nodes-collie`, with actions to start a Recipe run, start a code-free catalog run, get a Run report and get a Run's progress, and a trigger on a Notification, so that I automate a browser task from n8n (ADRs 0027, 0090, 0095)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 250
+title = "As a workflow-tool user, I want a Zapier app \"Goodfetch Collie\" with the same actions and a Notification trigger through REST-hook subscribe and unsubscribe, so that a Zap starts and hears from Collie (ADRs 0027, 0070, 0095)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 251
+title = "As a workflow-tool user, I want a Make app \"Goodfetch Collie\" whose every module maps to a catalog operation, so that Make reaches Collie (ADRs 0027, 0070)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 252
+title = "As a workflow-tool user, I want Pipedream components and Activepieces pieces named `goodfetch-collie` with the same actions and trigger, so that either tool reaches Collie (ADRs 0027, 0090)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 253
+title = "As a workflow-tool user, I want a Power Automate app \"Goodfetch Collie\", a custom connector from an OpenAPI 2.0 definition, so that a flow reaches Collie (ADRs 0027, 0070)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 254
+title = "As a workflow-tool user, I want a Notification trigger to fire once per event and never again after a resumed Run, and the events I pick to be the ones I get, so that a flow does not run twice (ADRs 0027, 0070)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 255
+title = "As a workflow-tool user, I want every Error code an Integration maps to arrive in my tool as that tool's error with the code, group and `fix`, so that a flow branches on a failure instead of a green step that did nothing (ADRs 0070, 0079; P04)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 256
+title = "As a workflow-tool user, I want each Integration's docs to say whether it works with a local Daemon, an Exposed Daemon or a tunnel (Zapier rejecting localhost, Make needing its on-premise agent, Power Automate's data gateway offering neither API-key auth nor custom code) and Goodfetch Cloud to join the list only once it exists, so that I pick a setup that works (ADRs 0027, 0097)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 257
+title = "As an operator, I want an Integration to count as a Client acting for a model, so that its imports and borrows wait for a person's approval, it cannot set `exclusive` or a loopback `cdp_url`, and it never sets a model key, a Secret binding or a price (`setting_locked`), and a Run's limit details name the Integration's form as the origin (ADRs 0056, 0083, 0092, 0101)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 258
+title = "As an operator, I want the HTTP listener off until `http_listener.enabled` (`false` by default) is set, on `http_listener.address` (`127.0.0.1`) and `http_listener.port` (the Console's port plus one for the major), with a token from `daemon http-listener-token` rotated by `daemon rotate-token`, and TLS through the Exposed Daemon's keys, so that workflow tools reach a Daemon only on purpose (ADRs 0027, 0030, 0049)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 259
+title = "As a workflow-tool author, I want `POST /v1/rpc` to take one JSON-RPC request per HTTP request with `hello`'s fields in `Goodfetch-Protocol`, `Goodfetch-Product`, `Goodfetch-Form: catalog` and `Authorization: Bearer`, and a refusal as an HTTP 4xx carrying the JSON-RPC error, so that a plain HTTP client starts a Run (ADRs 0027, 0099; CL-03)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 260
+title = "As a workflow-tool author, I want `GET /v1/events?run=<id>&after=<position>` as Server-Sent Events resumable from a position, so that I follow a Run without a socket (ADRs 0027, 0024)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 261
+title = "As an operator, I want the listener to check `Host` and `Origin`, refuse a missing, wrong or scoped-elsewhere token, and in a Daemon group keep its token on the Lead Daemon while any Group member answers, so that exposing it is safe (ADRs 0017, 0027, 0055, 0067)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 262
+title = "As an operator, I want channels of type `slack`, `teams` (Workflows webhooks only), `discord`, `telegram`, `email` (SMTP, SES, Resend, Postmark, SendGrid, Mailgun), `webhook` or a Notification channel Plugin's short name, each `notifications.channels.<name>.type` set in user configuration or Operator policy only, so that I choose where messages go (ADRs 0027, 0028)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 263
+title = "As an operator, I want `.url` (a Secret reference for webhook URLs), `.events`, `.runs` (`all` or `tagged:<tag>`), `.email.provider`, `.email.to`, `.email.from`, credentials as Secret references and `.webhook.secret` for Standard Webhooks signing, so that no channel holds a bare secret (ADR 0027)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 264
+title = "As a user, I want the default events to be the attention set (a Run `failed` or `stopped`, Verdict `rejected` or `needs-review`, Completeness `incomplete`, Effect uncertain, reconciliation requested, approval requested, Human pause waiting, Limit thresholds, Schedule auto-paused, Saved identity cookie expiry, quarantine), so that a green Run that delivered nothing is never silent (ADRs 0027, 0029)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 265
+title = "As a user, I want event names as the catalog's open snake_case values (`run_failed`, `verdict_needs_review`, `effect_uncertain`, `human_pause_waiting`, `limit_threshold`, `schedule_auto_paused`, `identity_cookie_expiry`, `quarantined` and the rest), and an unknown value kept as a string with Foxhound's refused by a Collie engine and listed as Foxhound's, so that my filters survive an upgrade (ADRs 0079, 0087, 0095)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 266
+title = "As a person who started a login, I want a Human pause waiting Notification with a link to the Live view, pointing at `notifications.console_url` and carrying no credential, so that I return to finish the login, an Attached engine starting the Daemon on demand to serve the link (ADRs 0006, 0031, 0113)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 267
+title = "As an operator, I want a Schedule's failures, auto-pause, skipped and missed occurrences to notify once per period or wake, so that a nightly automation that stops is noticed (ADR 0036)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 268
+title = "As an operator, I want a Run resumed on another engine never to re-send an event already delivered, a status change to notify once and channel idempotency keys used where a channel has them, so that a retry never doubles a message (ADR 0027)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 269
+title = "As an operator, I want each built-in channel to be one Notification channel, an unknown failure counted as transient, retried on the delivery schedule and then failed in the delivery ledger, and logged at `warn`, so that a flaky webhook neither loses nor repeats a message silently (ADR 0127)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 270
+title = "As an operator, I want one Notification channel driver to own the ledger, retries, Standard Webhooks signing, rate limits and failure enum, each channel filling `send(message)` and `map_failure()`, channel Plugins and SDK handlers filling the same through the plugin protocol, so that every channel behaves alike (ADR 0129)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 271
+title = "As a developer receiving a webhook, I want Standard Webhooks signatures, a versioned payload and the SDK's verification helpers, so that I reject a forged call and survive a payload upgrade (ADRs 0027, 0030)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 272
+title = "As an operator, I want delivery over the engine's own HTTP client and never a Session's cookies, to the destinations the user configured, so that a Notification cannot leak a login (ADRs 0043, 0088)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 273
+title = "As an operator, I want Limit thresholds at 50 %, 80 % and 100 % and a cookie-expiry window of 3 days, both settable, with \"Needs you\" at 100 %, so that I act before a Run stops (ADRs 0041, 0056)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 274
+title = "As an operator in a Daemon group, I want Schedule, Limit and cookie-expiry Notifications deduplicated at the Lead Daemon while run events stay with their Run, so that one event is one message (ADR 0055)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 275
+title = "As a developer, I want `goodfetch-collie init` to scaffold the starters `browser`, `extract`, `agent` and `recipe` in TypeScript, Python or Rust (`--lang`), so that I begin from a program that runs (ADRs 0087, 0096; SDK-04)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 276
+title = "As a developer, I want every starter to carry a Dockerfile, a Compose file with Docker's `local` logging driver and the seccomp profile, a CI workflow, an AGENTS.md indexing the executable's embedded docs, the Product's skills and an MCP host configuration naming `goodfetch-collie`, so that it deploys and a coding agent finds its way (ADRs 0049, 0090, 0097, 0122)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 277
+title = "As a developer, I want the `recipe` starter to write a manifest naming Collie and `init` to offer a Limit as area 3's J-006 describes, so that a Recipe runs on the Product it was written for (ADRs 0041, 0096)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 278
+title = "As a developer on Collie, I want `init` to embed only Collie's starters, `--deploy <target>` files being area 13's, so that no Foxhound starter appears in my project (ADRs 0087, 0097)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 279
+title = "As a developer, I want each package README to open with \"Goodfetch Collie\" and the glossary sentence, give the install line and one minimal example run as a docs sample on that package's Product, and never lead with stealth, blocks or access, so that the registry page is true and tested (ADRs 0090, 0097; P45)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 280
+title = "As a developer using the Rust SDK, I want the install docs to list CMake, a C/C++ compiler, libclang and git, and to say V8 builds from source, so that `cargo install` does not fail on a missing tool (ADRs 0094, 0124)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 281
+title = "As a coding agent, I want `llms.txt`, `llms-full.txt` and a `.md` twin of every page for the Collie section, the `docs` command and MCP resources serving the executable's own embedded docs, so that I read the docs of the version installed (ADRs 0030, 0097; SDK-07)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 282
+title = "As a developer, I want migration guides from Playwright, from Stagehand v4 (with a part for v3's `cacheDir`, `llmClient` and `env`) and from Browser Use, each with concepts, a mapping table (blank cell and reason where nothing matches), before and after programs, defaults that change results, porting rules for a coding agent and the competitor's version and date, so that I move over with a guide that matches the code (ADR 0097; pain 8 `dx-setup-docs`)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 283
+title = "As a developer, I want each \"after\" program to be a tested docs sample and each \"before\" program a file type-checked against a manifest pinning the competitor's version, a pin marked `held` carrying its reason, so that a guide never shows code that cannot run (ADRs 0068, 0097)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 284
+title = "As a maintainer, I want the Live check `migration-guides-current` to fail on a newer major (a newer minor for `0.y`, a newer patch for `0.0.z`), a held pin checked against its own line, and Crawlee-with-Stagehand also failing once Crawlee accepts a newer Stagehand, so that a guide cannot go stale quietly (ADRs 0064, 0097)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 285
+title = "As a developer, I want \"Use with other tools\" pages for lending a page to Playwright, Puppeteer or Browser Use and for Collie inside Crawlee or Scrapy, beside the migration guides, and \"When you need many pages\" to show the move to Foxhound as the installed package, import, connection type, executable and engine-path variable only, so that I find the way in and the way up (ADRs 0089, 0097)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 286
+title = "As a maintainer, I want `xtask wording` to read READMEs, skills, package descriptions and keywords, catalog descriptions and Error code messages for \"bypass\", \"undetectable\", \"undetected\" and \"solve any CAPTCHA\", and Product names to appear as \"Goodfetch Collie\" at first mention, so that nothing we ship over-promises (ADRs 0035, 0090, 0097)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 287
+title = "As a developer, I want install pages to state download sizes as facts measured from the release, so that I know what a download costs and no figure is quoted from a ceiling (ADR 0097)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 288
+title = "As a user of both Products, I want each Product's packages, executables, imports, skills, MCP server names and images to differ, so that installing both collides nowhere (ADR 0090)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 289
+title = "As a user of both Products, I want one Goodfetch home and one Daemon per major running the fullest Product installed, a Collie program connecting to Foxhound's Daemon unchanged, so that two installs share one set of Runs (ADRs 0095, 0098)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 290
+title = "As a developer with `engine: \"auto\"`, I want a Daemon of my major that refuses me by Product or protocol version and cannot hand over to make my connection run the engine it would run with no Daemon (Attached, or linked in Rust), with the cause in `EngineInfo.fallback` (`{ cause, fix } | null`) and a warning once on `goodfetch.client`, `goodfetch::client` or the TypeScript `logger`, so that a Run still works and I am told why (ADR 0098; P05)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 291
+title = "As a developer with no TypeScript `logger`, I want the fallback's only report to be `EngineInfo.fallback`, so that the SDK stays silent while the value stays checkable (ADRs 0078, 0098; G4)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 292
+title = "As a developer, I want an idle Daemon that is not its major's pick to hand over while my connection waits for the pick within `timeout.connect`, so that I connect to the Product that can serve me (ADR 0098)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 293
+title = "As a developer with `engine: \"daemon\"` or `--daemon`, I want the refusal to fail at `connect()` with a `fix` naming my own executable's `daemon restart` by its path (a Rust program names the Product's install command first) and, where that would still not make it the pick, Foxhound at my version or newer, so that the remedy is one command (ADR 0098)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 294
+title = "As a developer, I want a missing browser build to name the build, the Product and version that pin it and that Product's install command, through `browser_not_installed`, `artifact_unavailable_offline` or `artifact_download_failed`, so that I install the right thing (ADRs 0098, 0115)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 295
+title = "As a developer connecting to a remote engine with `engine: { url, token }` or `GOODFETCH_URL`, I want a refusal by Product or version to fail at `connect()` and never fall back, so that I never run on an engine other than the one I named (ADRs 0049, 0095, 0098)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 296
+title = "As a developer, I want `browser clean [--dry-run]` in both executables to list or delete only builds no installed executable pins and none has used for `browser_cache.max_unused_age`, so that the shared cache never loses a build another Product needs (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 297
+title = "As a developer moving from Collie to Foxhound, I want only the installed package, the import, the connection type, the executable and the engine-path variable to change while page code, settings, commands, `--json` output and exit codes stay, so that \"When you need many pages\" is an edit of five words (ADRs 0090, 0095, 0097)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 298
+title = "As a developer, I want a program that links Collie's Rust crate to record itself in the installed-executables list without ever running the Daemon, so that its builds are kept (ADR 0098)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 299
+title = "As a developer, I want a Collie SDK to read only `GOODFETCH_COLLIE_ENGINE_PATH` and to recognise `GOODFETCH_FOXHOUND_ENGINE_PATH` without failing `connect()`, so that one environment serves both Products (ADRs 0083, 0090)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"

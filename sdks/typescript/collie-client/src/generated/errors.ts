@@ -3,6 +3,16 @@
 /** The seven groups of Error codes, named for their remedy (ADR 0079). */
 export type ErrorGroup = "program" | "refused" | "page" | "model" | "deadline_exceeded" | "unavailable" | "internal";
 
+/** What an error carries beyond its code, group and retryable flag (ADR 0079). */
+export interface ErrorFields {
+  /** What to do about it, when the engine or the runtime knows. */
+  readonly fix?: string | undefined;
+  /** The code's details, as the engine sent them, in wire names. */
+  readonly details?: Readonly<Record<string, unknown>> | undefined;
+  /** The error that caused it, in this process. */
+  readonly cause?: unknown;
+}
+
 /** The base of every error a Goodfetch SDK raises (ADR 0079). */
 export class GoodfetchError extends Error {
   /** The Error code, as the engine sent it. */
@@ -11,18 +21,31 @@ export class GoodfetchError extends Error {
   readonly group: ErrorGroup;
   /** Whether the same call may succeed when made again. */
   readonly retryable: boolean;
+  /** What to do about it, when known. */
+  readonly fix: string | undefined;
+  /** The code's details, in wire names; empty when it has none. */
+  readonly details: Readonly<Record<string, unknown>>;
 
   constructor(
     message: string,
-    init: { readonly code: string; readonly group: ErrorGroup; readonly retryable: boolean },
+    init: ErrorFields & {
+      readonly code: string;
+      readonly group: ErrorGroup;
+      readonly retryable: boolean;
+    },
   ) {
-    super(message);
+    super(message, init.cause === undefined ? undefined : { cause: init.cause });
     this.name = new.target.name;
     this.code = init.code;
     this.group = init.group;
     this.retryable = init.retryable;
+    this.fix = init.fix;
+    this.details = init.details ?? {};
   }
 }
+
+/** The class of one Error code: its message, then what it carries. */
+export type ErrorClass = new (message: string, fields?: ErrorFields) => GoodfetchError;
 
 /**
  * The program is wrong: its call, its settings or its own handler code. Fix the program.
@@ -59,12 +82,241 @@ export class UnavailableError extends GoodfetchError {}
  */
 export class InternalError extends GoodfetchError {}
 
+/** The group of each JSON-RPC error code the engine answers with, its wire class (ADR 0038). */
+export const errorGroupOfWireClass: Readonly<Record<number, ErrorGroup>> = {
+  [-32001]: "program",
+  [-32002]: "refused",
+  [-32003]: "page",
+  [-32004]: "model",
+  [-32005]: "deadline_exceeded",
+  [-32006]: "unavailable",
+  [-32007]: "internal",
+};
+
+/** The class of each group, which raises a code the SDK does not know, keeping the code (ADR 0079). */
+export const errorGroupClasses: Readonly<Record<ErrorGroup, typeof GoodfetchError>> = {
+  program: ProgramError,
+  refused: RefusedError,
+  page: PageError,
+  model: ModelError,
+  deadline_exceeded: DeadlineExceededError,
+  unavailable: UnavailableError,
+  internal: InternalError,
+};
+
+/**
+ * The host has addresses only in an IP family the Session holds no local address of, such as IPv6 addresses for a Session bound to an IPv4 address. Add a local address of that family to the run's local addresses, or reach the host another way.
+ */
+export class AddressFamilyUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "address_family_unavailable", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browsers install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.
+ */
+export class ArtifactDownloadFailedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "artifact_download_failed", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * The `offline` setting refused a pinned download the call needed. Run the Product's `browsers install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.
+ */
+export class ArtifactUnavailableOfflineError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "artifact_unavailable_offline", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * The Run's folder holds no body of this ID: the Run or the body is unknown, or the ID is not a body's.
+ */
+export class BodyNotFoundError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "body_not_found", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.
+ */
+export class BrowserHostOutdatedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "browser_host_outdated", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended.
+ */
+export class BrowserLaunchFailedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "browser_launch_failed", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path.
+ */
+export class BrowserNotInstalledError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "browser_not_installed", group: "unavailable", retryable: false });
+  }
+}
+
 /**
  * The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it.
  */
 export class CallCancelledError extends UnavailableError {
-  constructor(message: string) {
-    super(message, { code: "call_cancelled", group: "unavailable", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "call_cancelled", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.
+ */
+export class ClosedError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "closed", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon.
+ */
+export class ConsolePortInUseError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "console_port_in_use", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.
+ */
+export class DaemonDrainingError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "daemon_draining", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.
+ */
+export class EngineExitedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "engine_exited", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * `connect()` found no engine executable to start: the Product's engine-path variable names no executable, or the Product's platform package is not installed. The `fix` names the variable or the package.
+ */
+export class EngineNotFoundError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "engine_not_found", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The engine wrote a line that is not one JSON-RPC message on the Connection, such as a log line on an Attached engine's stdout, so the Client ended the Connection. A bug in Goodfetch: report it with the line its details carry.
+ */
+export class EngineOutputInvalidError extends InternalError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "engine_output_invalid", group: "internal", retryable: false });
+  }
+}
+
+/**
+ * Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file.
+ */
+export class ExecutableBlockedBySmartAppControlError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "executable_blocked_by_smart_app_control", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again.
+ */
+export class FileWriteFailedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "file_write_failed", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * A file, such as a run state or a Checkpoint, is of a format version this engine cannot read: a newer minor or major, written by a newer engine, which `fix` says to upgrade to, or an older major, which `upgrade-files` upgrades. The file is left as it is.
+ */
+export class FormatVersionUnsupportedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "format_version_unsupported", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.
+ */
+export class LimitNotUnderstoodError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "limit_not_understood", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.
+ */
+export class LimitReachedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "limit_reached", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting.
+ */
+export class NameLookupFailedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "name_lookup_failed", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * The resolver found no address for the host name. The engine's own resolver, used on Linux and for Sessions with a local address, reads the system's resolver configuration and hosts file but asks neither NSS modules (such as a directory service or a VPN client's) nor multicast DNS, so a name only they resolve, such as a `.local` name, fails here. Map such a name to its address with the `resolve` setting, or correct the name.
+ */
+export class NameNotResolvedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "name_not_resolved", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The navigation reached no document: the browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`, is in the details, or the browser failed it for a reason it did not name.
+ */
+export class NavigationFailedError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "navigation_failed", group: "page", retryable: true });
+  }
+}
+
+/**
+ * Another navigation of the page started before this one committed, so this one reached no document: the page went where the other took it.
+ */
+export class NavigationInterruptedError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "navigation_interrupted", group: "page", retryable: false });
+  }
+}
+
+/**
+ * The call asks a Daemon about itself, and this engine is an Attached engine. Ask the Daemon of the major, found through its runtime file, or run `daemon status`.
+ */
+export class NotADaemonError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "not_a_daemon", group: "program", retryable: false });
   }
 }
 
@@ -72,8 +324,44 @@ export class CallCancelledError extends UnavailableError {
  * The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.
  */
 export class NotInProductError extends UnavailableError {
-  constructor(message: string) {
-    super(message, { code: "not_in_product", group: "unavailable", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "not_in_product", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The page's renderer crashed, or its browser process was lost while the call ran; `browser_exit` says how the browser ended when it is what was lost. The page is gone: open another.
+ */
+export class PageCrashedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_crashed", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.
+ */
+export class PathNotWritableError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "path_not_writable", group: "program", retryable: false });
+  }
+}
+
+/**
+ * A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program.
+ */
+export class PatternUnsupportedError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "pattern_unsupported", group: "program", retryable: false });
+  }
+}
+
+/**
+ * Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.
+ */
+export class PersonRequiredError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "person_required", group: "refused", retryable: false });
   }
 }
 
@@ -81,8 +369,89 @@ export class NotInProductError extends UnavailableError {
  * The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.
  */
 export class ProtocolVersionUnsupportedError extends UnavailableError {
-  constructor(message: string) {
-    super(message, { code: "protocol_version_unsupported", group: "unavailable", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "protocol_version_unsupported", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.
+ */
+export class ResourcesExhaustedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "resources_exhausted", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.
+ */
+export class ResponseTruncatedError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "response_truncated", group: "page", retryable: true });
+  }
+}
+
+/**
+ * Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.
+ */
+export class RunBusyError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_busy", group: "refused", retryable: true });
+  }
+}
+
+/**
+ * The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID.
+ */
+export class RunConflictError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_conflict", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The Run ID is not one the engine takes: lowercase letters, digits, `.`, `_` and `-`, at most 128, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+ */
+export class RunIdInvalidError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_id_invalid", group: "program", retryable: false });
+  }
+}
+
+/**
+ * Another engine holds the Run's writer lock, so this one cannot write the Run; the other may end.
+ */
+export class RunInUseError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_in_use", group: "refused", retryable: true });
+  }
+}
+
+/**
+ * No Run has this Run ID: the Run index does not list it.
+ */
+export class RunNotFoundError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_not_found", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The action was forwarded to this engine as the Run's owner, and this engine does not own the Run: the Run index named an engine that has since ended or restarted. The engine that forwarded it retries the Run's writer lock.
+ */
+export class RunNotOwnedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_not_owned", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID.
+ */
+export class RunStateUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_state_unavailable", group: "unavailable", retryable: false });
   }
 }
 
@@ -90,15 +459,171 @@ export class ProtocolVersionUnsupportedError extends UnavailableError {
  * The sample operation refused the text.
  */
 export class SampleRefusedError extends RefusedError {
-  constructor(message: string) {
-    super(message, { code: "sample_refused", group: "refused", retryable: false });
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "sample_refused", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Secret placeholder's value would go to a domain outside its binding's `domains`: the field's frame or the request's URL. The details name the placeholder, the reference and the domain, never a value.
+ */
+export class SecretDomainNotAllowedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "secret_domain_not_allowed", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.
+ */
+export class SecretUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "secret_unavailable", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * No scope binds the Secret placeholder a call names. `bound` lists the placeholders bound, never a value.
+ */
+export class SecretUnboundError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "secret_unbound", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The Run is bound to the machine its Session source is on, and this is another machine: its login would reach sites from a new IP under the same cookies. Resume it on its own machine, or serve its Session source through a Browser host.
+ */
+export class SessionBoundToMachineError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "session_bound_to_machine", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse.
+ */
+export class SettingInvalidError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "setting_invalid", group: "program", retryable: false });
+  }
+}
+
+/**
+ * A value a lower layer locked or capped, outside a Recipe's exposed bounds, or one only a lower layer may set or widen, such as `tls.trusted_cas` from a run. `limit` names the setting and the layer that holds it.
+ */
+export class SettingLockedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "setting_locked", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A setting given where it cannot take effect: in a layer that may not hold it, such as `browser_cache.max_unused_age` outside user configuration and an Operator policy, or on a Run it does not apply to, such as a crawl's setting on a Collie Run.
+ */
+export class SettingNotApplicableError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "setting_not_applicable", group: "program", retryable: false });
+  }
+}
+
+/**
+ * A key no Product knows, or an unknown `GOODFETCH_` variable. The message names the closest valid one.
+ */
+export class SettingUnknownError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "setting_unknown", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.
+ */
+export class TargetNotUniqueError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "target_not_unique", group: "page", retryable: false });
+  }
+}
+
+/**
+ * The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain.
+ */
+export class TooManyRedirectsError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "too_many_redirects", group: "page", retryable: false });
+  }
+}
+
+/**
+ * `upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.
+ */
+export class UpgradeSourceUnsupportedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "upgrade_source_unsupported", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused.
+ */
+export class ValueInvalidError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "value_invalid", group: "program", retryable: false });
   }
 }
 
 /** The error class of each of Collie's Error codes. */
-export const collieErrorClasses: Readonly<Record<string, new (message: string) => GoodfetchError>> = {
+export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
+  address_family_unavailable: AddressFamilyUnavailableError,
+  artifact_download_failed: ArtifactDownloadFailedError,
+  artifact_unavailable_offline: ArtifactUnavailableOfflineError,
+  body_not_found: BodyNotFoundError,
+  browser_host_outdated: BrowserHostOutdatedError,
+  browser_launch_failed: BrowserLaunchFailedError,
+  browser_not_installed: BrowserNotInstalledError,
   call_cancelled: CallCancelledError,
+  closed: ClosedError,
+  console_port_in_use: ConsolePortInUseError,
+  daemon_draining: DaemonDrainingError,
+  engine_exited: EngineExitedError,
+  engine_not_found: EngineNotFoundError,
+  engine_output_invalid: EngineOutputInvalidError,
+  executable_blocked_by_smart_app_control: ExecutableBlockedBySmartAppControlError,
+  file_write_failed: FileWriteFailedError,
+  format_version_unsupported: FormatVersionUnsupportedError,
+  limit_not_understood: LimitNotUnderstoodError,
+  limit_reached: LimitReachedError,
+  name_lookup_failed: NameLookupFailedError,
+  name_not_resolved: NameNotResolvedError,
+  navigation_failed: NavigationFailedError,
+  navigation_interrupted: NavigationInterruptedError,
+  not_a_daemon: NotADaemonError,
   not_in_product: NotInProductError,
+  page_crashed: PageCrashedError,
+  path_not_writable: PathNotWritableError,
+  pattern_unsupported: PatternUnsupportedError,
+  person_required: PersonRequiredError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
+  resources_exhausted: ResourcesExhaustedError,
+  response_truncated: ResponseTruncatedError,
+  run_busy: RunBusyError,
+  run_conflict: RunConflictError,
+  run_id_invalid: RunIdInvalidError,
+  run_in_use: RunInUseError,
+  run_not_found: RunNotFoundError,
+  run_not_owned: RunNotOwnedError,
+  run_state_unavailable: RunStateUnavailableError,
   sample_refused: SampleRefusedError,
+  secret_domain_not_allowed: SecretDomainNotAllowedError,
+  secret_unavailable: SecretUnavailableError,
+  secret_unbound: SecretUnboundError,
+  session_bound_to_machine: SessionBoundToMachineError,
+  setting_invalid: SettingInvalidError,
+  setting_locked: SettingLockedError,
+  setting_not_applicable: SettingNotApplicableError,
+  setting_unknown: SettingUnknownError,
+  target_not_unique: TargetNotUniqueError,
+  too_many_redirects: TooManyRedirectsError,
+  upgrade_source_unsupported: UpgradeSourceUnsupportedError,
+  value_invalid: ValueInvalidError,
 };

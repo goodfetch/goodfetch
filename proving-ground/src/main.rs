@@ -11,6 +11,7 @@ mod adversarial;
 mod agent;
 mod authority;
 mod blackhole;
+mod browser_pages;
 mod catalog;
 mod client_hello;
 mod clock;
@@ -26,8 +27,10 @@ mod files;
 mod forward_proxy;
 mod generator;
 mod handmade;
+mod hostile;
 mod languages;
 mod login;
+mod markdown;
 mod model;
 mod network;
 mod network_fixture;
@@ -36,6 +39,7 @@ mod oracle;
 mod output;
 mod portal;
 mod protection;
+mod push;
 mod raw;
 mod raw_site;
 mod rendered;
@@ -54,6 +58,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 
 use anyhow::{Context as _, Result, bail};
 use clap::Parser as _;
+use serde_json::Value;
 
 use crate::command::{Command, NetworkProfile, Serve, Shaper, Tasks};
 use crate::network::{Loss, Network, Profile};
@@ -141,8 +146,10 @@ async fn shape_and_serve(
     outcome.and(stopped)
 }
 
-/// Binds the network fixtures beside the server, prints the output line,
-/// and serves until `stop_signal` is received.
+/// Binds the network fixtures beside the server, prints the output line
+/// (with every host name the site serves and its certificate authority, so a
+/// caller maps each name to the address and trusts the authority with no
+/// further request), and serves until `stop_signal` is received.
 async fn serve(
     server: Server,
     network: &Network,
@@ -156,6 +163,12 @@ async fn serve(
     line.insert("address".to_owned(), reached.to_string().into());
     line.insert("version".to_owned(), version::VERSION.into());
     line.insert("seed".to_owned(), seed.into());
+    let hosts: Vec<_> = server.site().host_names().map(Value::from).collect();
+    line.insert("hosts".to_owned(), hosts.into());
+    line.insert(
+        "certificate_authority".to_owned(),
+        server.site().certificate_authority().into(),
+    );
     line.insert(
         "network".to_owned(),
         serde_json::to_value(network.report()).context("reporting the network profile")?,

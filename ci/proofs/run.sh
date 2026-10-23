@@ -8,11 +8,15 @@
 #     `pytest.MonkeyPatch` and `_pytest.monkeypatch` (pytest-mock in uv.lock:
 #     `xtask mocking-lockfile`'s own tests);
 #   - ADR 0068's test-file bans: oxlint on each property that gives a test a
-#     browser or context of its own, sleeps or redefines a property;
+#     browser or context of its own, sleeps, redefines a property or writes
+#     a cookie or storage state;
 #   - snapshots never written in CI: a mismatched, a missing and an orphaned
 #     snapshot for insta and Vitest, a missing and a mismatched one for
 #     inline-snapshot (whose inline snapshots cannot be orphaned);
 #   - zizmor refusing an Action pinned by tag (story 1-71);
+#   - ADR 0067's secret scans: a job's output holding a Secret canary or a
+#     known secret fails ci/leaks.sh, and a commit adding a canary fails
+#     ci/commit-leaks.sh (story 1-112);
 #   - the supply-chain and boundary gates (#133): cargo-deny's license
 #     allowlist (ADR 0018), sources, advisories and ADR 0087's workspace-wide
 #     direction; each Product's bans (ci/deny/products.sh); cargo-audit, pnpm
@@ -208,11 +212,12 @@ else
 fi
 
 # ADR 0068's test-file bans: every browser and context comes from test
-# support's fixtures, no test sleeps, and none redefines a property.
+# support's fixtures, no test sleeps, none redefines a property, and none
+# writes a cookie or storage state the Console did not set.
 codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json ci/proofs/oxlint/contexts.spec.ts 2>/dev/null |
   jq -r '.diagnostics[] | select(.code == "eslint(no-restricted-properties)") | .message | capture("^.(?<name>[A-Za-z.]+). is restricted").name' | tally | tr '\n' ' ')
-if [[ "$codes" == "1 Object.defineProperties 1 Object.defineProperty 1 Reflect.defineProperty 1 browser.newPage 1 connect 1 connectOverCDP 1 launch 1 launchPersistentContext 2 newContext 1 waitForTimeout " ]]; then
-  pass "oxlint refuses a test file's own browser or context, waitForTimeout and redefined properties, and allows context.newPage()"
+if [[ "$codes" == "1 Object.defineProperties 1 Object.defineProperty 1 Reflect.defineProperty 1 addCookies 1 browser.newPage 1 connect 1 connectOverCDP 1 document.cookie 1 launch 1 launchPersistentContext 2 newContext 1 setStorageState 1 waitForTimeout " ]]; then
+  pass "oxlint refuses a test file's own browser or context, waitForTimeout, redefined properties and written cookies or storage state, and allows context.newPage()"
 else
   fail oxlint-contexts "findings: ${codes:-none}"
 fi
@@ -265,6 +270,59 @@ if [[ "$codes" == "1 unpinned-uses" ]]; then
   pass "zizmor refuses an Action pinned by tag"
 else
   fail zizmor "findings: ${codes:-none}"
+fi
+
+# ADR 0067's secret scans. A job's output that holds a Secret canary fails
+# its scan (ci/leaks.sh), as one that holds a secret gitleaks' own rules know
+# does, and a clean output passes; a pull request's commit that adds a
+# canary fails the commit scan (ci/commit-leaks.sh), and its clean commits
+# pass. The canary artifacts are copied out of their fixture folder, which
+# the rules' allowlists exempt; the token is made here, so no commit holds it.
+leaks="$scratch/leaks"
+mkdir -p "$leaks/canary/junit" "$leaks/token/junit" "$leaks/clean/junit"
+cp test-support/fixtures/canaries/artifacts/leaked/base64.log "$leaks/canary/junit/"
+cp test-support/fixtures/canaries/artifacts/clean/clean.log "$leaks/clean/junit/"
+token=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 36)
+printf 'GITHUB_TOKEN=ghp_%s\n' "$token" >"$leaks/token/junit/run.log"
+outcomes=""
+for output in canary token clean missing; do
+  if ci/leaks.sh "$leaks/$output/junit/" >/dev/null 2>&1; then
+    outcomes+="$output:passed "
+  else
+    outcomes+="$output:failed "
+  fi
+done
+if [[ "$outcomes" == "canary:failed token:failed clean:passed missing:passed " ]]; then
+  pass "a job's output holding a Secret canary or a known secret fails its scan, and a clean or missing one passes"
+else
+  fail output-scan "outcomes: $outcomes"
+fi
+
+history="$leaks/history"
+mkdir -p "$history"
+git -C "$history" init --quiet
+commit() {
+  git -C "$history" add --all
+  git -C "$history" -c user.name=Proof -c user.email=proof@example.invalid \
+    -c commit.gpgsign=false commit --quiet --no-verify --message "$1"
+  git -C "$history" rev-parse HEAD
+}
+cp test-support/fixtures/canaries/artifacts/clean/clean.log "$history/"
+base=$(commit "The base")
+printf 'more\n' >>"$history/clean.log"
+clean=$(commit "A clean change")
+cp test-support/fixtures/canaries/artifacts/leaked/kinds.log "$history/run.log"
+leaked=$(commit "A change that commits a canary")
+scan_commits() {
+  local script="$PWD/ci/commit-leaks.sh"
+  (cd "$history" && "$script" "$1" "$2") >/dev/null 2>&1
+}
+if ! scan_commits "$base" "$clean"; then
+  fail commit-scan "the clean commits failed it"
+elif scan_commits "$base" "$leaked"; then
+  fail commit-scan "the commit that adds a canary passed it"
+else
+  pass "a pull request's commit that adds a Secret canary fails the commit scan, and clean commits pass"
 fi
 
 exit "$failed"

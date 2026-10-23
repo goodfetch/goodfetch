@@ -14,7 +14,10 @@ fn main() -> ExitCode {
     start(&Start {
         product: Product::Foxhound,
         version: env!("CARGO_PKG_VERSION"),
-        composition: goodfetch_foxhound::composition(),
+        // A release build records its release date; any other build has
+        // none, and never prints the age notice (ADR 0030).
+        release_date: option_env!("GOODFETCH_RELEASE_DATE"),
+        composition: goodfetch_foxhound::composition,
         arguments: std::env::args_os().collect(),
         environment: std::env::vars_os().collect(),
     })

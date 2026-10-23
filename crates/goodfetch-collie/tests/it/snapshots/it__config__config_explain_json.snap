@@ -1,0 +1,108 @@
+---
+source: crates/goodfetch-collie/tests/it/config.rs
+expression: "serde_json::to_string_pretty(&output).unwrap()"
+---
+{
+  "files": [
+    {
+      "found": true,
+      "layer": "operator_policy",
+      "path": "[FOLDER]/home/0.0/operator-policy.toml"
+    },
+    {
+      "found": true,
+      "layer": "user_configuration",
+      "path": "[FOLDER]/home/0.0/configuration.toml"
+    },
+    {
+      "found": true,
+      "layer": "project_configuration",
+      "path": "[FOLDER]/goodfetch.toml"
+    }
+  ],
+  "policy_version": "sha256:df140a1b19400567",
+  "settings": [
+    {
+      "applied": false,
+      "key": "crawl.retry.max",
+      "layer": "user_configuration",
+      "products": [
+        "foxhound"
+      ],
+      "value": 5,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "network.resolve",
+      "layer": "operator_policy",
+      "locked_by": "operator_policy",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "staging.example": [
+          "127.0.0.1"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "timeout.action",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": 30000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "timeout.first_byte",
+      "layer": "project_configuration",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": 10000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "timeout.navigation",
+      "layer": "project_configuration",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": 60000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "timeout.run",
+      "layer": "run",
+      "origin": "flag",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": 3600000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "timeout.secret",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": 30000,
+      "weakens": false
+    }
+  ]
+}

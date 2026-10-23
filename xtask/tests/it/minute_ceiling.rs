@@ -124,6 +124,43 @@ fn month_counts_hosted_minutes_of_test_health_jobs_rounded_up_and_multiplied() {
     assert_eq!(value(&outcome, "minutes").as_deref(), Some("29"));
 }
 
+#[test]
+fn month_counts_the_coverage_jobs_hosted_minutes() {
+    let workspace = Workspace::from_fixture("empty");
+    write_store(
+        &workspace,
+        &[attempt(
+            ".github/workflows/coverage.yml",
+            13,
+            "2026-10-10T05:00:00Z",
+            vec![
+                job(&["ubuntu-24.04"], 2_400, "2026-10-10T05:00:00Z"),
+                job(&["ubuntu-24.04"], 30, "2026-10-10T05:00:00Z"),
+            ],
+        )],
+    );
+
+    let outcome = ceiling(&workspace, "coverage");
+
+    assert_eq!(outcome.code, 0);
+    assert_eq!(value(&outcome, "minutes").as_deref(), Some("41"));
+}
+
+#[test]
+fn skipped_coverage_job_names_its_threshold_in_the_job_summary() {
+    let workspace = Workspace::from_fixture("empty");
+    month_of(&workspace, 550);
+
+    let outcome = ceiling(&workspace, "coverage");
+
+    assert_eq!(outcome.code, 0);
+    let summary = String::from_utf8(workspace.read("summary.md").unwrap()).unwrap();
+    assert!(
+        summary.contains("used 550 included minutes, and the coverage job starts only below 550"),
+        "{summary}"
+    );
+}
+
 #[rstest]
 #[case::constrained_while_its_120_minutes_fit(880, "constrained", true)]
 #[case::constrained_once_its_120_minutes_do_not_fit(881, "constrained", false)]

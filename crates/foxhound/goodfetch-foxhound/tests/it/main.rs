@@ -7,4 +7,17 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+mod admission;
 mod attached;
+mod crawl;
+mod daemon;
+mod frontier;
+mod journeys;
+mod limits;
+mod outcomes;
+mod politeness;
+mod scope;
+mod service_manager;
+mod session_pool;
+mod workers;
+mod writer_lock;

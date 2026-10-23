@@ -8,8 +8,11 @@
 //!   check's finding prints it, followed by a change at least the measured
 //!   one, in the check's own unit, and then its reason;
 //! - and a comment by the repository's owner, who accepts when merging (ADR
-//!   0133), says the rule's phrase and names the pull request's head SHA, in
-//!   full or abbreviated to at least 7 characters. An agent that posts with
+//!   0133): the user who owns it, or a member of the organization that does
+//!   with the repository's `admin` permission (as every owner of the
+//!   organization has; ADR 0133's note of 2026-10-22), says the rule's phrase
+//!   and names the pull request's head SHA, in full or abbreviated to at
+//!   least 7 characters. An agent that posts with
 //!   the owner's token posts as the owner, so this is the convention the
 //!   owner keeps, not a proof of who wrote the comment.
 
@@ -44,8 +47,13 @@ pub(crate) struct Acceptance {
     accepted_on_head: bool,
 }
 
-/// The comment author GitHub reports for the repository's owner.
+/// The comment author GitHub reports for a user's repository's owner.
 const OWNER: &str = "OWNER";
+/// The comment author GitHub reports for an organization's members, its
+/// owners included.
+const MEMBER: &str = "MEMBER";
+/// The repository permission every owner of its organization has.
+const ADMIN: &str = "admin";
 /// Git's shortest abbreviation of an object name.
 const SHORTEST_SHA: usize = 7;
 const FULL_SHA: usize = 40;
@@ -65,6 +73,17 @@ struct Head {
 struct Comment {
     body: Option<String>,
     author_association: String,
+    user: Option<User>,
+}
+
+#[derive(Deserialize)]
+struct User {
+    login: String,
+}
+
+#[derive(Deserialize)]
+struct RepositoryPermission {
+    permission: String,
 }
 
 impl PullRequest<'_> {
@@ -81,9 +100,16 @@ impl PullRequest<'_> {
                 List::Array,
             )
             .with_context(|| format!("reading the comments of #{}", self.number))?;
-        let accepted_on_head = comments
+        let mut accepted_on_head = false;
+        for comment in comments
             .iter()
-            .any(|comment| accepts(comment, rule, &pull_request.head.sha));
+            .filter(|comment| accepts(comment, rule, &pull_request.head.sha))
+        {
+            if self.by_owner(comment)? {
+                accepted_on_head = true;
+                break;
+            }
+        }
         Ok(Acceptance {
             section: section(
                 pull_request.body.as_deref().unwrap_or_default(),
@@ -91,6 +117,30 @@ impl PullRequest<'_> {
             ),
             accepted_on_head,
         })
+    }
+
+    /// Whether the repository's owner wrote `comment`: GitHub marks a user's
+    /// repository's owner OWNER, but an organization's owners only MEMBER, so
+    /// a member counts when they administer the repository. The repository's
+    /// permission stands in for the organization's role, which a fine-grained
+    /// token without organization access cannot read.
+    fn by_owner(&self, comment: &Comment) -> Result<bool> {
+        if comment.author_association == OWNER {
+            return Ok(true);
+        }
+        let (Some(user), MEMBER) = (&comment.user, comment.author_association.as_str()) else {
+            return Ok(false);
+        };
+        let permission: Option<RepositoryPermission> = self
+            .api
+            .find(&format!(
+                "/repos/{}/collaborators/{}/permission",
+                self.repository, user.login
+            ))
+            .with_context(|| {
+                format!("reading {}'s permission on {}", user.login, self.repository)
+            })?;
+        Ok(permission.is_some_and(|permission| permission.permission == ADMIN))
     }
 }
 
@@ -148,12 +198,12 @@ impl Acceptance {
     }
 }
 
+/// Whether `comment` says the rule's phrase and names `head`; who wrote it is
+/// [`PullRequest::by_owner`]'s question.
 fn accepts(comment: &Comment, rule: &Rule, head: &str) -> bool {
     let body = comment.body.as_deref().unwrap_or_default();
-    comment.author_association == OWNER
-        && body
-            .to_ascii_lowercase()
-            .contains(&rule.phrase.to_ascii_lowercase())
+    body.to_ascii_lowercase()
+        .contains(&rule.phrase.to_ascii_lowercase())
         && body
             .split(|character: char| !character.is_ascii_alphanumeric())
             .any(|word| names_head(word, head))

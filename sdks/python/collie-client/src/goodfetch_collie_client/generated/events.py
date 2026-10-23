@@ -10,17 +10,43 @@ from typing import Final
 
 from pydantic import BaseModel
 
-from .models import SampleEchoed
+from .models import DownloadProgress, PageDownload, Resync, RunAborting, RunAxes, RunCheckpointing, RunMigrating, RunProgress, RunStopping, SampleEchoed
 
 EVENTS: Final[Mapping[str, type[BaseModel]]] = {
+    "browser_cache.download_progress": DownloadProgress,
+    "events.resync": Resync,
+    "page.download": PageDownload,
+    "run.aborting": RunAborting,
+    "run.axes_changed": RunAxes,
+    "run.checkpointing": RunCheckpointing,
+    "run.migrating": RunMigrating,
+    "run.progress": RunProgress,
+    "run.stopping": RunStopping,
     "sample.echoed": SampleEchoed,
 }
 """The payload type of each event:
 
+- `browser_cache.download_progress`: A Pinned artifact the call needs is downloading into the Browser cache: the bytes received so far, out of those announced.
+- `events.resync`: The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, from which the stream continues.
+- `page.download`: A navigation of the page reached a file the browser downloads instead of showing, such as a PDF: the navigation answers no response and the page keeps its document. Names the page, the file's URL and the name the browser suggests.
+- `run.aborting`: A Run is being aborted: it stops at its next safe point. Lossless.
+- `run.axes_changed`: A Run's Lifecycle, Verdict or Completeness changed: it started running, or it ended. Lossless: while a subscriber's queue is full, the Run waits.
+- `run.checkpointing`: A Checkpoint of a Run is being written: on `run.checkpoint`, a pause, a migration, a clean stop or the periodic `checkpoint.interval`. Lossless.
+- `run.migrating`: A Run is being migrated to another machine: it checkpoints, then stops. Lossless.
+- `run.progress`: A Run's progress changed, such as the program's own status line. Telemetry: a newer value of the same Run replaces an unsent one.
+- `run.stopping`: A Run is stopping at its next safe point, with its cause: an abort, a pause or a migration. Lossless.
 - `sample.echoed`: A text was repeated.
 """
 
 EXPERIMENTAL_EVENTS: Final[frozenset[str]] = frozenset({
+    "events.resync",
+    "page.download",
+    "run.aborting",
+    "run.axes_changed",
+    "run.checkpointing",
+    "run.migrating",
+    "run.progress",
+    "run.stopping",
     "sample.echoed",
 })
 """The events outside semver until they are promoted (ADR 0030)."""

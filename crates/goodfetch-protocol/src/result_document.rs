@@ -49,6 +49,15 @@ pub enum ResultDocument {
     Journey(JourneyDocument),
 }
 
+impl ResultDocument {
+    /// The `journey` document of a variant's facts, its outcome derived:
+    /// the constructor a Rust Journey test passes to
+    /// `goodfetch-test-support`'s `JourneyRun`, which records the facts.
+    pub fn journey(facts: JourneyFacts) -> Self {
+        Self::Journey(JourneyDocument::new(facts))
+    }
+}
+
 /// Loads a result document, recomputing every outcome it stores. A
 /// `journey` document comes back not yet compared with its Journey: only
 /// [`read_journey_document`] turns it into a [`JourneyDocument`].

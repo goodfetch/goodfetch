@@ -1,0 +1,4 @@
+version = "0.1"
+[settings]
+"timeout.navigation" = 1000
+tls.accept_invalid_certs = { "intranet.example" = "any" }

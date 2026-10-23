@@ -11,6 +11,7 @@ use std::fmt::Write as _;
 use rstest::rstest;
 use serde_json::Value;
 
+use crate::feature_generators::add_shared_type_values;
 use crate::workspace::{Finding, Outcome, Workspace, finding};
 
 const JSON2TS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../node_modules/.bin/json2ts");
@@ -56,25 +57,37 @@ fn generated_files(workspace: &Workspace) -> Vec<(String, String)> {
             JOURNEY_SCHEMA.to_owned(),
             workspace.read_text(JOURNEY_SCHEMA),
         ),
+        (SCRIPT_SCHEMA.to_owned(), workspace.read_text(SCRIPT_SCHEMA)),
     ];
-    for folder in GENERATED_FOLDERS {
-        let mut paths: Vec<_> = std::fs::read_dir(workspace.path().join(folder))
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-            .collect();
-        paths.sort();
-        for name in paths {
-            let path = format!("{folder}/{name}");
-            let contents = workspace.read_text(&path);
-            files.push((path, contents));
+    let mut pending: Vec<String> = GENERATED_FOLDERS
+        .iter()
+        .map(|folder| (*folder).to_owned())
+        .collect();
+    let mut generated = Vec::new();
+    while let Some(folder) = pending.pop() {
+        for entry in std::fs::read_dir(workspace.path().join(&folder)).unwrap() {
+            let entry = entry.unwrap();
+            let path = format!("{folder}/{}", entry.file_name().into_string().unwrap());
+            if entry.file_type().unwrap().is_dir() {
+                pending.push(path);
+            } else {
+                generated.push(path);
+            }
         }
+    }
+    generated.sort();
+    for path in generated {
+        let contents = workspace.read_text(&path);
+        files.push((path, contents));
     }
     files
 }
 
-const GENERATED_FOLDERS: [&str; 6] = [
+const GENERATED_FOLDERS: [&str; 8] = [
     "crates/goodfetch-protocol/generated",
     "test-support/fixtures/schemas",
+    "test-support/typescript/src/generated",
+    "test-support/python/src/goodfetch_test_support/generated",
     "sdks/typescript/collie-client/src/generated",
     "sdks/typescript/foxhound/src/generated",
     "sdks/python/collie-client/src/goodfetch_collie_client/generated",
@@ -106,6 +119,7 @@ const SAMPLE: &str = "crates/goodfetch-protocol/src/sample.rs";
 const FOXHOUND: &str = "crates/goodfetch-protocol/src/foxhound.rs";
 const JOURNEY: &str = "crates/goodfetch-protocol/src/journey.rs";
 const JOURNEY_SCHEMA: &str = "journeys/journey.schema.json";
+const RESULT_DOCUMENT: &str = "crates/goodfetch-protocol/src/result_document.rs";
 
 #[rstest]
 #[case::field_added_to_a_collie_type(
@@ -150,6 +164,26 @@ const JOURNEY_SCHEMA: &str = "journeys/journey.schema.json";
     vec![
         finding("drift", "crates/goodfetch-protocol/generated/bundle.json"),
         finding("drift", JOURNEY_SCHEMA),
+    ],
+)]
+#[case::field_added_to_the_result_document(
+    RESULT_DOCUMENT,
+    "    /// Its outcome.\n    pub outcome: String,\n",
+    "    /// Its outcome.\n    pub outcome: String,\n    /// Its surface.\n    pub surface: String,\n",
+    vec![
+        finding("drift", "crates/goodfetch-protocol/generated/bundle.json"),
+        finding("stale", "test-support/python/src/goodfetch_test_support/generated/result_document.py"),
+        finding("stale", "test-support/typescript/src/generated/result-document.ts"),
+    ],
+)]
+#[case::field_added_to_the_case_log_entry(
+    RESULT_DOCUMENT,
+    "    /// The case's ID.\n    pub case: String,\n",
+    "    /// The case's ID.\n    pub case: String,\n    /// Its mode.\n    pub mode: String,\n",
+    vec![
+        finding("drift", "crates/goodfetch-protocol/generated/bundle.json"),
+        finding("stale", "test-support/python/src/goodfetch_test_support/generated/result_document.py"),
+        finding("stale", "test-support/typescript/src/generated/result-document.ts"),
     ],
 )]
 fn check_fails_after_a_type_change_that_was_not_regenerated(
@@ -205,6 +239,7 @@ fn check_fails_after_a_feature_source_change_that_was_not_regenerated(
     vec![
         finding("stale", "sdks/typescript/collie-client/src/generated/types.ts"),
         finding("stale", "sdks/typescript/foxhound/src/generated/types.ts"),
+        finding("stale", "test-support/typescript/src/generated/result-document.ts"),
     ],
 )]
 #[case::datamodel_code_generator(
@@ -214,6 +249,7 @@ fn check_fails_after_a_feature_source_change_that_was_not_regenerated(
     vec![
         finding("stale", "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py"),
         finding("stale", "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py"),
+        finding("stale", "test-support/python/src/goodfetch_test_support/generated/result_document.py"),
     ],
 )]
 #[case::ruff_which_formats_the_python_models(
@@ -223,6 +259,7 @@ fn check_fails_after_a_feature_source_change_that_was_not_regenerated(
     vec![
         finding("stale", "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py"),
         finding("stale", "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py"),
+        finding("stale", "test-support/python/src/goodfetch_test_support/generated/result_document.py"),
     ],
 )]
 fn check_fails_after_a_generator_version_bump_that_was_not_regenerated(
@@ -250,6 +287,7 @@ fn check_fails_after_a_generator_version_bump_that_was_not_regenerated(
 #[case::feature_inventory("features/inventory.json", "drift")]
 #[case::stories_schema("features/stories.schema.json", "drift")]
 #[case::journey_schema(JOURNEY_SCHEMA, "drift")]
+#[case::canary_rule(CANARY_RULE, "drift")]
 fn check_detects_a_hand_edit_under_generated(#[case] path: &str, #[case] kind: &str) {
     let workspace = Workspace::from_fixture("codegen");
     let edited = format!("{}\n", workspace.read_text(path));
@@ -289,6 +327,78 @@ fn check_fails_when_the_committed_description_schema_drifts_from_the_type() {
         outcome.stderr
     );
     assert_eq!(outcome.code, 1);
+}
+
+/// The script format's schema, which `xtask codegen` commits among the
+/// engine-script fixtures rather than in `schemas/` (ADR 0069).
+const SCRIPT_SCHEMA: &str = "test-support/fixtures/engine-scripts/script.schema.json";
+
+#[test]
+fn check_fails_when_the_committed_script_schema_drifts_from_the_type() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(
+        DESCRIPTION,
+        "    pub description: String,\n",
+        "    pub description: String,\n    /// Its steps.\n    pub steps: Vec<String>,\n",
+    );
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("drift", SCRIPT_SCHEMA)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn codegen_writes_the_script_schema_among_the_engine_scripts() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.remove(SCRIPT_SCHEMA);
+
+    codegen(&workspace);
+
+    let schema: Value = serde_json::from_str(&workspace.read_text(SCRIPT_SCHEMA)).unwrap();
+    assert_eq!(schema["title"], "Script");
+}
+
+/// The Secret canaries' `gitleaks` rule, which the fixture's stand-in of
+/// test support generates from its kinds.
+const CANARY_RULE: &str = "test-support/fixtures/canaries/gitleaks.toml";
+
+#[test]
+fn check_fails_when_the_committed_canary_rule_drifts_from_the_kinds() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(
+        DESCRIPTION,
+        "pub const KINDS: [(&str, &str); 1] = [(\"typed-password\", \"gfcanary-password-[0-9a-f]{16}\")];",
+        "pub const KINDS: [(&str, &str); 2] = [\n    (\"typed-password\", \"gfcanary-password-[0-9a-f]{16}\"),\n    (\"endpoint-token\", \"gfcanary-token-[0-9a-f]{32}\"),\n];",
+    );
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("drift", CANARY_RULE)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn codegen_writes_the_canary_rule_test_env_prints() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.remove(CANARY_RULE);
+
+    codegen(&workspace);
+
+    assert_eq!(
+        workspace.read_text(CANARY_RULE),
+        "[[rules]]\nid = \"typed-password\"\nregex = '''gfcanary-password-[0-9a-f]{16}'''\n"
+    );
 }
 
 #[test]
@@ -372,6 +482,7 @@ fn inventory_lists_every_feature_of_the_fixture_with_its_area_and_milestone() {
             feature("error:sample_refused", 1, None),
             feature("event:sample.crawled", 1, None),
             feature("event:sample.echoed", 1, None),
+            feature("format:sample-store", 1, None),
             feature("operation:sample.crawl", 1, None),
             feature("operation:sample.echo", 1, None),
             feature("row:RT-01", 3, Some("M1 Core")),
@@ -429,6 +540,36 @@ fn inventory_records_the_products_that_carry_each_feature() {
     );
 }
 
+/// The Connection's own messages (`hello`, `$/cancel`), which every engine
+/// speaks, are types of Collie's client package, whose hand-written runtime
+/// sends them, and never of Foxhound's layer.
+#[rstest]
+#[case::typescript_collie_client("sdks/typescript/collie-client/src/generated/types.ts", true)]
+#[case::typescript_foxhound("sdks/typescript/foxhound/src/generated/types.ts", false)]
+#[case::python_collie_client(
+    "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py",
+    true
+)]
+#[case::python_foxhound(
+    "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py",
+    false
+)]
+fn the_connections_messages_are_types_of_the_collie_client_package_only(
+    #[case] path: &str,
+    #[case] holds: bool,
+) {
+    let workspace = Workspace::from_fixture("codegen");
+
+    codegen(&workspace);
+
+    let types = workspace.read_text(path);
+    assert_eq!(
+        types.contains("class HelloParams") || types.contains("interface HelloParams"),
+        holds,
+        "{types}"
+    );
+}
+
 #[rstest]
 #[case::typescript_collie_client(
     "sdks/typescript/collie-client/src/generated/operations.ts",
@@ -464,6 +605,62 @@ fn each_sdk_package_generates_only_its_products_operations(
     assert!(!operations.contains(other_operation), "{operations}");
 }
 
+/// Each package spells its own Product's values of a type both Products
+/// share (ADR 0095), Foxhound's on top of Collie's, and keeps a value it
+/// does not know as received (ADR 0079).
+#[rstest]
+#[case::typescript_collie_client(
+    "sdks/typescript/collie-client/src/generated/shared-types.ts",
+    r#"export type BlockCause = "captcha" | "challenge" | (string & {});"#
+)]
+#[case::typescript_foxhound(
+    "sdks/typescript/foxhound/src/generated/shared-types.ts",
+    r#"export type BlockCause = CollieBlockCause | "decoy";"#
+)]
+#[case::typescript_foxhound_own_type(
+    "sdks/typescript/foxhound/src/generated/shared-types.ts",
+    r#"export type UsageKind = "sample_crawled_pages" | (string & {});"#
+)]
+#[case::python_collie_client(
+    "sdks/python/collie-client/src/goodfetch_collie_client/generated/shared_types.py",
+    r#"BlockCause: TypeAlias = Literal["captcha", "challenge"] | str"#
+)]
+#[case::python_foxhound(
+    "sdks/python/foxhound/src/goodfetch_foxhound/generated/shared_types.py",
+    r#"BlockCause: TypeAlias = CollieBlockCause | Literal["decoy"]"#
+)]
+#[case::python_foxhound_own_type(
+    "sdks/python/foxhound/src/goodfetch_foxhound/generated/shared_types.py",
+    r#"UsageKind: TypeAlias = Literal["sample_crawled_pages"] | str"#
+)]
+fn each_sdk_layer_spells_its_products_values_of_a_shared_type_and_keeps_an_unknown_one(
+    #[case] path: &str,
+    #[case] declaration: &str,
+) {
+    let workspace = Workspace::from_fixture("codegen");
+    add_shared_type_values(
+        &workspace,
+        &[
+            ("challenge", "collie", "block_cause"),
+            ("captcha", "collie", "block_cause"),
+            ("decoy", "foxhound", "block_cause"),
+            ("sample_crawled_pages", "foxhound", "usage_kind"),
+        ],
+    );
+
+    codegen(&workspace);
+
+    let shared_types = workspace
+        .read(path)
+        .map(|bytes| String::from_utf8(bytes).unwrap());
+    assert!(
+        shared_types
+            .as_deref()
+            .is_some_and(|text| text.contains(declaration)),
+        "{shared_types:?}"
+    );
+}
+
 /// The layer files `xtask codegen` writes itself, as a reviewer reads them
 /// (TESTING.md, Snapshots: generated surfaces); the outside generators'
 /// files are held to their recorded digests instead.
@@ -486,6 +683,9 @@ fn each_sdk_layer_is_generated_as_its_snapshot(#[case] folder: &str) {
     for name in [
         "index",
         "__init__",
+        "connection",
+        "shared-types",
+        "shared_types",
         "operations",
         "events",
         "errors",

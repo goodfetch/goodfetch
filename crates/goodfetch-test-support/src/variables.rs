@@ -1,7 +1,10 @@
 //! What test support reads from the process that runs a test (ADRs 0059 to
 //! 0062): the running test's name, the seed and its `GOODFETCH_TEST_SEED`
 //! override, the suite `just test` names in `GOODFETCH_TEST_SUITE`, the tool
-//! manifest's path, and on Windows the variables a child needs to start.
+//! manifest's path, the folder Journey variants write their result documents
+//! into, the exercise records' folder with the test's ID as nextest gives
+//! it, the way a runner declares `DnsNamespace` comes up on it, and on
+//! Windows the variables a child needs to start.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support reads the test's own variables, never a product's environment (ADR 0062)"
@@ -17,6 +20,43 @@ pub const SUITE_VARIABLE: &str = "GOODFETCH_TEST_SUITE";
 
 /// The path of the test tool manifest, which `just test` writes.
 pub const TOOLS_VARIABLE: &str = "GOODFETCH_TEST_TOOLS";
+
+/// The path of the pinned LazyFS build, which `just lazyfs-test` sets
+/// (ADR 0060).
+pub const LAZYFS_VARIABLE: &str = "GOODFETCH_LAZYFS";
+
+/// The folder each Journey variant run also writes its result document
+/// into, beside the test's own folder, which `just test` sets.
+pub const RESULT_DOCUMENTS_VARIABLE: &str = "GOODFETCH_TEST_RESULT_DOCUMENTS";
+
+/// The folder of every test's exercise record, which `just test` sets
+/// (ADR 0072).
+pub const RECORDS_VARIABLE: &str = "GOODFETCH_TEST_RECORDS";
+
+/// The way a runner declares `DnsNamespace` comes up on it, `user_namespace`
+/// or `sudo`, so a silent fallback to the other fails (ADR 0067); unset, it
+/// tries the first, then the second.
+pub const DNS_NAMESPACE_VARIABLE: &str = "GOODFETCH_TEST_DNS_NAMESPACE";
+
+/// Where Playwright keeps its browsers when it is not its default folder
+/// (the CI image sets it), from which the tests' Browser cache takes the
+/// Chrome for Testing build Playwright pins.
+pub(crate) const PLAYWRIGHT_BROWSERS_VARIABLE: &str = "PLAYWRIGHT_BROWSERS_PATH";
+
+/// The user's folders, under which Playwright's default folder is: `HOME`
+/// on macOS and Linux, `LOCALAPPDATA` on Windows.
+pub(crate) const USER_FOLDER_VARIABLES: [&str; 2] = ["HOME", "LOCALAPPDATA"];
+
+/// The binary ID of the test nextest runs (`<package>::<target>`).
+pub(crate) const BINARY_ID_VARIABLE: &str = "NEXTEST_BINARY_ID";
+
+/// The name of the test nextest runs, within its binary.
+pub(crate) const TEST_NAME_VARIABLE: &str = "NEXTEST_TEST_NAME";
+
+/// Where an executable built for coverage writes its profile: cargo-llvm-cov
+/// sets it under `just coverage` (ADR 0072), and each executable a test
+/// starts gets it.
+pub(crate) const COVERAGE_VARIABLE: &str = "LLVM_PROFILE_FILE";
 
 /// What Windows needs in a child's environment to start a process.
 pub(crate) const WINDOWS_VARIABLES: [&str; 3] = ["SystemRoot", "ComSpec", "PATHEXT"];
@@ -36,11 +76,24 @@ impl Variables {
     /// The variables of the running process that test support reads; one
     /// that is not Unicode counts as absent.
     pub fn from_process() -> Self {
-        [SEED_VARIABLE, SUITE_VARIABLE, TOOLS_VARIABLE]
-            .into_iter()
-            .chain(WINDOWS_VARIABLES)
-            .filter_map(|name| std::env::var(name).ok().map(|value| (name, value)))
-            .collect()
+        [
+            SEED_VARIABLE,
+            SUITE_VARIABLE,
+            TOOLS_VARIABLE,
+            LAZYFS_VARIABLE,
+            RESULT_DOCUMENTS_VARIABLE,
+            RECORDS_VARIABLE,
+            BINARY_ID_VARIABLE,
+            TEST_NAME_VARIABLE,
+            COVERAGE_VARIABLE,
+            DNS_NAMESPACE_VARIABLE,
+            PLAYWRIGHT_BROWSERS_VARIABLE,
+        ]
+        .into_iter()
+        .chain(USER_FOLDER_VARIABLES)
+        .chain(WINDOWS_VARIABLES)
+        .filter_map(|name| std::env::var(name).ok().map(|value| (name, value)))
+        .collect()
     }
 
     /// One variable's value.

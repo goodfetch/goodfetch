@@ -1,28 +1,58 @@
 //! The protocol server (ADRs 0024 and 0038) over each Connection
-//! `transport` gives it: newline-delimited JSON-RPC 2.0, opened by `hello`,
-//! with `$/cancel`, dispatch to the composition's handlers, and the one
+//! `transport` gives it: newline-delimited JSON-RPC 2.0, or on an Exposed
+//! Daemon's address the same messages over WebSocket (ADR 0049), opened by
+//! `hello`, with `$/cancel`, dispatch to the composition's handlers, and the one
 //! place where a [`CallError`](crate::CallError) becomes the wire's
 //! `{code, message, data: {code, retryable, …}}`. Dispatch emits one
 //! `tracing` record per request, at `trace` under the target
-//! [`DISPATCH_TARGET`], with its method and its reply's Error code, which
-//! ADR 0072's exercise audit reads.
+//! [`DISPATCH_TARGET`], with its method and its reply's Error code, and one
+//! per event sent, with its name, which ADR 0072's exercise audit reads,
+//! and one per `$/cancel` that stops a call in flight.
+//! The streaming calls, `events.subscribe` and `page.body`, send their
+//! events and chunks as the credits the Client grants with `$/credit` allow.
+//! Each Connection receives the engine's log events as `$/log` at the level
+//! its `hello` names, which `connection.set_log_level` changes.
 
 pub mod framing;
 
 mod connection;
 mod handshake;
+mod stream;
+mod websocket;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::jsonrpc::{
-    ErrorData, ErrorObject, ErrorResponse, RequestId, Response, Version,
+    ErrorData, ErrorObject, ErrorResponse, Notification, RequestId, Response, Version,
 };
+use goodfetch_protocol::log::{CONNECTION_SET_LOG_LEVEL, LogLevelSet, SetLogLevelParams};
 use serde_json::Value;
 
-use crate::composition::CallError;
+use crate::composition::{CallContext, CallError, Handler};
 use crate::product::{Identity, Requested};
 
-pub(crate) use connection::{Dispatch, serve};
+pub use connection::REFUSAL_TARGET;
+pub(crate) use connection::{Access, Dispatch, serve};
+pub use websocket::Authorities;
+
+/// The protocol server's own operations: the streaming calls and
+/// `connection.set_log_level`.
+pub(crate) fn handlers() -> [Handler; 3] {
+    let [subscribe, body] = stream::handlers();
+    [
+        subscribe,
+        body,
+        Handler::new(&CONNECTION_SET_LOG_LEVEL, set_log_level),
+    ]
+}
+
+async fn set_log_level(
+    params: SetLogLevelParams,
+    context: CallContext,
+) -> Result<LogLevelSet, CallError> {
+    context.log().set(params.log_level);
+    Ok(LogLevelSet {})
+}
 
 /// The `tracing` target of dispatch's records.
 pub const DISPATCH_TARGET: &str = "goodfetch::rpc::dispatch";
@@ -35,6 +65,27 @@ fn record(method: &str, error_code: Option<&str>) {
             tracing::trace!(target: DISPATCH_TARGET, method, error_code, "request failed");
         }
     }
+}
+
+/// Records a `$/cancel` that stopped a call in flight.
+fn record_cancel(notification: &str) {
+    tracing::trace!(target: DISPATCH_TARGET, notification, "cancel received");
+}
+
+/// Records one event sent to a Client: its name.
+fn record_event(event: &str) {
+    tracing::trace!(target: DISPATCH_TARGET, event, "event sent");
+}
+
+/// The line of the notification `method` with `params`.
+pub(crate) fn notification_line(method: &str, params: &impl serde::Serialize) -> Vec<u8> {
+    line(&Notification {
+        jsonrpc: Version,
+        method: method.to_owned(),
+        params: Some(
+            serde_json::to_value(params).expect("invariant: a notification's params encode"),
+        ),
+    })
 }
 
 /// `not_in_product` for `requested`, which `needs` carries.

@@ -32,14 +32,21 @@ pub(super) fn generate(layer: &Layer) -> Generated {
     } else {
         format!("{HEADER}\n{}\n", import_line(&replaced, CLIENT_PACKAGE))
     };
+    let mut files = vec![
+        ("index.ts", index(layer)),
+        ("operations.ts", operations(layer)),
+        ("events.ts", events(layer)),
+        ("errors.ts", errors(layer)),
+        ("plugins.ts", plugins(layer)),
+    ];
+    if layer.product == Product::Collie {
+        files.push(("connection.ts", connection(layer)));
+    }
+    if !layer.shared_types.is_empty() {
+        files.push(("shared-types.ts", shared_types(layer)));
+    }
     Generated {
-        files: vec![
-            ("index.ts", index(layer)),
-            ("operations.ts", operations(layer)),
-            ("events.ts", events(layer)),
-            ("errors.ts", errors(layer)),
-            ("plugins.ts", plugins(layer)),
-        ],
+        files,
         types: TypesFile {
             output: "types.ts",
             input,
@@ -54,7 +61,7 @@ fn import_line<'a>(names: impl IntoIterator<Item = &'a String>, from: &str) -> S
     format!("import type {{ {} }} from \"{from}\";\n", names.join(", "))
 }
 
-/// The import lines of the types `names`: the layer's own from `./types.js`,
+/// The import lines of the types `names`: the layer's own from `./types.ts`,
 /// Collie's from the client package.
 fn type_imports(layer: &Layer, names: &BTreeSet<String>) -> String {
     let (collie, own): (BTreeSet<&String>, BTreeSet<&String>) =
@@ -64,7 +71,7 @@ fn type_imports(layer: &Layer, names: &BTreeSet<String>) -> String {
         text.push_str(&import_line(collie, CLIENT_PACKAGE));
     }
     if !own.is_empty() {
-        text.push_str(&import_line(own, "./types.js"));
+        text.push_str(&import_line(own, "./types.ts"));
     }
     text
 }
@@ -114,12 +121,92 @@ fn index(layer: &Layer) -> String {
     if !types.is_empty() {
         let _ = writeln!(
             text,
-            "export type {{ {} }} from \"./types.js\";",
+            "export type {{ {} }} from \"./types.ts\";",
             types.join(", ")
         );
     }
-    text.push_str("export * from \"./operations.js\";\nexport * from \"./events.js\";\nexport * from \"./errors.js\";\nexport * from \"./plugins.js\";\n");
+    if layer.product == Product::Collie {
+        text.push_str("export * from \"./connection.ts\";\n");
+    }
+    text.push_str("export * from \"./operations.ts\";\nexport * from \"./events.ts\";\nexport * from \"./errors.ts\";\nexport * from \"./plugins.ts\";\n");
+    if !layer.shared_types.is_empty() {
+        text.push_str("export type * from \"./shared-types.ts\";\n");
+    }
     text
+}
+
+/// Each type both Products share that the layer adds values to (ADR 0095),
+/// as a union of its values open to any other string, which the package
+/// keeps as received (ADR 0079); Foxhound's adds its values to Collie's.
+fn shared_types(layer: &Layer) -> String {
+    let mut text = format!("{HEADER}\n");
+    let extended: Vec<String> = layer
+        .shared_types
+        .iter()
+        .filter(|shared| shared.extends_collie)
+        .map(|shared| {
+            let name = pascal(&shared.name);
+            format!("{name} as Collie{name}")
+        })
+        .collect();
+    if !extended.is_empty() {
+        let _ = writeln!(
+            text,
+            "import type {{ {} }} from \"{CLIENT_PACKAGE}\";\n",
+            extended.join(", ")
+        );
+    }
+    for shared in &layer.shared_types {
+        let name = pascal(&shared.name);
+        let mut description = if shared.extends_collie {
+            format!(
+                "A `{}`, a type both Products share (ADR 0095): Collie's values and {}'s own below; a value this package does not know is kept as received (ADR 0079).\n",
+                shared.name,
+                layer.product.name()
+            )
+        } else {
+            format!(
+                "A `{}`, a type both Products share (ADR 0095): {}'s values below; a value this package does not know is kept as received (ADR 0079).\n",
+                shared.name,
+                layer.product.name()
+            )
+        };
+        for (value, value_description) in &shared.values {
+            let _ = write!(description, "\n- `{value}`: {value_description}");
+        }
+        text.push_str(&doc("", &description, Stability::Stable, None));
+        let literals: Vec<String> = shared
+            .values
+            .iter()
+            .map(|(value, _)| format!("{value:?}"))
+            .collect();
+        if shared.extends_collie {
+            let _ = writeln!(
+                text,
+                "export type {name} = Collie{name} | {};\n",
+                literals.join(" | ")
+            );
+        } else {
+            let _ = writeln!(
+                text,
+                "export type {name} = {} | (string & {{}});\n",
+                literals.join(" | ")
+            );
+        }
+    }
+    text.truncate(text.trim_end().len());
+    text.push('\n');
+    text
+}
+
+/// What the client package's runtime opens a Connection with: the protocol
+/// version its `hello` names (ADRs 0024 and 0066). The Connection's
+/// messages are among the layer's types.
+fn connection(layer: &Layer) -> String {
+    format!(
+        "{HEADER}\n/** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */\nexport const PROTOCOL_VERSION = {:?};\n",
+        layer.protocol_version
+    )
 }
 
 fn operations(layer: &Layer) -> String {
@@ -305,42 +392,55 @@ fn errors(layer: &Layer) -> String {
                     group_class(&group.name)
                 );
             }
+            text.push_str(
+                "\n/** The group of each JSON-RPC error code the engine answers with, its wire class (ADR 0038). */\nexport const errorGroupOfWireClass: Readonly<Record<number, ErrorGroup>> = {\n",
+            );
+            for group in &layer.error_groups {
+                let _ = writeln!(text, "  [{}]: {:?},", group.json_rpc_class, group.name);
+            }
+            text.push_str(
+                "};\n\n/** The class of each group, which raises a code the SDK does not know, keeping the code (ADR 0079). */\nexport const errorGroupClasses: Readonly<Record<ErrorGroup, typeof GoodfetchError>> = {\n",
+            );
+            for group in &layer.error_groups {
+                let _ = writeln!(text, "  {}: {},", group.name, group_class(&group.name));
+            }
+            text.push_str("};\n");
         }
         Product::Foxhound => {
-            let mut imported: BTreeSet<String> = layer
+            let imported: BTreeSet<String> = layer
                 .error_codes
                 .iter()
                 .map(|code| group_class(&code.group))
                 .collect();
-            imported.insert("GoodfetchError".to_owned());
             let names: Vec<String> = imported.into_iter().collect();
             let _ = writeln!(
                 text,
-                "import {{ {} }} from \"{CLIENT_PACKAGE}\";",
+                "import {{ {} }} from \"{CLIENT_PACKAGE}\";\nimport type {{ ErrorClass, ErrorFields }} from \"{CLIENT_PACKAGE}\";",
                 names.join(", ")
             );
         }
     }
     let mut registry = Vec::new();
     for code in &layer.error_codes {
-        let group = group_class(&code.group);
+        // A code named like its group is raised as its group's class,
+        // which every code the registry lacks falls back to.
         if code.name == code.group {
-            registry.push((code.name.clone(), group));
             continue;
         }
+        let group = group_class(&code.group);
         let class = format!("{}Error", pascal(&code.name));
         text.push('\n');
         text.push_str(&doc("", &code.description, Stability::Stable, None));
         let _ = write!(
             text,
-            "export class {class} extends {group} {{\n  constructor(message: string) {{\n    super(message, {{ code: {:?}, group: {:?}, retryable: {} }});\n  }}\n}}\n",
+            "export class {class} extends {group} {{\n  constructor(message: string, fields: ErrorFields = {{}}) {{\n    super(message, {{ ...fields, code: {:?}, group: {:?}, retryable: {} }});\n  }}\n}}\n",
             code.name, code.group, code.retryable
         );
         registry.push((code.name.clone(), class));
     }
     let _ = write!(
         text,
-        "\n/** The error class of each of {product}'s Error codes. */\nexport const {lower}ErrorClasses: Readonly<Record<string, new (message: string) => GoodfetchError>> = {{\n"
+        "\n/** The error class of each of {product}'s Error codes. */\nexport const {lower}ErrorClasses: Readonly<Record<string, ErrorClass>> = {{\n"
     );
     for (code, class) in registry {
         let _ = writeln!(text, "  {code}: {class},");
@@ -351,6 +451,16 @@ fn errors(layer: &Layer) -> String {
 
 /// The base of every error class, generated once in Collie's client package.
 const GOODFETCH_ERROR: &str = r"
+/** What an error carries beyond its code, group and retryable flag (ADR 0079). */
+export interface ErrorFields {
+  /** What to do about it, when the engine or the runtime knows. */
+  readonly fix?: string | undefined;
+  /** The code's details, as the engine sent them, in wire names. */
+  readonly details?: Readonly<Record<string, unknown>> | undefined;
+  /** The error that caused it, in this process. */
+  readonly cause?: unknown;
+}
+
 /** The base of every error a Goodfetch SDK raises (ADR 0079). */
 export class GoodfetchError extends Error {
   /** The Error code, as the engine sent it. */
@@ -359,18 +469,31 @@ export class GoodfetchError extends Error {
   readonly group: ErrorGroup;
   /** Whether the same call may succeed when made again. */
   readonly retryable: boolean;
+  /** What to do about it, when known. */
+  readonly fix: string | undefined;
+  /** The code's details, in wire names; empty when it has none. */
+  readonly details: Readonly<Record<string, unknown>>;
 
   constructor(
     message: string,
-    init: { readonly code: string; readonly group: ErrorGroup; readonly retryable: boolean },
+    init: ErrorFields & {
+      readonly code: string;
+      readonly group: ErrorGroup;
+      readonly retryable: boolean;
+    },
   ) {
-    super(message);
+    super(message, init.cause === undefined ? undefined : { cause: init.cause });
     this.name = new.target.name;
     this.code = init.code;
     this.group = init.group;
     this.retryable = init.retryable;
+    this.fix = init.fix;
+    this.details = init.details ?? {};
   }
 }
+
+/** The class of one Error code: its message, then what it carries. */
+export type ErrorClass = new (message: string, fields?: ErrorFields) => GoodfetchError;
 ";
 
 fn plugins(layer: &Layer) -> String {

@@ -1,0 +1,160 @@
+//! `crawl.start` and Foxhound's crawl contribution (ADRs 0028, 0087, 0093
+//! and 0102): the start resolves the Run's settings, refused before the Run
+//! begins, begins a crawl's Run through the engine's Runs, its scope
+//! recorded and each seed admitted by the Frontier as its first work items,
+//! and each seed's answer kept, in the transaction that records the Run, and hands the Run
+//! to its delivery on the starting Connection's Client. A start whose
+//! every seed was refused still starts, and its Run finishes at once. A
+//! Run ID that names a crawl of the same seeds returns it as it is; one of
+//! other seeds, or of a Run that is no crawl, fails with `run_conflict`.
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_error, start_error};
+use goodfetch_engine::runs::{EndedBy, Start, Started};
+use goodfetch_engine::settings::Opening;
+use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
+use goodfetch_frontier::Scope;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::foxhound::crawl::{CRAWL_SERVE, CRAWL_START, CrawlStartParams, Seed};
+use goodfetch_protocol::run::{
+    Lifecycle, RUN_NOT_FOUND, RunDetails, RunKind, RunParams, RunReport, RunStarted, StartInput,
+    StartedAs,
+};
+use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
+
+use crate::delivery;
+use crate::enqueue;
+use crate::outcomes;
+use crate::serving::Crawls;
+use crate::work_items;
+
+/// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
+/// a handler's enqueue, the reads of its outcomes, the work items',
+/// Records' and outcomes' tables of every run file, and the driver a
+/// resumed crawl starts again with.
+pub fn contribution() -> Contribution {
+    let crawls = Crawls::default();
+    let serving = crawls.clone();
+    let enqueuing = crawls.clone();
+    let resuming = crawls.clone();
+    let [read_outcomes, read_failed_requests] = outcomes::handlers();
+    Contribution::new("goodfetch-crawl")
+        .with_handler(Handler::new(&CRAWL_START, move |params, context| {
+            start(params, context, crawls.clone())
+        }))
+        .with_handler(Handler::new(&CRAWL_SERVE, move |params, context| {
+            serve(params, context, serving.clone())
+        }))
+        .with_handler(enqueue::handler(enqueuing))
+        .with_handler(read_outcomes)
+        .with_handler(read_failed_requests)
+        .with_run_state_tables(work_items::TABLES)
+        .with_driver(
+            RunKind::Crawl,
+            Arc::new(move |run, client, settings| {
+                Box::pin(delivery::resume(run, client, settings, resuming.clone()))
+            }),
+        )
+}
+
+/// Joins the calling Connection's handler to the live crawl the params
+/// name, until the Run ends, whose report it answers, or the call ends.
+async fn serve(
+    params: RunParams,
+    context: CallContext,
+    crawls: Crawls,
+) -> Result<RunReport, CallError> {
+    let Some(_stays) = crawls.join(&params.run_id, context.client().clone()).await else {
+        return Err(CallError::new(
+            &RUN_NOT_FOUND,
+            format!(
+                "This engine runs no crawl `{}` to serve: it ended, or another engine runs it.",
+                params.run_id
+            ),
+            &RunDetails {
+                run_id: params.run_id,
+                path: None,
+            },
+        ));
+    };
+    context
+        .runs()
+        .ended(params.run_id)
+        .await
+        .map_err(|error| run_error(error, context.identity()))
+}
+
+async fn start(
+    params: CrawlStartParams,
+    context: CallContext,
+    crawls: Crawls,
+) -> Result<RunStarted, CallError> {
+    let run_id = run_id(params.run_id.as_deref())?;
+    let (settings, _) = context
+        .runs()
+        .settings()
+        .open(Opening {
+            run: Some(Product::Foxhound),
+            project: params.project,
+            recipe: None,
+            settings: params.settings,
+            origin: Some(RunOrigin::Settings),
+        })
+        .await
+        .map_err(|error| settings_error(&error, context.identity()))?;
+    let scope = Scope::of_settings(settings.resolved()).map_err(CallError::from)?;
+    let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
+    let inputs = BTreeMap::from([(
+        StartInput::Seeds,
+        serde_json::to_value(&seeds).expect("invariant: seeds encode as JSON"),
+    )]);
+    let started = context
+        .runs()
+        .start(Start {
+            run_id,
+            tags: params.tags,
+            kind: RunKind::Crawl,
+            needs: Product::Foxhound,
+            inputs,
+            ended_by: EndedBy::Driver,
+            initialize: Some(Box::new(move |connection| {
+                scope.record(connection)?;
+                let answers = work_items::admit_seeds(connection, &scope, &seeds)?;
+                goodfetch_frontier::seeds::answered(connection, &answers)
+            })),
+            policy_version: settings.resolved().policy_version().map(str::to_owned),
+            weakened_by: settings.resolved().weakened_by(),
+            binding: None,
+            clean_up_digest: None,
+            checkpoint_interval: checkpoint_interval(settings.resolved()),
+            timeout: settings.resolved().duration(TIMEOUT_RUN.name),
+            settings: Some(settings.clone()),
+        })
+        .await
+        .map_err(start_error)?;
+    Ok(match started {
+        Started::New(run) => {
+            let started = RunStarted {
+                run_id: run.id().clone(),
+                started_as: StartedAs::New,
+                lifecycle: Lifecycle::Running,
+                needs: Product::Foxhound,
+            };
+            let joined = crawls.open(&run).await;
+            run.spawn(delivery::drive(
+                run.clone(),
+                context.client().clone(),
+                joined,
+                crawls,
+                settings,
+            ));
+            started
+        }
+        Started::Existing(existing) => existing,
+    })
+}
+
+#[cfg(test)]
+pub(crate) mod tests;

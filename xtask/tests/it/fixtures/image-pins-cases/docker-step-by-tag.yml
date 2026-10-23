@@ -1,0 +1,14 @@
+# A step that runs a Docker image by its tag.
+name: extra
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Lint
+        uses: docker://alpine:3.22

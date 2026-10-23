@@ -6,6 +6,8 @@
 //! pages, so a crawl must log in again to read every order. Sessions are the
 //! only state the family keeps; pages and expected results come from the seed.
 
+pub(crate) mod canaries;
+
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 

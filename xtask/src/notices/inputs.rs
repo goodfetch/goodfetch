@@ -1,7 +1,7 @@
 //! Declared inputs: what no package manager lists, declared in a
 //! `third-party.toml` file beside what uses it (the Console's bundled assets,
-//! the Goodfetch Chromium's third-party inputs and the Clean-up rules'
-//! inputs), or in a further file given on the command line, such as the list
+//! the Goodfetch Chromium's third-party inputs, the Clean-up rules' inputs
+//! and the block-detection rules' sources), or in a further file given on the command line, such as the list
 //! a Chromium build writes.
 #![expect(
     clippy::disallowed_methods,
@@ -27,13 +27,14 @@ struct File {
     input: Vec<Input>,
 }
 
-/// The input sets of ADRs 0018, 0043 and 0047.
+/// The input sets of ADRs 0018, 0035, 0043 and 0047.
 #[derive(Deserialize, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 enum Set {
     ConsoleAssets,
     Chromium,
     CleanUpRules,
+    BlockDetectionRules,
 }
 
 impl From<Set> for Ecosystem {
@@ -42,6 +43,7 @@ impl From<Set> for Ecosystem {
             Set::ConsoleAssets => Self::ConsoleAssets,
             Set::Chromium => Self::Chromium,
             Set::CleanUpRules => Self::CleanUpRules,
+            Set::BlockDetectionRules => Self::BlockDetectionRules,
         }
     }
 }
@@ -52,10 +54,11 @@ struct Input {
     name: String,
     /// Its release, or the commit it is pinned to.
     version: String,
-    /// The SPDX license expression its authors state.
-    license: String,
-    /// Where its source is.
-    source: String,
+    /// The SPDX license expression its authors state; without one the
+    /// check refuses it.
+    license: Option<String>,
+    /// Where its source is; without it the check refuses it.
+    source: Option<String>,
     #[serde(rename = "use")]
     usage: Usage,
 }
@@ -77,7 +80,7 @@ pub(super) fn entries(root: &Path, further: &[PathBuf]) -> Result<Vec<Entry>> {
             ecosystem: file.set.into(),
             name: input.name,
             version: input.version,
-            license: Some(input.license),
+            license: input.license,
             source: input.source,
             usage: input.usage,
         }));

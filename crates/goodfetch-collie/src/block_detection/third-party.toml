@@ -1,0 +1,39 @@
+set = "block-detection-rules"
+
+# The outside sources Collie's block-detection rules are seeded from (ADR
+# 0035; spec #598, story 60). A rule takes a source's markers of a refusal
+# and is written in `rules.rs` under the source's name below, so each is
+# used `modified`. `block_detection`'s tests check that every outside source
+# a rule names is here with the rule's license, and nothing else is.
+# webappanalyzer (GPL-3.0) and Scrapfly's Antibot-Detector (NPOSL-3.0) are
+# watchlists only and never sources (story 61): `xtask notices` fails on an
+# input that names either, and the vendors they list are compared with
+# `vendors.toml` by the watchlist job.
+
+[[input]]
+name = "Spider"
+version = "428e62c207cdce903a3865225a823b9f6a5849ac"
+license = "MIT"
+source = "https://github.com/spider-rs/spider/blob/428e62c207cdce903a3865225a823b9f6a5849ac/spider/src/utils/mod.rs"
+use = "modified"
+
+[[input]]
+name = "wafw00f"
+version = "69fbe3956bba47a172cf87e40e9037535d32a130"
+license = "BSD-3-Clause"
+source = "https://github.com/EnableSecurity/wafw00f/tree/69fbe3956bba47a172cf87e40e9037535d32a130/wafw00f/plugins"
+use = "modified"
+
+[[input]]
+name = "identYwaf"
+version = "3e535b758918d2f8ff1712f7c96ea9ed9ea918e8"
+license = "MIT"
+source = "https://github.com/stamparm/identYwaf/blob/3e535b758918d2f8ff1712f7c96ea9ed9ea918e8/data.json"
+use = "modified"
+
+[[input]]
+name = "Nuclei's waf-detect template"
+version = "b4826535d814f33522faae784678e62686d33b66"
+license = "MIT"
+source = "https://github.com/projectdiscovery/nuclei-templates/blob/b4826535d814f33522faae784678e62686d33b66/http/technologies/waf-detect.yaml"
+use = "modified"

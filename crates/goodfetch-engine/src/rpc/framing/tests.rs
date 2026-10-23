@@ -50,12 +50,18 @@ fn a_line_at_the_limit_reads() {
     br#"{"jsonrpc":"2.0","method":"$/cancel","params":{"id":1}}"#,
     "notification"
 )]
+#[case::reply(br#"{"jsonrpc":"2.0","id":7,"result":{"records":[]}}"#, "reply")]
+#[case::failure(
+    br#"{"jsonrpc":"2.0","id":7,"error":{"code":-32001,"message":"no","data":{"code":"handler_failed","retryable":true}}}"#,
+    "reply"
+)]
 fn a_message_decodes_as_its_kind(#[case] line: &[u8], #[case] kind: &str) {
     let decoded = decode(line).unwrap();
 
     let decoded_kind = match decoded {
         Incoming::Request(_) => "request",
         Incoming::Notification(_) => "notification",
+        Incoming::Reply { .. } => "reply",
     };
     assert_eq!(decoded_kind, kind);
 }
@@ -68,8 +74,8 @@ fn a_message_decodes_as_its_kind(#[case] line: &[u8], #[case] kind: &str) {
     None
 )]
 #[case::not_an_object(b"12", ProtocolFailure::InvalidRequest, None)]
-#[case::no_method(
-    br#"{"jsonrpc":"2.0","id":4,"result":{}}"#,
+#[case::no_method_and_no_answer(
+    br#"{"jsonrpc":"2.0","id":4}"#,
     ProtocolFailure::InvalidRequest,
     Some(RequestId::Number(4))
 )]
@@ -82,6 +88,25 @@ fn a_line_that_is_no_message_answers_its_protocol_failure(
     let error = decode(line).unwrap_err();
 
     assert_eq!((error.failure, error.id), (failure, id));
+}
+
+/// A Client's failure that names no Error code reads as the handler's own
+/// failure, `handler_failed`, which a retry may not help.
+#[test]
+fn a_failure_reply_without_an_error_code_reads_as_the_handlers_own() {
+    let decoded = decode(br#"{"jsonrpc":"2.0","id":3,"error":{"code":-1,"message":"boom"}}"#);
+
+    let Ok(Incoming::Reply {
+        id,
+        answer: Err(error),
+    }) = decoded
+    else {
+        panic!("not a failure reply: {decoded:?}");
+    };
+    assert_eq!(
+        (id, error.data.code.as_str(), error.data.retryable),
+        (RequestId::Number(3), "handler_failed", false)
+    );
 }
 
 #[test]

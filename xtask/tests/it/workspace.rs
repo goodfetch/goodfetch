@@ -68,10 +68,20 @@ pub(crate) struct Outcome {
 
 impl Outcome {
     pub(crate) fn findings(&self) -> Vec<Finding> {
+        self.reported("error[")
+    }
+
+    /// The `note[<kind>] <subject>: <message>` lines a check printed beside
+    /// its findings.
+    pub(crate) fn notes(&self) -> Vec<Finding> {
+        self.reported("note[")
+    }
+
+    fn reported(&self, prefix: &str) -> Vec<Finding> {
         self.stdout
             .lines()
             .filter_map(|line| {
-                let rest = line.strip_prefix("error[")?;
+                let rest = line.strip_prefix(prefix)?;
                 let (kind, rest) = rest.split_once("] ")?;
                 let (subject, _message) = rest.split_once(": ")?;
                 Some(Finding {
@@ -99,6 +109,11 @@ const TOOLCHAIN_VARIABLES: [&str; 6] = [
     "RUSTUP_HOME",
     "RUSTUP_TOOLCHAIN",
 ];
+
+/// Where an xtask built for coverage writes its profile under `just
+/// coverage` (ADR 0072): passed on, so the profile reaches cargo-llvm-cov's
+/// report rather than landing in the fixture workspace as a new file.
+const COVERAGE_VARIABLE: &str = "LLVM_PROFILE_FILE";
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/fixtures")
@@ -157,6 +172,75 @@ impl Workspace {
             std::os::unix::fs::symlink(&target, self.path().join(folder)).unwrap();
             #[cfg(windows)]
             std::os::windows::fs::symlink_dir(&target, self.path().join(folder)).unwrap();
+        }
+    }
+
+    /// Installs the workspace's npm packages as a pnpm workspace and its
+    /// Python environment as a uv workspace, offline. Their runners are the
+    /// repository's installed ones: Vitest and Playwright through the
+    /// `.toolchain` link, pytest through `.pytoolchain`'s `.pth` file, on
+    /// the repository's interpreter that `.python-version` names. All three
+    /// and the lockfiles are committed with the workspace, so a checkout of
+    /// it installs the same.
+    pub(crate) fn install_runners(&self) {
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let node_modules = repository.join("node_modules");
+        assert!(
+            node_modules.is_dir(),
+            "{} is missing: run `pnpm install`",
+            node_modules.display()
+        );
+        let venv = repository.join(".venv");
+        assert!(
+            venv.is_dir(),
+            "{} is missing: run `uv sync`",
+            venv.display()
+        );
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&node_modules, self.path().join(".toolchain")).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&node_modules, self.path().join(".toolchain")).unwrap();
+        let output = Command::new("pnpm")
+            .args(["install", "--offline"])
+            .current_dir(self.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "pnpm install failed: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        // The `.pth` line and the interpreter, one per line. `addsitedir`
+        // reads the repository's own `.pth` files too, so the pytest plugins
+        // it installs load.
+        let output = Command::new(venv.join("bin/python"))
+            .args([
+                "-c",
+                "import os, sys, sysconfig\n\
+                 print(f\"import site; site.addsitedir({sysconfig.get_path('purelib')!r})\")\n\
+                 print(os.path.realpath(sys.executable))",
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let output = String::from_utf8(output.stdout).unwrap();
+        let (pth, interpreter) = output.trim().split_once('\n').unwrap();
+        self.write(
+            ".pytoolchain/site/repository.pth",
+            format!("{pth}\n").as_bytes(),
+        );
+        self.write(".python-version", format!("{interpreter}\n").as_bytes());
+        for args in [
+            &["lock", "--offline"][..],
+            &["sync", "--frozen", "--offline"],
+        ] {
+            let output = self.command("uv").args(args).output().unwrap();
+            assert!(
+                output.status.success(),
+                "uv {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
     }
 
@@ -267,10 +351,12 @@ impl Workspace {
     }
 
     /// A command run in the workspace with a cleared environment, but for the
-    /// variables that find and run the pinned Cargo toolchain.
+    /// variables that find and run the pinned Cargo toolchain and the
+    /// coverage profile's.
     pub(crate) fn command(&self, program: impl AsRef<std::ffi::OsStr>) -> Command {
         let toolchain = TOOLCHAIN_VARIABLES
             .iter()
+            .chain([&COVERAGE_VARIABLE])
             .filter_map(|name| std::env::var_os(name).map(|value| (*name, value)));
         let mut command = Command::new(program);
         command.current_dir(self.path()).env_clear().envs(toolchain);

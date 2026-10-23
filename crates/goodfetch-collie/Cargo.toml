@@ -14,16 +14,44 @@ autobenches = false
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:mimalloc", "dep:tracing", "dep:tracing-subscriber", "tokio/rt-multi-thread"]
+executable = ["dep:clap", "dep:dirs", "dep:goodfetch-cli", "dep:jiff", "dep:mimalloc", "dep:serde", "dep:tempfile", "dep:libc", "dep:tokio-util", "dep:tracing", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "dep:ureq", "tokio/io-util", "tokio/rt-multi-thread", "tokio/signal"]
 
 [dependencies]
 clap = { workspace = true, optional = true }
+# Goodfetch home in the OS's data folder when `GOODFETCH_HOME` is unset.
+dirs = { workspace = true, optional = true }
+# The command line both executables carry (ADR 0090).
+goodfetch-cli = { workspace = true, optional = true }
 goodfetch-engine.workspace = true
+goodfetch-page.workspace = true
 goodfetch-protocol.workspace = true
+jiff = { workspace = true, optional = true }
 mimalloc = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+# The pinned builds' digests, `src/pins.json`.
+serde_json.workspace = true
+# The Browser cache's write check before a Daemon's copy goes in it.
+tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt"] }
+# The foreground Daemon's drain (ADR 0049).
+tokio-util = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
-tracing-subscriber = { workspace = true, optional = true, features = ["env-filter"] }
+tracing-subscriber = { workspace = true, optional = true, features = ["env-filter", "json"] }
+# The opt-in OTLP export of the engine's spans (RT-18, ADR 0132), sent with
+# ureq from the batch processor's own thread.
+async-trait = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry-http = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+ureq = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The foreground Daemon's reaper: the subreaper, `waitpid` and `kill` (ADR 0049).
+libc = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Its own executable, for the integration tests and the startup benchmarks
@@ -31,9 +59,33 @@ tracing-subscriber = { workspace = true, optional = true, features = ["env-filte
 goodfetch-collie = { path = ".", features = ["executable"] }
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
+# A stored body's ID, the SHA-256 of its bytes, for `page body --follow`.
+sha2.workspace = true
+insta.workspace = true
+# The clean-up's time in the page tests, and the pins' lever
+# (examples/pin-chrome-for-testing.rs), which downloads and unpacks the
+# pinned archives.
+jiff.workspace = true
+# `config explain --json` is validated against its schema in the bundle (TESTING.md, CLI).
+jsonschema.workspace = true
+rstest.workspace = true
+# The corpus writers' dumps of run state and the Run index (examples/compat-run-index.rs).
+rusqlite.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
+# `block_detection`'s check of its rules' sources against its `third-party.toml`.
+toml.workspace = true
+# The Console's headers test, an HTTP Client of the Daemon's Console
+# (tests/it/console.rs), and the pins' lever's download.
+ureq.workspace = true
+# The OTLP collector stand-in of the trace export's tests (tests/it/log.rs).
+opentelemetry-proto.workspace = true
+prost.workspace = true
 # The corpus writer's in-memory Client (examples/compat-protocol.rs).
 tokio = { workspace = true, features = ["io-util", "macros"] }
+# A WebSocket Client of `daemon run` (tests/it/websocket.rs).
+tungstenite.workspace = true
+zip = { workspace = true, features = ["deflate-flate2"] }
 
 [package.metadata.cargo-shear]
 # The dev-dependency on itself only turns its executable on for its tests.
@@ -42,6 +94,12 @@ ignored = ["goodfetch-collie"]
 [[bin]]
 name = "goodfetch-collie"
 path = "src/main.rs"
+required-features = ["executable"]
+
+# Both Products' command lines, for `xtask codegen` on a workspace it was not
+# built from (ADR 0072).
+[[example]]
+name = "commands"
 required-features = ["executable"]
 
 # ADR 0071: the startup benchmarks of Collie's executable.

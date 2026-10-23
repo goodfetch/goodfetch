@@ -5,7 +5,13 @@
 //! be edited. A new one goes to the current milestone, the earliest open
 //! milestone with an open issue
 //! (docs/agents/issue-tracker.md, Frontier); an open one gets the current
-//! results; a closed one reopens only for a result after it closed.
+//! results; a closed one reopens only for a result after it closed. The
+//! checks of the files that name an issue (the quarantine list, the axe
+//! exception file) read it through [`find`]. The watchlist job's issues
+//! (`xtask watchlist`) are opened once, outside every milestone, and never
+//! reopened: closing one declines its vendor.
+
+use std::num::NonZeroU64;
 
 use anyhow::{Context as _, Result};
 use jiff::Timestamp;
@@ -19,6 +25,7 @@ pub(crate) enum Label {
     FlakyTest,
     LiveCheck,
     NeedsTriage,
+    Watchlist,
 }
 
 impl Label {
@@ -27,6 +34,7 @@ impl Label {
             Self::FlakyTest => "flaky-test",
             Self::LiveCheck => "live-check",
             Self::NeedsTriage => "needs-triage",
+            Self::Watchlist => "watchlist",
         }
     }
 }
@@ -41,11 +49,63 @@ struct Issue {
     pull_request: Option<Value>,
 }
 
+impl Issue {
+    /// Whether a line of its body is `marker`.
+    fn marked(&self, marker: &str) -> bool {
+        self.body
+            .as_deref()
+            .is_some_and(|text| text.lines().any(|line| line == marker))
+    }
+}
+
+/// The line that finds the issue of `key` under `label` again.
+fn marker(label: Label, key: &str) -> String {
+    format!("<!-- goodfetch-results: {} {key} -->", label.name())
+}
+
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 enum State {
     Open,
     Closed,
+}
+
+/// An issue a file names, as its check reads it.
+pub(crate) struct NamedIssue {
+    pub(crate) open: bool,
+    /// Its labels' names.
+    pub(crate) labels: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ReadIssue {
+    state: State,
+    #[serde(default)]
+    labels: Vec<ReadLabel>,
+    /// Present when the number is a pull request's.
+    pull_request: Option<serde::de::IgnoredAny>,
+}
+
+#[derive(Deserialize)]
+struct ReadLabel {
+    name: String,
+}
+
+/// Issue `number` of `repository`; `None` when the number is no issue of the
+/// repository (GitHub answers 404, or it is a pull request's) or the token
+/// cannot read it.
+pub(crate) fn find(
+    api: &Api<'_>,
+    repository: &str,
+    number: NonZeroU64,
+) -> Result<Option<NamedIssue>> {
+    let issue: Option<ReadIssue> = api.find(&format!("/repos/{repository}/issues/{number}"))?;
+    Ok(issue
+        .filter(|issue| issue.pull_request.is_none())
+        .map(|issue| NamedIssue {
+            open: issue.state == State::Open,
+            labels: issue.labels.into_iter().map(|label| label.name).collect(),
+        }))
 }
 
 #[derive(Deserialize)]
@@ -103,17 +163,12 @@ impl<'a> Issues<'a> {
         body: &str,
         latest: Timestamp,
     ) -> Result<()> {
-        let marker = format!("<!-- goodfetch-results: {} {key} -->", label.name());
+        let marker = marker(label, key);
         let body = format!("{marker}\n{body}");
         let existing = self
             .issues(label)?
             .iter()
-            .find(|issue| {
-                issue
-                    .body
-                    .as_deref()
-                    .is_some_and(|text| text.lines().any(|line| line == marker))
-            })
+            .find(|issue| issue.marked(&marker))
             .map(|issue| {
                 (
                     issue.number,
@@ -162,6 +217,38 @@ impl<'a> Issues<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Opens the issue of `key` under `label` and `needs-triage`, outside
+    /// every milestone, unless one exists, open or closed; true when it
+    /// opened one.
+    pub(crate) fn open_once(
+        &mut self,
+        label: Label,
+        key: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<bool> {
+        let marker = marker(label, key);
+        if self
+            .issues(label)?
+            .iter()
+            .any(|issue| issue.marked(&marker))
+        {
+            return Ok(false);
+        }
+        let created: Created = self.api.send(
+            Write::Post,
+            &format!("/repos/{}/issues", self.repository),
+            &json!({
+                "title": title,
+                "body": format!("{marker}\n{body}"),
+                "labels": [label.name(), Label::NeedsTriage.name()],
+            }),
+        )?;
+        self.actions
+            .push(format!("opened #{}: {title}", created.number));
+        Ok(true)
     }
 
     fn issues(&mut self, label: Label) -> Result<&[Issue]> {

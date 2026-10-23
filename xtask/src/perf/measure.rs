@@ -3,7 +3,8 @@
 //! 0043):
 //!
 //! - **build**, before the deny: checks the base out into its own worktree
-//!   under the output folder, fetches what its lockfile needs, and builds the
+//!   under the output folder, fetches what its lockfile needs, lends it the
+//!   head's Console build when its Collie executable embeds one, and builds the
 //!   head's selected bench targets and every bench target the base has in a
 //!   selected crate, into the one target folder, so the base's dependencies
 //!   come from the same cache;
@@ -138,6 +139,7 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
         cargo_command(cargo, &tree, &base_target_directory)
             .args(["fetch", "--locked"])
             .status_checked("cargo fetch in the base")?;
+        crate::console::lend_build(root, &tree)?;
     }
     for target in &base_targets {
         cargo_bench(cargo, &tree, &base_target_directory, target)

@@ -1,0 +1,19 @@
+{
+  "rust-suites": {
+    "sample": {
+      "testcases": {
+        "tests::crawls": {},
+        "tests::fails": {},
+        "tests::flaky": {},
+        "tests::never_ran": {},
+        "tests::passes": {}
+      }
+    },
+    "sample::it": {
+      "testcases": {
+        "journeys::j001::cli": {},
+        "reaches_the_goal": {}
+      }
+    }
+  }
+}

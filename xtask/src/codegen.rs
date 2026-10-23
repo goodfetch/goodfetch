@@ -1,13 +1,19 @@
 //! `xtask codegen` (ADRs 0038, 0087, 0094 and 0095): builds `goodfetch-protocol`'s
 //! `emit` example, which writes the JSON Schema bundle and catalog file
 //! through schemars, and writes from them every generated file: each
-//! Product's projection, the names only Foxhound carries, the cargo-deny
+//! Product's projection, the names only Foxhound carries, the namespaces of
+//! the commands `goodfetch-cli` generates, the cargo-deny
 //! `wrappers` list of Foxhound's crates and Collie's ban of them, cargo-deny's
 //! copy of the license allowlist, each SDK package's `generated/` layer, and
-//! the Journey files' schema on its own, `journeys/journey.schema.json`, for
-//! editors and the TypeScript and Python helpers (ADR 0063). It also commits
+//! each registered format's refusal cases (ADR 0066), the Journey files'
+//! schema on its own, `journeys/journey.schema.json`, for
+//! editors and the TypeScript and Python helpers (ADR 0063), and the result
+//! document's types those helpers write it with, in their `test-support/`
+//! packages. It also commits
 //! the JSON Schemas of `goodfetch-test-support`'s file types, which
-//! `goodfetch-test-env --print-schemas` prints (ADR 0062).
+//! `goodfetch-test-env --print-schemas` prints (ADR 0062), the script
+//! format's among the engine scripts (ADR 0069), and `goodfetch-cdp`'s CDP
+//! bindings, from the pinned Chromium's protocol file (spec #577).
 //!
 //! `--check` regenerates in memory what `xtask codegen` writes itself and
 //! fails on any difference. It runs neither outside generator: the output of
@@ -22,9 +28,13 @@
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
 )]
 
+mod cdp;
+mod cli;
 mod deny;
 mod digest;
 mod emitter;
+mod executables;
+mod helpers;
 mod layer;
 mod names;
 mod naming;
@@ -42,6 +52,7 @@ use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
 
 use crate::check::Finding;
+use crate::compat;
 use crate::environment::Environment;
 use crate::features;
 use goodfetch_protocol::catalog::Product;
@@ -214,10 +225,15 @@ impl External {
 }
 
 /// How `xtask codegen` runs `json-schema-to-typescript`, before its banner.
-const JSON2TS_OPTIONS: [&str; 3] = [
+/// A bounded array stays an array (`--maxItems -1`) rather than a union of
+/// every tuple length: the engine checks the bound, and a program's
+/// `string[]` is then a value of the type.
+const JSON2TS_OPTIONS: [&str; 5] = [
     "--unreachableDefinitions",
     "--additionalProperties",
     "false",
+    "--maxItems",
+    "-1",
 ];
 
 /// What one language's generator gives for one package's layer.
@@ -248,9 +264,16 @@ struct Plan {
 
 impl Plan {
     fn owned_folders() -> impl Iterator<Item = &'static str> {
-        [PROTOCOL_GENERATED, test_support::FOLDER]
-            .into_iter()
-            .chain(PACKAGES.iter().map(|package| package.folder))
+        [
+            PROTOCOL_GENERATED,
+            cli::FOLDER,
+            cdp::FOLDER,
+            test_support::FOLDER,
+            helpers::TYPESCRIPT_FOLDER,
+            helpers::PYTHON_FOLDER,
+        ]
+        .into_iter()
+        .chain(PACKAGES.iter().map(|package| package.folder))
     }
 
     /// Every file `xtask codegen` writes inside the folders it owns.
@@ -275,7 +298,7 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
     let catalog: Value =
         serde_json::from_slice(&emitted.catalog).context("reading the emitted catalog")?;
 
-    let mut files = BTreeMap::new();
+    let mut files = compat::refusals::files(&emitted.bundle)?;
     files.insert(format!("{PROTOCOL_GENERATED}/bundle.json"), emitted.bundle);
     files.insert(
         format!("{PROTOCOL_GENERATED}/catalog.json"),
@@ -292,16 +315,19 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         format!("{PROTOCOL_GENERATED}/foxhound.json"),
         json_text(&foxhound)?,
     );
-    let foxhound_names = names::table(&catalog);
+    let command_lines = executables::command_lines(cargo, root)?;
+    let foxhound_names = names::table(&catalog, command_lines.as_ref());
     files.insert(
         format!("{PROTOCOL_GENERATED}/foxhound_names.rs"),
         names::render(&foxhound_names).into_bytes(),
     );
+    files.extend(cli::namespaces(root)?);
     let sources = features::Sources {
         root,
         catalog: &catalog,
         bundle: &bundle,
         foxhound_names: &foxhound_names,
+        command_lines: command_lines.as_ref(),
     };
     files.insert(
         features::INVENTORY.to_owned(),
@@ -332,19 +358,19 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         deny::render_collie(&collie_text, &crates).into_bytes(),
     );
 
-    for (name, schema) in test_support::schemas(cargo, root)? {
-        if name.contains(['/', '\\']) {
-            bail!("goodfetch-test-env printed a schema named {name}, which is no file name");
-        }
-        files.insert(
-            format!("{}/{name}", test_support::FOLDER),
-            json_text(&schema)?,
-        );
+    for (path, schema) in test_support::schemas(cargo, root)? {
+        files.insert(path, json_text(&schema)?);
     }
+
+    files.insert(
+        test_support::CANARY_RULE.to_owned(),
+        test_support::canary_rule(cargo, root)?,
+    );
+    files.extend(cdp::generate(root)?);
 
     let mut externals = Vec::new();
     for package in &PACKAGES {
-        let layer = Layer::new(&collie, &foxhound, package.product)?;
+        let layer = Layer::new(&bundle, &collie, &foxhound, package.product)?;
         let generated = match package.language {
             Language::TypeScript => typescript::generate(&layer),
             Language::Python => python::generate(&layer),
@@ -364,6 +390,7 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
             header: generated.types.header,
         });
     }
+    helpers::add(&bundle, &mut files, &mut externals)?;
     Ok(Plan { files, externals })
 }
 
@@ -600,6 +627,10 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
         json2ts: arguments.json2ts,
         datamodel_codegen: arguments.datamodel_codegen,
     };
+    let namespaces = cli::written(root);
     write(cargo, &generators, root)?;
+    if cli::written(root) != namespaces {
+        cli::rerun(cargo, root, &generators)?;
+    }
     Ok(ExitCode::SUCCESS)
 }

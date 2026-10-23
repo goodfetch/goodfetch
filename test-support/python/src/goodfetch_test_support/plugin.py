@@ -5,7 +5,11 @@ It gives the fixtures that reach `goodfetch-test-env`'s setup:
 - `test_env`, the test's `TestEnv`;
 - `env`, the environment map an SDK takes as `env=`, naming the engine of
   the test's `product`;
-- `product`, Collie unless the test overrides it with Foxhound (ADR 0094).
+- `product`, Collie unless the test overrides it with Foxhound (ADR 0094);
+- `proving_ground`, the Proving ground started on `proving_ground_seed`,
+  which a test overrides with its seed (ADR 0063);
+- `daemon`, the Daemon of the test's home, run by `product`'s executable,
+  which a test asks for by overriding `with_daemon` to return `True`.
 """
 
 import json
@@ -16,18 +20,45 @@ from typing import cast
 
 import pytest
 
+from goodfetch_test_support.daemon import Daemon, DaemonNotRequested
 from goodfetch_test_support.environment import Product, TestEnv
+from goodfetch_test_support.proving_ground import ProvingGround, ProvingGroundUnseeded
 
 
 @pytest.fixture
-def test_env(request: pytest.FixtureRequest) -> Iterator[TestEnv]:
+def proving_ground_seed() -> int | None:
+    """The seed of the test's Proving ground: none unless the test overrides it."""
+    return None
+
+
+@pytest.fixture
+def with_daemon() -> bool:
+    """Whether the test's setup starts a Daemon: not unless the test overrides it."""
+    return False
+
+
+@pytest.fixture
+def test_env(
+    request: pytest.FixtureRequest,
+    proving_ground_seed: int | None,
+    with_daemon: bool,
+    product: Product,
+) -> Iterator[TestEnv]:
     """The test's setup from `goodfetch-test-env`, torn down after the test.
 
-    The teardown fails the test when a process it started is still alive.
+    It starts a Proving ground when `proving_ground_seed` names a seed, and
+    the Daemon of `product`'s executable in the test's home when
+    `with_daemon` is `True`. The teardown stops the Daemon and fails the
+    test when a process it started is still alive.
     """
     # pytest leaves `FixtureRequest.node` unannotated.
     item = cast("pytest.Item", request.node)  # pyright: ignore[reportUnknownMemberType]
-    env = TestEnv.open(item.nodeid, os.environ)
+    env = TestEnv.open(
+        item.nodeid,
+        os.environ,
+        proving_ground_seed=proving_ground_seed,
+        daemon=product if with_daemon else None,
+    )
     yield env
     env.close()
 
@@ -51,8 +82,40 @@ def env(test_env: TestEnv, product: Product) -> Mapping[str, str]:
     return {**test_env.env, product.engine_path_variable: str(engine)}
 
 
+@pytest.fixture
+def proving_ground(test_env: TestEnv) -> ProvingGround:
+    """The Proving ground started on `proving_ground_seed`, stopped at teardown.
+
+    Raises:
+        ProvingGroundUnseeded: The test overrides no `proving_ground_seed`.
+    """
+    if test_env.proving_ground is None:
+        message = (
+            "the test takes `proving_ground` but sets no seed: override the "
+            "`proving_ground_seed` fixture"
+        )
+        raise ProvingGroundUnseeded(message)
+    return test_env.proving_ground
+
+
+@pytest.fixture
+def daemon(test_env: TestEnv) -> Daemon:
+    """The Daemon of the test's home, stopped at teardown.
+
+    Raises:
+        DaemonNotRequested: The test does not override `with_daemon` to `True`.
+    """
+    if test_env.daemon is None:
+        message = (
+            "the test takes `daemon` but asks for none: override the "
+            "`with_daemon` fixture to return `True`"
+        )
+        raise DaemonNotRequested(message)
+    return test_env.daemon
+
+
 LISTING_OPTION = "--marker-listing"
-"""Where `--collect-only` writes each test's `journey` and `covers` values."""
+"""Where `--collect-only` writes each test's `journey` and `covers` markers."""
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -68,7 +131,8 @@ def pytest_configure(config: pytest.Config) -> None:
     """Registers the `journey` and `covers` markers, which `strict_markers` checks."""
     config.addinivalue_line(
         "markers",
-        "journey(id): the Journey whose variant the test runs, as J-002 (ADR 0063)",
+        "journey(id, surface): the Journey variant the test runs, as "
+        'journey(id="J-002", surface="sdk-python"), which -m selects (ADR 0063)',
     )
     config.addinivalue_line(
         "markers",
@@ -79,9 +143,10 @@ def pytest_configure(config: pytest.Config) -> None:
 def pytest_collection_finish(session: pytest.Session) -> None:
     """Writes the marker listing that the Feature scanner and the Journey check read.
 
-    It lists every collected test by node ID, with the arguments of its
-    `journey` and `covers` markers, its own nearest first. An xdist worker
-    never writes it; `--collect-only` runs no worker.
+    It lists every collected test by node ID, with the keyword arguments of
+    each of its `journey` markers and the arguments of its `covers` markers,
+    its own nearest first. An xdist worker never writes it; `--collect-only`
+    runs no worker.
     """
     path = cast("str | None", session.config.getoption(LISTING_OPTION))
     if path is None or hasattr(session.config, "workerinput"):
@@ -89,7 +154,7 @@ def pytest_collection_finish(session: pytest.Session) -> None:
     tests = [
         {
             "id": item.nodeid,
-            "journey": _marker_values(item, "journey"),
+            "journey": [dict(marker.kwargs) for marker in item.iter_markers("journey")],
             "covers": _marker_values(item, "covers"),
         }
         for item in sorted(session.items, key=lambda item: item.nodeid)

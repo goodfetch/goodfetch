@@ -1,0 +1,17 @@
+{
+  "format": "protocol",
+  "rule": "default",
+  "reader": "0.1",
+  "found": "1.0",
+  "compatibility": "newer_major",
+  "hello": {
+    "from": "client",
+    "engine": "collie",
+    "needs": "collie",
+    "reply": {
+      "refused": {
+        "error_code": "protocol_version_unsupported"
+      }
+    }
+  }
+}

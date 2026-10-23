@@ -9,6 +9,14 @@
       "products": ["collie", "foxhound"]
     },
     {
+      "id": "event:sample.crawled",
+      "kind": "event",
+      "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": ["foxhound"]
+    },
+    {
       "id": "event:sample.echoed",
       "kind": "event",
       "area": 1,

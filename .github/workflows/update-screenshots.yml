@@ -40,13 +40,22 @@ jobs:
       - name: Refuse the Egress canary
         run: ci/egress/egress.sh canary
       - name: Rewrite the changed Reference screenshots in the pinned image
+        # With the Release suite's projects, so Firefox's and WebKit's
+        # References are rewritten too.
+        env:
+          GOODFETCH_TEST_SUITE: release
         run: ci/vm/visual.sh update
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
       - name: Collect them with the image digest and the commit
         run: ci/visual/collect.sh target/update-screenshots
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/vm/exec.sh ci/leaks.sh target/update-screenshots/
       - name: Upload the Reference screenshots
+        if: steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: reference-screenshots

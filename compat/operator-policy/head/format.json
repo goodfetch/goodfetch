@@ -1,0 +1,1625 @@
+{
+  "name": "operator-policy",
+  "schema": {
+    "$defs": {
+      "Managed": {
+        "additionalProperties": false,
+        "description": "What an Operator policy's `[managed]` table holds, which marks the\npolicy *managed*: deployed by MDM or Ansible, read-only in the Console\n(ADR 0031).",
+        "properties": {
+          "install_limits": {
+            "arrived_in": "0.1",
+            "description": "The install Limits it names (ADR 0041).",
+            "items": {
+              "$ref": "#/$defs/ManagedLimit"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ManagedLimit": {
+        "additionalProperties": false,
+        "description": "An install Limit a managed Operator policy names (ADRs 0031 and 0041):\neach engine of the policy's major writes it to the Usage ledger when it\nstarts, as a row of its own keyed by that major and set by\n[`LimitSetter::ManagedPolicy`], which only the policy and\n`upgrade-files` change.",
+        "properties": {
+          "amount": {
+            "arrived_in": "0.1",
+            "description": "How much it allows per period: a count of the Usage kind, or\nmillionths of the currency.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "currency": {
+            "arrived_in": "0.1",
+            "description": "The currency it caps the price in, an ISO 4217 code.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Period"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "The period it counts over; none for a Limit that never starts again."
+          },
+          "usage_kind": {
+            "arrived_in": "0.1",
+            "description": "The Usage kind it caps.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "usage_kind",
+          "amount"
+        ],
+        "type": "object"
+      },
+      "Period": {
+        "description": "The period a Limit counts over, in an explicit IANA time zone, so that\nit never depends on the host's (ADR 0041).",
+        "properties": {
+          "every": {
+            "$ref": "#/$defs/PeriodLength",
+            "arrived_in": "0.1",
+            "description": "How long it counts."
+          },
+          "time_zone": {
+            "arrived_in": "0.1",
+            "description": "The IANA time zone its midnights are in, such as `Europe/Paris`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "every",
+          "time_zone"
+        ],
+        "type": "object"
+      },
+      "PeriodLength": {
+        "description": "How long a period Limit counts before it starts again (ADR 0041).",
+        "oneOf": [
+          {
+            "const": "day",
+            "description": "From one midnight to the next.",
+            "type": "string"
+          },
+          {
+            "const": "week",
+            "description": "From Monday's midnight to the next Monday's.",
+            "type": "string"
+          },
+          {
+            "const": "month",
+            "description": "From the first day's midnight to the next month's.",
+            "type": "string"
+          }
+        ]
+      },
+      "ProtocolVersion": {
+        "description": "A version `major.minor` (ADR 0030).",
+        "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+        "type": "string"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "cap": {
+        "additionalProperties": false,
+        "arrived_in": "0.1",
+        "description": "The largest value a higher layer may give a count or a duration.",
+        "properties": {
+          "admission": {
+            "additionalProperties": false,
+            "properties": {
+              "max_requests_per_minute": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+              }
+            },
+            "type": "object"
+          },
+          "browser_cache": {
+            "additionalProperties": false,
+            "properties": {
+              "max_unused_age": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
+          "checkpoint": {
+            "additionalProperties": false,
+            "properties": {
+              "interval": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+              }
+            },
+            "type": "object"
+          },
+          "crawl": {
+            "additionalProperties": false,
+            "properties": {
+              "handler": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "retry": {
+                "additionalProperties": false,
+                "properties": {
+                  "max": {
+                    "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "sample_pages": {
+                "description": "How many pages the sample crawl visits.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "daemon": {
+            "additionalProperties": false,
+            "properties": {
+              "drain_grace": {
+                "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "idle_timeout": {
+                "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "politeness": {
+            "additionalProperties": false,
+            "properties": {
+              "domain": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1."
+                  },
+                  "delay": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "resolver": {
+            "additionalProperties": false,
+            "properties": {
+              "attempt_delay": {
+                "description": "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "resolution_delay": {
+                "description": "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "sample": {
+            "additionalProperties": false,
+            "properties": {
+              "echo_repeats": {
+                "description": "How many times the sample operation repeats a text.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "session": {
+            "additionalProperties": false,
+            "properties": {
+              "pool": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_age": {
+                    "description": "How long after it opened a Session of a crawl's Session pool is retired: 3,000 s, Crawlee's `maxAgeSecs`.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_error_score": {
+                    "description": "The error score at which a Session of a crawl's Session pool is retired: 3. A block or a failed Page check adds 1, a success takes 0.5 off, never below 0 (Crawlee's model).",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_size": {
+                    "description": "How many Sessions a crawl's Session pool keeps open at once: 100. A request goes to a new Session while the pool has room, then to one drawn among those open.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_uses": {
+                    "description": "How many requests one Session of a crawl's Session pool serves before it is retired: 50, Crawlee's `maxUsageCount`.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "timeout": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "first_byte": {
+                "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "handler": {
+                "description": "How long a crawl's handler has for one attempt, which also bounds every action inside it, and from which a work item's lease is derived: the timeout plus the larger of 10 s and a tenth of it. 60 s, Crawlee's `requestHandlerTimeoutSecs`.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "navigation": {
+                "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "run": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
+              },
+              "secret": {
+                "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "lock": {
+        "additionalProperties": false,
+        "arrived_in": "0.1",
+        "description": "The values it sets and locks: no higher layer changes them.",
+        "properties": {
+          "admission": {
+            "additionalProperties": false,
+            "properties": {
+              "max_requests_per_minute": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+              }
+            },
+            "type": "object"
+          },
+          "browser": {
+            "additionalProperties": false,
+            "properties": {
+              "headless": {
+                "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "browser_cache": {
+            "additionalProperties": false,
+            "properties": {
+              "max_unused_age": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
+          "checkpoint": {
+            "additionalProperties": false,
+            "properties": {
+              "interval": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+              }
+            },
+            "type": "object"
+          },
+          "consent": {
+            "additionalProperties": false,
+            "properties": {
+              "domains": {
+                "description": "The domains whose consent prompts a run accepts instead of refusing. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "console": {
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "crawl": {
+            "additionalProperties": false,
+            "properties": {
+              "domain_keys": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.",
+                "type": "object"
+              },
+              "handler": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "keep_alive": {
+                "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
+                "type": "boolean"
+              },
+              "retry": {
+                "additionalProperties": false,
+                "properties": {
+                  "handler_failed": {
+                    "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+                    "type": "boolean"
+                  },
+                  "max": {
+                    "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "sample_pages": {
+                "description": "How many pages the sample crawl visits.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "scope": {
+                "additionalProperties": false,
+                "properties": {
+                  "exclude": {
+                    "description": "URL patterns, each a glob read as Playwright reads one and matched in the engine, none of which a link may match, besides `crawl.scope.strategy` and `crawl.scope.include`. None by default. Fixed for a Run's life.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "include": {
+                    "description": "URL patterns, each a glob read as Playwright reads one and matched in the engine, of which a link must match one when there are any, besides `crawl.scope.strategy`, which they never replace. None by default. Fixed for a Run's life.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "strategy": {
+                    "description": "What a crawl's links are measured by against every seed, on every enqueue, redirect and Hook rewrite: `same_hostname` (Crawlee's default), `same_domain` (the registrable domain under the Public Suffix List), `same_origin` or `all`. One leading `www.` label is ignored, and under `same_origin` an `http` seed also admits its host's `https` origin on the same port. A link outside it is not added with `out_of_scope`. Fixed for a Run's life.",
+                    "enum": [
+                      "same_hostname",
+                      "same_domain",
+                      "same_origin",
+                      "all"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "daemon": {
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                "type": "string"
+              },
+              "drain_grace": {
+                "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "idle_timeout": {
+                "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "delivery": {
+            "additionalProperties": false,
+            "properties": {
+              "report_guarantee_class": {
+                "description": "Every delivery reports its Guarantee class, an honesty guarantee that stays locked whatever the layer.",
+                "type": "boolean"
+              },
+              "write_ids_and_epochs": {
+                "description": "Every write a Sink makes carries its delivery ID and run epoch, an honesty guarantee that stays locked whatever the layer.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "egress": {
+            "additionalProperties": false,
+            "properties": {
+              "offline": {
+                "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "filter_lists": {
+            "additionalProperties": false,
+            "properties": {
+              "extra": {
+                "description": "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "log": {
+            "additionalProperties": false,
+            "properties": {
+              "format": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "text",
+                      "json"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
+          "network": {
+            "additionalProperties": false,
+            "properties": {
+              "resolve": {
+                "additionalProperties": {
+                  "items": {
+                    "format": "ip",
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "otlp": {
+            "additionalProperties": false,
+            "properties": {
+              "traces_endpoint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
+          "paid_fetch": {
+            "additionalProperties": false,
+            "properties": {
+              "chain_rpc_endpoints": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "The RPC endpoint of each chain whose finalized state proves a payment did not settle, by chain. Set only in an Operator policy and user and project configuration.",
+                "type": "object"
+              },
+              "domains": {
+                "description": "The registrable domains a run may pay for a page; `*` only when written. Widened only in an Operator policy, user or project configuration, or by a person's answer; a Recipe or a run only narrows it.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "exchange_rates": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "The fixed rates that convert a price into a Limit's currency, by currency pair. Set only in an Operator policy and user and project configuration.",
+                "type": "object"
+              },
+              "max_price_per_page": {
+                "anyOf": [
+                  {
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)? [A-Z]{3}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The most a run pays for one page, as an amount and its currency such as `0.05 USD`; none by default. Raised only in configuration; a Recipe or a run only lowers it."
+              }
+            },
+            "type": "object"
+          },
+          "politeness": {
+            "additionalProperties": false,
+            "properties": {
+              "domain": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1."
+                  },
+                  "delay": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                  }
+                },
+                "type": "object"
+              },
+              "sharing": {
+                "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+                "enum": [
+                  "shared",
+                  "per_daemon",
+                  "run"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "resolver": {
+            "additionalProperties": false,
+            "properties": {
+              "attempt_delay": {
+                "description": "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "resolution_delay": {
+                "description": "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "run_state": {
+            "additionalProperties": false,
+            "properties": {
+              "durability": {
+                "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+                "enum": [
+                  "full",
+                  "fast"
+                ]
+              },
+              "key_reference": {
+                "anyOf": [
+                  {
+                    "description": "A Secret reference, such as `env:NAME`.",
+                    "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The Secret reference of the key-encryption key that wraps each Run's data key, resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration; none by default."
+              },
+              "layout": {
+                "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+                "enum": [
+                  "per_run",
+                  "per_install"
+                ]
+              },
+              "location": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The folder that holds the run folders, each named by its Run ID; by default the per-user, per-major data folder of the Goodfetch home."
+              }
+            },
+            "type": "object"
+          },
+          "sample": {
+            "additionalProperties": false,
+            "properties": {
+              "echo_repeats": {
+                "description": "How many times the sample operation repeats a text.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "secrets": {
+            "additionalProperties": false,
+            "properties": {
+              "by_reference": {
+                "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "session": {
+            "additionalProperties": false,
+            "properties": {
+              "pool": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_age": {
+                    "description": "How long after it opened a Session of a crawl's Session pool is retired: 3,000 s, Crawlee's `maxAgeSecs`.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_error_score": {
+                    "description": "The error score at which a Session of a crawl's Session pool is retired: 3. A block or a failed Page check adds 1, a success takes 0.5 off, never below 0 (Crawlee's model).",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_size": {
+                    "description": "How many Sessions a crawl's Session pool keeps open at once: 100. A request goes to a new Session while the pool has room, then to one drawn among those open.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_uses": {
+                    "description": "How many requests one Session of a crawl's Session pool serves before it is retired: 50, Crawlee's `maxUsageCount`.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "source": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where a Session's login comes from. A Recipe never sets or locks it; it may only expose it to its users."
+              }
+            },
+            "type": "object"
+          },
+          "timeout": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "first_byte": {
+                "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "handler": {
+                "description": "How long a crawl's handler has for one attempt, which also bounds every action inside it, and from which a work item's lease is derived: the timeout plus the larger of 10 s and a tenth of it. 60 s, Crawlee's `requestHandlerTimeoutSecs`.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "navigation": {
+                "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "run": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
+              },
+              "secret": {
+                "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "tls": {
+            "additionalProperties": false,
+            "properties": {
+              "accept_invalid_certs": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "description": "Domains whose certificate may fail verification, each with a pin, `any`, or `null` for trust on first use. A pin and `any` are taken only from an Operator policy and user and project configuration; a Recipe or a run may list a domain only for trust on first use.",
+                "type": "object"
+              },
+              "trusted_cas": {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "version": {
+            "additionalProperties": false,
+            "properties": {
+              "age_notice": {
+                "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "wall": {
+            "additionalProperties": false,
+            "properties": {
+              "denied_domains": {
+                "description": "The domains whose Walls no run reads past, whatever another layer allows. Set only in an Operator policy.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "domains": {
+                "description": "The domains whose Walls a run may read past by generic means. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "refetch_domains": {
+                "description": "The domains on which reading past a Wall may fetch a page again. A Recipe or a run only narrows it; it is widened only in configuration, never by an answer.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "webhook": {
+            "additionalProperties": false,
+            "properties": {
+              "signing": {
+                "description": "Every webhook Goodfetch sends is signed, an honesty guarantee that stays locked whatever the layer.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "lowest_minor": {
+        "arrived_in": "0.1",
+        "description": "The lowest minor of its Product major that can use it (ADR 0098); 0 when absent. A project's configuration ignores it.",
+        "maximum": 65535,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "managed": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/Managed"
+          }
+        ],
+        "arrived_in": "0.1",
+        "description": "Marks the policy managed, deployed by MDM or Ansible (ADR 0031), with the install Limits each engine of its major writes to the Usage ledger when it starts (ADR 0041)."
+      },
+      "settings": {
+        "additionalProperties": false,
+        "arrived_in": "0.1",
+        "description": "The values it sets, which higher layers may change.",
+        "properties": {
+          "admission": {
+            "additionalProperties": false,
+            "properties": {
+              "max_requests_per_minute": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+              }
+            },
+            "type": "object"
+          },
+          "browser": {
+            "additionalProperties": false,
+            "properties": {
+              "headless": {
+                "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "browser_cache": {
+            "additionalProperties": false,
+            "properties": {
+              "max_unused_age": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
+          "checkpoint": {
+            "additionalProperties": false,
+            "properties": {
+              "interval": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+              }
+            },
+            "type": "object"
+          },
+          "consent": {
+            "additionalProperties": false,
+            "properties": {
+              "domains": {
+                "description": "The domains whose consent prompts a run accepts instead of refusing. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "console": {
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "crawl": {
+            "additionalProperties": false,
+            "properties": {
+              "domain_keys": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.",
+                "type": "object"
+              },
+              "handler": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "keep_alive": {
+                "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
+                "type": "boolean"
+              },
+              "retry": {
+                "additionalProperties": false,
+                "properties": {
+                  "handler_failed": {
+                    "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+                    "type": "boolean"
+                  },
+                  "max": {
+                    "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "sample_pages": {
+                "description": "How many pages the sample crawl visits.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "scope": {
+                "additionalProperties": false,
+                "properties": {
+                  "exclude": {
+                    "description": "URL patterns, each a glob read as Playwright reads one and matched in the engine, none of which a link may match, besides `crawl.scope.strategy` and `crawl.scope.include`. None by default. Fixed for a Run's life.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "include": {
+                    "description": "URL patterns, each a glob read as Playwright reads one and matched in the engine, of which a link must match one when there are any, besides `crawl.scope.strategy`, which they never replace. None by default. Fixed for a Run's life.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "strategy": {
+                    "description": "What a crawl's links are measured by against every seed, on every enqueue, redirect and Hook rewrite: `same_hostname` (Crawlee's default), `same_domain` (the registrable domain under the Public Suffix List), `same_origin` or `all`. One leading `www.` label is ignored, and under `same_origin` an `http` seed also admits its host's `https` origin on the same port. A link outside it is not added with `out_of_scope`. Fixed for a Run's life.",
+                    "enum": [
+                      "same_hostname",
+                      "same_domain",
+                      "same_origin",
+                      "all"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "daemon": {
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                "type": "string"
+              },
+              "drain_grace": {
+                "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "idle_timeout": {
+                "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "delivery": {
+            "additionalProperties": false,
+            "properties": {
+              "report_guarantee_class": {
+                "description": "Every delivery reports its Guarantee class, an honesty guarantee that stays locked whatever the layer.",
+                "type": "boolean"
+              },
+              "write_ids_and_epochs": {
+                "description": "Every write a Sink makes carries its delivery ID and run epoch, an honesty guarantee that stays locked whatever the layer.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "egress": {
+            "additionalProperties": false,
+            "properties": {
+              "offline": {
+                "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "filter_lists": {
+            "additionalProperties": false,
+            "properties": {
+              "extra": {
+                "description": "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "log": {
+            "additionalProperties": false,
+            "properties": {
+              "format": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "text",
+                      "json"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
+          "network": {
+            "additionalProperties": false,
+            "properties": {
+              "resolve": {
+                "additionalProperties": {
+                  "items": {
+                    "format": "ip",
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "otlp": {
+            "additionalProperties": false,
+            "properties": {
+              "traces_endpoint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
+          "paid_fetch": {
+            "additionalProperties": false,
+            "properties": {
+              "chain_rpc_endpoints": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "The RPC endpoint of each chain whose finalized state proves a payment did not settle, by chain. Set only in an Operator policy and user and project configuration.",
+                "type": "object"
+              },
+              "domains": {
+                "description": "The registrable domains a run may pay for a page; `*` only when written. Widened only in an Operator policy, user or project configuration, or by a person's answer; a Recipe or a run only narrows it.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "exchange_rates": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "The fixed rates that convert a price into a Limit's currency, by currency pair. Set only in an Operator policy and user and project configuration.",
+                "type": "object"
+              },
+              "max_price_per_page": {
+                "anyOf": [
+                  {
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)? [A-Z]{3}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The most a run pays for one page, as an amount and its currency such as `0.05 USD`; none by default. Raised only in configuration; a Recipe or a run only lowers it."
+              }
+            },
+            "type": "object"
+          },
+          "politeness": {
+            "additionalProperties": false,
+            "properties": {
+              "domain": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1."
+                  },
+                  "delay": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                  }
+                },
+                "type": "object"
+              },
+              "sharing": {
+                "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+                "enum": [
+                  "shared",
+                  "per_daemon",
+                  "run"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "resolver": {
+            "additionalProperties": false,
+            "properties": {
+              "attempt_delay": {
+                "description": "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "resolution_delay": {
+                "description": "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "run_state": {
+            "additionalProperties": false,
+            "properties": {
+              "durability": {
+                "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+                "enum": [
+                  "full",
+                  "fast"
+                ]
+              },
+              "key_reference": {
+                "anyOf": [
+                  {
+                    "description": "A Secret reference, such as `env:NAME`.",
+                    "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The Secret reference of the key-encryption key that wraps each Run's data key, resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration; none by default."
+              },
+              "layout": {
+                "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+                "enum": [
+                  "per_run",
+                  "per_install"
+                ]
+              },
+              "location": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The folder that holds the run folders, each named by its Run ID; by default the per-user, per-major data folder of the Goodfetch home."
+              }
+            },
+            "type": "object"
+          },
+          "sample": {
+            "additionalProperties": false,
+            "properties": {
+              "echo_repeats": {
+                "description": "How many times the sample operation repeats a text.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "secrets": {
+            "additionalProperties": false,
+            "properties": {
+              "by_reference": {
+                "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "session": {
+            "additionalProperties": false,
+            "properties": {
+              "pool": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_age": {
+                    "description": "How long after it opened a Session of a crawl's Session pool is retired: 3,000 s, Crawlee's `maxAgeSecs`.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_error_score": {
+                    "description": "The error score at which a Session of a crawl's Session pool is retired: 3. A block or a failed Page check adds 1, a success takes 0.5 off, never below 0 (Crawlee's model).",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_size": {
+                    "description": "How many Sessions a crawl's Session pool keeps open at once: 100. A request goes to a new Session while the pool has room, then to one drawn among those open.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_uses": {
+                    "description": "How many requests one Session of a crawl's Session pool serves before it is retired: 50, Crawlee's `maxUsageCount`.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "source": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where a Session's login comes from. A Recipe never sets or locks it; it may only expose it to its users."
+              }
+            },
+            "type": "object"
+          },
+          "timeout": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "first_byte": {
+                "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "handler": {
+                "description": "How long a crawl's handler has for one attempt, which also bounds every action inside it, and from which a work item's lease is derived: the timeout plus the larger of 10 s and a tenth of it. 60 s, Crawlee's `requestHandlerTimeoutSecs`.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "navigation": {
+                "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "run": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
+              },
+              "secret": {
+                "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "tls": {
+            "additionalProperties": false,
+            "properties": {
+              "accept_invalid_certs": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "description": "Domains whose certificate may fail verification, each with a pin, `any`, or `null` for trust on first use. A pin and `any` are taken only from an Operator policy and user and project configuration; a Recipe or a run may list a domain only for trust on first use.",
+                "type": "object"
+              },
+              "trusted_cas": {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "version": {
+            "additionalProperties": false,
+            "properties": {
+              "age_notice": {
+                "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "wall": {
+            "additionalProperties": false,
+            "properties": {
+              "denied_domains": {
+                "description": "The domains whose Walls no run reads past, whatever another layer allows. Set only in an Operator policy.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "domains": {
+                "description": "The domains whose Walls a run may read past by generic means. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "refetch_domains": {
+                "description": "The domains on which reading past a Wall may fetch a page again. A Recipe or a run only narrows it; it is widened only in configuration, never by an answer.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "webhook": {
+            "additionalProperties": false,
+            "properties": {
+              "signing": {
+                "description": "Every webhook Goodfetch sends is signed, an honesty guarantee that stays locked whatever the layer.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "version": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ProtocolVersion"
+          }
+        ],
+        "arrived_in": "0.1",
+        "description": "The version of this format the file was written in."
+      }
+    },
+    "required": [
+      "version"
+    ],
+    "type": "object"
+  },
+  "storage": "toml",
+  "version": "0.1"
+}

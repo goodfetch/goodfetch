@@ -1,0 +1,6 @@
+# A Docker action whose image is named by its tag.
+name: Scanner
+description: A Docker action.
+runs:
+  using: docker
+  image: docker://ghcr.io/example/scanner:1

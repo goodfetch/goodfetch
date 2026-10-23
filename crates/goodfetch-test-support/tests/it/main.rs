@@ -1,7 +1,9 @@
 //! goodfetch-test-support's integration tests (Seam B, Pre-merge): the
 //! crate's interface with real child processes (seeded kills and a failed
-//! test's Observation log among them), and `goodfetch-test-env`'s command
-//! line and JSON description.
+//! test's Observation log among them), `goodfetch-test-env`'s command
+//! line and JSON description, `goodfetch-scripted-engine` playing
+//! scripts to a tiny Client, and the CLI helper's piped and
+//! pseudo-terminal runs of fixture commands.
 #![expect(
     clippy::disallowed_methods,
     reason = "these tests start processes, read files and wait outside any async worker"
@@ -11,16 +13,36 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+mod canaries;
+mod cli;
+mod cli_json;
+#[cfg(target_os = "linux")]
+mod dns_namespace;
 mod endpoints;
+mod exercise_record;
+mod hostile_tables;
+mod journey_run;
+#[cfg(target_os = "linux")]
+mod lazyfs;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod no_exec;
 mod observation_log;
 mod probe;
+mod proving_ground;
+mod pty;
 mod reported;
+mod scripted_daemon;
+mod scripted_engine;
 mod seed;
 mod seeded_kill;
 mod ssrf_table;
 mod strict_stdout;
 mod teardown;
 mod test_env;
+mod test_env_daemon;
 mod tools;
 
 use std::path::PathBuf;

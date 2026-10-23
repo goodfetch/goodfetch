@@ -11,6 +11,10 @@ use std::str::FromStr;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
+mod setting;
+
+pub use setting::{Authority, ValueKind};
+
 /// The protocol's version, `major.minor` (ADR 0030), written on the wire as
 /// that text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -157,6 +161,92 @@ impl OperationClass {
     }
 }
 
+/// The shape an operation takes on every surface (ADR 0099), from which
+/// each generator applies its one form, such as a method in each SDK or a
+/// CLI command. Whether a call can be cancelled is [`Operation::cancellable`],
+/// which an operation of any kind may be.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OperationKind {
+    /// A call answered once with its result, which may wait (ADR 0080).
+    RoundTrip,
+    /// A round trip that never waits, such as ADR 0085's questions
+    /// (`is_visible`, `count`), so it takes no timeout.
+    Query,
+    /// A read the SDK answers itself on a handle, such as `page.url` or
+    /// `run.id`.
+    Read,
+    /// A call that opens a value the caller then names by its ID, such as a
+    /// Run: its result carries the new value's ID, `<namespace>_id`.
+    Opener,
+    /// A call that stays in flight and sends its answer as notifications,
+    /// such as an event subscription or a body read in chunks (ADR 0081).
+    Sequence,
+    /// A wait for an application state, armed when it is called (ADR 0080).
+    Waiter,
+    /// A side activity a program listens to, such as a page's console
+    /// messages (ADR 0081).
+    Event,
+}
+
+impl OperationKind {
+    /// Its `snake_case` name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RoundTrip => "round_trip",
+            Self::Query => "query",
+            Self::Read => "read",
+            Self::Opener => "opener",
+            Self::Sequence => "sequence",
+            Self::Waiter => "waiter",
+            Self::Event => "event",
+        }
+    }
+}
+
+/// Which surfaces offer an operation (ADRs 0011, 0089, 0092, 0099 and 0106).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reach {
+    /// Every surface of its Product: the SDKs, the CLI, MCP, skills, Code
+    /// mode and the Framework adapters.
+    AllSurfaces,
+    /// The SDKs only, to the program's own code: a Session's cookies and a
+    /// page's storage (ADR 0092), `page.lend` (ADR 0089), `effect.open` and
+    /// `effect.close` (ADR 0106). No CLI command, MCP tool, skill, Code mode
+    /// global or Framework adapter offers it.
+    SdkOnly,
+    /// A person's answer, given in the Console or an interactive CLI prompt
+    /// only (ADR 0011's list, such as a certificate's acceptance or a Limit
+    /// raise): no agent surface offers it, and the CLI offers it as a
+    /// prompt, never as a generated command.
+    PersonOnly,
+}
+
+impl Reach {
+    /// Its `snake_case` name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AllSurfaces => "all_surfaces",
+            Self::SdkOnly => "sdk_only",
+            Self::PersonOnly => "person_only",
+        }
+    }
+}
+
+/// The canonical names of the entries ADRs 0089, 0092 and 0106 keep to the
+/// SDKs, which the catalog marks [`Reach::SdkOnly`] when it defines them.
+/// Each surface generator other than the SDKs' refuses to offer an entry of
+/// these names, so one added without the marker fails its checks.
+pub const SDK_ONLY: [&str; 8] = [
+    "session.cookies",
+    "session.add_cookies",
+    "session.clear_cookies",
+    "page.local_storage",
+    "page.session_storage",
+    "page.lend",
+    "effect.open",
+    "effect.close",
+];
+
 /// Whether an entry is under semver's promise (ADR 0030).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stability {
@@ -203,6 +293,10 @@ pub struct Operation {
     pub description: &'static str,
     /// What calling it does.
     pub class: OperationClass,
+    /// The shape it takes on every surface.
+    pub kind: OperationKind,
+    /// The surfaces that offer it.
+    pub reach: Reach,
     /// The type of its params.
     pub params: SchemaOf,
     /// The type of its result.
@@ -220,12 +314,36 @@ pub struct Operation {
     pub arrived_in: ProtocolVersion,
 }
 
+/// How an event travels when a subscriber reads slower than the engine
+/// produces (ADR 0024).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EventClass {
+    /// Never dropped: while a subscription's queue is full, its producer
+    /// waits (axis changes, "Needs you" items).
+    Lossless,
+    /// Coalesced: a newer event of the same kind and scope replaces an
+    /// unsent one, which the one sent counts as `dropped` (progress, logs).
+    Telemetry,
+}
+
+impl EventClass {
+    /// Its `snake_case` name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Lossless => "lossless",
+            Self::Telemetry => "telemetry",
+        }
+    }
+}
+
 /// An event the engine sends.
 pub struct Event {
     /// Its `snake_case` name, dotted by namespace.
     pub name: &'static str,
     /// What it reports.
     pub description: &'static str,
+    /// How it travels to a slow subscriber.
+    pub class: EventClass,
     /// The type of its payload.
     pub payload: SchemaOf,
     /// Its semver status.
@@ -236,8 +354,29 @@ pub struct Event {
     pub arrived_in: ProtocolVersion,
 }
 
+/// A request the engine sends to a handler of the program over the
+/// Connection that serves it, whose reply is the handler's answer (ADRs 0024
+/// and 0069): the program's own code, never a Plugin.
+pub struct HandlerRequest {
+    /// `<namespace>.<member>` in `snake_case` words (ADR 0099).
+    pub name: &'static str,
+    /// What the handler is asked to do.
+    pub description: &'static str,
+    /// The type of its params.
+    pub params: SchemaOf,
+    /// The type of the handler's answer.
+    pub result: SchemaOf,
+    /// Its semver status.
+    pub stability: Stability,
+    /// Its deprecation, if any.
+    pub deprecated: Option<Deprecation>,
+    /// The version that added it.
+    pub arrived_in: ProtocolVersion,
+}
+
 /// The seven groups of Error codes, named for their remedy (ADR 0079).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum ErrorGroup {
     /// The program is wrong.
     Program,
@@ -291,6 +430,20 @@ impl ErrorGroup {
             Self::DeadlineExceeded => -32005,
             Self::Unavailable => -32006,
             Self::Internal => -32007,
+        }
+    }
+
+    /// Its row of ADR 0069's exit-code table: the exit code of a CLI command
+    /// that fails with one of its codes that has no row of its own.
+    pub fn exit_code(self) -> u8 {
+        match self {
+            Self::Internal => 1,
+            Self::Program => 3,
+            Self::Refused => 4,
+            Self::Page => 5,
+            Self::Model => 6,
+            Self::DeadlineExceeded => 7,
+            Self::Unavailable => 8,
         }
     }
 
@@ -403,12 +556,26 @@ pub struct Metric {
 }
 
 /// A Setting (ADR 0028), named by its key, which ADR 0087 refuses on a
-/// Product that lacks it.
+/// Product that lacks it: the kind of its values, its built-in default and
+/// who may set it, from which the settings schema is generated (ADR 0083).
 pub struct Setting {
-    /// Its key, a dotted `snake_case` path such as `crawl.max_pages`.
+    /// Its key, a dotted `snake_case` path with its area first, such as
+    /// `crawl.max_pages` (ADR 0083).
     pub name: &'static str,
     /// What the setting shapes.
     pub description: &'static str,
+    /// The kind of its values.
+    pub kind: ValueKind,
+    /// Its built-in default, the lowest layer; `null` when it has none.
+    pub default: fn() -> serde_json::Value,
+    /// Whether `null` clears it (ADR 0083's three states).
+    pub clearable: bool,
+    /// Which layers may set it, and how.
+    pub authority: Authority,
+    /// The values that weaken a guarantee class or switch off a costly
+    /// control, which the results it touches are marked with (ADR 0028);
+    /// `None` when no value does.
+    pub weakens: Option<fn(&serde_json::Value) -> bool>,
     /// The version that added it.
     pub arrived_in: ProtocolVersion,
 }
@@ -433,6 +600,10 @@ pub enum SharedType {
     LimitScope,
     /// What a Notification reports.
     NotificationEvent,
+    /// Why a site refused a page (ADR 0035).
+    BlockCause,
+    /// What an Audit log entry records (ADR 0016).
+    AuditKind,
 }
 
 impl SharedType {
@@ -442,6 +613,8 @@ impl SharedType {
             Self::UsageKind => "usage_kind",
             Self::LimitScope => "limit_scope",
             Self::NotificationEvent => "notification_event",
+            Self::BlockCause => "block_cause",
+            Self::AuditKind => "audit_kind",
         }
     }
 }
@@ -467,6 +640,8 @@ pub struct Entries {
     pub operations: &'static [Operation],
     /// Its events.
     pub events: &'static [Event],
+    /// The requests the engine sends to the program's handlers.
+    pub handler_requests: &'static [HandlerRequest],
     /// Its Error codes.
     pub error_codes: &'static [ErrorCodeDefinition],
     /// Its Plugin kinds.

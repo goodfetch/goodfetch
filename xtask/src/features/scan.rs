@@ -1,8 +1,11 @@
-//! The Rust declarations of Features (ADRs 0072 and 0075): a `/// Covers:`
-//! line on a test function, or a `//! Covers:` line on a test module for
-//! every test in it, read with `syn` from each Cargo target's module tree and
-//! named as nextest names the test, an rstest case included. Each
-//! declaration's level comes from the path of the file that holds the test.
+//! What a declaration is, and the Rust declarations of Features (ADRs 0072
+//! and 0075): a `/// Covers:` line on a test function, or a `//! Covers:`
+//! line on a test module for every test in it, read with `syn` from each
+//! Cargo target's module tree and named as nextest names the test, an rstest
+//! case included. Each declaration's level comes from the path of the file
+//! that holds the test. The sibling modules `listed` and `covers` read the
+//! other idioms. `tests` lists every Rust test the same way, declaring or
+//! not, which `xtask clients check` reads too.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -33,7 +36,7 @@ pub(crate) enum Level {
 
 impl Level {
     /// The level of a test held in `path`, relative to the workspace's root.
-    fn of(path: &Path) -> Self {
+    pub(crate) fn of(path: &Path) -> Self {
         let folders: Vec<&OsStr> = path
             .parent()
             .into_iter()
@@ -47,6 +50,11 @@ impl Level {
         let below_tests = |name: &str| {
             tests.is_some_and(|index| folders[index + 1..].iter().any(|folder| *folder == name))
         };
+        // A module's own `tests/` folder below `src/` holds unit tests.
+        let below_source = folders
+            .iter()
+            .position(|folder| *folder == "src")
+            .is_some_and(|source| tests.is_none_or(|tests| source < tests));
         if below_tests("journeys") {
             Self::Journey
         } else if folders
@@ -54,7 +62,9 @@ impl Level {
             .is_some_and(|folder| *folder == "conformance")
         {
             Self::Conformance
-        } else if tests.is_some_and(|index| folders.get(index + 1) == Some(&OsStr::new("unit"))) {
+        } else if below_source
+            || tests.is_some_and(|index| folders.get(index + 1) == Some(&OsStr::new("unit")))
+        {
             Self::Unit
         } else if tests.is_some() {
             Self::Integration
@@ -79,6 +89,39 @@ impl fmt::Display for Level {
     }
 }
 
+/// What declares a Feature: a runner's test, a Journey or a conformance case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Source {
+    Nextest,
+    Vitest,
+    Playwright,
+    Pytest,
+    /// A Journey's `covers` list.
+    Journey,
+    /// A conformance case's `covers` list, a Client conformance case's
+    /// included.
+    Conformance,
+}
+
+impl Source {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Nextest => "nextest",
+            Self::Vitest => "vitest",
+            Self::Playwright => "playwright",
+            Self::Pytest => "pytest",
+            Self::Journey => "journey",
+            Self::Conformance => "conformance",
+        }
+    }
+}
+
+impl fmt::Display for Source {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
 /// One test's claim that it proves one Feature.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Declaration {
@@ -86,19 +129,65 @@ pub(crate) struct Declaration {
     pub(crate) feature: String,
     /// Where the test sits.
     pub(crate) level: Level,
-    /// The test as nextest names it: `<binary id> <test name>`.
+    /// What declares it.
+    pub(crate) source: Source,
+    /// The test as its runner names it (the quarantine list's test IDs): for
+    /// nextest `<binary id> <test name>`; for a Journey its ID; for a
+    /// conformance case `<suite> <case id>`.
     pub(crate) test: String,
-    /// The package that holds the test.
-    pub(crate) package: String,
+    /// The package that holds the test: the crate, or the nearest
+    /// `package.json`'s or `pyproject.toml`'s name; none for a Journey or a
+    /// conformance case.
+    pub(crate) package: Option<String>,
     /// The file that holds the test, relative to the workspace's root.
     pub(crate) path: String,
 }
 
 /// Every Rust declaration of the workspace at `root`, sorted.
 pub(crate) fn rust(cargo: &OsStr, root: &Path) -> Result<Vec<Declaration>> {
+    let mut declarations: Vec<Declaration> = tests(cargo, root, None)?
+        .iter()
+        .flat_map(|test| {
+            test.features.iter().map(|feature| Declaration {
+                feature: feature.clone(),
+                level: Level::of(Path::new(&test.path)),
+                source: Source::Nextest,
+                test: format!("{} {}", test.binary, test.name),
+                package: Some(test.package.clone()),
+                path: test.path.clone(),
+            })
+        })
+        .collect();
+    declarations.sort();
+    declarations.dedup();
+    Ok(declarations)
+}
+
+/// One Rust test, as nextest names it, with the Features it declares.
+#[derive(Debug)]
+pub(crate) struct Test {
+    /// nextest's binary ID of the target that holds it.
+    pub(crate) binary: String,
+    /// Its name in that binary, an rstest case's included:
+    /// `store::keeps_a_value::case_1_empty`.
+    pub(crate) name: String,
+    /// The crate that holds it.
+    pub(crate) package: String,
+    /// The file that holds it, relative to the workspace's root.
+    pub(crate) path: String,
+    /// The Features its `Covers:` lines and its modules' declare.
+    pub(crate) features: Vec<String>,
+}
+
+/// Every Rust test of the workspace at `root`, read from each Cargo target's
+/// module tree; only those of `packages` when given.
+pub(crate) fn tests(cargo: &OsStr, root: &Path, packages: Option<&[&str]>) -> Result<Vec<Test>> {
     let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    let mut declarations = Vec::new();
+    let mut tests = Vec::new();
     for package in metadata::packages(cargo, root)? {
+        if packages.is_some_and(|packages| !packages.contains(&package.name.as_str())) {
+            continue;
+        }
         for target in &package.targets {
             let Some(binary) = binary_id(&package.name, target) else {
                 continue;
@@ -110,12 +199,10 @@ pub(crate) fn rust(cargo: &OsStr, root: &Path) -> Result<Vec<Declaration>> {
             };
             let source = &target.src_path;
             let folder = source.parent().context("a crate root sits in a folder")?;
-            context.file(source, folder, &[], &[], &mut declarations)?;
+            context.file(source, folder, &[], &[], &mut tests)?;
         }
     }
-    declarations.sort();
-    declarations.dedup();
-    Ok(declarations)
+    Ok(tests)
 }
 
 /// nextest's binary ID of a target that holds tests: the package's name for
@@ -153,7 +240,7 @@ impl Target<'_> {
         children: &Path,
         module_path: &[String],
         inherited: &[String],
-        declarations: &mut Vec<Declaration>,
+        tests: &mut Vec<Test>,
     ) -> Result<()> {
         let text =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -166,7 +253,7 @@ impl Target<'_> {
             children,
             names: module_path,
         };
-        self.items(&module, &syntax.items, &features, declarations)
+        self.items(&module, &syntax.items, &features, tests)
     }
 
     fn items(
@@ -174,14 +261,14 @@ impl Target<'_> {
         module: &Module<'_>,
         items: &[syn::Item],
         features: &[String],
-        declarations: &mut Vec<Declaration>,
+        tests: &mut Vec<Test>,
     ) -> Result<()> {
         for item in items {
             match item {
                 syn::Item::Fn(function) => {
-                    self.function(module, function, features, declarations);
+                    self.function(module, function, features, tests);
                 }
-                syn::Item::Mod(child) => self.module(module, child, features, declarations)?,
+                syn::Item::Mod(child) => self.module(module, child, features, tests)?,
                 _ => {}
             }
         }
@@ -193,7 +280,7 @@ impl Target<'_> {
         parent: &Module<'_>,
         child: &syn::ItemMod,
         features: &[String],
-        declarations: &mut Vec<Declaration>,
+        tests: &mut Vec<Test>,
     ) -> Result<()> {
         let name = child.ident.to_string();
         let mut module_path = parent.names.to_vec();
@@ -206,7 +293,7 @@ impl Target<'_> {
                 children: &parent.children.join(&name),
                 names: &module_path,
             };
-            return self.items(&module, items, &inherited, declarations);
+            return self.items(&module, items, &inherited, tests);
         }
         let file = [
             parent.children.join(format!("{name}.rs")),
@@ -225,7 +312,7 @@ impl Target<'_> {
             Some(parent.children.join(&name))
         }
         .unwrap_or_default();
-        self.file(&file, &children, &module_path, &inherited, declarations)
+        self.file(&file, &children, &module_path, &inherited, tests)
     }
 
     fn function(
@@ -233,38 +320,35 @@ impl Target<'_> {
         module: &Module<'_>,
         function: &syn::ItemFn,
         features: &[String],
-        declarations: &mut Vec<Declaration>,
+        tests: &mut Vec<Test>,
     ) {
         let attributes = &function.attrs;
         if !is_test(attributes) {
             return;
         }
-        let mut all = features.to_vec();
-        all.extend(covers(attributes));
-        if all.is_empty() {
-            return;
-        }
         let mut name = module.names.to_vec();
         name.push(function.sig.ident.to_string());
         let base = name.join("::");
-        let cases = cases(attributes);
-        let tests: Vec<String> = if cases.is_empty() {
-            vec![base]
+        // A `Covers:` line rstest gives one case declares for that case only.
+        let (cases, shared) = cases(attributes);
+        let mut all = features.to_vec();
+        all.extend(covers(shared));
+        let named: Vec<(String, Vec<String>)> = if cases.is_empty() {
+            vec![(base, Vec::new())]
         } else {
-            cases.iter().map(|case| format!("{base}::{case}")).collect()
+            cases
+                .into_iter()
+                .map(|case| (format!("{base}::{}", case.name), covers(case.own)))
+                .collect()
         };
         let path = relative(self.root, module.path);
-        for test in &tests {
-            for feature in &all {
-                declarations.push(Declaration {
-                    feature: feature.clone(),
-                    level: Level::of(Path::new(&path)),
-                    test: format!("{} {test}", self.binary),
-                    package: self.package.to_owned(),
-                    path: path.clone(),
-                });
-            }
-        }
+        tests.extend(named.into_iter().map(|(name, own)| Test {
+            binary: self.binary.to_owned(),
+            name,
+            package: self.package.to_owned(),
+            path: path.clone(),
+            features: all.iter().cloned().chain(own).collect(),
+        }));
     }
 }
 
@@ -300,9 +384,9 @@ fn is_test(attributes: &[syn::Attribute]) -> bool {
 }
 
 /// The Feature IDs of the `Covers:` lines among doc attributes.
-fn covers(attributes: &[syn::Attribute]) -> Vec<String> {
+fn covers<'a>(attributes: impl IntoIterator<Item = &'a syn::Attribute>) -> Vec<String> {
     attributes
-        .iter()
+        .into_iter()
         .filter(|attribute| attribute.path().is_ident("doc"))
         .filter_map(|attribute| match &attribute.meta {
             syn::Meta::NameValue(syn::MetaNameValue {
@@ -326,35 +410,56 @@ fn covers(attributes: &[syn::Attribute]) -> Vec<String> {
         .collect()
 }
 
-/// The names nextest gives an rstest test's cases: `case_<n>` or
-/// `case_<n>_<description>`, `n` from 1, padded to the count's digits.
-fn cases(attributes: &[syn::Attribute]) -> Vec<String> {
-    let descriptions: Vec<Option<String>> = attributes
-        .iter()
-        .filter_map(|attribute| {
-            let segments: Vec<String> = attribute
-                .path()
-                .segments
-                .iter()
-                .map(|segment| segment.ident.to_string())
-                .collect();
-            match segments.as_slice() {
-                [case] if case == "case" => Some(None),
-                [case, description] if case == "case" => Some(Some(description.clone())),
-                _ => None,
+/// One case of an rstest test: the name suffix nextest gives it, and the
+/// attributes rstest gives its `#[case]` alone.
+struct Case<'a> {
+    name: String,
+    own: Vec<&'a syn::Attribute>,
+}
+
+/// The names nextest gives an rstest test's cases, `case_<n>` or
+/// `case_<n>_<description>`, `n` from 1, padded to the count's digits, each
+/// with the attributes between the case before it, or `#[rstest]`, and its
+/// `#[case]`, as rstest gives them; and the attributes every case shares:
+/// those above `#[rstest]` and below the last `#[case]`, all of them
+/// without a `#[case]`.
+fn cases(attributes: &[syn::Attribute]) -> (Vec<Case<'_>>, Vec<&syn::Attribute>) {
+    let mut found: Vec<(Option<String>, Vec<&syn::Attribute>)> = Vec::new();
+    let mut shared = Vec::new();
+    let mut own = Vec::new();
+    let mut below_rstest = false;
+    for attribute in attributes {
+        let segments: Vec<String> = attribute
+            .path()
+            .segments
+            .iter()
+            .map(|segment| segment.ident.to_string())
+            .collect();
+        match segments.as_slice() {
+            [case] if case == "case" => found.push((None, std::mem::take(&mut own))),
+            [case, description] if case == "case" => {
+                found.push((Some(description.clone()), std::mem::take(&mut own)));
             }
-        })
-        .collect();
-    let width = descriptions.len().to_string().len();
-    descriptions
-        .iter()
+            _ if below_rstest => own.push(attribute),
+            _ => {
+                below_rstest = segments.last().is_some_and(|last| last == "rstest");
+                shared.push(attribute);
+            }
+        }
+    }
+    shared.extend(own);
+    let width = found.len().to_string().len();
+    let cases = found
+        .into_iter()
         .enumerate()
-        .map(|(index, description)| {
+        .map(|(index, (description, own))| {
             let number = format!("{:0width$}", index + 1);
-            match description {
+            let name = match description {
                 Some(description) => format!("case_{number}_{description}"),
                 None => format!("case_{number}"),
-            }
+            };
+            Case { name, own }
         })
-        .collect()
+        .collect();
+    (cases, shared)
 }

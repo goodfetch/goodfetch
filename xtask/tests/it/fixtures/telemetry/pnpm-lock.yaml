@@ -1,0 +1,35 @@
+---
+lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    configDependencies: {}
+    packageManagerDependencies:
+      pnpm:
+        specifier: 12.9.1
+        version: 12.9.1
+
+packages:
+
+  pnpm@12.9.1:
+    resolution: {integrity: sha512-AAAA}
+
+---
+lockfileVersion: '9.0'
+
+importers:
+
+  sdks/typescript/collie-client:
+    dependencies:
+      '@standard-schema/spec':
+        specifier: 1.0.0
+        version: 1.0.0
+
+packages:
+
+  '@standard-schema/spec@1.0.0':
+    resolution: {integrity: sha512-BBBB}
+
+  vitest@4.0.0:
+    resolution: {integrity: sha512-CCCC}

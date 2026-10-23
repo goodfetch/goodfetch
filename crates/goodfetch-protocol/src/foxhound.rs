@@ -1,14 +1,26 @@
 //! Foxhound's own entries: what only Foxhound carries (ADRs 0095 and 0099).
 //! Outside `crates/foxhound/`, only this crate and `xtask` name this module.
-//! The entries here are samples until the crawl areas define the real ones.
+//! Its `sample` entries are samples until the crawl areas define the real
+//! ones; `crawl` holds a crawl's start and the exchange that serves its work
+//! items, `frontier` what its Frontier answers each seed and enqueue, and
+//! `outcomes` the reads of how its requests ended, and `session_pool` the
+//! Session of its Session pool that serves each attempt.
+
+pub mod block;
+pub mod crawl;
+pub mod frontier;
+pub mod outcomes;
+pub mod session_pool;
+pub mod settings;
+pub mod usage;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Instrument, Metric, Operation,
-    OperationClass, PluginKind, PluginMethod, ProtocolVersion, Setting, SharedType,
-    SharedTypeValue, Stability, schema_of,
+    Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, HookStage, Instrument, Metric,
+    Operation, OperationClass, OperationKind, PluginKind, PluginMethod, ProtocolVersion, Reach,
+    Setting, SharedType, SharedTypeValue, Stability, schema_of,
 };
 use crate::sample::SampleEchoParams;
 
@@ -57,11 +69,16 @@ pub struct SamplePageFilterAdmitResult {
 const SAMPLE_CRAWLED: Event = Event {
     name: "sample.crawled",
     description: "The sample crawl finished.",
+    class: EventClass::Lossless,
     payload: schema_of::<SampleCrawled>,
     stability: Stability::Stable,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
+
+fn one() -> serde_json::Value {
+    serde_json::json!(1)
+}
 
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
@@ -70,6 +87,8 @@ pub const ENTRIES: Entries = Entries {
         name: "sample.crawl",
         description: "Visits sample pages, each repeating a text.",
         class: OperationClass::Effect,
+        kind: OperationKind::RoundTrip,
+        reach: Reach::AllSurfaces,
         params: schema_of::<SampleCrawlParams>,
         result: schema_of::<SampleCrawlResult>,
         events: &[&SAMPLE_CRAWLED],
@@ -79,6 +98,7 @@ pub const ENTRIES: Entries = Entries {
         arrived_in: ARRIVED_IN,
     }],
     events: &[SAMPLE_CRAWLED],
+    handler_requests: &[],
     error_codes: &[ErrorCodeDefinition {
         name: "sample_crawl_refused",
         description: "The sample crawl refused its pages.",
@@ -110,6 +130,11 @@ pub const ENTRIES: Entries = Entries {
     settings: &[Setting {
         name: "crawl.sample_pages",
         description: "How many pages the sample crawl visits.",
+        kind: crate::catalog::ValueKind::Count,
+        default: one,
+        clearable: false,
+        authority: crate::catalog::Authority::Every,
+        weakens: None,
         arrived_in: ARRIVED_IN,
     }],
     hook_stages: &[HookStage {

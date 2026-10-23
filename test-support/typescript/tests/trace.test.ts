@@ -1,8 +1,9 @@
 // Seam B (spec #326): a failed Playwright test's trace is kept beside the
 // JUnit files, which every job uploads (ADR 0068), and a passing test's is
 // not. Playwright runs the repository's own `playwright.config.ts`, copied
-// unchanged into a folder of its own with a spec file of test support's
-// `test`, so the run writes nothing into the suite's own output.
+// unchanged into a folder of its own with the Feature inventory it reads and
+// a spec file of test support's `test`, so the run writes nothing into the
+// suite's own output.
 import {
   copyFileSync,
   existsSync,
@@ -51,6 +52,12 @@ describe("the Playwright configuration", () => {
     const project = mkdtempSync(join(ROOT, "target", "trace-test-"));
     onTestFinished(() => rmSync(project, { recursive: true, force: true }));
     copyFileSync(join(ROOT, "playwright.config.ts"), join(project, "playwright.config.ts"));
+    // The configuration reads the Feature inventory beside it.
+    mkdirSync(join(project, "features"));
+    copyFileSync(
+      join(ROOT, "features", "inventory.json"),
+      join(project, "features", "inventory.json"),
+    );
     writeFileSync(join(project, "trace.spec.ts"), SPEC);
     const env: NodeJS.ProcessEnv = { ...process.env, GOODFETCH_TEST_SUITE: "pre-merge" };
     delete env["PLAYWRIGHT_JUNIT_OUTPUT_FILE"];

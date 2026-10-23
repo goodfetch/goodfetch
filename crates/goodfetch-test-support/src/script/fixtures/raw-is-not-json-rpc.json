@@ -1,0 +1,31 @@
+{
+  "description": "Bytes that are not JSON-RPC after the hello, which the check skips.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.1.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.1.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "raw": {
+        "text": "{\"jsonrpc\": \"1.0\", garbage\n"
+      }
+    }
+  ]
+}

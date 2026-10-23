@@ -2,11 +2,301 @@
   "error_codes": [
     {
       "arrived_in": "0.1",
+      "description": "The host has addresses only in an IP family the Session holds no local address of, such as IPv6 addresses for a Session bound to an IPv4 address. Add a local address of that family to the run's local addresses, or reach the host another way.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "address_family_unavailable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browsers install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "artifact_download_failed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The `offline` setting refused a pinned download the call needed. Run the Product's `browsers install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "artifact_unavailable_offline",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call names an attempt that already ended: its handler returned, it failed or was skipped, its lease ended, or its Run stopped. Nothing it asked for was done, so a forgotten `await` never silently loses a link.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "attempt_ended",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run's folder holds no body of this ID: the Run or the body is unknown, or the ID is not a body's.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "body_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.",
+      "exit_code": 12,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "browser_host_outdated",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "browser_launch_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "browser_not_installed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "call_cancelled",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Connection the attempt's request went on ended before its handler answered: the program or one of its `workers=N` handler processes ended, or its Connection dropped. Not the handler's own failure (`handler_failed`): the attempt committed nothing and is retried, on another Connection that serves the crawl, under `crawl.retry.max`.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "client_gone",
+      "product": "foxhound",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "closed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "console_port_in_use",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "daemon_draining",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call's deadline passed before what it waited for came, such as a response's first byte or a navigation. Its `limit` names the timeout's setting, its value and the layer that set it: raise that setting, or wait for the right thing.",
+      "exit_code": null,
+      "group": "deadline_exceeded",
+      "json_rpc_class": -32005,
+      "name": "deadline_exceeded",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "engine_exited",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`connect()` found no engine executable to start: the Product's engine-path variable names no executable, or the Product's platform package is not installed. The `fix` names the variable or the package.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "engine_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The engine wrote a line that is not one JSON-RPC message on the Connection, such as a log line on an Attached engine's stdout, so the Client ended the Connection. A bug in Goodfetch: report it with the line its details carry.",
+      "exit_code": null,
+      "group": "internal",
+      "json_rpc_class": -32007,
+      "name": "engine_output_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "executable_blocked_by_smart_app_control",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again.",
+      "exit_code": 14,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "file_write_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A file, such as a run state or a Checkpoint, is of a format version this engine cannot read: a newer minor or major, written by a newer engine, which `fix` says to upgrade to, or an older major, which `upgrade-files` upgrades. The file is left as it is.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "format_version_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "handler_failed",
+      "product": "foxhound",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The attempt's lease ended with no answer from the program's handler: its process ended, its Connection dropped, or it hung. The attempt committed nothing and counts against `crawl.retry.max`.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "handler_lost",
+      "product": "foxhound",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The attempt's lease ended before it committed: its handler answered after the lease's end, or the run file holds a later lease of its work item. Its outputs are discarded, and the commit of the work item's next attempt is the one that counts.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "lease_lost",
+      "product": "foxhound",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "limit_not_understood",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.",
+      "exit_code": 16,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "limit_reached",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "name_lookup_failed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The resolver found no address for the host name. The engine's own resolver, used on Linux and for Sessions with a local address, reads the system's resolver configuration and hosts file but asks neither NSS modules (such as a directory service or a VPN client's) nor multicast DNS, so a name only they resolve, such as a `.local` name, fails here. Map such a name to its address with the `resolve` setting, or correct the name.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "name_not_resolved",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The navigation reached no document: the browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`, is in the details, or the browser failed it for a reason it did not name.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "navigation_failed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Another navigation of the page started before this one committed, so this one reached no document: the page went where the other took it.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "navigation_interrupted",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call asks a Daemon about itself, and this engine is an Attached engine. Ask the Daemon of the major, found through its runtime file, or run `daemon status`.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "not_a_daemon",
       "product": "collie",
       "retryable": false
     },
@@ -22,11 +312,141 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The page's renderer crashed, or its browser process was lost while the call ran; `browser_exit` says how the browser ended when it is what was lost. The page is gone: open another.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "page_crashed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.",
+      "exit_code": 13,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "path_not_writable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "pattern_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "person_required",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.",
       "exit_code": 11,
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "protocol_version_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.",
+      "exit_code": 15,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "resources_exhausted",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "response_truncated",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "run_busy",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "run_conflict",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run ID is not one the engine takes: lowercase letters, digits, `.`, `_` and `-`, at most 128, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "run_id_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Another engine holds the Run's writer lock, so this one cannot write the Run; the other may end.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "run_in_use",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No Run has this Run ID: the Run index does not list it.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "run_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The action was forwarded to this engine as the Run's owner, and this engine does not own the Run: the Run index named an engine that has since ended or restarted. The engine that forwarded it retries the Run's writer lock.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "run_not_owned",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "run_state_unavailable",
       "product": "collie",
       "retryable": false
     },
@@ -47,6 +467,126 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "sample_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Secret placeholder's value would go to a domain outside its binding's `domains`: the field's frame or the request's URL. The details name the placeholder, the reference and the domain, never a value.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "secret_domain_not_allowed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "secret_unavailable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No scope binds the Secret placeholder a call names. `bound` lists the placeholders bound, never a value.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "secret_unbound",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run is bound to the machine its Session source is on, and this is another machine: its login would reach sites from a new IP under the same cookies. Resume it on its own machine, or serve its Session source through a Browser host.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "session_bound_to_machine",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "setting_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A value a lower layer locked or capped, outside a Recipe's exposed bounds, or one only a lower layer may set or widen, such as `tls.trusted_cas` from a run. `limit` names the setting and the layer that holds it.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "setting_locked",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A setting given where it cannot take effect: in a layer that may not hold it, such as `browser_cache.max_unused_age` outside user configuration and an Operator policy, or on a Run it does not apply to, such as a crawl's setting on a Collie Run.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "setting_not_applicable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A key no Product knows, or an unknown `GOODFETCH_` variable. The message names the closest valid one.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "setting_unknown",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "target_not_unique",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "too_many_redirects",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "upgrade_source_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "value_invalid",
       "product": "collie",
       "retryable": false
     }
@@ -98,6 +638,115 @@
   "events": [
     {
       "arrived_in": "0.1",
+      "class": "telemetry",
+      "deprecated": null,
+      "description": "A Pinned artifact the call needs is downloading into the Browser cache: the bytes received so far, out of those announced.",
+      "name": "browser_cache.download_progress",
+      "payload": {
+        "$ref": "#/$defs/DownloadProgress"
+      },
+      "product": "collie",
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, from which the stream continues.",
+      "name": "events.resync",
+      "payload": {
+        "$ref": "#/$defs/Resync"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A navigation of the page reached a file the browser downloads instead of showing, such as a PDF: the navigation answers no response and the page keeps its document. Names the page, the file's URL and the name the browser suggests.",
+      "name": "page.download",
+      "payload": {
+        "$ref": "#/$defs/PageDownload"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A Run is being aborted: it stops at its next safe point. Lossless.",
+      "name": "run.aborting",
+      "payload": {
+        "$ref": "#/$defs/RunAborting"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A Run's Lifecycle, Verdict or Completeness changed: it started running, or it ended. Lossless: while a subscriber's queue is full, the Run waits.",
+      "name": "run.axes_changed",
+      "payload": {
+        "$ref": "#/$defs/RunAxes"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A Checkpoint of a Run is being written: on `run.checkpoint`, a pause, a migration, a clean stop or the periodic `checkpoint.interval`. Lossless.",
+      "name": "run.checkpointing",
+      "payload": {
+        "$ref": "#/$defs/RunCheckpointing"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A Run is being migrated to another machine: it checkpoints, then stops. Lossless.",
+      "name": "run.migrating",
+      "payload": {
+        "$ref": "#/$defs/RunMigrating"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "telemetry",
+      "deprecated": null,
+      "description": "A Run's progress changed, such as the program's own status line. Telemetry: a newer value of the same Run replaces an unsent one.",
+      "name": "run.progress",
+      "payload": {
+        "$ref": "#/$defs/RunProgress"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A Run is stopping at its next safe point, with its cause: an abort, a pause or a migration. Lossless.",
+      "name": "run.stopping",
+      "payload": {
+        "$ref": "#/$defs/RunStopping"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
       "deprecated": null,
       "description": "The sample crawl finished.",
       "name": "sample.crawled",
@@ -109,6 +758,7 @@
     },
     {
       "arrived_in": "0.1",
+      "class": "telemetry",
       "deprecated": null,
       "description": "A text was repeated.",
       "name": "sample.echoed",
@@ -116,6 +766,144 @@
         "$ref": "#/$defs/SampleEchoed"
       },
       "product": "collie",
+      "stability": "experimental"
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "The command did what it was asked.",
+      "name": "success",
+      "product": "collie"
+    },
+    {
+      "code": 1,
+      "description": "A bug in Goodfetch. Report it.",
+      "name": "internal",
+      "product": "collie"
+    },
+    {
+      "code": 2,
+      "description": "The command line is wrong: an unknown command or flag, or a bad value. Nothing reached the engine.",
+      "name": "usage",
+      "product": "collie"
+    },
+    {
+      "code": 3,
+      "description": "The program is wrong: its call, its settings or its own handler code. Fix the program.",
+      "name": "program",
+      "product": "collie"
+    },
+    {
+      "code": 4,
+      "description": "A policy, a Limit, a lock or a person refused. Change a setting, raise the Limit or ask the operator.",
+      "name": "refused",
+      "product": "collie"
+    },
+    {
+      "code": 5,
+      "description": "The page or site never reached the state the call needed. Read the Run trace; change the step, the wait or the Access mode.",
+      "name": "page",
+      "product": "collie"
+    },
+    {
+      "code": 6,
+      "description": "The Model provider's answer was unusable. Change the model or the strategy.",
+      "name": "model",
+      "product": "collie"
+    },
+    {
+      "code": 7,
+      "description": "The deadline passed. Raise it, or wait for the right thing.",
+      "name": "deadline_exceeded",
+      "product": "collie"
+    },
+    {
+      "code": 8,
+      "description": "Something Goodfetch depends on is unreachable or gone. Retry, or fix the setup.",
+      "name": "unavailable",
+      "product": "collie"
+    },
+    {
+      "code": 10,
+      "description": "The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.",
+      "name": "not_in_product",
+      "product": "collie"
+    },
+    {
+      "code": 11,
+      "description": "The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.",
+      "name": "protocol_version_unsupported",
+      "product": "collie"
+    },
+    {
+      "code": 12,
+      "description": "The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.",
+      "name": "browser_host_outdated",
+      "product": "collie"
+    },
+    {
+      "code": 13,
+      "description": "The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.",
+      "name": "path_not_writable",
+      "product": "collie"
+    },
+    {
+      "code": 14,
+      "description": "The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again.",
+      "name": "file_write_failed",
+      "product": "collie"
+    },
+    {
+      "code": 15,
+      "description": "The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.",
+      "name": "resources_exhausted",
+      "product": "collie"
+    },
+    {
+      "code": 16,
+      "description": "A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.",
+      "name": "limit_reached",
+      "product": "collie"
+    },
+    {
+      "code": 20,
+      "description": "The Run ended `stopped`: a Limit, an abort, its timeout, a pause or the loss of its engine stopped it. Resume it by its Run ID.",
+      "name": "run_stopped",
+      "product": "collie"
+    },
+    {
+      "code": 21,
+      "description": "`--require-verified` was given and the Run, or the Agent's Success check, ended with a Verdict other than `verified`: `rejected` or `needs_review`.",
+      "name": "verdict_not_verified",
+      "product": "collie"
+    },
+    {
+      "code": 130,
+      "description": "The command was interrupted (`SIGINT`, or `CTRL_BREAK_EVENT` on Windows): its call was cancelled, and the Run it started checkpointed and stopped, resumable by its Run ID.",
+      "name": "interrupted",
+      "product": "collie"
+    },
+    {
+      "code": 143,
+      "description": "The command was sent `SIGTERM`: its call was cancelled, and the Run it started checkpointed and stopped, resumable by its Run ID.",
+      "name": "terminated",
+      "product": "collie"
+    }
+  ],
+  "handler_requests": [
+    {
+      "arrived_in": "0.1",
+      "deprecated": null,
+      "description": "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds, or the handler's skip, which ends the request `skipped`; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy, while a failure with the Error code `blocked` ends it `blocked` with the Block cause its details name. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
+      "name": "crawl_request.handle",
+      "params": {
+        "$ref": "#/$defs/CrawlRequestHandleParams"
+      },
+      "product": "foxhound",
+      "result": {
+        "$ref": "#/$defs/CrawlRequestHandled"
+      },
       "stability": "experimental"
     }
   ],
@@ -159,17 +947,681 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
+      "description": "Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows.",
+      "events": [],
+      "kind": "query",
+      "name": "audit.verify",
+      "params": {
+        "$ref": "#/$defs/AuditVerifyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/AuditVerified"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "config.explain",
+      "params": {
+        "$ref": "#/$defs/ConfigExplainParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SettingsExplanation"
+      },
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Sets the level of the engine's log events this Connection receives as `$/log` notifications, from the next one on: `off`, `error`, `warn`, `info`, `debug` or `trace`, as `hello`'s `log_level` set it first. Each Connection has its own. Log events are telemetry: one the Connection is too slow to receive is dropped, and the next counts it in `dropped`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "connection.set_log_level",
+      "params": {
+        "$ref": "#/$defs/SetLogLevelParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/LogLevelSet"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Offers this Connection's handler to a live crawl another Connection started, as each of `workers=N` handler processes does (ADR 0024): the engine leases the crawl's work items to it as `crawl_request.handle` requests too, as many at once as `crawl.handler.concurrency` allows on each Connection. Answers the crawl's Run report once the Run ends; cancelling the call stops new work items, while those already sent still expect their answers. A Run this engine does not run as a crawl fails with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "crawl.serve",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done, or, with `crawl.keep_alive`, once `run.finish` lets it and every work item is done. A Run ID works as `run.start`'s.",
+      "events": [],
+      "kind": "opener",
+      "name": "crawl.start",
+      "params": {
+        "$ref": "#/$defs/CrawlStartParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "crawl_request.enqueue",
+      "params": {
+        "$ref": "#/$defs/CrawlRequestEnqueueParams"
+      },
+      "product": "foxhound",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/Enqueued"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "daemon.status",
+      "params": {
+        "$ref": "#/$defs/DaemonParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/DaemonStatus"
+      },
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "daemon.stop",
+      "params": {
+        "$ref": "#/$defs/DaemonParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/DaemonStopping"
+      },
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
       "description": "Says which Product the engine runs as, its Product version and major, and the protocol version it speaks.",
       "events": [],
+      "kind": "round_trip",
       "name": "engine.info",
       "params": {
         "$ref": "#/$defs/EngineInfoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/EngineInfo"
       },
       "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart.",
+      "events": [
+        "events.resync",
+        "run.axes_changed"
+      ],
+      "kind": "sequence",
+      "name": "events.subscribe",
+      "params": {
+        "$ref": "#/$defs/EventsSubscribeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SubscriptionEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Removes a key from a live Run's Key-value store and answers whether it existed.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.delete",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreKeyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreDeleted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.get",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreKeyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreValue"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock.",
+      "events": [],
+      "kind": "sequence",
+      "name": "key_value_store.keys",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreKeysParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreKeysEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.set",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreSetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreSet"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.click",
+      "params": {
+        "$ref": "#/$defs/ClickParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.fill",
+      "params": {
+        "$ref": "#/$defs/FillParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.press",
+      "params": {
+        "$ref": "#/$defs/PressParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.",
+      "events": [],
+      "kind": "sequence",
+      "name": "page.body",
+      "params": {
+        "$ref": "#/$defs/PageBodyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageBodyRead"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: \"none\"`, a value. It needs neither layout nor pixels, so every tier serves it.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.formats",
+      "params": {
+        "$ref": "#/$defs/FormatsParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageFormats"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.go_back",
+      "params": {
+        "$ref": "#/$defs/PageParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Navigated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.go_forward",
+      "params": {
+        "$ref": "#/$defs/PageParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Navigated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`.",
+      "events": [
+        "page.download"
+      ],
+      "kind": "round_trip",
+      "name": "page.goto",
+      "params": {
+        "$ref": "#/$defs/GotoParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Navigated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.reload",
+      "params": {
+        "$ref": "#/$defs/PageParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Navigated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.abort",
+      "params": {
+        "$ref": "#/$defs/RunAbortParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
+      "events": [
+        "run.checkpointing"
+      ],
+      "kind": "round_trip",
+      "name": "run.checkpoint",
+      "params": {
+        "$ref": "#/$defs/RunCheckpointParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Checkpoint"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.failed_requests",
+      "params": {
+        "$ref": "#/$defs/RunFailedRequestsParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/FailedRequests"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.finish",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.",
+      "events": [
+        "run.migrating",
+        "run.checkpointing",
+        "run.stopping"
+      ],
+      "kind": "round_trip",
+      "name": "run.migrate",
+      "params": {
+        "$ref": "#/$defs/RunCheckpointParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.new_page",
+      "params": {
+        "$ref": "#/$defs/NewPageParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageOpened"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: \"now\"` from the next commit. Its filters, `kinds` and `labels`, run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.outcomes",
+      "params": {
+        "$ref": "#/$defs/RunOutcomesParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/CrawlRequestOutcomes"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint.",
+      "events": [
+        "run.checkpointing",
+        "run.stopping"
+      ],
+      "kind": "round_trip",
+      "name": "run.pause",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.",
+      "events": [],
+      "kind": "opener",
+      "name": "run.resume",
+      "params": {
+        "$ref": "#/$defs/RunResumeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.seeds",
+      "params": {
+        "$ref": "#/$defs/RunSeedsParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunSeeds"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Sets the program's own status line about a live Run, at most 512 characters, which replaces the one before: kept in the Run's state, so a resume keeps it, shown in its Run index row and carried on its progress, `run.progress`. Answers the Run's progress. A Run this engine does not run fails with `run_not_found`.",
+      "events": [
+        "run.progress"
+      ],
+      "kind": "round_trip",
+      "name": "run.set_progress_message",
+      "params": {
+        "$ref": "#/$defs/RunSetProgressMessageParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/RunProgress"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.",
+      "events": [],
+      "kind": "opener",
+      "name": "run.start",
+      "params": {
+        "$ref": "#/$defs/RunStartParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
     },
     {
       "arrived_in": "0.1",
@@ -180,11 +1632,13 @@
       "events": [
         "sample.crawled"
       ],
+      "kind": "round_trip",
       "name": "sample.crawl",
       "params": {
         "$ref": "#/$defs/SampleCrawlParams"
       },
       "product": "foxhound",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleCrawlResult"
       },
@@ -202,13 +1656,72 @@
       "events": [
         "sample.echoed"
       ],
+      "kind": "round_trip",
       "name": "sample.echo",
       "params": {
         "$ref": "#/$defs/SampleEchoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleEchoResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.",
+      "events": [],
+      "kind": "query",
+      "name": "usage.list",
+      "params": {
+        "$ref": "#/$defs/UsageListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/UsageListResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Sets a Limit to a person's amount, in place of every Limit of its scope, Usage kind, currency and period but a managed Operator policy's, keeping the Usage counted. A person's answer: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "usage.raise",
+      "params": {
+        "$ref": "#/$defs/UsageRaiseParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/LimitUsage"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "usage.set",
+      "params": {
+        "$ref": "#/$defs/UsageSetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/LimitUsage"
       },
       "stability": "experimental"
     }
@@ -257,18 +1770,1266 @@
   "settings": [
     {
       "arrived_in": "0.1",
-      "description": "How many pages the sample crawl visits.",
-      "name": "crawl.sample_pages",
-      "product": "foxhound"
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission.",
+      "name": "admission.max_requests_per_minute",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+      "name": "browser.headless",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": 2592000000,
+      "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only.",
+      "name": "browser_cache.max_unused_age",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally.",
+      "name": "checkpoint.interval",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "narrowed",
+      "clearable": false,
+      "default": [],
+      "description": "The domains whose consent prompts a run accepts instead of refusing. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+      "name": "consent.domains",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": "127.0.0.1:7700",
+      "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
+      "name": "console.address",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": {},
+      "description": "Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.",
+      "name": "crawl.domain_keys",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 16,
+      "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+      "name": "crawl.handler.concurrency",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
+      "name": "crawl.keep_alive",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+      "name": "crawl.retry.handler_failed",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 2,
+      "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+      "name": "crawl.retry.max",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 1,
+      "description": "How many pages the sample crawl visits.",
+      "name": "crawl.sample_pages",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": [],
+      "description": "URL patterns, each a glob read as Playwright reads one and matched in the engine, none of which a link may match, besides `crawl.scope.strategy` and `crawl.scope.include`. None by default. Fixed for a Run's life.",
+      "name": "crawl.scope.exclude",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": [],
+      "description": "URL patterns, each a glob read as Playwright reads one and matched in the engine, of which a link must match one when there are any, besides `crawl.scope.strategy`, which they never replace. None by default. Fixed for a Run's life.",
+      "name": "crawl.scope.include",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "same_hostname",
+      "description": "What a crawl's links are measured by against every seed, on every enqueue, redirect and Hook rewrite: `same_hostname` (Crawlee's default), `same_domain` (the registrable domain under the Public Suffix List), `same_origin` or `all`. One leading `www.` label is ignored, and under `same_origin` an `http` seed also admits its host's `https` origin on the same port. A link outside it is not added with `out_of_scope`. Fixed for a Run's life.",
+      "name": "crawl.scope.strategy",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "same_hostname",
+          "same_domain",
+          "same_origin",
+          "all"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": "127.0.0.1:7600",
+      "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+      "name": "daemon.address",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 110000,
+      "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+      "name": "daemon.drain_grace",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 600000,
+      "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+      "name": "daemon.idle_timeout",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "fixed",
+      "clearable": false,
+      "default": true,
+      "description": "Every delivery reports its Guarantee class, an honesty guarantee that stays locked whatever the layer.",
+      "name": "delivery.report_guarantee_class",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "fixed",
+      "clearable": false,
+      "default": true,
+      "description": "Every write a Sink makes carries its delivery ID and run epoch, an honesty guarantee that stays locked whatever the layer.",
+      "name": "delivery.write_ids_and_epochs",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
+      "name": "egress.offline",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": [],
+      "description": "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
+      "name": "filter_lists.extra",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only.",
+      "name": "log.format",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "text",
+          "json"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": {},
+      "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
+      "name": "network.resolve",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "items": {
+            "format": "ip",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only.",
+      "name": "otlp.traces_endpoint",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": false,
+      "default": {},
+      "description": "The RPC endpoint of each chain whose finalized state proves a payment did not settle, by chain. Set only in an Operator policy and user and project configuration.",
+      "name": "paid_fetch.chain_rpc_endpoints",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "narrowed",
+      "clearable": false,
+      "default": [],
+      "description": "The registrable domains a run may pay for a page; `*` only when written. Widened only in an Operator policy, user or project configuration, or by a person's answer; a Recipe or a run only narrows it.",
+      "name": "paid_fetch.domains",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": false,
+      "default": {},
+      "description": "The fixed rates that convert a price into a Limit's currency, by currency pair. Set only in an Operator policy and user and project configuration.",
+      "name": "paid_fetch.exchange_rates",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "narrowed",
+      "clearable": true,
+      "default": null,
+      "description": "The most a run pays for one page, as an amount and its currency such as `0.05 USD`; none by default. Raised only in configuration; a Recipe or a run only lowers it.",
+      "name": "paid_fetch.max_price_per_page",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)? [A-Z]{3}$",
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1.",
+      "name": "politeness.domain.concurrency",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s.",
+      "name": "politeness.domain.delay",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "shared",
+      "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+      "name": "politeness.sharing",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "shared",
+          "per_daemon",
+          "run"
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 250,
+      "description": "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
+      "name": "resolver.attempt_delay",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 50,
+      "description": "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
+      "name": "resolver.resolution_delay",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "full",
+      "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+      "name": "run_state.durability",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "full",
+          "fast"
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": true,
+      "default": null,
+      "description": "The Secret reference of the key-encryption key that wraps each Run's data key, resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration; none by default.",
+      "name": "run_state.key_reference",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A Secret reference, such as `env:NAME`.",
+        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": "per_run",
+      "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+      "name": "run_state.layout",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "per_run",
+          "per_install"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "The folder that holds the run folders, each named by its Run ID; by default the per-user, per-major data folder of the Goodfetch home.",
+      "name": "run_state.location",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 1,
       "description": "How many times the sample operation repeats a text.",
       "name": "sample.echo_repeats",
-      "product": "collie"
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "fixed",
+      "clearable": false,
+      "default": true,
+      "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
+      "name": "secrets.by_reference",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 3000000,
+      "description": "How long after it opened a Session of a crawl's Session pool is retired: 3,000 s, Crawlee's `maxAgeSecs`.",
+      "name": "session.pool.max_age",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 3,
+      "description": "The error score at which a Session of a crawl's Session pool is retired: 3. A block or a failed Page check adds 1, a success takes 0.5 off, never below 0 (Crawlee's model).",
+      "name": "session.pool.max_error_score",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 100,
+      "description": "How many Sessions a crawl's Session pool keeps open at once: 100. A request goes to a new Session while the pool has room, then to one drawn among those open.",
+      "name": "session.pool.max_size",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 50,
+      "description": "How many requests one Session of a crawl's Session pool serves before it is retired: 50, Crawlee's `maxUsageCount`.",
+      "name": "session.pool.max_uses",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "not_by_recipe",
+      "clearable": true,
+      "default": null,
+      "description": "Where a Session's login comes from. A Recipe never sets or locks it; it may only expose it to its users.",
+      "name": "session.source",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+      "name": "timeout.action",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
+      "name": "timeout.first_byte",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 60000,
+      "description": "How long a crawl's handler has for one attempt, which also bounds every action inside it, and from which a work item's lease is derived: the timeout plus the larger of 10 s and a tenth of it. 60 s, Crawlee's `requestHandlerTimeoutSecs`.",
+      "name": "timeout.handler",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+      "name": "timeout.navigation",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default.",
+      "name": "timeout.run",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+      "name": "timeout.secret",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration_except",
+      "clearable": false,
+      "default": {},
+      "description": "Domains whose certificate may fail verification, each with a pin, `any`, or `null` for trust on first use. A pin and `any` are taken only from an Operator policy and user and project configuration; a Recipe or a run may list a domain only for trust on first use.",
+      "name": "tls.accept_invalid_certs",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": "object"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": false,
+      "default": {},
+      "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
+      "name": "tls.trusted_cas",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": true,
+      "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+      "name": "version.age_notice",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "operator_policy",
+      "clearable": false,
+      "default": [],
+      "description": "The domains whose Walls no run reads past, whatever another layer allows. Set only in an Operator policy.",
+      "name": "wall.denied_domains",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "narrowed",
+      "clearable": false,
+      "default": [],
+      "description": "The domains whose Walls a run may read past by generic means. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+      "name": "wall.domains",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "narrowed",
+      "clearable": false,
+      "default": [],
+      "description": "The domains on which reading past a Wall may fetch a page again. A Recipe or a run only narrows it; it is widened only in configuration, never by an answer.",
+      "name": "wall.refetch_domains",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "fixed",
+      "clearable": false,
+      "default": true,
+      "description": "Every webhook Goodfetch sends is signed, an honesty guarantee that stays locked whatever the layer.",
+      "name": "webhook.signing",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
     }
   ],
   "shared_type_values": [
+    {
+      "arrived_in": "0.1",
+      "description": "A page that asks a person to prove they are human.",
+      "name": "captcha",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A run reached a host whose domain accepts any certificate, `any` (ADR 0042).",
+      "name": "certificate_any_used",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person accepted a pinned host's changed certificate, with both hashes (ADR 0042).",
+      "name": "certificate_change_accepted",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The certificate exceptions a run used, once per run, by host and kind (ADR 0042).",
+      "name": "certificate_exceptions_used",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A host's certificate was pinned on first use under its domain's exception, with the SHA-256 of its public key (ADR 0042).",
+      "name": "certificate_pinned",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A page that checks the browser before it lets it through.",
+      "name": "challenge",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a Client connection starts, while it lasts.",
+      "name": "connection",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A wall that asks for consent before it shows the page (ADR 0048).",
+      "name": "consent_required",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a Daemon runs.",
+      "name": "daemon",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A trap page a person would never reach; only Foxhound's Frontier produces it.",
+      "name": "decoy",
+      "product": "foxhound",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`.",
+      "name": "endpoint_authentication_failed",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "An Exposed Daemon's setup completed through its setup link (ADR 0049).",
+      "name": "exposed_daemon_set_up",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run of the user on the machine, whichever engine runs it.",
+      "name": "install",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site refused the address the request came from.",
+      "name": "ip_block",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A page was lent to the program's own Playwright client (ADR 0089).",
+      "name": "lent_page_attached",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Paid fetches and their amounts, by currency (ADR 0045); its Limits carry must understand.",
+      "name": "paid_fetch",
+      "product": "foxhound",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.",
+      "name": "paid_solves",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every Partition of a Partitioned crawl (ADR 0054).",
+      "name": "partitioned_crawl",
+      "product": "foxhound",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site asked to be paid for the page (ADR 0045).",
+      "name": "payment_required",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a person starts.",
+      "name": "person",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A run set a value that presses a site harder than its default, with the setting and its value (ADR 0086).",
+      "name": "pressing_harder_value_set",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A run allowed private addresses through `egress.private_ranges`, with the ranges it listed.",
+      "name": "private_addresses_allowed",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Bytes a run sent and received through a proxy, per proxy kind.",
+      "name": "proxy_bytes",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site refused because too many requests came too fast.",
+      "name": "rate_limit",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A raw CDP client attached to a Session's browser.",
+      "name": "raw_cdp_attached",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Requests a run sent: a crawl's Crawl requests, and a page's navigations.",
+      "name": "requests",
+      "product": "collie",
+      "type": "usage_kind"
+    },
     {
       "arrived_in": "0.1",
       "description": "Pages the sample crawl visited.",
@@ -282,6 +3043,48 @@
       "name": "sample_echoes",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Secret reference was resolved and used: its placeholder, its reference and the domain that received it, never its value.",
+      "name": "secret_reference_used",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A security control was switched off for a run, once per run, with its setting and the layer that set it (ADR 0016).",
+      "name": "security_switch_turned_off",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session was exported to an encrypted bundle.",
+      "name": "session_exported",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session was imported from an encrypted bundle.",
+      "name": "session_imported",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "An Exposed Daemon started with `daemon.tls.upstream`, TLS terminated in front of it (ADR 0049).",
+      "name": "tls_terminated_upstream",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a Connection holding a named token starts.",
+      "name": "token",
+      "product": "collie",
+      "type": "limit_scope"
     }
   ]
 }

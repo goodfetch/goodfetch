@@ -1,0 +1,307 @@
+{
+  "$defs": {
+    "ExpectedError": {
+      "description": "The typed error a case expects, by its Error code.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "`header_value_invalid`: a header value Goodfetch would send holds a\nCR, an LF or a NUL.",
+          "properties": {
+            "code": {
+              "const": "header_value_invalid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`secret_domain_not_allowed`: a request carrying a Secret placeholder's\nvalue was redirected outside the binding's domains (ADR 0092).",
+          "properties": {
+            "code": {
+              "const": "secret_domain_not_allowed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`path_unsafe`: a name or path from outside input would leave the\nfolder Goodfetch writes it in, or is no safe file name on some OS.",
+          "properties": {
+            "code": {
+              "const": "path_unsafe",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`schema_ref_not_allowed`: a JSON Schema references a file, a URL or a\nprivate address.",
+          "properties": {
+            "code": {
+              "const": "schema_ref_not_allowed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`response_limit_exceeded`, naming the setting whose limit was passed.",
+          "properties": {
+            "code": {
+              "const": "response_limit_exceeded",
+              "type": "string"
+            },
+            "setting": {
+              "$ref": "#/$defs/LimitSetting",
+              "description": "The setting."
+            }
+          },
+          "required": [
+            "code",
+            "setting"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`message_too_large`: a JSON-RPC message longer than the engine reads.",
+          "properties": {
+            "code": {
+              "const": "message_too_large",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`message_too_deep`: a JSON-RPC message nested deeper than the engine\nreads.",
+          "properties": {
+            "code": {
+              "const": "message_too_deep",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`navigation_failed`, with the browser's network error where the\nbrowser path gives one (ADR 0085).",
+          "properties": {
+            "code": {
+              "const": "navigation_failed",
+              "type": "string"
+            },
+            "network_error": {
+              "description": "The browser's network error, such as\n`net::ERR_INVALID_HTTP_RESPONSE`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "HeaderSource": {
+      "description": "Where a header value comes from.",
+      "oneOf": [
+        {
+          "const": "recipe",
+          "description": "A Recipe's request header.",
+          "type": "string"
+        },
+        {
+          "const": "sink",
+          "description": "A Sink's configured header.",
+          "type": "string"
+        },
+        {
+          "const": "webhook",
+          "description": "A Notification webhook's configured header.",
+          "type": "string"
+        },
+        {
+          "const": "page_request",
+          "description": "A header of a `page.request` call, which reaches the browser through\nCDP.",
+          "type": "string"
+        },
+        {
+          "const": "route",
+          "description": "A route's header override (`continue`, `fallback`, `fetch`), which\nreaches the browser through CDP.",
+          "type": "string"
+        },
+        {
+          "const": "response",
+          "description": "A page's response head.",
+          "type": "string"
+        }
+      ]
+    },
+    "HeaderValue": {
+      "additionalProperties": false,
+      "description": "The input of a `header_values` case: a CR, an LF or a NUL in a header\nvalue, from where it reaches Goodfetch.",
+      "properties": {
+        "name": {
+          "description": "The header's name.",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/HeaderSource",
+          "description": "Where the value comes from."
+        },
+        "value": {
+          "description": "The header's value.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "name",
+        "value"
+      ],
+      "type": "object"
+    },
+    "HostileCase": {
+      "additionalProperties": false,
+      "description": "One hostile-input case: the input a layer meets, the typed error it must\ngive, and what serves the input end to end.",
+      "properties": {
+        "expected": {
+          "$ref": "#/$defs/ExpectedError",
+          "description": "The typed error every layer gives. A case without one fails the\ntable's parse."
+        },
+        "input": {
+          "$ref": "#/$defs/HeaderValue",
+          "description": "The hostile input, of the family's own shape."
+        },
+        "name": {
+          "description": "The case's name, unique in its table, in snake case.",
+          "type": "string"
+        },
+        "served_by": {
+          "$ref": "#/$defs/ServedBy",
+          "description": "What serves the input end to end."
+        }
+      },
+      "required": [
+        "name",
+        "input",
+        "expected",
+        "served_by"
+      ],
+      "type": "object"
+    },
+    "LimitSetting": {
+      "description": "A setting whose limit a `response_limit_exceeded` names.",
+      "oneOf": [
+        {
+          "const": "network.max_body_size",
+          "description": "The decoded bytes of a body the engine reads.",
+          "type": "string"
+        },
+        {
+          "const": "network.max_decompression_ratio",
+          "description": "The ratio of decoded to received bytes, once a decoded body passes\n1 MiB.",
+          "type": "string"
+        },
+        {
+          "const": "network.max_json_depth",
+          "description": "The nesting of JSON the engine parses from outside.",
+          "type": "string"
+        }
+      ]
+    },
+    "ServedBy": {
+      "description": "What serves a case's input end to end.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The Proving ground's task whose page serves it, by its ID, such as\n`headers/5`.",
+          "properties": {
+            "page": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "page"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A page the owner builds, described, such as a decompression bomb's:\nuntil it exists the case runs in-process only.",
+          "properties": {
+            "waiting_on_owner": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "waiting_on_owner"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A page the Proving ground does not have yet, described, which a later\nticket adds: until then the case runs in-process only.",
+          "properties": {
+            "missing_page": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "missing_page"
+          ],
+          "type": "object"
+        },
+        {
+          "const": "program_input",
+          "description": "No page: the program, a Recipe, a setting or a peer hands the value to\nGoodfetch, so a layer's end-to-end runner passes it in itself.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One family's table: every case, in the committed file's order.",
+  "properties": {
+    "cases": {
+      "description": "The cases.",
+      "items": {
+        "$ref": "#/$defs/HostileCase"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "cases"
+  ],
+  "title": "HostileTable",
+  "type": "object"
+}

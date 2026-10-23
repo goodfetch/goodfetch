@@ -71,7 +71,7 @@ fn order_seed_script_prints_the_seed_xtask_prints() {
 /// The base: the fixture committed, with each runner's installed packages.
 fn base() -> (Workspace, String) {
     let workspace = Workspace::from_fixture("stress");
-    workspace.link_installed_runners();
+    workspace.install_runners();
     let base = workspace.commit_all();
     (workspace, base)
 }
@@ -251,4 +251,118 @@ fn runner_with_no_test_lists_none() {
     let mut expected = change_selection();
     expected.retain(|(_, runner, _)| runner != "playwright");
     assert_eq!(selection, expected);
+}
+
+/// A branch behind its base, as one that has not merged its target lately:
+/// the base's Vitest config imports an entry of a workspace package that the
+/// head does not have. The base is listed with its own packages, so its
+/// config loads, and the test the change edits is chosen.
+#[test]
+fn changed_vitest_test_is_selected_when_the_base_config_imports_what_the_head_lacks() {
+    let (workspace, base) = base();
+    workspace.edit(
+        "web-support/package.json",
+        r#""./include": "./include.mjs""#,
+        r#""./tests": "./include.mjs""#,
+    );
+    workspace.edit(
+        "vitest.config.mjs",
+        r#""web-support/include""#,
+        r#""web-support/tests""#,
+    );
+    workspace.edit(
+        "web/changed.test.ts",
+        r#"test("kept""#,
+        "test(\"added\", () => {\n    expect(1).toBe(1);\n  });\n\n  test(\"kept\"",
+    );
+    workspace.commit_all();
+
+    let selection = select(&workspace, &["--base", &base]);
+
+    assert!(
+        selection.contains(&selected(CHANGED, "vitest", "changed > added")),
+        "{selection:?}"
+    );
+}
+
+/// A parameterized test is one test case per parameter, each run under its
+/// own name: Vitest's `test.for` formats its title, pytest's `parametrize`
+/// adds the parameter's ID to the node ID, and Playwright's loop titles each
+/// test. The change adds one in each runner's `changed` file, and each case
+/// is chosen by the name it runs under.
+#[test]
+fn each_case_of_a_parameterized_test_is_selected_by_the_name_it_runs_under() {
+    let (workspace, base) = base();
+    workspace.edit(
+        "web/changed.test.ts",
+        r#"test("kept""#,
+        "test.for([\"a.log\", \"b\"])(\"reads %s\", (name) => {\n    expect(name).toBeTruthy();\n  });\n\n  test(\"kept\"",
+    );
+    workspace.edit(
+        "e2e/changed.spec.ts",
+        r#"test("kept""#,
+        "for (const name of [\"a.log\", \"b\"]) {\n    test(`reads ${name}`, () => {\n      expect(name).toBeTruthy();\n    });\n  }\n\n  test(\"kept\"",
+    );
+    workspace.edit(
+        "tests/test_changed.py",
+        "def test_kept()",
+        "import pytest\n\n\n@pytest.mark.parametrize(\"name\", [\"a.log\", \"b\"])\ndef test_reads(name: str) -> None:\n    \"\"\"Passes.\"\"\"\n    assert name\n\n\ndef test_kept()",
+    );
+    workspace.commit_all();
+
+    let selection = select(&workspace, &["--base", &base]);
+
+    for (runner, test) in [
+        ("vitest", "changed > reads a.log"),
+        ("vitest", "changed > reads b"),
+        ("playwright", "e2e/changed.spec.ts › changed › reads a.log"),
+        ("playwright", "e2e/changed.spec.ts › changed › reads b"),
+        ("pytest", "tests/test_changed.py::test_reads[a.log]"),
+        ("pytest", "tests/test_changed.py::test_reads[b]"),
+    ] {
+        assert!(
+            selection.contains(&selected(CHANGED, runner, test)),
+            "{runner} {test} not in {selection:?}"
+        );
+    }
+    assert!(
+        !selection.iter().any(|(_, _, test)| test.contains("%s")),
+        "{selection:?}"
+    );
+}
+
+/// A branch behind its base, as above: the base's `conftest.py` imports a
+/// name of a workspace package that the head does not have. The base is
+/// listed with its own Python environment, so it collects, and the test the
+/// change adds is chosen.
+#[test]
+fn changed_pytest_test_is_selected_when_the_base_conftest_imports_what_the_head_lacks() {
+    let (workspace, base) = base();
+    workspace.edit(
+        "py-support/src/py_support/__init__.py",
+        "included = True",
+        "supported = True",
+    );
+    workspace.edit(
+        "tests/conftest.py",
+        "from py_support import included\n\nassert included",
+        "from py_support import supported\n\nassert supported",
+    );
+    workspace.edit(
+        "tests/test_changed.py",
+        "def test_kept()",
+        "def test_added() -> None:\n    \"\"\"Passes.\"\"\"\n\n\ndef test_kept()",
+    );
+    workspace.commit_all();
+
+    let selection = select(&workspace, &["--base", &base]);
+
+    assert!(
+        selection.contains(&selected(
+            CHANGED,
+            "pytest",
+            "tests/test_changed.py::test_added"
+        )),
+        "{selection:?}"
+    );
 }

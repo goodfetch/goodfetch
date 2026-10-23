@@ -436,6 +436,10 @@ fn a_version_check_that_calls_an_outdated_browser_current_is_a_false_success() {
 #[case::captcha("/corpus/captcha", 200)]
 #[case::rate_limit("/corpus/rate-limit", 429)]
 #[case::ip_block("/corpus/ip-block", 403)]
+#[case::press_and_hold("/corpus/press-and-hold", 403)]
+#[case::cloudflare_block("/corpus/cloudflare-block", 403)]
+#[case::incapsula_block("/corpus/incapsula-block", 403)]
+#[case::sucuri_block("/corpus/sucuri-block", 403)]
 #[case::labyrinth("/corpus/labyrinth", 200)]
 #[case::payment("/corpus/payment", 402)]
 #[case::vendor_script("/corpus/vendor-script", 200)]
@@ -457,6 +461,10 @@ fn causes() -> Vec<Value> {
         ("/corpus/captcha", "captcha"),
         ("/corpus/rate-limit", "rate_limit"),
         ("/corpus/ip-block", "ip_block"),
+        ("/corpus/press-and-hold", "captcha"),
+        ("/corpus/cloudflare-block", "ip_block"),
+        ("/corpus/incapsula-block", "ip_block"),
+        ("/corpus/sucuri-block", "ip_block"),
         ("/corpus/labyrinth", "decoy"),
         ("/corpus/payment", "payment_required"),
         ("/corpus/vendor-script", "none"),
@@ -502,7 +510,11 @@ fn every_block_cause_told_right_is_verified() {
 fn a_vendors_mere_presence_taken_for_a_challenge_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
     let mut told = causes();
-    told[6]["cause"] = json!("challenge");
+    let vendor_script = told
+        .iter_mut()
+        .find(|record| record["id"] == "/corpus/vendor-script")
+        .unwrap();
+    vendor_script["cause"] = json!("challenge");
 
     let answer = proving_ground
         .judge(&submission("access/5", "success", &told))
@@ -513,5 +525,43 @@ fn a_vendors_mere_presence_taken_for_a_challenge_is_a_false_success() {
         answer["wrong"],
         json!([{ "id": "/corpus/vendor-script", "field": "cause", "expected": "none", "submitted": "challenge",
             "difference": { "at": 0, "expected": "U+006E", "submitted": "U+0063" } }])
+    );
+}
+
+/// The identity page asks for every client hint, so the requests its
+/// script makes carry them, and reports what its script reads; the timer
+/// page reports its 100 ms timer's count and the document's focus. Both
+/// answer on every host of the family, `access.localhost` included, a
+/// secure context over plain HTTP where client hints exist (spec #577,
+/// ticket #696).
+#[test]
+fn the_identity_page_asks_for_every_client_hint_and_the_timer_page_reports_its_ticks() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let identity = proving_ground.get(&proving_ground.url("access.localhost", "/identity"));
+    let timer = proving_ground.get(&proving_ground.url("access.test", "/timer"));
+
+    assert_eq!(
+        (
+            identity.status,
+            identity.header("accept-ch").is_some_and(|hints| {
+                [
+                    "Sec-CH-UA-Full-Version-List",
+                    "Sec-CH-UA-Platform-Version",
+                    "Sec-CH-UA-Arch",
+                    "Sec-CH-UA-Bitness",
+                    "Sec-CH-UA-Model",
+                ]
+                .iter()
+                .all(|hint| hints.contains(hint))
+            }),
+            identity.body.contains("full_version_list"),
+            timer.status,
+            timer.body.contains("has_focus"),
+        ),
+        (200, true, true, 200, true),
+        "{}\n{}",
+        identity.body,
+        timer.body
     );
 }

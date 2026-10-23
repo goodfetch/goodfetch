@@ -2,8 +2,11 @@
 // or image of its own, renders to the same pixels on every run of the
 // `visual` project. Its Reference screenshot comes only from the
 // `update-screenshots` workflow.
-import { test } from "@playwright/test";
-import { expectScreenshot } from "./screenshot.ts";
+import { test } from "./playwright.ts";
+import { screenshot } from "./screenshot.ts";
+
+/** TESTING.md's start time of every test. */
+const INSTANT = new Date("2026-01-05T09:00:00Z");
 
 const PAGE = `<!doctype html>
 <html lang="en">
@@ -16,11 +19,11 @@ const PAGE = `<!doctype html>
   </body>
 </html>`;
 
-test.describe("expectScreenshot", () => {
+test.describe("screenshot", () => {
   test("fixed page renders the same pixels in the pinned image", async ({ page }) => {
-    await page.setViewportSize({ width: 400, height: 160 });
+    await page.clock.setFixedTime(INSTANT);
     await page.setContent(PAGE);
 
-    await expectScreenshot(page, "fixture-page.png");
+    await screenshot(page, "fixture-page.png");
   });
 });

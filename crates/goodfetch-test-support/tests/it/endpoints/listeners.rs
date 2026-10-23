@@ -1,5 +1,5 @@
 //! Fixture listeners for the endpoint runner's tests: a JSON-RPC stream
-//! listener and an HTTP ops listener, each strict (it refuses every row as
+//! listener, a WebSocket listener and an HTTP ops listener, each strict (it refuses every row as
 //! the table says and records each refusal in its own Audit log, a channel),
 //! permissive (it accepts everything) or refusing everything.
 
@@ -33,6 +33,7 @@ pub(super) enum Reason {
     TokenInQuery,
     ForeignHost,
     ForeignOrigin,
+    MissingOrigin,
 }
 
 /// A fixture listener's Audit log, read as a product's verifier reads its
@@ -48,6 +49,7 @@ impl AuditLog {
             Rule::TokenInQueryString => Reason::TokenInQuery,
             Rule::HostForeign => Reason::ForeignHost,
             Rule::OriginForeign => Reason::ForeignOrigin,
+            Rule::OriginMissing => Reason::MissingOrigin,
             Rule::HelloNotFirst => Reason::NotHello,
             Rule::ProbesAnswerStatusOnly => return false,
         };
@@ -93,18 +95,7 @@ where
     let refusal = match behaviour {
         Behaviour::Permissive => None,
         Behaviour::RefuseAll => return,
-        Behaviour::Strict => {
-            let message: serde_json::Value = serde_json::from_str(&line).unwrap();
-            if message["method"] == "hello" {
-                match message["params"]["token"].as_str() {
-                    None => Some(Reason::TokenMissing),
-                    Some(TOKEN) => None,
-                    Some(_) => Some(Reason::TokenRefused),
-                }
-            } else {
-                Some(Reason::NotHello)
-            }
-        }
+        Behaviour::Strict => first_message_refusal(&line, false),
     };
     if let Some(reason) = refusal {
         audit.send(reason).unwrap();
@@ -115,6 +106,109 @@ where
         return;
     }
     let _ = reader.read_to_end(&mut Vec::new());
+}
+
+/// The reason a strict listener refuses a first message, or none.
+fn first_message_refusal(line: &str, query_token: bool) -> Option<Reason> {
+    let message: serde_json::Value = serde_json::from_str(line).unwrap();
+    if message["method"] != "hello" {
+        return Some(Reason::NotHello);
+    }
+    match message["params"]["token"].as_str() {
+        None if query_token => Some(Reason::TokenInQuery),
+        None => Some(Reason::TokenMissing),
+        Some(TOKEN) => None,
+        Some(_) => Some(Reason::TokenRefused),
+    }
+}
+
+/// Starts a WebSocket listener on loopback TCP, whose handshake must name
+/// its address as `Host` and `http://<address>` as `Origin`.
+pub(super) fn websocket(behaviour: Behaviour) -> (SocketAddr, AuditLog) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (sender, log) = mpsc::channel();
+    std::thread::spawn(move || {
+        for connection in listener.incoming() {
+            serve_websocket(connection.unwrap(), address, behaviour, &sender);
+        }
+    });
+    (address, AuditLog(log))
+}
+
+fn serve_websocket(
+    stream: TcpStream,
+    address: SocketAddr,
+    behaviour: Behaviour,
+    audit: &Sender<Reason>,
+) {
+    use tungstenite::handshake::server::{ErrorResponse, Request, Response};
+
+    let authority = address.to_string();
+    let mut refused = None;
+    let mut query_token = false;
+    #[expect(
+        clippy::result_large_err,
+        reason = "tungstenite's handshake callback answers its own `ErrorResponse`"
+    )]
+    let check = |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
+        let header = |name: &str| {
+            request
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+        };
+        query_token = request
+            .uri()
+            .query()
+            .is_some_and(|query| query.contains("access_token"));
+        let refusal = match behaviour {
+            Behaviour::Permissive => None,
+            Behaviour::RefuseAll => Some(None),
+            Behaviour::Strict if header("host") != Some(authority.as_str()) => {
+                Some(Some(Reason::ForeignHost))
+            }
+            Behaviour::Strict => match header("origin") {
+                None => Some(Some(Reason::MissingOrigin)),
+                Some(origin) if origin != format!("http://{authority}") => {
+                    Some(Some(Reason::ForeignOrigin))
+                }
+                Some(_) => None,
+            },
+        };
+        match refusal {
+            None => Ok(response),
+            Some(reason) => {
+                refused = Some(reason);
+                let mut forbidden = ErrorResponse::new(None);
+                *forbidden.status_mut() = tungstenite::http::StatusCode::FORBIDDEN;
+                Err(forbidden)
+            }
+        }
+    };
+    let accepted = tungstenite::accept_hdr(stream, check).ok();
+    if let Some(Some(reason)) = refused {
+        audit.send(reason).unwrap();
+    }
+    let Some(mut socket) = accepted else { return };
+    let Ok(tungstenite::Message::Text(first)) = socket.read() else {
+        return;
+    };
+    let refusal = match behaviour {
+        Behaviour::Strict => first_message_refusal(&first, query_token),
+        Behaviour::Permissive | Behaviour::RefuseAll => None,
+    };
+    if let Some(reason) = refusal {
+        audit.send(reason).unwrap();
+        let _ = socket.close(None);
+        while socket.read().is_ok() {}
+        return;
+    }
+    let reply = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}";
+    if socket.send(tungstenite::Message::text(reply)).is_err() {
+        return;
+    }
+    while socket.read().is_ok() {}
 }
 
 /// Starts an HTTP ops listener on loopback TCP.

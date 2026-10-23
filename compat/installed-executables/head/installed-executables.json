@@ -1,0 +1,42 @@
+{
+  "executables": [
+    {
+      "copy": {
+        "build": "0.0.0-0123456789abcdef",
+        "kind": "executable_copy",
+        "name": "goodfetch-collie"
+      },
+      "kind": "product_executable",
+      "last_seen": "2026-01-05T09:00:00Z",
+      "modified_at": "2026-01-02T08:00:00Z",
+      "path": "/home/someone/project/node_modules/.bin/goodfetch-collie",
+      "pins": [
+        {
+          "build": "141.0.7390.54-linux64",
+          "kind": "browser",
+          "name": "chrome-for-testing"
+        }
+      ],
+      "product": "collie",
+      "product_version": "0.0.0",
+      "size": 41943040
+    },
+    {
+      "kind": "linked_program",
+      "last_seen": "2026-01-05T09:00:00Z",
+      "modified_at": "2026-01-03T10:30:00Z",
+      "path": "/home/someone/crawler/target/release/crawler",
+      "pins": [
+        {
+          "build": "141.0.7390.54-linux64",
+          "kind": "browser",
+          "name": "chrome-for-testing"
+        }
+      ],
+      "product": "foxhound",
+      "product_version": "0.0.0",
+      "size": 52428800
+    }
+  ],
+  "format_version": "0.1"
+}

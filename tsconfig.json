@@ -3,7 +3,8 @@
   "compilerOptions": {
     "noEmit": true,
     "allowImportingTsExtensions": true,
+    "lib": ["es2024", "dom"],
     "types": ["node"]
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "console/*.ts"]
 }

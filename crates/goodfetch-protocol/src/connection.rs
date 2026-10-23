@@ -1,20 +1,26 @@
 //! What opens and governs a Connection: `hello`, with the protocol's
 //! `major.minor`, the surface, the token and the Product the Client needs
 //! with its Product version (ADRs 0024, 0066 and 0095); `$/cancel` (ADR
-//! 0038); and the Error codes they answer with. Neither is an operation of
-//! the catalog: every Product's engine speaks both.
+//! 0038); the Error codes they answer with; and those a Client's own runtime
+//! raises about its Connection, which no engine sends (ADRs 0078 and 0079).
+//! Neither `hello` nor `$/cancel` is an operation of the catalog: every
+//! Product's engine speaks both.
 //!
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
 
 use std::borrow::Cow;
 use std::fmt;
+use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Entries, ErrorCodeDefinition, ErrorGroup, Product, ProtocolVersion};
 use crate::jsonrpc::RequestId;
+use crate::log::LogLevel;
+use crate::settings::SettingLimit;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -34,7 +40,7 @@ pub enum Surface {
     SdkPython,
     /// A Rust program, through a Product's crate.
     Rust,
-    /// The CLI, as a Client of a Daemon.
+    /// The CLI, as a Client of its own Attached engine or of a Daemon.
     Cli,
     /// The MCP server, as a Client of a Daemon.
     Mcp,
@@ -73,6 +79,7 @@ impl Surface {
 pub struct ProductVersion {
     text: String,
     major: u64,
+    minor: u64,
 }
 
 /// Text that is no Product version.
@@ -109,15 +116,27 @@ impl ProductVersion {
             }
         }
         let major = numbers[0].parse().map_err(|_| malformed())?;
+        let minor = numbers[1].parse().map_err(|_| malformed())?;
         Ok(Self {
             text: text.to_owned(),
             major,
+            minor,
         })
     }
 
     /// Its product major.
     pub fn major(&self) -> u64 {
         self.major
+    }
+
+    /// Its major and minor, as the formats' rules compare them (ADRs 0030
+    /// and 0098); a number past `u16::MAX` reads as `u16::MAX`.
+    pub fn major_minor(&self) -> ProtocolVersion {
+        let number = |number: u64| u16::try_from(number).unwrap_or(u16::MAX);
+        ProtocolVersion {
+            major: number(self.major),
+            minor: number(self.minor),
+        }
     }
 
     /// The version as written.
@@ -181,6 +200,45 @@ pub struct HelloParams {
     /// The sender's own Product version.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub product_version: ProductVersion,
+    /// The level of the engine's log events the Client receives as `$/log`
+    /// notifications, until `connection.set_log_level` changes it; none,
+    /// as `off`, receives none (ADR 0078).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub log_level: Option<LogLevel>,
+}
+
+/// One engine process, new each time an engine starts (ADR 0031): the
+/// positions of its events count within it, so a position another engine
+/// instance gave means nothing to it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct EngineInstance(String);
+
+impl EngineInstance {
+    /// The engine instance `text` names.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+
+    /// Its text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl JsonSchema for EngineInstance {
+    fn schema_name() -> Cow<'static, str> {
+        "EngineInstance".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "string",
+            "minLength": 1,
+            "description": "One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only.",
+        })
+    }
 }
 
 /// What an engine answers to a `hello` it accepts.
@@ -195,6 +253,53 @@ pub struct HelloResult {
     /// The engine's Product version.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub product_version: ProductVersion,
+    /// The engine process, new each time an engine starts: the positions
+    /// of its events count within it, so a Client that meets a new one
+    /// resyncs (ADR 0031).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub engine_instance: EngineInstance,
+    /// An Attached engine's private endpoint, reported to the Client of its
+    /// stdio alone: where that Client's `workers=N` handler processes, and a
+    /// Daemon forwarding a live action, connect (ADRs 0024 and 0031).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub private_endpoint: Option<PrivateEndpoint>,
+}
+
+/// Where a Daemon or an Attached engine's private endpoint listens (ADR
+/// 0024): a `0600` Unix socket on macOS and Linux, loopback TCP on
+/// Windows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DaemonEndpoint {
+    /// A Unix socket's path.
+    Unix(#[schemars(with = "String")] PathBuf),
+    /// A loopback address and port.
+    Tcp(#[schemars(with = "String")] SocketAddr),
+}
+
+impl fmt::Display for DaemonEndpoint {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unix(path) => write!(formatter, "{}", path.display()),
+            Self::Tcp(address) => write!(formatter, "{address}"),
+        }
+    }
+}
+
+/// An Attached engine's private endpoint (ADRs 0024 and 0031): where it
+/// listens, a `0600` Unix socket on macOS and Linux or loopback TCP on
+/// Windows, and the `0600` file holding the token that each Connection's
+/// `hello` there carries, as a Daemon's does.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PrivateEndpoint {
+    /// Where it listens.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub address: DaemonEndpoint,
+    /// The path of the file holding its token.
+    #[schemars(with = "String", extend("arrived_in" = "0.1"))]
+    pub token_file: PathBuf,
 }
 
 /// What `$/cancel` names: the call to stop.
@@ -225,9 +330,15 @@ pub struct ProtocolVersionUnsupportedDetails {
     /// The protocol version the Client's `hello` named.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub client_protocol_version: ProtocolVersion,
-    /// What to upgrade.
+    /// What to upgrade: the error's `fix` (ADR 0079).
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub hint: String,
+    pub fix: String,
+    /// Whether the refusing engine is a Daemon handing over to its major's
+    /// pick, which a Client of the major waits for and connects to (ADR
+    /// 0098).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub handover: bool,
 }
 
 /// A request for what the running Product lacks (ADRs 0087 and 0095).
@@ -259,6 +370,12 @@ pub struct NotInProductDetails {
     /// What to do instead.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub fix: String,
+    /// Whether the refusing engine is a Daemon handing over to its major's
+    /// pick, which a Client of the major waits for and connects to (ADR
+    /// 0098).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub handover: bool,
 }
 
 /// The answer to a call someone other than its caller stopped, a
@@ -271,6 +388,32 @@ pub const CALL_CANCELLED: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// A call past its deadline (ADR 0080, as ADR 0083 amends it): one Error
+/// code whatever the phase, whose `limit` names the timeout's setting.
+pub const DEADLINE_EXCEEDED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "deadline_exceeded",
+    description: "The call's deadline passed before what it waited for came, such as a response's first byte or a navigation. Its `limit` names the timeout's setting, its value and the layer that set it: raise that setting, or wait for the right thing.",
+    group: ErrorGroup::DeadlineExceeded,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `deadline_exceeded` details.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct DeadlineExceededDetails {
+    /// The timeout's setting, its value in milliseconds and the layer that
+    /// set it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: SettingLimit,
+    /// How long the call waited, in milliseconds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub elapsed: u64,
+    /// What it waited for, such as `first_byte` or `navigation`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub waited_for: String,
+}
 
 /// Who stopped a call (ADR 0113).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -288,12 +431,94 @@ pub struct CallCancelledDetails {
     pub by: StoppedBy,
 }
 
+/// A call on a value its program already closed (ADR 0078), raised by the
+/// SDK runtime itself.
+pub const CLOSED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "closed",
+    description: "The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// No engine executable to start, raised by an SDK's `connect()` (ADRs
+/// 0024, 0078 and 0090).
+pub const ENGINE_NOT_FOUND: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "engine_not_found",
+    description: "`connect()` found no engine executable to start: the Product's engine-path variable names no executable, or the Product's platform package is not installed. The `fix` names the variable or the package.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// An Attached engine that ended before its Connection was closed (ADRs
+/// 0078 and 0079), raised by the SDK runtime.
+pub const ENGINE_EXITED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "engine_exited",
+    description: "The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `engine_exited` details.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct EngineExitedDetails {
+    /// The engine's exit code; `None` when a signal ended it or the
+    /// Connection's transport has none.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub exit_code: Option<i32>,
+    /// The signal that ended it, by name, such as `SIGKILL`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub signal: Option<String>,
+    /// The last 64 KiB of its stderr.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub stderr_tail: String,
+}
+
+/// An engine that wrote what is no JSON-RPC message on the Connection
+/// (ADRs 0024 and 0078), raised by the SDK runtime.
+pub const ENGINE_OUTPUT_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "engine_output_invalid",
+    description: "The engine wrote a line that is not one JSON-RPC message on the Connection, such as a log line on an Attached engine's stdout, so the Client ended the Connection. A bug in Goodfetch: report it with the line its details carry.",
+    group: ErrorGroup::Internal,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The refusal of an answer only a person gives (ADRs 0011 and 0041): an
+/// operation the catalog marks [`Reach::PersonOnly`](crate::catalog::Reach)
+/// asked by anything but the Console or an interactive CLI prompt.
+pub const PERSON_REQUIRED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "person_required",
+    description: "Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[],
     events: &[],
-    error_codes: &[PROTOCOL_VERSION_UNSUPPORTED, NOT_IN_PRODUCT, CALL_CANCELLED],
+    handler_requests: &[],
+    error_codes: &[
+        PROTOCOL_VERSION_UNSUPPORTED,
+        NOT_IN_PRODUCT,
+        CALL_CANCELLED,
+        DEADLINE_EXCEEDED,
+        CLOSED,
+        ENGINE_NOT_FOUND,
+        ENGINE_EXITED,
+        ENGINE_OUTPUT_INVALID,
+        PERSON_REQUIRED,
+    ],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[],

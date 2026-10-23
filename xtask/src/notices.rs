@@ -1,8 +1,10 @@
 //! The third-party notice inventory (ADRs 0018 and 0047; spec #130's `xtask
 //! notices`): every dependency of each ecosystem and every declared input
 //! with the license it is used under and where its source is, checked
-//! against ADR 0018's allowlist. A license the allowlist refuses for its use
-//! is a finding naming the dependency and its ecosystem.
+//! against ADR 0018's allowlist. A license the allowlist refuses for its use,
+//! or a declared input that states no source, is a finding naming the
+//! dependency and its ecosystem; so is anything named or sourced from a
+//! watchlist (story 61), from which nothing but vendor names is taken.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -26,6 +28,7 @@ use self::entry::{Ecosystem, Entry, Usage};
 use self::license::{Allowlist, Verdict};
 use crate::check::Finding;
 use crate::environment::Environment;
+use crate::watchlist::Watchlist;
 
 /// What the inventory is built from, beyond the workspace's own files.
 pub(crate) struct Sources<'a> {
@@ -43,7 +46,7 @@ struct Notice<'a> {
     /// The license it is used under: the stated one, or for a compiled
     /// Filter list the license of the adaptation.
     license: String,
-    source: &'a str,
+    source: Option<&'a str>,
     #[serde(rename = "use")]
     usage: Usage,
 }
@@ -82,12 +85,35 @@ pub(crate) fn check(
                 entry.license.clone().unwrap_or_default()
             }
         };
+        if entry.source.is_none() {
+            findings.push(Finding::new(
+                "source-unknown",
+                subject(entry),
+                "it states no place its source is; state one",
+            ));
+        }
+        if let Some(watchlist) = std::iter::once(entry.name.as_str())
+            .chain(entry.source.as_deref())
+            .find_map(Watchlist::named_in)
+        {
+            findings.push(Finding::new(
+                "watchlist-source",
+                subject(entry),
+                format!(
+                    "it is {} ({}), a watchlist Goodfetch reads vendor names from and \
+                     takes nothing else (story 61); write the rule from the vendor's \
+                     documentation and Goodfetch's own captures",
+                    watchlist.name(),
+                    watchlist.license()
+                ),
+            ));
+        }
         notices.push(Notice {
             ecosystem: entry.ecosystem,
             name: &entry.name,
             version: &entry.version,
             license,
-            source: &entry.source,
+            source: entry.source.as_deref(),
             usage: entry.usage,
         });
     }

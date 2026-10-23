@@ -7,8 +7,22 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+# nextest starts each test straight from the runner, not through a stub copy
+# of `cargo-nextest` that then executes the test (its double-spawn): on macOS
+# under load, a test that starts no process at all kept its output pipes open
+# past the leak timeout through the stub and failed as leaky (TESTING.md,
+# Before merge). On Linux it makes no difference. The stub only guards
+# against a hang on Ctrl-Z.
+export NEXTEST_DOUBLE_SPAWN := "0"
+
 # In CI, test builds use the `ci-test` Cargo profile (ADR 0061).
 test_profile := if env("CI", "") != "" { "ci-test" } else { "test" }
+
+# The exercise audit's verdict in the Pre-merge and Release suites (ADR 0072):
+# `gate`, so a declaring test that never reached its Feature fails them;
+# `report` lists the findings and fails nothing, for a local look
+# (`just features-audit ran report`).
+exercise_audit := "gate"
 
 # Lists the recipes.
 default:
@@ -29,11 +43,14 @@ fmt-check:
 # Formatting checks, then every linter and the repository's own static checks.
 lint: fmt-check
     cargo metadata --locked --format-version 1 > /dev/null
+    ci/fuzz-check.sh locked
     pnpm install --lockfile-only --frozen-lockfile
     uv lock --check
+    {{ just_executable() }} console-build
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     pnpm exec tsc -p tsconfig.json
     pnpm -r --if-present run typecheck
+    ci/console-messages.sh
     pnpm exec oxlint
     uv run ruff check .
     uv run pyright
@@ -41,6 +58,7 @@ lint: fmt-check
     ci/tool.sh typos typos
     ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions
     ci/tool.sh actionlint actionlint
+    ci/tool.sh gitleaks ci/canary-rule.sh
     ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
     ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources
     ci/tool.sh cargo-deny ci/deny/products.sh
@@ -49,15 +67,22 @@ lint: fmt-check
     cargo run --quiet -p xtask -- egress check
     cargo run --quiet -p xtask -- os-services workflows
     cargo run --quiet -p xtask -- fixture-size
+    cargo run --quiet -p xtask -- image-pins
+    cargo run --quiet -p xtask -- output-scans
+    cargo run --quiet -p xtask -- screenshots check
     cargo run --quiet -p xtask -- dependency-direction
     cargo run --quiet -p xtask -- package-dependencies
     cargo run --quiet -p xtask -- mocking-lockfile
+    cargo run --quiet -p xtask -- telemetry
     cargo run --quiet -p xtask -- no-retry
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
       cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet -p xtask -- axe-exceptions check
     cargo run --quiet -p xtask -- modules
     cargo run --quiet -p xtask -- codegen --check
     cargo run --quiet -p xtask -- features check
+    cargo run --quiet -p xtask -- clients check
     cargo run --quiet -p xtask -- compat check
     cargo run --quiet -p xtask -- wording
     cargo run --quiet -p xtask -- journeys check
@@ -82,11 +107,139 @@ journeys-tasks *check:
     {{ just_executable() }} _test-tools
     cargo run --quiet -p xtask -- journeys tasks --proving-ground "$(jq -r .proving_ground target/test-tools.json)" {{ check }}
 
+# ADR 0063's rule on the tests of each Journey variant, in the Pre-merge
+# suite: lists the four runners' tests into target/journey-listings/ (nextest
+# builds them with the tests' profile), then runs the catalog check with them.
+# It fails on a test of an unknown or retired Journey or of an unlisted
+# surface, on two tests of one variant, and notes each untested variant.
+journeys-tests:
+    cargo run --quiet -p xtask -- journeys listings --out target/journey-listings --cargo-profile {{ test_profile }}
+    cargo run --quiet -p xtask -- journeys check --listings target/journey-listings
+
+# ADR 0072's Feature check over every runner's declarations, in the Pre-merge
+# suite: after `journeys-tests`, it reads the same listings, so the Vitest
+# tags, Playwright annotations and pytest markers count beside the Rust
+# `Covers:` lines and the Journeys' and conformance cases' `covers` lists. A
+# generated Feature none of them declares fails it; the Quick suite's check,
+# which reads no listing, only notes one.
+features-tests: journeys-tests
+    cargo run --quiet -p xtask -- features check --listings target/journey-listings
+
+# ADR 0069's Client conformance case-list check with the runners' listings,
+# in the Pre-merge suite: after `journeys-tests`, it reads Vitest's listing,
+# so a case listing `sdk-typescript` fails without a Vitest test of the
+# TypeScript SDK packages tagged `client_case/<id>` in each of its modes; the
+# Quick suite's `xtask clients check`, which reads no listing, only notes it.
+clients-tests: journeys-tests
+    cargo run --quiet -p xtask -- clients check --listings target/journey-listings
+
+# ADR 0072's exercise audit, after `just test pre-merge` or `release`: each
+# Rust test that declares an `operation:`, `error:`, `event:`, `command:` or
+# `exit:` Feature must have reached it, as the exercise record test support
+# wrote for it shows. It reads the tests the run's JUnit file shows ran,
+# which both suites run (the Release suite runs every test but the
+# quarantined ones and those its host cannot run), or, for a local look,
+# every declaring test with `all`, where a test that did not run is
+# `record-missing`. The suites run it with the verdict `exercise_audit`
+# gives; `gate` fails on a finding, `report` lists the findings and passes.
+# Runs the exercise audit: `just features-audit [ran|all] [gate|report]`.
+features-audit scope="ran" verdict=exercise_audit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ verdict }}" in
+      gate | report) ;;
+      *) echo "error: the verdict is gate or report, not {{ verdict }}" >&2; exit 2 ;;
+    esac
+    case "{{ scope }}" in
+      ran)
+        # nextest writes its JUnit file under the workspace's own
+        # target/nextest/, even when CARGO_TARGET_DIR (CI's VM) puts the
+        # build elsewhere.
+        junit=target/nextest/ci/junit.xml
+        if [[ ! -f "$junit" ]]; then
+          if [[ -n "$(ls -A target/test-records 2>/dev/null)" ]]; then
+            echo "error: target/test-records holds exercise records, so tests ran, but no $junit names them: the audit cannot tell which tests to judge" >&2
+            exit 1
+          fi
+          echo "The exercise audit has nothing to read: no nextest run of the suite left $junit."
+          exit 0
+        fi
+        audit=(--junit "$junit")
+        ;;
+      all) audit=() ;;
+      *) echo "error: the scope is ran or all, not {{ scope }}" >&2; exit 2 ;;
+    esac
+    status=0
+    cargo run --quiet -p xtask -- features audit ${audit[@]+"${audit[@]}"} || status=$?
+    if [[ $status -eq 1 && "{{ verdict }}" == report ]]; then
+      echo "The exercise audit reports its findings above and fails nothing: the verdict is report, not the suites' gate."
+      exit 0
+    fi
+    exit "$status"
+
+# Runs chosen Journey variants through `just test pre-merge` (ADRs 0063 and
+# 0066): `--id J-001`, `--surface cli`, `--milestone M1` and `--area 3`, each
+# repeatable; values of one flag add variants, different flags intersect.
+# `--engine <path>` runs them against that executable, for both Products.
+# `--tag <tag>` (with `--engine`) runs the tag's own Journey tests and helpers,
+# checked out in a temporary worktree that is removed afterwards.
+[positional-arguments]
+journeys *arguments:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just="{{ just_executable() }}"
+    select=() engine="" tag=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --engine) engine="${2:?--engine takes a path}"; shift 2 ;;
+        --engine=*) engine="${1#--engine=}"; shift ;;
+        --tag) tag="${2:?--tag takes a tag}"; select+=(--tag "$tag"); shift 2 ;;
+        --tag=*) tag="${1#--tag=}"; select+=(--tag "$tag"); shift ;;
+        *) select+=("$1"); shift ;;
+      esac
+    done
+    if [[ -n "$tag" && -z "$engine" ]]; then
+      echo "error: --tag runs an old tag's Journeys against a current executable: give --engine <path>" >&2
+      exit 2
+    fi
+    scratch=$(mktemp -d)
+    tree="$scratch/tree"
+    cleanup() {
+      if [[ -d "$tree" ]]; then git worktree remove --force "$tree"; fi
+      rm -rf "$scratch"
+    }
+    trap cleanup EXIT
+    cargo run --quiet -p xtask -- journeys select ${select[@]+"${select[@]}"} > "$scratch/selection"
+    if [[ ! -s "$scratch/selection" ]]; then
+      echo "No chosen variant has a runner yet."
+      exit 0
+    fi
+    echo "Filters (<runner>, <argument>):"
+    cat "$scratch/selection"
+    export GOODFETCH_TEST_SELECTION="$scratch/selection"
+    if [[ -n "$engine" ]]; then
+      GOODFETCH_TEST_ENGINE=$(cd "$(dirname "$engine")" && pwd)/$(basename "$engine")
+      [[ -x "$GOODFETCH_TEST_ENGINE" ]] || { echo "error: $engine is not an executable" >&2; exit 2; }
+      export GOODFETCH_TEST_ENGINE
+    fi
+    if [[ -z "$tag" ]]; then
+      "$just" test pre-merge
+    else
+      git worktree add --quiet --detach "$tree" "$tag^{commit}"
+      cd "$tree"
+      pnpm install --frozen-lockfile
+      uv sync --frozen --all-extras
+      "$just" test pre-merge
+    fi
+
 # What the changed packages declare, then the Feature check's verdict (ADR
 # 0072): the Features each crate `xtask affected` selects declares, one
-# `<feature> <level> <test>` line each, and the check's findings over the
-# workspace, which are the Features missing a test, an exception or an area.
-# Takes `xtask affected`'s change, `--local` by default.
+# `<feature> <level> <source> <test>` line each, and the check's findings over
+# the workspace, which are the Features missing a test, an exception or an
+# area. It reads no runner listing, so it notes rather than fails a generated
+# Feature only a Vitest, Playwright or pytest test might declare; `just
+# features-tests` reads those too. Takes `xtask affected`'s change, `--local`
+# by default.
 features *change:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -103,6 +256,30 @@ features *change:
     echo "Missing:"
     cargo run --quiet -p xtask -- features check && echo "nothing"
 
+# ADR 0072's code coverage, measured and never gated (ci/coverage.sh): the
+# Pre-merge suite's tests of what changed, or of the whole workspace with
+# `all`, with every Rust crate built for coverage (so each SDK, Journey and
+# Console run starts the instrumented executables), Vitest's `v8` provider
+# and coverage.py with branches. Reports go to target/coverage/. Takes
+# `xtask affected`'s change, `--local` by default; listed as skipped without
+# cargo-llvm-cov.
+# Measures code coverage, never gated: `just coverage [all | <change>…]`.
+coverage *change:
+    JUST="{{ just_executable() }}" ci/tool.sh cargo-llvm-cov ci/coverage.sh {{ change }}
+
+# ADR 0072's in-diff mutation testing (ci/mutants.sh): cargo-mutants with
+# nextest over the Rust code changed since `base` (the merge base with
+# `origin/main` by default), every mutant at once; CI's `mutants` job runs
+# the same in 15-minute shards. The report goes to target/mutants/; a
+# surviving mutant never fails it. Listed as skipped without cargo-mutants.
+# Mutation-tests the Rust changes since `base`: `just mutants [base]`.
+mutants base="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="{{ base }}"
+    [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
+    JUST="{{ just_executable() }}" ci/tool.sh cargo-mutants ci/mutants.sh run "$base"
+
 # Each job's VM runs this when it starts, before ADR 0043's outbound-traffic
 # deny: the locked dependencies of each workspace and, as areas pin them, the
 # Playwright browsers, the Clean-up rules' inputs and other pinned inputs.
@@ -110,11 +287,20 @@ features *change:
 # Makes every download the pull-request tier needs, before the egress deny.
 fetch:
     cargo fetch --locked
+    ci/fuzz-check.sh fetch
     pnpm install --frozen-lockfile
     uv sync --frozen --all-extras
 
+# Collie's Console build, which Collie's executable embeds (ADR 0057):
+# brotli files only, in crates/goodfetch-collie/console-build/; nothing runs
+# when its inputs did not change. Every recipe that builds the executable
+# runs it first, and a `cargo build` without it fails naming it.
+console-build:
+    cargo run --quiet -p xtask -- console build
+
 # Builds Rust (with the given Cargo profile), TypeScript and Python.
 build profile="dev":
+    {{ just_executable() }} console-build
     cargo build --workspace --all-targets --profile {{ profile }}
     pnpm -r --if-present run build
     uv build --all-packages --out-dir target/python-dist
@@ -123,6 +309,11 @@ build profile="dev":
 # Packages, when given, narrow the tests: a crate's name the Rust tests
 # (`-p <crate>`), a pnpm package's folder Vitest's and Playwright's, a uv
 # package's folder pytest's; a runner given none of its packages is skipped.
+# `just journeys` narrows them further through two variables (ADRs 0063 and
+# 0066): GOODFETCH_TEST_SELECTION names a file of `<runner>\t<argument>`
+# lines, `xtask journeys select`'s filters, and only the runners it names run,
+# each with its filter (`pre-merge` and `release` only); GOODFETCH_TEST_ENGINE
+# names an executable that replaces each Product's in the test tool manifest.
 test suite *packages:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -143,9 +334,37 @@ test suite *packages:
     # Every runner's tests read the suite from GOODFETCH_TEST_SUITE, and find
     # the commit's executables through the test tool manifest (ADRs 0062 and
     # 0094): those the workspace has, built here with the tests' profile.
+    # Each Rust Journey variant writes its result document, `<id>@<surface>.json`,
+    # into target/result-documents/ (ADR 0063).
     export GOODFETCH_TEST_SUITE="{{ suite }}"
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+    export GOODFETCH_TEST_RESULT_DOCUMENTS="$PWD/target/result-documents"
+    if [[ -n "${GOODFETCH_TEST_ENGINE:-}" ]]; then
+      manifest=$(jq --arg engine "$GOODFETCH_TEST_ENGINE" '.collie = $engine | .foxhound = $engine' target/test-tools.json)
+      printf '%s\n' "$manifest" > target/test-tools.json
+      echo "Engine: $GOODFETCH_TEST_ENGINE, for both Products"
+    fi
+    select_nextest=() select_vitest=() select_playwright=() select_pytest=()
+    vitest_runs=$typescript playwright_runs=$typescript
+    if [[ -n "${GOODFETCH_TEST_SELECTION:-}" ]]; then
+      if [[ "{{ suite }}" == quick ]]; then
+        echo "error: a selection runs in the pre-merge or release suite, where Journey tests run" >&2
+        exit 2
+      fi
+      while IFS=$'\t' read -r runner argument; do
+        case "$runner" in
+          nextest) select_nextest+=("$argument") ;;
+          vitest) select_vitest+=("$argument") ;;
+          playwright) select_playwright+=("$argument") ;;
+          pytest) select_pytest+=("$argument") ;;
+        esac
+      done < "$GOODFETCH_TEST_SELECTION"
+      [[ ${#select_nextest[@]} -gt 0 ]] || rust=false
+      [[ ${#select_vitest[@]} -gt 0 ]] || vitest_runs=false
+      [[ ${#select_playwright[@]} -gt 0 ]] || playwright_runs=false
+      [[ ${#select_pytest[@]} -gt 0 ]] || python=false
+    fi
     # Vitest, Playwright and pytest run their tests in an order seeded from
     # the tree under test (TESTING.md, Before merge); nextest runs each test
     # in its own process.
@@ -154,24 +373,20 @@ test suite *packages:
     echo "Test order seed: $GOODFETCH_ORDER_SEED (set GOODFETCH_ORDER_SEED to repeat an order)"
     # Each runner skips the tests on the test quarantine list through its own
     # filter (ADR 0064): `xtask quarantine exclude` prints `<runner>\t<argument>`.
+    # nextest's arguments, which also skip the tests of an OS service a local
+    # host lacks, come from ci/nextest-skips.sh, as for ci/mutants.sh and
+    # ci/asan.sh.
     skip_nextest=() skip_vitest=() skip_playwright=() skip_pytest=()
     exclusions=$(cargo run --quiet -p xtask -- quarantine exclude)
     while IFS=$'\t' read -r runner argument; do
       case "$runner" in
-        nextest) skip_nextest+=("$argument") ;;
         vitest) skip_vitest+=("$argument") ;;
         playwright) skip_playwright+=("$argument") ;;
         pytest) skip_pytest+=("$argument") ;;
       esac
     done <<< "$exclusions"
-    # A local host without an OS service the tests use (an extra loopback
-    # address, the Secret Service) lists it as skipped, and nextest skips the
-    # tests that need it; in CI a missing one fails (ci/os-services.sh).
-    services=$(ci/os-services.sh skipped target/skipped.txt)
-    if [[ -n "$services" ]]; then
-      [[ ${#skip_nextest[@]} -gt 0 ]] || skip_nextest=(--)
-      while read -r pattern; do skip_nextest+=(--skip "$pattern"); done <<< "$services"
-    fi
+    skips=$(ci/nextest-skips.sh)
+    while IFS= read -r argument; do [[ -z "$argument" ]] || skip_nextest+=("$argument"); done <<< "$skips"
     # A selection may hold no test of a suite yet (NEXTEST_NO_TESTS=pass);
     # every test it holds still runs.
     case "{{ suite }}" in
@@ -193,6 +408,11 @@ test suite *packages:
         fi
         ;;
       pre-merge|release)
+        # Each test nextest runs leaves its exercise record here, which
+        # `just features-audit` reads (ADR 0072) with the run's JUnit file;
+        # a run starts with neither.
+        {{ just_executable() }} _clear-exercise-records
+        export GOODFETCH_TEST_RECORDS="$PWD/target/test-records"
         # A quarantined test that owns an insta snapshot does not run, so its
         # snapshot looks unreferenced: while nextest skips any quarantined
         # test, unreferenced snapshots warn instead of failing (TESTING.md,
@@ -202,7 +422,13 @@ test suite *packages:
           unreferenced=warn
           echo "insta: unreferenced snapshots warn while the quarantine list skips a nextest test"
         fi
-        if $rust; then
+        if $rust && [[ ${#select_nextest[@]} -gt 0 ]]; then
+          # `cargo insta test` hands nextest no filterset, so a selection runs
+          # nextest itself: the selected tests' snapshots are still checked,
+          # never written, and unreferenced ones are judged when all run.
+          NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo nextest run "${packages[@]}" --profile ci \
+            --cargo-profile {{ test_profile }} "${select_nextest[@]}" ${skip_nextest[@]+"${skip_nextest[@]}"}
+        elif $rust; then
           NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo insta test "${packages[@]}" --check --unreferenced "$unreferenced" \
             --test-runner nextest --nextest-profile ci --profile {{ test_profile }} \
             --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
@@ -226,12 +452,14 @@ test suite *packages:
             echo "Doctests: no selected package has a library target"
           fi
         fi
-        if $typescript; then
-          pnpm exec vitest run ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
-          pnpm exec playwright test --pass-with-no-tests --shuffle="$GOODFETCH_ORDER_SEED" ${vitest[@]+"${vitest[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
+        if $vitest_runs; then
+          pnpm exec vitest run ${vitest[@]+"${vitest[@]}"} ${select_vitest[@]+"${select_vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
+        fi
+        if $playwright_runs; then
+          pnpm exec playwright test --pass-with-no-tests --shuffle="$GOODFETCH_ORDER_SEED" ${vitest[@]+"${vitest[@]}"} ${select_playwright[@]+"${select_playwright[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
         fi
         if $python; then
-          uv run pytest -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" ${pytest[@]+"${pytest[@]}"} ${select_pytest[@]+"${select_pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       *)
@@ -240,11 +468,73 @@ test suite *packages:
         ;;
     esac
 
-# `--test <runner>=<test ID>`, repeatable, or `--quarantined <n>`, the
-# quarantine list's n oldest entries. The diagnostic runs (20) and the daily
-# test-health job (50) call it; quarantined tests run too, as they must there.
-# Every runner runs even when another failed; the exit code is the last
-# failure's.
+# Updates snapshots only through each tool's own command, never by hand
+# (ADR 0062; TESTING.md, Snapshots): insta runs the tests and reviews what
+# changed (`cargo insta test --review`, which ends in `cargo insta review`),
+# Vitest updates the changed pnpm packages' snapshots (`-u`), and
+# inline-snapshot reviews its own single-process (`-n0`), since under xdist
+# it can neither create nor fix one. `accept` writes every change without
+# review and deletes unreferenced insta snapshots; inline-snapshot still fails
+# each test whose snapshot it changed, so run them again. Packages, when
+# given, narrow it as `just test`'s do. CI never runs it.
+snapshots *arguments:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    arguments=({{ arguments }})
+    mode=review
+    if [[ ${#arguments[@]} -gt 0 && "${arguments[0]}" == accept ]]; then
+      mode=accept
+      arguments=("${arguments[@]:1}")
+    fi
+    packages=() vitest=() pytest=()
+    for package in ${arguments[@]+"${arguments[@]}"}; do
+      if [[ -f "$package/package.json" ]]; then vitest+=("$package/")
+      elif [[ -f "$package/pyproject.toml" ]]; then pytest+=("$package")
+      else packages+=(-p "$package"); fi
+    done
+    rust=true typescript=true python=true
+    if [[ ${#arguments[@]} -gt 0 ]]; then
+      [[ ${#packages[@]} -gt 0 ]] || rust=false
+      [[ ${#vitest[@]} -gt 0 ]] || typescript=false
+      [[ ${#pytest[@]} -gt 0 ]] || python=false
+    else
+      packages=(--workspace)
+      read -ra vitest <<< "$(cargo run --quiet -p xtask -- affected --local | sed -n 's/^vitest-packages=//p')"
+      [[ ${#vitest[@]} -gt 0 ]] || typescript=false
+    fi
+    # The tests find the commit's executables as under `just test`.
+    export GOODFETCH_TEST_SUITE=pre-merge
+    {{ just_executable() }} _test-tools
+    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+    case "$mode" in
+      review) insta=(--review --unreferenced warn) inline=review ;;
+      accept) insta=(--accept --unreferenced delete) inline=create,fix,trim,update ;;
+    esac
+    # Every tool runs even when another's tests failed; the exit code is the
+    # last failure's.
+    status=0
+    if $rust; then
+      cargo insta test "${packages[@]}" "${insta[@]}" --test-runner nextest --nextest-profile ci \
+        --profile {{ test_profile }} --disable-nextest-doctest || status=$?
+    fi
+    if $typescript; then
+      pnpm exec vitest run -u "${vitest[@]}" || status=$?
+    fi
+    if $python; then
+      uv run pytest -n0 --inline-snapshot="$inline" ${pytest[@]+"${pytest[@]}"} || status=$?
+    fi
+    exit "$status"
+
+# `--test <runner>=<test ID>`, repeatable, `--tests-file <file>` (one
+# `<runner>=<test ID>` a line, as the stress run hands its selection), or
+# `--quarantined <n>`, the quarantine list's n oldest entries. The diagnostic
+# runs (20) and the daily test-health job (50) call it; quarantined tests run
+# too, as they must there. A runner whose arguments would pass the operating
+# system's limits runs in batches, each with the same counts and its part of
+# the tests (`xtask repeat`); a batch's JUnit file then goes to
+# `target/junit/<runner>.<batch>.xml` (nextest's `nextest-ci.<batch>.xml`), so
+# none overwrites another. Every runner and batch runs even when another
+# failed; the exit code is the last failure's.
 # Runs chosen tests `count` times each, whatever each run's result (ADR 0064).
 [positional-arguments]
 repeat count *selection:
@@ -260,31 +550,38 @@ repeat count *selection:
     GOODFETCH_ORDER_SEED=$(ci/order-seed.sh)
     export GOODFETCH_ORDER_SEED
     echo "Test order seed: $GOODFETCH_ORDER_SEED (set GOODFETCH_ORDER_SEED to repeat an order)"
-    nextest=() vitest=() playwright=() pytest=()
+    # `<runner>\t<batch>\t<argument>` lines, each runner's batches from 1.
     arguments=$(cargo run --quiet -p xtask -- repeat --count "{{ count }}" "$@")
-    while IFS=$'\t' read -r runner argument; do
-      case "$runner" in
-        nextest) nextest+=("$argument") ;;
-        vitest) vitest+=("$argument") ;;
-        playwright) playwright+=("$argument") ;;
-        pytest) pytest+=("$argument") ;;
-      esac
-    done <<< "$arguments"
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     status=0
-    if [[ ${#nextest[@]} -gt 0 ]]; then
-      cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${nextest[@]}" || status=$?
-    fi
-    if [[ ${#vitest[@]} -gt 0 ]]; then
-      pnpm exec vitest run "${vitest[@]}" || status=$?
-    fi
-    if [[ ${#playwright[@]} -gt 0 ]]; then
-      pnpm exec playwright test --shuffle="$GOODFETCH_ORDER_SEED" "${playwright[@]}" || status=$?
-    fi
-    if [[ ${#pytest[@]} -gt 0 ]]; then
-      uv run pytest -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" "${pytest[@]}" || status=$?
-    fi
+    for runner in nextest vitest playwright pytest; do
+      batches=$(awk -F'\t' -v runner="$runner" '$1 == runner && $2 > last { last = $2 } END { print last + 0 }' <<< "$arguments")
+      for (( batch = 1; batch <= batches; batch++ )); do
+        selected=()
+        while IFS=$'\t' read -r line_runner line_batch argument; do
+          if [[ "$line_runner" == "$runner" && "$line_batch" == "$batch" ]]; then selected+=("$argument"); fi
+        done <<< "$arguments"
+        case "$runner" in
+          nextest)
+            cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${selected[@]}" || status=$?
+            report=target/nextest/ci/junit.xml name=nextest-ci ;;
+          vitest)
+            pnpm exec vitest run "${selected[@]}" || status=$?
+            report=target/junit/vitest.xml name=vitest ;;
+          playwright)
+            pnpm exec playwright test --shuffle="$GOODFETCH_ORDER_SEED" "${selected[@]}" || status=$?
+            report=target/junit/playwright.xml name=playwright ;;
+          pytest)
+            uv run pytest -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" "${selected[@]}" || status=$?
+            report=target/junit/pytest.xml name=pytest ;;
+        esac
+        if (( batches > 1 )) && [[ -f "$report" ]]; then
+          mkdir -p target/junit
+          mv "$report" "target/junit/$name.$batch.xml"
+        fi
+      done
+    done
     exit "$status"
 
 # The stress run before merge (ADR 0064): each test the change since `base`
@@ -302,6 +599,11 @@ stress base="":
     base="{{ base }}"
     [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
     target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
+    # Vitest lists a file's tests by loading it, as a run does, so the
+    # listings get the variables `just repeat` runs the tests with.
+    export GOODFETCH_TEST_SUITE="${GOODFETCH_TEST_SUITE:-pre-merge}"
+    {{ just_executable() }} _test-tools
+    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     selection=$(cargo run --quiet -p xtask -- stress select --base "$base" \
       --saved "$target/stress-listings" --cargo-profile {{ test_profile }})
     echo "Stressed tests (<count>, <runner>, <test ID>):"
@@ -311,25 +613,28 @@ stress base="":
     earlier=$(mktemp -d)
     find target/junit -maxdepth 1 -name '*.xml' -exec mv {} "$earlier/" \;
     status=0
+    # Each count's tests go to `just repeat` in a file: a change's new and
+    # changed tests can pass what one command line holds.
+    tests=$(mktemp)
     for count in 20 200; do
-      tests=()
       while IFS=$'\t' read -r runs runner test; do
-        if [[ "$runs" == "$count" ]]; then tests+=(--test "$runner=$test"); fi
-      done <<< "$selection"
-      echo "Stress run: $(( ${#tests[@]} / 2 )) test(s), $count times each"
-      [[ ${#tests[@]} -gt 0 ]] || continue
-      rm -f "$target"/nextest/*/junit.xml
-      {{ just_executable() }} repeat "$count" "${tests[@]}" || status=$?
+        if [[ "$runs" == "$count" ]]; then printf '%s=%s\n' "$runner" "$test"; fi
+      done <<< "$selection" > "$tests"
+      echo "Stress run: $(wc -l < "$tests" | tr -d ' ') test(s), $count times each"
+      [[ -s "$tests" ]] || continue
+      rm -f target/nextest/*/junit.xml
+      {{ just_executable() }} repeat "$count" --tests-file "$tests" || status=$?
       folder="target/junit/repeat-$count"
       mkdir -p "$folder"
       find target/junit -maxdepth 1 -name '*.xml' -exec mv {} "$folder/" \;
-      for report in "$target"/nextest/*/junit.xml; do
+      for report in target/nextest/*/junit.xml; do
         [[ -f "$report" ]] || continue
         mv "$report" "$folder/nextest-$(basename "$(dirname "$report")").xml"
       done
     done
     find "$earlier" -name '*.xml' -exec mv {} target/junit/ \;
     rmdir "$earlier"
+    rm -f "$tests"
     exit "$status"
 
 # Runs one suite's tests over what `xtask affected` selects (ADR 0061): the
@@ -346,6 +651,8 @@ test-affected suite *change:
     read -ra packages <<< "$(selected crates) $(selected vitest-packages) $(selected pytest-packages)"
     if [[ ${#packages[@]} -eq 0 ]]; then
       echo "The change needs no {{ suite }} tests."
+      # So `just features-audit` reads no earlier run's records.
+      [[ "{{ suite }}" == quick ]] || {{ just_executable() }} _clear-exercise-records
       exit 0
     fi
     {{ just_executable() }} test {{ suite }} "${packages[@]}"
@@ -370,7 +677,8 @@ quick *all:
 # the other steps, each in its own container, with their lines marked:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
 # projects in the pinned Playwright image, ADR 0073). The suite waits for
-# them and fails when one fails (ci/pre-merge.sh).
+# them and fails when one fails (ci/pre-merge.sh). `quick` runs only the
+# checks every change needs, for a change no test reads (ADR 0135).
 pre-merge *all:
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/pre-merge.sh {{ all }}
 
@@ -385,8 +693,13 @@ release:
     "$just" lint
     "$just" test quick
     "$just" test release
+    "$just" features-audit
     "$just" _tlc all
     "$just" proofs
+    "$just" rss
+    "$just" asan
+    "$just" v8-corruption
+    "$just" zap
     "$just" _visual-elsewhere
     echo "skipped: every other OS and runtime cell of the Release suite runs only in CI (just release-ci)"
 
@@ -442,6 +755,32 @@ release-ci cells="all" commit="":
     fi
     exit "$status"
 
+# The resident-memory check (ADRs 0071, 0094 and 0134): builds both Products'
+# executables with the `ci` profile the Release suite's cells build, runs the
+# scenario (every scenario when none is named: idle-attached-engine) on each
+# executable it runs on, then holds each peak to its ceiling in
+# ci/rss-ceilings.toml and shows it against its Performance target. With no
+# ceilings file it reports and gates nothing. The JUnit file and the figures
+# the results store keeps go to target/junit/.
+# Runs the resident-memory check: `just rss [scenario…]`.
+rss *scenarios:
+    cargo run --quiet -p xtask -- test-tools --cargo-profile ci --out "$PWD/target/rss/test-tools.json"
+    rm -f target/rss/peaks.jsonl
+    cargo run --quiet -p xtask -- rss measure {{ scenarios }} --tools target/rss/test-tools.json --out target/rss/peaks.jsonl
+    cargo run --quiet -p xtask -- rss check --peaks target/rss/peaks.jsonl
+
+# Proposes the resident-memory ceilings of this platform from 20 runs of each
+# scenario on each executable it runs on: 1.5 times the highest peak, rounded
+# up to a whole MiB, as ci/rss-ceilings.toml writes them. Only the owner
+# commits a ceiling (ADR 0071), measured on the build after M1's optimization
+# pass (ADR 0134).
+# Proposes this platform's resident-memory ceilings from 20 runs.
+rss-propose *scenarios:
+    cargo run --quiet -p xtask -- test-tools --cargo-profile ci --out "$PWD/target/rss/test-tools.json"
+    rm -f target/rss/propose.jsonl
+    cargo run --quiet -p xtask -- rss measure {{ scenarios }} --runs 20 --tools target/rss/test-tools.json --out target/rss/propose.jsonl
+    cargo run --quiet -p xtask -- rss propose --peaks target/rss/propose.jsonl
+
 # The counted performance figures of what changed, against `base` (the merge
 # base with `origin/main` by default), with CI's thresholds (ADR 0071):
 # natively on Linux, in the pinned CI image through Docker or Podman
@@ -474,9 +813,12 @@ screenshots-update:
 # Keeps each tool of test-support/models/tools.toml in target/tla-tools/,
 # downloading only a file that lacks its pinned SHA-256; a download whose
 # SHA-256 differs fails (ADR 0060).
+# The tools are a release asset of this repository, read with GITHUB_TOKEN
+# or the GitHub CLI's token while the repository is private.
 # Downloads the pinned pair of TLA+ tools, before the outbound-traffic deny.
 tlc-fetch:
-    cargo run --quiet -p xtask -- tlc fetch
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet -p xtask -- tlc fetch
 
 # Each model of test-support/models/ runs with its small.cfg; `--config
 # large` takes the nightly job's constants, and `--config <variant>` a
@@ -492,6 +834,36 @@ tlc-self-test:
     {{ just_executable() }} tlc-fetch
     cargo run --quiet -p xtask -- tlc run sample --config broken --expect invariant-violated
 
+# Keeps each archive of test-support/lazyfs/sources.toml in
+# target/lazyfs/sources/, downloading only a file that lacks its pinned
+# SHA-256; a download whose SHA-256 differs fails (ADR 0060).
+# Downloads LazyFS's pinned source archives, before the outbound-traffic deny.
+lazyfs-fetch:
+    cargo run --quiet -p xtask -- lazyfs fetch
+
+# Linux, with cmake, a C++17 compiler and libfuse3's headers
+# (ci/host/lazyfs.sh installs them on a runner); it builds nothing again
+# while target/lazyfs/bin/ holds a build of the same pins.
+# Builds LazyFS from its pinned source archives into target/lazyfs/bin/.
+lazyfs-build:
+    {{ just_executable() }} lazyfs-fetch
+    cargo run --quiet -p xtask -- lazyfs build
+
+# The Release suite runs them on Linux x64 (ADR 0060), and nextest's
+# profiles leave them out of every other run; they need /dev/fuse and
+# fusermount3, and fail, never skip, where a mount cannot be made.
+# Runs the LazyFS power cuts (`lazyfs::` tests) on the LazyFS build.
+lazyfs-test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ just_executable() }} lazyfs-fetch
+    {{ just_executable() }} console-build
+    GOODFETCH_LAZYFS=$(cargo run --quiet -p xtask -- lazyfs build)
+    export GOODFETCH_LAZYFS GOODFETCH_TEST_SUITE=release
+    cargo nextest run -p goodfetch-test-support -p goodfetch-collie --profile ci \
+      --cargo-profile {{ test_profile }} --ignore-default-filter \
+      -E 'kind(test) & test(/^lazyfs::/)'
+
 # The cache-warming job's build (ADRs 0061 and 0071): the pull-request tier's
 # dependencies, tests and benchmark targets with its profiles, run by nothing:
 # the Pre-merge job's own `just build ci` among them; the benchmark targets
@@ -501,15 +873,28 @@ tlc-self-test:
 # reads a change's base listings (ADR 0064).
 warm:
     pnpm exec tsc -p tsconfig.json
+    {{ just_executable() }} console-build
     cargo clippy --workspace --all-targets --all-features
     cargo build -p xtask
     cargo nextest run --workspace --profile ci --cargo-profile ci-test --no-run
-    cargo run --quiet -p xtask -- stress listings --cargo-profile ci-test \
+    {{ just_executable() }} _test-tools
+    GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json" \
+      cargo run --quiet -p xtask -- stress listings --cargo-profile ci-test \
       --out "$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/stress-listings"
     {{ just_executable() }} build ci
     cargo bench --workspace --no-run
     CARGO_TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/perf-base" cargo bench --workspace --no-run
     ci/msrv.sh
+
+# The measurements before a browser joins the `visual` projects (ADR 0073),
+# through Docker or Podman, on a copy of HEAD: the host's emulation of the
+# pinned image, its pixels against the committed References (CI's), then
+# every Playwright visual case 20 times on each browser (chromium, firefox
+# and webkit by default, or those named, separated by commas). Record what
+# it prints in the shared visual config's REPEATABILITY.
+# Measures screenshot repeatability per browser in the pinned image.
+visual-repeatability browsers="chromium,firefox,webkit":
+    ci/visual/repeatability.sh "{{ browsers }}"
 
 # Applies the Reference screenshots of an `update-screenshots` run of this
 # branch (ADR 0073), refusing a run made in another image than the pinned one
@@ -525,10 +910,61 @@ screenshots-fetch run:
 
 # The pull-request tier's supply-chain job (#133), each part also a recipe:
 # the advisories of every lockfile, the MSRV build, cargo-hack over each
-# Product's SDK crate, Miri and the notice inventory's license check. The
-# audits read public advisory databases, so CI runs this before any egress
-# deny. `pre-merge` runs the same parts, cheapest first.
-supply-chain: audit msrv feature-combinations miri notices
+# Product's SDK crate, Miri and the notice inventory's license check, and the
+# security parts it carries (ADR 0067): `gitleaks` over the change's commits
+# and `cargo fuzz check`. The audits read public advisory databases, so CI
+# runs this before any egress deny. `pre-merge` runs the same parts,
+# cheapest first.
+supply-chain: audit commit-leaks fuzz-check msrv feature-combinations miri notices
+
+# Scans paths a job uploads (its logs, test reports, snapshots and
+# artifacts) for secrets with gitleaks' rules and the Secret canaries' rule
+# (ADR 0067). CI runs `ci/leaks.sh` itself before each upload.
+leaks +paths:
+    ci/tool.sh gitleaks ci/leaks.sh {{ paths }}
+
+# Scans every commit from `base` to `head` for secrets, while the repository
+# is private (ADR 0067). Locally: since the merge base with `origin/main`.
+commit-leaks base="" head="HEAD":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="{{ base }}"
+    [[ -n "$base" ]] || base=$(git merge-base origin/main "{{ head }}")
+    ci/tool.sh gitleaks ci/commit-leaks.sh "$base" "{{ head }}"
+
+# `cargo fuzz check` of every fuzz target on the pinned nightly of
+# ci/sanitizer-toolchain.toml (ADR 0067); no fuzzing runs. A no-op while no
+# fuzz crate exists.
+fuzz-check:
+    ci/tool.sh cargo-fuzz ci/fuzz-check.sh check
+
+# The Release suite's AddressSanitizer run of the tests of every crate that
+# opts into `unsafe` (ADR 0067), on the pinned nightly; CI runs it on Linux
+# glibc. `build` builds them (before the deny in CI), `test` builds and runs
+# them with the test tool manifest.
+asan phase="test":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ phase }}" in
+      build) ci/asan.sh build ;;
+      test)
+        export GOODFETCH_TEST_SUITE=release
+        {{ just_executable() }} _test-tools
+        export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+        ci/asan.sh test
+        ;;
+      *) echo "error: the phase is build or test, not {{ phase }}" >&2; exit 2 ;;
+    esac
+
+# The Release suite's V8 memory-corruption scripts on the test V8 build
+# (ADR 0067), a slot until that build exists (#210): `fetch` or `test`.
+v8-corruption phase="test":
+    ci/v8-corruption.sh {{ phase }}
+
+# The Release suite's ZAP baseline scan of the Console (ADR 0067), a slot
+# until the Console is built: `fetch` or `scan`.
+zap phase="scan":
+    ci/zap.sh {{ phase }}
 
 # The third-party notice inventory (ADRs 0018 and 0047): fails on a
 # dependency of any ecosystem, or an input a `third-party.toml` declares, whose
@@ -547,11 +983,13 @@ audit:
 # Builds the workspace with the toolchain of its `rust-version`, the MSRV of
 # ADR 0030 (latest stable minus two).
 msrv:
+    {{ just_executable() }} console-build
     ci/msrv.sh
 
 # cargo-hack over every feature combination of each Product's SDK crate
 # (ADR 0087).
 feature-combinations:
+    {{ just_executable() }} console-build
     ci/tool.sh cargo-hack ci/feature-combinations.sh
 
 # Miri over the pure-Rust `unsafe` modules that opt in through ci/miri.toml
@@ -621,7 +1059,9 @@ hooks:
 
 # Merges a pull request only when `just pre-merge all`, which starts with
 # `just quick all`'s lint and Quick suite, passes on its exact head, in a
-# clean checkout in the gate's own worktree (AGENTS.md, "Merging").
+# clean checkout in the gate's own worktree (AGENTS.md, "Merging"), or `just
+# pre-merge quick` when no test reads the change (`xtask affected`'s
+# `gate=quick`, ADR 0135).
 merge number:
     ci/merge-pr.sh {{ number }}
 
@@ -637,11 +1077,16 @@ rosetta-trial:
     ci/vm/rosetta-trial.sh
 
 # Builds the commit's executables that tests run (each Product's, the Proving
-# ground's, goodfetch-test-env and goodfetch-scripted-engine, those the
-# workspace has) with the tests' Cargo profile, and writes the test tool
+# ground's, goodfetch-test-env, goodfetch-scripted-engine and
+# goodfetch-conformance, those the workspace has) with the tests' Cargo profile, and writes the test tool
 # manifest of their paths to target/test-tools.json.
 _test-tools:
     cargo run --quiet -p xtask -- test-tools --cargo-profile {{ test_profile }} --out "$PWD/target/test-tools.json"
+
+# Removes the exercise records and the nextest JUnit file of an earlier
+# Pre-merge or Release run, which `just features-audit` would read.
+_clear-exercise-records:
+    rm -rf target/test-records target/nextest/ci/junit.xml
 
 # One suite's tests over the whole workspace with `all`, else over what changed.
 _suite suite all:

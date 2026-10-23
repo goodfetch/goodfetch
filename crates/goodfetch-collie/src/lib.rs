@@ -6,9 +6,19 @@
 //! since it is a separate executable (STYLE.md, reason 1).
 #![warn(missing_docs)]
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "area 5's page raises `blocked` with the cause `classify` gives (#711)"
+    )
+)]
+mod block_detection;
 mod composition;
 #[cfg(feature = "executable")]
 pub mod executable;
+mod pins;
 mod sample;
 
 pub use composition::composition;
+pub use pins::pinned_artifacts;

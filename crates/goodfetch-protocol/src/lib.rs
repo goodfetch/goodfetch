@@ -9,18 +9,39 @@
 //! defines its own contracts.
 #![warn(missing_docs)]
 
+pub mod audit;
+pub mod block;
+pub mod browser_cache;
 pub mod case_log;
 pub mod catalog;
+pub mod checkpoint;
+pub mod cli;
 pub mod connection;
+pub mod console;
+pub mod daemon;
+pub mod dns;
 pub mod emit;
 pub mod engine;
 pub mod entries;
+pub mod events;
+pub mod executables;
 pub mod formats;
 pub mod foxhound;
 pub mod foxhound_names;
 pub mod journey;
 pub mod jsonrpc;
+pub mod key_value_store;
+pub mod log;
+pub mod page;
+pub mod politeness;
+pub mod refusals;
 pub mod releases;
 pub mod result_document;
 pub mod routing;
+pub mod run;
 pub mod sample;
+pub mod secret_reference;
+pub mod secrets;
+pub mod settings;
+pub mod usage;
+pub mod versions;

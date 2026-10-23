@@ -1,0 +1,1155 @@
+# Area 5's user stories (specs #576 to #579, Site access: Collie's 1 to 113
+# and Foxhound's 114 to 145, one numbering), the declared `story:5-<id>`
+# Features of ADR 0072, every story of the specs as their Further Notes give
+# them: each story's milestone is that of the ticket that finishes it, and a
+# story without a Journey carries ADR 0075's reason (`actor`, `part` or
+# `reach`). The specs' issues keep the full text; this copy is the one the
+# Feature check reads. Never renumber or reuse an ID: a removed story stays
+# with `status = "retired"` and a `reason`.
+
+[[story]]
+id = 1
+title = "As a developer, I want Collie's page API to keep Playwright's names where the meaning is the same (`goto`, `locator`, `getByRole`, `click`, `fill`, `evaluate`, `waitForResponse`), so that what I and my coding agent already know works (ADR 0085, S3; K01, K11)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 2
+title = "As a developer, I want every locator action to wait until its target is unique, visible, enabled, stable and receiving the event, cancel a gesture that lands on another element and replay it until the deadline, so that a click never lands on the wrong element (ADR 0019; pitfall B06; ADR 0037 / SA-13)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 3
+title = "As a developer, I want an ambiguous target that becomes unique before the deadline acted on, and one still ambiguous at the deadline to raise `target_not_unique` listing every match rendered in my language, its `limit` naming the timeout's setting, so that a re-render's transient duplicate never fails my click (ADR 0085; pain P41)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 4
+title = "As a developer, I want a question that never waits (`isVisible()`) on an ambiguous locator to raise `target_not_unique` at once, with `first()`, `last()` and `nth()` as the visible opt-outs, so that strictness has no silent exception."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 5
+title = "As a developer, I want an action on a target of the wrong kind (`fill` on a `<div>`, `selectOption` on an `<input>`, `setInputFiles` on a button) to fail at once with `target_unsupported` naming what it accepts and what it found, after a `<label>` is followed to its control, so that I fix the locator instead of waiting out a timeout."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 6
+title = "As a developer, I want `force` to skip the actionability checks and the replay while keeping uniqueness, marked unguarded in Provenance, so that I can act on a page I trust and the results say so (ADR 0023; `action.force`)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 7
+title = "As a developer, I want two Gestures sent at once on one page never to interleave their keystrokes or pointer moves, while reads, waits, `evaluate` and route answers run beside them, so that `Promise.all` over reads costs one round trip and concurrent `fill`s never race for focus (ADR 0085)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 8
+title = "As a developer, I want a Gesture that waits on my program (a locator handler's turn, a route handler's answer, a scripted login step) to give up the page's turn, so that a handler that clicks never deadlocks the action it interrupted (ADR 0085)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 9
+title = "As a developer, I want `page.keyboard`, `page.mouse` and `page.touchscreen` for input with no target, each call marked unguarded, so that I can drive a canvas or a map (pitfall B14)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 10
+title = "As a developer, I want input to be trusted browser input, so that controlled inputs, hover menus, drag and Enter behave as they do for a person (pain P52)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 11
+title = "As a developer, I want a driven page never throttled as a background tab when another page of its Session is in front, so that timers and animations on my page keep running (ADR 0085's background-tab question)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 12
+title = "As a developer, I want Playwright's locator constructors and matching rules (`getByRole`, `getByText`, `getByLabel`, `getByPlaceholder`, `getByAltText`, `getByTitle`, `getByTestId`, case-insensitive substring by default, `exact` to match whole), so that the defaults my agent assumes are the real ones (ADR 0085)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 13
+title = "As a developer, I want `locator()` to take CSS or XPath, and Playwright's other selector engines, `>>` chains and CSS extensions (`text=`, `:has-text()`) to fail with `selector_invalid` whose fix names the method, so that there is one way to write each query."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 14
+title = "As a developer, I want the test-id attribute as `locator.test_id_attribute`, set at any scope, so that no process-wide registry changes my other programs."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 15
+title = "As a developer, I want frame locators (`frameLocator(selector?)`, `contentFrame()`, `owner()`) to cross same-origin and out-of-process frames alike, so that a payment or a widget frame is reached like the page (ADR 0037 / SA-15; pitfall B11)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 16
+title = "As a developer, I want CSS and `getBy*` to pierce open shadow roots and XPath not to, as in Playwright, so that web components work as I expect (pitfall B12)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 17
+title = "As a developer on Chromium, I want locators, the guard and `ariaSnapshot` to reach closed author shadow roots without changing the page, so that a target a person sees is never hidden from my program; on Firefox and WebKit I want the deadline error's `observed` to name the closed root and say that Chromium reaches it (ADR 0121; pitfall B13)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 18
+title = "As a developer, I want locators resolved again at each use and no element handles, so that a re-render never leaves me a stale reference (pitfall B05; pain P29)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 19
+title = "As a developer, I want `waitForURL`, `waitForResponse`, `waitForRequest`, `waitForRequestFinished`, `waitForLoadState`, `waitForFunction`, `locator.waitFor({ state })` and `locator.waitForCount`, each under one deadline, so that I wait for the application state my next step needs rather than for an element (ADR 0080; pain P01; ADR 0037 / SA-14)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 20
+title = "As a developer, I want a waiter armed when I call it, not when I await it, so that the response a click triggers is never missed (ADR 0080; pitfall B04; pain P02)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 21
+title = "As a developer, I want `networkidle` to mean no request in flight for 500 ms, WebSockets and server-sent events excluded, so that a polling page reaches it and a page that has not started loading does not (pitfall B03)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 22
+title = "As a developer of a single-page app, I want `waitForURL` to pass on a `pushState` or a hash change as on a new document, so that client-side routing is waited for like a navigation (pitfall B02)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 23
+title = "As a developer, I want `goto`, `reload`, `goBack` and `goForward` to return the document's `Response`, with a 404 or a 500 as a value when no Page check is declared, so that an error page is an answer I can read (ADR 0085)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 24
+title = "As a developer, I want `goBack` and `goForward` always to load their document again, firing `domcontentloaded` and `load` and returning a `Response`, because the back/forward cache is off, so that a wait armed before going Back passes (ADR 0121; pitfall B21)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 25
+title = "As a developer, I want a page activated from a Speculation Rules prerender to pass `waitForURL`, a Page check and Foxhound's navigation gate as a navigation does, or prerendering to be off, so that no document arrives without the events my waits rely on (ADR 0121)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 26
+title = "As a developer, I want an unreachable site to raise `navigation_failed` carrying the browser's network error (`net::ERR_NAME_NOT_RESOLVED` included), retryable, and a failing proxy of my own to raise an `UnavailableError` instead, so that a DNS failure, a site failure and my proxy's failure are told apart (ADR 0085; pitfalls H01, H12)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 27
+title = "As a developer, I want a navigation superseded before it committed to raise `navigation_interrupted`, a renderer crash `page_crashed` with a `crash` event, a call on a page I closed `closed`, and a page closed in the browser outside every Client `call_cancelled` with `by: \"browser\"` and `closed: \"page\"` (a `page.agent` task returning `stopped` with reason `abort` instead), so that each of the four is told apart (ADRs 0085, 0100, 0113; pitfall B24)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 28
+title = "As a developer, I want a browser process that exits abnormally reported apart from a browser a person quit, so that a crash is never read as a close (ADR 0113)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 29
+title = "As a developer, I want a navigation past the browser's 19 redirects to raise `too_many_redirects`, and one waiting for `domcontentloaded` or `load` whose main document was cut to raise `response_truncated` (one that returned at `commit` leaving it to the body's read), so that a loop and a cut page are typed (ADR 0118; pitfalls U12, H15)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 30
+title = "As a developer, I want a body whose listed content coding fails to decode to raise `navigation_failed` with `net::ERR_CONTENT_DECODING_FAILED`, and an unknown coding passed through, as in Chrome (ADR 0119; pitfalls H13, H25)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 31
+title = "As a developer, I want my own `goto` to a file to emit a `download` event and report the navigation as a download, as Playwright does, so that a PDF link is a `Download`, never a parsed page (ADR 0119)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 32
+title = "As a developer, I want Playwright's getters, each one round trip whatever the number of matches, so that reading a table costs one call (ADR 0085; pain P28)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 33
+title = "As a developer, I want `isVisible`, `isHidden`, `count`, `all` and the `all*` reads to answer at once and an absent attribute to be `null`, so that a question is an answer, not a wait."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 34
+title = "As a developer, I want a page function to take one explicit JSON argument and return JSON, in the main world by default or an isolated one, with a DOM node, `NaN` or a cycle raising `page_value_invalid` naming its path and a `ReferenceError` raising `page_function_failed` whose fix names the argument, so that no value is silently lost (ADR 0085; pain P16)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 35
+title = "As a developer, I want `addInitScript` registered when called and returning a `Subscription`, marked in Provenance as a main-world injection, so that I know when my Session departs from `standard`'s no-injection identity (ADR 0037 / SA-16)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 36
+title = "As a developer, I want `setInputFiles` and `fileChooser.setFiles` to take paths or files in memory, streamed over my connection into the Run's directory, so that uploads work against a Daemon or a remote engine (ADR 0037 / SA-13; pitfall B23)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 37
+title = "As a developer, I want downloads kept with the Run, `saveAs` written whole or not at all, a failed download raising `download_failed`, a path that cannot be written `path_not_writable` and a failed write `file_write_failed`, so that I never read a half-written file (ADRs 0085, 0116; pitfall B22)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 38
+title = "As a developer, I want `screenshot()` on a page or a locator and `pdf()` on Chromium, with Secrets masked, `browser.color_scheme` and print styles applied as the Session sets them, and a `path` that cannot be written raising and returning no bytes, so that what I capture is what the page shows (ADR 0116; pitfall B27)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 39
+title = "As a developer, I want no clipboard API, the page's own clipboard reached through keyboard shortcuts and `evaluate` under `browser.permissions`, the clipboard permissions refused with `setting_not_applicable` in a headful window on my desktop, whose clipboard is my own, so that a page is never granted my clipboard (ADRs 0083, 0085, 0092; ADR 0037 / SA-30)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 40
+title = "As a developer, I want `page.route` and `session.route` under the rules of Selenium's BiDi design note, with Playwright's names (page routes before Session routes, later routes first, the first answer wins, an unanswered route falls through to the network), so that a handler that answers nothing never stalls a request (ADR 0085; pain P30; ADR 0037 / SA-17)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 41
+title = "As a developer, I want a route handler that throws to abort its request, be removed, and raise `page_handler_failed` from the call waiting on that request or else the next call on its page or Session, and a second answer to raise `route_already_handled`, so that a half-changed request is never sent."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 42
+title = "As a developer, I want what a route sends on to pass the domain policy and the Filter lists, and adding a route to change neither caching nor service-worker coverage, so that a route never weakens a guarantee (ADR 0085)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 43
+title = "As a developer, I want URL patterns in waits and routes matched in the engine, globs as Playwright reads them and regular expressions in the `regex` crate's syntax with look-around and back-references refused at the call, so that matching is the same in every SDK (ADR 0081)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 44
+title = "As a developer, I want `page.request` to be Playwright's request API on the page's Session, sent from inside the Session's browser so its identity never changes, never answered by a service worker, keeping its body, and returning a `Response` even for a 429, so that a JSON call from a logged-in page needs no second client (ADRs 0020, 0085, 0092, 0121; ADR 0037 / SA-04; pitfall H20)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 45
+title = "As a developer, I want `page.request`'s `maxRedirects` to take at most 19 and raise `too_many_redirects` past its count, and a cut body to raise `response_truncated`, so that the request API follows the browser's rules (ADR 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 46
+title = "As a developer, I want `body()`, `text()` and `json()` read on demand, never failing after `waitForRequestFinished`, `route.fetch()` or `page.request`, and otherwise raising `body_unavailable` whose fix names `waitForRequestFinished`, and a cut body raising `response_truncated`, never returned as whole, so that an evicted or cut body is a typed answer (ADRs 0085, 0118; ADR 0037 / SA-19)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 47
+title = "As a developer, I want `text()` of a document's response decoded with its document's encoding, so that it agrees with `page.content()`, any other `text()` with the response's own encoding, bad bytes read as U+FFFD, and `json()` read as UTF-8 ignoring a leading BOM, so that a Shift_JIS API reads correctly (ADR 0119)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 48
+title = "As a developer, I want `page.on` with Playwright's event names (`console`, `pageerror`, `request`, `requestfinished`, `requestfailed`, `response`, `popup`, `download`, `filechooser`, `websocket`, `load`, `domcontentloaded`, `close`, `crash`) and the data ADR 0085 lists, so that network and console capture works as I expect (ADR 0037 / SA-18)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 49
+title = "As a developer, I want a response a site's service worker supplied to carry `fromServiceWorker()` true, and a service worker's own requests to pass the domain policy, the Filter lists, the Response cache and my Session routes, so that a service worker hides nothing from me (ADR 0121; pitfall B20)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 50
+title = "As a developer who needs every request to reach my routes, I want `browser.service_workers: block`, which on Chromium rejects `register()` as the browser's own refusal does with no page-visible stub, and an explicit `allow` where a Firefox or WebKit Session opens refused with `capability_unavailable`, so that `standard`'s identity holds (ADRs 0083, 0121)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 51
+title = "As a developer, I want a Session with `block` to keep a service worker already registered in a Profile directory from controlling any page, and a Profile directory whose registration `block` cannot stop to be refused with `capability_unavailable` naming `state_file`, so that no request escapes the interception (ADR 0121)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 52
+title = "As a developer, I want an `alert`, `confirm` or `prompt` with no handler dismissed, and a `beforeunload` dialog accepted, so that a confirmation I did not mean is never given and a navigation never stalls (ADR 0085; ADR 0037 / SA-26; pitfall B16)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 53
+title = "As a developer, I want `page.on('dialog')` handlers answered under the routes' rules, a handler that answers nothing falling through to the default, so that a listener that only logs never stalls the page."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 54
+title = "As a developer, I want `addLocatorHandler` to clear an overlay before each attempt of a guarded action, its exception failing the interrupted action with `page_handler_failed` while it stays registered, so that random sign-up modals never break a flow (pitfall B07)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 55
+title = "As a developer, I want popups as Pages of their opener's Session through the `popup` event, `session.pages()` and the Session's `page` event, with no active page, and a `waitForEvent('popup')` armed before the click that opens a popup always to catch it, so that a new tab is never missed (ADR 0085; ADR 0037 / SA-29; pitfall B15)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 56
+title = "As a developer, I want Chromium headless by default and headful with `browser.headless: false`, presenting one real browser's identity either way with no `HeadlessChrome` token, so that the site sees the same browser whether a person watched or not (ADRs 0021, 0092; ADR 0037 / SA-05; golden scenario 04, failure point 6)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 57
+title = "As a developer, I want Firefox and WebKit through Playwright's driver with the same guard, only when a Run asks for them, and Edge as an installed Chromium-family browser on a best-effort basis, so that I can test what my users run (ADR 0019; ADR 0037 / SA-06)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 58
+title = "As a developer, I want the guard and the Consent prompt runner on Firefox and WebKit to run in Playwright's utility world wherever that route is proved, and to be marked in Provenance where they act from the main world, so that I know when a page could see them (ADRs 0019, 0048)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 59
+title = "As a developer, I want `browser.viewport`, `browser.device_scale_factor`, `browser.locale`, `browser.timezone_id`, `browser.color_scheme`, `browser.java_script_enabled`, `browser.geolocation`, `browser.has_touch`, `browser.is_mobile` and `network.throttle` as Session settings, set where a Session opens, never per page, refused where a Session's identity is fixed elsewhere and yielding when inherited, so that device emulation never contradicts a `stealth` profile or an imported login (ADR 0083; ADR 0037 / SA-23; pitfalls B17, B18)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 60
+title = "As a developer, I want each Session isolated in its own browser context, with its own cookies, storage, identity and proxy, so that two Sessions of one Run never share a login (ADR 0021; ADR 0037 / SA-10)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 61
+title = "As a developer, I want `run.newPage()` to open pages in the Run's default Session, shared by every later `run.newPage()` and reached through `page.session()`, so that a one-page script needs no Session object (ADR 0092)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 62
+title = "As a developer, I want `run.newSession({ source, login, settings, timeout })` to open a Session from exactly one Session source, `session.source` in its own `settings` refused with `setting_not_applicable`, so that one union replaces `storageState`, `launchPersistentContext` and `connectOverCDP` (ADRs 0056, 0092)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 63
+title = "As a developer, I want `source: { kind: \"saved_identity\", name }` to reuse a login I kept with `session.saveIdentity(name)`, encrypted in the install's store, never a clear-text file, its reuse under another Access mode or an inconsistent proxy refused, so that my login cannot be read by other users of the machine (ADR 0035; golden scenario 04, failure point 5; ADR 0037 / SA-11)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 64
+title = "As a developer, I want `state_file` to read a Playwright `storageState`, a Netscape `cookies.txt`, a CDP cookie array or a session export bundle, its format detected, as a run-only import encrypted under the run key, so that a CI job brings its login without creating a stored object (ADR 0056)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 65
+title = "As a developer, I want `cookie_header` to seed a Session from a raw `Cookie:` header for one domain, so that a header copied from a browser is enough (ADR 0056)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 66
+title = "As a developer, I want `profile_directory` to launch the browser family that wrote it on that directory in place, under its own lock and version checks, refusing with `profile_directory_in_use`, `profile_directory_browser_mismatch` or `profile_directory_newer_than_browser` and refusing Chrome's default data directory, so that my profile is never corrupted or downgraded (ADR 0056; ADR 0037 / SA-11)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 67
+title = "As a developer, I want `installed_browser` to import the cookies and storage of Chrome, Edge, Brave, Firefox or Safari, read by the browser itself for the Chromium family and from a copy for Firefox and Safari, never decrypting a browser's cookies, so that my existing login works without infostealer techniques (ADR 0056; pain 4)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 68
+title = "As a person, I want Safari's data read only after I grant Full Disk Access, failing with `full_disk_access_required` that explains how, so that macOS's protection is respected."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 69
+title = "As a developer, I want `running_browser` to borrow my running Chrome or Edge through Chrome's consented remote debugging, one connection per Run approved once, opening its own tabs and never touching mine, refused with `remote_debugging_disabled_by_policy` or `running_browser_unsupported` where it cannot, so that a device-bound login is used where it lives (ADR 0056; ADR 0037 / SA-08)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 70
+title = "As a developer, I want `run.borrow(pageOrBrowser)` to relay my own Playwright or Puppeteer browser over the SDK's connection with no port, each borrowed browser context one Session of the Run, never closed by Collie and refused with `borrow_requires_cdp` for Playwright's Firefox and WebKit, so that Collie works inside Crawlee, Scrapy or my own script (ADRs 0056, 0078, 0089; pain 12, P20)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 71
+title = "As a developer, I want a `cdp_url` that cannot be used to fail when its Session opens with one code per remedy (`cdp_url_unreachable` at once on a closed port, `cdp_url_not_browser` naming what answered and the browser address its `/json/version` lists, `cdp_url_unauthorized` naming the header's Secret reference, `cdp_url_not_allowed` before any connection), so that I fix my setup from the error (ADR 0115)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 72
+title = "As a developer, I want navigation on a borrowed running browser, a `cdp_url` naming `domains` or a Profile directory used in place bound to its source's `domains`, an unlisted one failing with `domain_not_allowed`, so that my program cannot wander off the sites I allowed (ADR 0056)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 73
+title = "As a person, I want every import, borrow, save, reuse and deletion of a login in the Audit log, and an import, borrow, save, deletion or export by a Client acting for a model or a Recipe run to wait for my approval, so that a prompt-injected agent cannot plant an attacker's cookies (ADR 0056)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 74
+title = "As a developer, I want an import bound to the identity that minted it (`standard`, the source's language, time zone and family, direct egress bound to this machine), with a warning where the running browser differs from the source's family, so that a site never sees my cookies from another browser or IP without my knowing (ADR 0056)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 75
+title = "As a developer, I want an import from a live Chromium to leave out the cookies of its device-bound sessions and say that such a login works only in its own browser, so that I am not surprised when Google cookies expire after export (ADR 0056)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 76
+title = "As a developer, I want `session.saveIdentity` on a Borrowed browser or a Profile directory used in place to raise `session_not_savable` naming the import that would work, so that I learn the fix (ADR 0092)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 77
+title = "As a developer, I want `session.cookies`, `addCookies`, `clearCookies` and `page.localStorage` and `sessionStorage` with Playwright's fields, bounded by a source's `domains`, offered in the SDKs only and never on a CLI, MCP, skill, adapter or Code mode surface, with cookie expiries in my language's point-in-time type and a session cookie's `expires` `null`, so that cookies never reach a model (ADR 0092; ADR 0037 / SA-21; pain P50)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 78
+title = "As a person, I want an imported login that expires re-imported from its source when that needs no person, and otherwise a Human pause offering the re-import, so that a closed Firefox profile refreshes itself (ADR 0056)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 79
+title = "As a developer, I want `session.page_check` (`login_page`, `expected_page`) judged on every page of the Session, a page that is neither raising `page_check_failed`, so that a login page answering 200 is a lost login, not a success (ADRs 0006, 0079, 0092; pitfall S10)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 80
+title = "As a developer, I want the recovery ladder (a declared refresh, a re-import from source, my `login` function, the built-in Agent's login, a Human pause), at most two recoveries per page, and `logged_out` listing each step and why it did not recover, my `login`'s exception chained, so that an expired login is one typed error (ADR 0092; golden scenario 04, failure point 2; pain 4; ADR 0037 / CO-13)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 81
+title = "As a developer, I want `session.recovery.human_pause: false` and `session.recovery.agent: false` to skip those steps, the Agent's step also skipped when no model is configured and no login Plan replays it, `logged_out` naming why, so that an unattended program fails fast instead of waiting for no one (ADRs 0092, 0100)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 82
+title = "As a developer, I want `page.pause({ reason, until, timeout })` to wait for a person in the headful window or the Live view, stopping every enclosing clock but no Limit, holding the page's later Gestures while reads run, ending when `until` holds or a person answers and returning who resolved it and how long it waited, so that a person can log in or approve a step mid-program (ADR 0092; pains P40, 18)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 83
+title = "As a person, I want closing a paused page's window, or quitting the browser, to end the pause at once with `call_cancelled` naming what closed, never a decline, and a lost Live view to end nothing, so that the program knows I walked away (ADR 0113; golden scenario 04, failure point 1)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 84
+title = "As a developer, I want `secret(\"name\")` typed by `fill` or `pressSequentially`, or sent in a header or JSON string of `page.request` or a route's override, only to a frame or request on the placeholder's bound domains, masked as `%name%` in everything returned, logged or kept, and refused with `secret_input_refused` on a browser other code may read, so that my password reaches no log, trace or file (ADR 0092; golden scenario 04, failure points 3 and 4; pain P14)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 85
+title = "As a developer, I want `secrets.<name>` bound to a `code_source` to read an email or SMS code from the source I configured, matched by sender, pattern and a time window, used once, with a Human pause when none arrives, so that two-factor logins run unattended where they can (ADRs 0006, 0092)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 86
+title = "As a developer, I want `session.http_credentials` to answer an HTTP authentication challenge only from a listed registrable domain, from a Secret reference, and never on a browser other code may read, so that Playwright's \"send to any server\" default is gone (ADR 0092; ADR 0037 / SA-27)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 87
+title = "As a developer, I want `browser.permissions` granted to every page of the Session, the clipboard permissions refused with `setting_not_applicable` in a headful window on my desktop, so that a page never reads my own clipboard (ADRs 0083, 0092)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 88
+title = "As a developer, I want `proxy.server`, `proxy.bypass`, `proxy.username` and `proxy.password` as Session settings with Playwright's fields, HTTP, HTTPS and SOCKS5 proxies, SOCKS5 credentials relayed locally, the password a Secret reference, so that one Session has one proxy and its credentials never appear in clear (ADRs 0021, 0092; ADR 0037 / SA-22)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 89
+title = "As a developer, I want a proxy per page or per request refused, so that my IP never changes under the same cookies (ADR 0021)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 90
+title = "As a developer sharing a proxy plan across runs, I want `politeness.proxy.concurrency`, `politeness.proxy.rate` and `politeness.sharing`, a ceiling learned from the proxy's own 429 and 502 and one learned per cloud-browser provider, and a 407 failing with `proxy_auth_failed`, held for my own navigation too, so that runs take turns instead of failing on the vendor's refusals (ADRs 0053, 0088; pitfall H12; pain 13)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 91
+title = "As a developer, I want a Block cause the engine cannot get past on a Session my program or an Agent opened to raise `blocked` with the cause, the URL, the status and `retryAfter`, from the call that waited for the navigation or else the page's next call, the Session kept open with its cookies and nothing written to Politeness's domain limits, so that I decide whether to wait, open another Session or pause for a person (ADRs 0088, 0092, 0098, 0118; pain 1)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 92
+title = "As a developer, I want a Challenge on my Session to go down the Challenge ladder without opening a new `stealth` Session, ending in `challenge_unsolved` when it cannot pass, so that my login survives (ADR 0088; area 8 builds the ladder)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 93
+title = "As a developer, I want a 402 or a paywall redirect on my page reported as `blocked` with `payment_required`, never paid or evaded by Collie, so that a demand for payment is a typed answer (ADRs 0045, 0088)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 94
+title = "As a user, I want ads and trackers blocked by default in every browser Session through `adblock-rust` in the engine's interception, a blocked request failing as `BlockedByClient`, so that pages load fewer bytes and screenshots carry no ads (ADR 0047; ADR 0037 / SA-17)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 95
+title = "As a user, I want a never-block list that keeps challenge, anti-bot, anti-fraud and payment scripts loading over every Filter list and over `browser.block_resources`, so that blocking never breaks a challenge (ADR 0047)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 96
+title = "As a user, I want `browser.block_resources` (`image`, `media`, `font`, `stylesheet`) applied in the interception before every navigation of the Session, warning once in `standard` and `stealth`, so that I cut bytes knowingly (ADRs 0047, 0117)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 97
+title = "As a user, I want each Run to hold to one version of the Clean-up rules for its whole life, named in Provenance with its date and the release that applied it, so that a resume never changes what a Run blocks (ADR 0047)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 98
+title = "As a user, I want matched elements hidden on the live page through a style sheet the site cannot see on Chromium, only on demand on Firefox and WebKit, and lifted when the guard finds an action's target hidden, so that hiding never breaks a click or leaves a trace (ADR 0047)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 99
+title = "As a user, I want a page with no Block cause that fails its Page check, or a challenge that blocking touched, retried once with blocking off and blocking learned off only when the retry passes, so that a list that breaks a site is caught (ADR 0047)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 100
+title = "As a user, I want Consent prompts refused by default through autoconsent in every frame, with trusted clicks through the guard and the vendor's own API called in the main world only where a rule needs it, a prompt with no refusal that leaves content readable hidden, so that prompts never cover my content (ADR 0048; ADR 0037 / SA-28; pitfall B08)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 101
+title = "As a user, I want a consent wall to be the Block cause `consent_required`, accepted only on `consent_domains` a person approved, so that no tool consents in my name (ADR 0048)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 102
+title = "As a person, I want to approve reading past Walls on `wall_domains`, and refetching without the site's stored data only on `wall_refetch_domains`, by generic means only, with every action in Provenance and the Audit log, so that the choice and its exposure are mine (ADR 0052)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 103
+title = "As a user, I want `gpc: auto` to send Global Privacy Control only when the presented browser would, so that the signal never contradicts the identity (ADR 0048)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 104
+title = "As a developer, I want `page.lend()` and a helper per library (Playwright in TypeScript and Python, Puppeteer, Browser Use) to give a library an endpoint that shows only that page's Session, so that a library never sees another Session's cookies (ADR 0089; ADR 0037 / SA-07)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 105
+title = "As a developer, I want the library's `Browser.close` to end only its attach, context creation, extension loads and ignoring certificate errors refused with `cdp_command_refused`, unclassed browser-level commands refused, and my page's device emulation and permissions re-applied when the attach ends, so that a second client can never break my Session (ADR 0089)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 106
+title = "As a developer, I want `page.newCDPSession()` over my own connection, reaching only its page's target, refused with `capability_unavailable` on Firefox and WebKit, its results marked unguarded, so that I have a way down without a port (ADR 0085; pain P33)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 107
+title = "As a developer, I want my own driver and Collie to take turns on a page other code drives, my library's commands never queued behind a Collie call, and an AI verb whose document a navigation it did not start replaces to fail with `page_navigated_during_call` naming both addresses, so that two drivers never act on a page silently at once (ADR 0114)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 108
+title = "As a developer, I want to choose a local browser, a Browser host or a third-party CDP browser such as Browserbase by configuration alone, so that the same program runs locally or remotely (ADR 0022; ADR 0037 / V3-05)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 109
+title = "As an operator, I want `goodfetch-collie browser-host` (and the same command of Foxhound's executable) to run beside a browser, carry out a Session's operations with the guard over a pipe, enforce the egress policy, run the egress relay with the Session's certificate exceptions, the Filter lists, live hiding and the Consent prompt runner, run the governor for its own browser, and serve the Live view and, when enabled, the endpoint a hosted page is lent through, so that a click costs one network round trip (ADRs 0022, 0040, 0042, 0089, 0096)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 110
+title = "As an operator, I want a Browser host and its engine to settle on the lower of their protocol minors, and what a Session needs beyond it to fail in the engine with `browser_host_outdated` naming both minors, so that upgrading either side never breaks the other silently (ADR 0096)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 111
+title = "As a person whose engine runs remotely, I want a Browser host on my own machine to connect out to the engine, serve my running browser or Profile directory with nothing copied back and nothing wiped, and a Run waiting in a Human pause while my machine sleeps, so that a device-bound login works with an engine on another machine (ADR 0056)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 112
+title = "As a Foxhound contributor, I want Collie's page to carry a navigation gate and a lease check as interfaces, empty on a page a program opens and set by Foxhound when a handler gets its page, consulted for every main-frame navigation whatever starts it, every `page.request`, each redirect and refresh hop and a service worker's `navigate` request, able to refuse with `site_preferences_refused`, so that a handler's own navigation is counted and fenced (ADRs 0087, 0093, 0118, 0121)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 113
+title = "As a Foxhound contributor, I want popups and pages opened from a handler's page to inherit its value, and a library's navigation on a Lent page to pass the gate once, a request the interception no longer sees going ungated with the Run trace saying so, so that no page escapes it unseen (ADRs 0086, 0087, 0089)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 114
+title = "As a crawl user, I want each Label on each domain fetched over HTTP when a sample fetched both ways gives the same Records and enqueues as the browser, and over the browser otherwise, so that I pay for the browser only where it is needed (ADR 0020; pain P11; ADR 0037 / SA-01)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 115
+title = "As a crawl user, I want one handler to run unchanged on every tier, a call a tier cannot serve exactly escalating the request to the browser under `fetch.tier: auto` and failing with `browser_required` under a forced tier, so that switching tiers is never a rewrite (ADR 0093; K03)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 116
+title = "As a crawl user, I want the sample comparison to compare the Records and enqueues each attempt staged, before any \"Record before commit\" Hook, and the browser's attempt to be the one that commits, so that a listing page that only enqueues links never passes on a tier that finds none (ADR 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 117
+title = "As a crawl user, I want a Label whose browser sample ended on another URL, whose `document.characterSet` differs, or whose results differ with Filter-list blocking off, kept on the browser or with blocking off as ADRs 0047, 0118 and 0119 say, so that a page that redirects by script or needs an ad script is never read wrongly over HTTP."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 118
+title = "As a crawl user, I want `fetch.tier` to force a tier down to a Label, recorded in Provenance as forced, so that I can skip the comparison knowingly (ADRs 0020, 0023, 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 119
+title = "As a crawl user, I want the discovered-API tier to replay the JSON calls the browser made while loading a sample, for page-number and cursor plans, and to serve network waits and kept responses from them, so that an infinite-scroll list is read at a fraction of the browser's cost (ADR 0020; pitfall B09)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 120
+title = "As a crawl user, I want the light-browser tier (Lightpanda) used only where my Run's capabilities allow it and its sample matches Chrome's, run out of process and downloaded on demand, so that its licence stays outside my distribution (ADR 0020)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 121
+title = "As a crawl user, I want a Session that may move to the browser to send its HTTP through browser-fetch from inside its browser, so that its TLS fingerprint never changes mid-Session (ADR 0020)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 122
+title = "As a crawl user in `stealth`, I want HTTP-only Sessions on `wreq` with the TLS and HTTP/2 fingerprint of the Session's Identity profile, so that a crawl over HTTP presents the same client as its browser would (ADR 0020; ADR 0037 / SA-03)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 123
+title = "As a crawl user, I want the cookies a page set in the browser sent by the HTTP tier in the same Session, and never by another Session, so that tiers never disagree on who I am (pitfall H20)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 124
+title = "As a site owner, I want every tier to follow Fetch's redirect statuses with Fetch's method and header rules, at most `fetch.redirect.max` times, each hop through the navigation gate, so that a redirect loop costs my site at most `fetch.redirect.max` + 1 requests (ADR 0118, whose count of at most `fetch.redirect.max` requests this spec corrects; pitfall U12)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 125
+title = "As a crawl user, I want a refresh stub to another URL within `fetch.refresh.max_delay` followed at once on every tier as one more hop, a refresh to itself never followed, so that HTTP and the browser reach the same document (ADR 0118; pitfall U13)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 126
+title = "As a crawl user, I want a cut body to fail its attempt with `response_truncated` on every tier, retried and never handed to my handler, and a connection-delimited body counted complete at the close, so that no truncated page is stored as complete (ADR 0118; pitfall H15)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 127
+title = "As a crawl user, I want a request the site never processed (GOAWAY below the stream, REFUSED_STREAM, 421, `HTTP_1_1_REQUIRED`, a reused idle connection closing for a read) sent once more on a new connection, counted nowhere, and any other transport failure to end the attempt with `navigation_failed`, so that a drained connection never fails a request (ADR 0118; pitfall H05)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 128
+title = "As a crawl user, I want every transport to decode gzip, deflate, Brotli and zstd as Chrome does, checked by a conformance gate, so that a client built without a coding never stores compressed bytes (ADRs 0020, 0119; pitfalls H13, H25)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 129
+title = "As a crawl user, I want a document decoded in one order on every tier (a BOM, `fetch.encoding`, the `Content-Type` charset, Chrome's `<meta>` prescan, then UTF-8), a non-browser tier escalating a body it would have to guess, and the browser given the same encoding at the interception, so that every tier reads the same text (ADR 0119; pitfalls H16, H17)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 130
+title = "As a crawl user, I want a navigation of a handler's page never to start a download, a response that is not a document read at the interception, so that a PDF reaches my handler as bytes the Label accepts (ADR 0119)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 131
+title = "As a site owner, I want a crawl to obey the robots.txt groups for `goodfetch-foxhound` and for the operator's own token merged, matched case-insensitively and as whole tokens, in every Access mode, and the `*` group only when neither has one, so that I can address Foxhound by name (ADRs 0086, 0090; ADR 0037 / SC-01; pain 6)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 132
+title = "As a site owner, I want 429, 503, 502, 504, a refused or timed-out connection and HTTP/2 `ENHANCE_YOUR_CALM` to back the domain off, a 500 for a page not to, and my `Retry-After` honoured, so that a crawl slows when I ask (ADRs 0021, 0086, 0118; pitfall H18)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 133
+title = "As a crawl user, I want a proxy's own 429 or 502 told apart from the site's, so that my proxy's limits never back off a site and a site's never lower my proxy's ceiling (ADR 0053)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 134
+title = "As a site owner, I want every navigation a handler's page makes (a click, a script's redirect, a popup, a `page.request`, an AI verb, each redirect hop, a service worker's navigation request) to take a permit from the navigation gate and robots.txt to be checked for it, so that a handler never presses my site past the crawl's limits (ADRs 0086, 0087, 0118, 0121)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 135
+title = "As a crawl user, I want a handler's page past its work item's lease to send nothing more, so that a zombie attempt never reaches the site (ADRs 0003, 0087)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 136
+title = "As a crawl user, I want a Label that sets `session.source`, `session.http_credentials`, `secrets.*` or a `login` step to get a Session pool of its own apart from the Run's, so that a logged-in section and a public section of one site never share cookies (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 137
+title = "As a crawl user, I want a page that fails its Label's `expectedPage` on a non-browser tier escalated to the browser instead of failing, and a page that fails it on the browser tier or under a forced tier to fail with `page_check_failed`, so that a JavaScript page fetched over HTTP never passes as an empty success (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 138
+title = "As a crawl user, I want a Block cause on a pool's Session to retire it and open its replacement at the escalation ADR 0021 picks (one proxy tier up for a 401, 403 or 429 without a challenge; the browser for a challenge page), so that a blocked domain recovers without my code (ADRs 0021, 0088; area 6 builds the pool)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 139
+title = "As a crawl user calling an API behind a Bearer token, I want a crawl request to carry `Authorization` only as a Secret placeholder, from its enqueue or a before-request Hook, dropped at every cross-origin hop and checked against the request's URL on every other hop, so that the token never passes through my code or follows a redirect (ADRs 0092, 0104)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 140
+title = "As a crawl user, I want a route's override of a crawl request's own fetch held to a Hook's rules (no method, body or `Cookie` change; `Authorization` only as a placeholder; a new URL checked as a rewrite), so that a route cannot step around the Frontier, robots.txt or Politeness (ADR 0104)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 141
+title = "As a crawl user, I want the responses my Label names in `fetch.kept_responses.urls` kept with their bodies from the start of the request's navigation, service workers' included, up to `fetch.kept_responses.max_size`, so that my handler reads a page's JSON with no reload (ADRs 0110, 0121)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 142
+title = "As a site owner selling access, I want a crawl to pay me through Cloudflare's pay-per-crawl headers or x402 instead of evading my 402, only on domains a person put in `pay_domains`, so that I am paid rather than merely blocked (ADR 0045; pain 6)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 143
+title = "As a crawl user, I want a Paid fetch made only in an `identified` Session, under `max_price_per_page` and a currency Limit a person or a managed policy set, its worst case reserved before sending and journaled as an Effect, so that a resume never pays twice and an agent never approves its own spending (ADR 0045)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 144
+title = "As a crawl user, I want an interrupted payment proved settled, still able to settle or unable to settle from the chain's finalized state, through an RPC endpoint from my configuration, and left an uncertain Effect only a person reconciles when it cannot be proved, so that no page is paid twice (ADR 0045)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 145
+title = "As a crawl user, I want pages left at `payment_required` listed and the Run's Completeness `unverified`, so that a paywalled page is never mistaken for a reached one (ADR 0045)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"

@@ -34,13 +34,23 @@ pub(super) fn uncovered(format: &Format, set: &Tree) -> Result<Vec<String>> {
                 .filter(|(path, _)| has_extension(path, "sql"))
                 .filter_map(|(_, bytes)| std::str::from_utf8(bytes).ok()),
         ),
-        Storage::Json | Storage::Transcript => {
+        Storage::Json | Storage::Transcript | Storage::Toml => {
             let mut documents = Vec::new();
             for (path, bytes) in set {
                 match format.storage {
                     Storage::Json if has_extension(path, "json") && path != DESCRIPTION => {
                         documents.push(
                             serde_json::from_slice(bytes)
+                                .with_context(|| format!("reading {path}"))?,
+                        );
+                    }
+                    Storage::Toml if has_extension(path, "toml") => {
+                        let text = std::str::from_utf8(bytes)
+                            .with_context(|| format!("reading {path}"))?;
+                        let document: toml::Table =
+                            toml::from_str(text).with_context(|| format!("reading {path}"))?;
+                        documents.push(
+                            serde_json::to_value(document)
                                 .with_context(|| format!("reading {path}"))?,
                         );
                     }
@@ -304,5 +314,44 @@ mod tests {
         let uncovered = uncovered(&format, &set).unwrap();
 
         assert_eq!(uncovered, expected);
+    }
+
+    #[test]
+    fn a_toml_document_covers_the_properties_it_holds() {
+        let text = serde_json::to_vec(&json!({
+            "formats": [{
+                "name": "settings",
+                "version": "0.1",
+                "storage": "toml",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "version": { "type": "string" },
+                        "settings": {
+                            "type": "object",
+                            "properties": {
+                                "network": {
+                                    "type": "object",
+                                    "properties": {
+                                        "offline": { "type": "boolean" },
+                                        "resolve": { "type": "object" },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            }],
+        }))
+        .unwrap();
+        let format = registry::parse(&text).unwrap().pop().unwrap();
+        let set = Tree::from([(
+            "policy.toml".to_owned(),
+            b"version = \"0.1\"\n[settings.network]\noffline = true\n".to_vec(),
+        )]);
+
+        let uncovered = uncovered(&format, &set).unwrap();
+
+        assert_eq!(uncovered, ["settings.network.resolve"]);
     }
 }

@@ -487,17 +487,41 @@ const OTHER_SHA: &str = "fedcba9876543210fedcba9876543210fedcba98";
 const PULL_REQUEST: &str = "/repos/goodfetch/goodfetch/pulls/7";
 const COMMENTS: &str = "/repos/goodfetch/goodfetch/issues/7/comments?per_page=100&page=1";
 
+/// The comments' author `jb`'s permission on the repository.
+const PERMISSION: &str = "/repos/goodfetch/goodfetch/collaborators/jb/permission";
+
 /// A pull request whose head is `HEAD_SHA`, with `body` and one comment.
 fn pull_request(body: &str, comment: &str, author_association: &str) -> GitHub {
+    pull_request_with_permission(body, comment, author_association, None)
+}
+
+/// As [`pull_request`], the comment's author `jb` having `permission` on the
+/// repository; without one, GitHub answers 404.
+fn pull_request_with_permission(
+    body: &str,
+    comment: &str,
+    author_association: &str,
+    permission: Option<&str>,
+) -> GitHub {
     let pull_request = format!(
         r#"{{ "number": 7, "body": {}, "head": {{ "sha": "{HEAD_SHA}" }} }}"#,
         serde_json::to_string(body).unwrap()
     );
     let comments = format!(
-        r#"[ {{ "body": {}, "author_association": "{author_association}" }} ]"#,
+        r#"[ {{ "body": {}, "author_association": "{author_association}", "user": {{ "login": "jb" }} }} ]"#,
         serde_json::to_string(comment).unwrap()
     );
-    GitHub::serving(&[(PULL_REQUEST, &pull_request), (COMMENTS, &comments)])
+    let permission = permission.map(|permission| {
+        format!(r#"{{ "permission": "{permission}", "role_name": "{permission}" }}"#)
+    });
+    let mut routes = vec![
+        (PULL_REQUEST, pull_request.as_str()),
+        (COMMENTS, comments.as_str()),
+    ];
+    if let Some(permission) = &permission {
+        routes.push((PERMISSION, permission));
+    }
+    GitHub::serving(&routes)
 }
 
 /// Collie's wheel, 1.10 MB over `main`'s.
@@ -545,6 +569,56 @@ fn tripped_file_with_its_section_and_acceptance_on_the_head_passes(#[case] comme
 
     assert_eq!(outcome.findings(), vec![]);
     assert_eq!(outcome.code, 0);
+}
+
+// GitHub marks an organization's owners MEMBER on its repositories, never
+// OWNER, and an organization's owner is always an admin of its repositories:
+// the repository's `admin` permission says who owns it.
+#[test]
+fn acceptance_by_a_member_who_administers_the_repository_passes() {
+    let workspace = Workspace::from_fixture("empty");
+    write_wheel_grown_by_1_1_mb(&workspace);
+    let github = pull_request_with_permission(
+        SECTION,
+        &format!("Size increase accepted for {HEAD_SHA}."),
+        "MEMBER",
+        Some("admin"),
+    );
+
+    let outcome = increase_for_pull_request(&workspace, &github);
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0);
+}
+
+#[rstest]
+#[case::member_who_can_write("MEMBER", Some("write"))]
+#[case::member_without_permission_visible("MEMBER", None)]
+// Only the organization's members can own it.
+#[case::collaborator_who_administers_the_repository("COLLABORATOR", Some("admin"))]
+fn acceptance_by_anyone_but_a_member_who_administers_the_repository_fails(
+    #[case] author_association: &str,
+    #[case] permission: Option<&str>,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    write_wheel_grown_by_1_1_mb(&workspace);
+    let github = pull_request_with_permission(
+        SECTION,
+        &format!("Size increase accepted for {HEAD_SHA}."),
+        author_association,
+        permission,
+    );
+
+    let outcome = increase_for_pull_request(&workspace, &github);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "size-increase",
+            "collie/x86_64-unknown-linux-gnu/wheel"
+        )]
+    );
+    assert_eq!(outcome.code, 1);
 }
 
 #[rstest]

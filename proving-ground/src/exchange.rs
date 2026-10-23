@@ -15,6 +15,8 @@ pub(crate) struct Request<'a> {
     pub(crate) query: &'a str,
     /// The `Cookie` header, empty when the request has none.
     pub(crate) cookies: &'a str,
+    /// The `Authorization` header, empty when the request has none.
+    pub(crate) authorization: &'a str,
     pub(crate) body: &'a Bytes,
     /// The address the request came from, as the site sees it.
     pub(crate) peer: IpAddr,

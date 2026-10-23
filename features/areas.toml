@@ -53,5 +53,690 @@ prefix = "call_cancelled"
 
 [[area]]
 number = 3
+kind = "error"
+prefix = "deadline_exceeded"
+
+# The engine's own DNS resolver and Smart App Control's refusal (#260).
+[[area]]
+number = 3
+kind = "error"
+prefix = "name_not_resolved"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "name_lookup_failed"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "address_family_unavailable"
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "resolver."
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "executable_blocked_by_smart_app_control"
+
+[[area]]
+number = 3
 kind = "format"
 prefix = "protocol"
+
+# Area 3's Runs (spec #213, #215): the run operations, a crawl's start, their
+# Error codes, run state's location and the run-state and Run index formats.
+# `run.new_page` is area 5's.
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.start"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.finish"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.abort"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.failed_requests"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.outcomes"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.checkpoint"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.migrate"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.pause"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.resume"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.set_progress_message"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "crawl.start"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "run_"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "handler_"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "crawl.serve"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "lease_lost"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "client_gone"
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "run_state."
+
+# Area 3's Checkpoints and resume (#218): the periodic interval, a write that
+# fails where the engine keeps its files, a file of a version this engine
+# cannot read, and a Run bound to another machine.
+[[area]]
+number = 3
+kind = "setting"
+prefix = "checkpoint."
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "file_write_failed"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "format_version_unsupported"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "session_bound_to_machine"
+
+[[area]]
+number = 3
+kind = "format"
+prefix = "run-"
+
+# Area 3's Browser cache (#259): a missing build's Error codes, the download's
+# progress event, the clean-up's setting and the cache's entry format.
+[[area]]
+number = 3
+kind = "error"
+prefix = "browser_not_installed"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "artifact_"
+
+[[area]]
+number = 3
+kind = "event"
+prefix = "browser_cache."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "browser_cache."
+
+[[area]]
+number = 3
+kind = "format"
+prefix = "browser-cache"
+
+# Area 3's Daemon (#220): `daemon.*`, its Error code and idle timeout, and
+# the list of installed executables.
+[[area]]
+number = 3
+kind = "operation"
+prefix = "daemon."
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "not_a_daemon"
+
+# Area 3's logs and traces (#257): a Connection's log level, the log
+# format and the OTLP export of the engine's spans.
+[[area]]
+number = 3
+kind = "operation"
+prefix = "connection."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "log."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "otlp."
+
+# Area 3's foreground Daemon (#228): its drain's Error code.
+[[area]]
+number = 3
+kind = "error"
+prefix = "daemon_draining"
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "daemon."
+
+[[area]]
+number = 3
+kind = "format"
+prefix = "installed-executables"
+
+[[area]]
+number = 3
+kind = "format"
+prefix = "politeness-file"
+
+[[area]]
+number = 3
+kind = "command"
+prefix = "daemon."
+
+# Area 3's versions (#226): `upgrade-files`, its refusal, and the setting
+# that turns the age notice off.
+[[area]]
+number = 3
+kind = "command"
+prefix = "upgrade-files"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "upgrade_source_unsupported"
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "version."
+
+# Area 3's writer lock and Run index (#219): `runs reindex`.
+[[area]]
+number = 3
+kind = "command"
+prefix = "runs."
+
+# Area 3's Usage ledger (#231): Limits across runs, `usage`, their Error
+# codes and the ledger's format.
+[[area]]
+number = 3
+kind = "operation"
+prefix = "usage."
+
+[[area]]
+number = 3
+kind = "command"
+prefix = "usage"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "limit_"
+
+[[area]]
+number = 3
+kind = "format"
+prefix = "usage-ledger"
+
+# Area 3's person-only marker (#232): the refusal of a person's answer
+# asked by any surface but the Console and the CLI's interactive prompt.
+[[area]]
+number = 3
+kind = "error"
+prefix = "person_required"
+
+# Area 3's settings (#225): `config.explain`, the refusals of a setting, the
+# Operator policy's and user configuration's formats, and the keys the
+# runtime itself waits on or resolves (ADR 0059).
+[[area]]
+number = 3
+kind = "operation"
+prefix = "config."
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "setting_"
+
+[[area]]
+number = 3
+kind = "format"
+prefix = "operator-policy"
+
+[[area]]
+number = 3
+kind = "format"
+prefix = "user-configuration"
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "network."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "timeout."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "crawl.retry."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "crawl.handler."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "crawl.domain_keys"
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "crawl.keep_alive"
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "admission."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "politeness."
+
+# The keys #225 declares for the areas that build what they shape, each with
+# its area first (ADR 0083): Security and egress (4), Site access (5),
+# Collection (6).
+[[area]]
+number = 4
+kind = "setting"
+prefix = "tls."
+
+[[area]]
+number = 4
+kind = "setting"
+prefix = "egress."
+
+[[area]]
+number = 4
+kind = "setting"
+prefix = "secrets."
+
+# Area 4's Secret references (#615): the Error codes a resolution fails
+# with.
+[[area]]
+number = 4
+kind = "error"
+prefix = "secret_"
+
+# Area 4's Audit log (#612): `audit.verify`, Collie's `audit verify` and the
+# log's format.
+[[area]]
+number = 4
+kind = "operation"
+prefix = "audit."
+
+[[area]]
+number = 4
+kind = "command"
+prefix = "audit."
+
+[[area]]
+number = 4
+kind = "format"
+prefix = "audit-log"
+
+[[area]]
+number = 5
+kind = "setting"
+prefix = "consent."
+
+[[area]]
+number = 5
+kind = "setting"
+prefix = "wall."
+
+[[area]]
+number = 5
+kind = "setting"
+prefix = "filter_lists."
+
+[[area]]
+number = 5
+kind = "setting"
+prefix = "session.source"
+
+# A crawl's Session pool (#920, ADR 0088): its keys are area 6's.
+[[area]]
+number = 6
+kind = "setting"
+prefix = "session.pool."
+
+[[area]]
+number = 5
+kind = "setting"
+prefix = "paid_fetch."
+
+[[area]]
+number = 5
+kind = "setting"
+prefix = "browser."
+
+# Area 5, Site access (specs #576 to #579): a Run's pages, their navigations
+# and the Error codes of their browsers (#695, #698).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "run.new_page"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.goto"
+
+# The other navigations (#698): `page.reload`, `page.go_back`, `page.go_forward`.
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.reload"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.go_"
+
+# Area 6, Collection (spec #580): the page formats (#783).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "page.formats"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "navigation_"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_crashed"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "browser_launch_failed"
+
+# The guard's locator actions and their refusal (#700).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "locator."
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "target_not_unique"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "pattern_unsupported"
+
+# A navigation's redirect loops, cut documents and downloads (#699).
+[[area]]
+number = 5
+kind = "error"
+prefix = "too_many_redirects"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "response_truncated"
+
+[[area]]
+number = 5
+kind = "event"
+prefix = "page."
+
+[[area]]
+number = 6
+kind = "setting"
+prefix = "delivery."
+
+[[area]]
+number = 6
+kind = "setting"
+prefix = "webhook."
+# The Browser cache's commands (#259): `browsers install` and `browsers clean`.
+[[area]]
+number = 3
+kind = "command"
+prefix = "browsers."
+
+# The hidden Attached-engine entry of both executables, which an SDK starts
+# (spec #213).
+[[area]]
+number = 3
+kind = "command"
+prefix = "attached-engine"
+
+# Area 3's event stream and page bodies (spec #213, #216): the subscription
+# and its events, a Run's axis changes, and `page.body` with its Error code.
+[[area]]
+number = 3
+kind = "operation"
+prefix = "events."
+
+[[area]]
+number = 3
+kind = "event"
+prefix = "events."
+
+[[area]]
+number = 3
+kind = "event"
+prefix = "run."
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "page.body"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "body_"
+
+# Area 3's settings command (#225): `config explain`.
+[[area]]
+number = 3
+kind = "command"
+prefix = "config."
+
+# Area 11, the Client surfaces (spec #606): the Error codes an SDK's own
+# runtime raises about its Connection (#1216).
+[[area]]
+number = 11
+kind = "error"
+prefix = "closed"
+
+[[area]]
+number = 11
+kind = "error"
+prefix = "engine_"
+
+# Area 11, the Client surfaces (spec #608): ADR 0069's exit-code table,
+# every row of which is a CLI exit code (#1188).
+[[area]]
+number = 11
+kind = "exit"
+prefix = ""
+
+# The Error codes whose rows of the exit-code table #1188 declared before
+# their areas raise them: a path the program chose that cannot be written
+# (ADR 0116) and exhausted resources (ADRs 0040, 0122) are area 3's, an
+# outdated Browser host (ADR 0096) area 5's.
+[[area]]
+number = 3
+kind = "error"
+prefix = "path_not_writable"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "resources_exhausted"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "browser_host_outdated"
+
+# Area 12, the Console (spec #592): its address and the Error code of its
+# port taken (#811).
+[[area]]
+number = 12
+kind = "error"
+prefix = "console_"
+
+[[area]]
+number = 12
+kind = "setting"
+prefix = "console."
+
+# Area 11, the Client surfaces (spec #608): the commands generated from the
+# catalog (#1174).
+[[area]]
+number = 11
+kind = "command"
+prefix = "engine."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "run."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "sample."
+
+# The sequences, offered with `--follow` (#1180).
+[[area]]
+number = 11
+kind = "command"
+prefix = "events."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "page."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "locator."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "key-value-store."
+
+# Area 8, Stealth and Challenge solving (specs #599 and #600): every Block
+# cause, the closed list both Products share (#849).
+[[area]]
+number = 8
+kind = "block-cause"
+prefix = ""
+
+# Area 6, Collection, Foxhound (specs #581 and #582): what the Frontier
+# answers each seed and a handler's enqueue (#828), and the call on an
+# attempt that ended, which every member of a handler's context answers
+# (ADR 0093).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "crawl_request."
+
+[[area]]
+number = 6
+kind = "operation"
+prefix = "run.seeds"
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "attempt_ended"
+
+# Area 6, Collection, Foxhound: the crawl's scope (#840).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.scope."
+
+# Area 6, Collection (spec #580, Collie's part): a Run's Key-value store
+# (#791).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "key_value_store."
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "value_invalid"

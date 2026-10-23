@@ -1,0 +1,69 @@
+{
+  "description": "During a call, the engine calls one of the Client's handlers, takes its answer, sends an event and then answers the call.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.1.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.1.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "sample.echo",
+        "params": {
+          "text": "hello"
+        }
+      }
+    },
+    {
+      "send": {
+        "request": {
+          "method": "sample_store.put",
+          "params": {
+            "key": "greeting",
+            "value": "hello"
+          }
+        }
+      }
+    },
+    {
+      "await_reply": {
+        "result": {
+          "replaced": false
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "sample.echoed",
+          "params": {
+            "text": "hello"
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "text": "hello"
+        }
+      }
+    }
+  ]
+}

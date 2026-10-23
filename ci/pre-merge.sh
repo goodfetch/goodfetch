@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# `just pre-merge [all]`: the Pre-merge suite on this host (TESTING.md, The
-# three suites), which `just merge` runs before every merge (ADR 0135); `all`
-# runs it over the whole workspace, else over what changed.
+# `just pre-merge [all|quick]`: the Pre-merge suite on this host (TESTING.md,
+# The three suites), which `just merge` runs before every merge (ADR 0135);
+# `all` runs it over the whole workspace, else over what changed. `quick` is
+# the gate of a change that no test, benchmark, model, container or
+# Evaluation reads (`xtask affected`'s `gate=quick`): only the checks every
+# change needs, over the whole workspace.
 #
 # The checks that need Linux run beside the host steps, each in its own
 # container, with its lines marked `[<step>]`: `just perf`, the counted
@@ -10,7 +13,8 @@
 # image (ci/visual/container.sh). The suite waits for each and fails when one
 # fails, and stops them when a host step fails first. The host's checks that
 # take seconds and judge the whole change (sign-offs, commit messages, the SDK
-# crates' features, advisories, the proofs) run before the suites; the stress
+# crates' features, advisories, secrets in commits, the fuzz targets, the
+# proofs) run before the suites; the stress
 # run of the new and changed tests (`just stress`) runs after the Pre-merge
 # suite, whose build its listings reuse.
 #
@@ -20,14 +24,30 @@ set -euo pipefail
 
 all=${1:-}
 case "$all" in
-  all | "") ;;
+  all | quick | "") ;;
   *)
-    echo "error: the only argument is \`all\`, not $all" >&2
+    echo "error: the argument is \`all\` or \`quick\`, not $all" >&2
     exit 2
     ;;
 esac
 
 rm -f target/skipped.txt
+if [[ $all == quick ]]; then
+  trap 'just _skips-report' EXIT
+  echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build and Miri do not run (xtask affected's gate=quick, ADR 0135)."
+  just dco
+  just commit-messages
+  just lint
+  just audit
+  just commit-leaks
+  just _suite quick all
+  just journeys-tasks --check
+  just notices
+  exit 0
+fi
+# Collie's executable embeds its Console build (ADR 0057), which the steps
+# beside, in their containers, find in the workspace they mount.
+just console-build
 names=()
 pids=()
 # Starts a step beside the host's, its lines marked with its name.
@@ -49,11 +69,17 @@ just commit-messages
 just lint
 just feature-combinations
 just audit
+just commit-leaks
+just fuzz-check
 just proofs
 just _suite quick "$all"
 just _suite pre-merge "$all"
+# Reads the Pre-merge suite's JUnit file and exercise records (ADR 0072).
+just features-audit
 just stress
 just journeys-tasks --check
+# One invocation, so the listings `journeys-tests` writes serve both.
+just features-tests clients-tests
 just _tlc "$all"
 just msrv
 just miri

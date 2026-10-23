@@ -1,0 +1,20 @@
+# A uv workspace, as the repository is. Its pytest is the repository's,
+# reached through `.pytoolchain`; its tests import the member `py-support`.
+[project]
+name = "stressed"
+version = "0.0.0"
+requires-python = ">=3.11"
+
+[dependency-groups]
+dev = ["py-support", "pytoolchain"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["py-support", ".pytoolchain"]
+
+[tool.uv.sources]
+py-support = { workspace = true }
+# Installed, not editable: an editable install leaves out its `.pth` file.
+pytoolchain = { workspace = true, editable = false }

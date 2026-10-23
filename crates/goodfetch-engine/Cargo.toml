@@ -11,21 +11,86 @@ publish.workspace = true
 autobenches = false
 
 [dependencies]
+chacha20.workspace = true
+# The Base64 of the page-body chunks `page.body` sends.
+data-encoding.workspace = true
+# Only names the inflate backend (miniz_oxide) for zip's DEFLATE.
+flate2.workspace = true
+# Drives the WebSocket's stream of messages and its sink (ADR 0049).
+futures-util.workspace = true
+getrandom.workspace = true
 goodfetch-protocol.workspace = true
+hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
+# The engine's own HTTP client (ADRs 0043 and 0060), HTTPS over HTTP/1.1,
+# and the Console's server, HTTP/1.1 (ADR 0057).
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["client", "http1", "server"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+# Period Limits count in an explicit IANA time zone (ADR 0041), read from the
+# system database, or a bundled one where the OS has none.
+jiff = { workspace = true, features = ["tzdb-zoneinfo", "tzdb-bundle-platform"] }
+rusqlite.workspace = true
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+# Every resolved Secret reference's value, zeroized when dropped (ADR 0015).
+secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# RFC 8785, the canonical JSON each Audit log entry's hash covers (ADR 0016).
+serde_json_canonicalizer.workspace = true
+sha2.workspace = true
+# The per-install layout's VFS, which keeps each Run's run file inside the
+# install database (ADR 0002), registered with the SQLite rusqlite bundles.
+sqlite-plugin.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "io-util", "io-std", "sync", "macros"] }
+# The settings files (ADR 0028): read, and rewritten with every other byte kept (ADR 0098).
+toml_edit.workspace = true
+tokio = { workspace = true, features = ["rt", "io-util", "io-std", "sync", "macros", "time", "fs", "net", "process"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
+# The protocol over WebSocket on an Exposed Daemon's address (ADR 0049).
+tokio-tungstenite.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true
+# The layer that hands log events to the Connections and the timer that
+# reads the Clock (spec #213, ADR 0059).
+tracing-subscriber.workspace = true
+ulid.workspace = true
+# The origin a span records of a URL (ADR 0132).
+url.workspace = true
+webpki-roots.workspace = true
+zip = { workspace = true, features = ["deflate-flate2"] }
+
+# Frees the buffer launchd answers the Daemon's activated sockets in, and
+# watches an Attached engine's parent (prctl, kqueue).
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+# Ties an Attached engine to its parent and its children to itself through
+# kill-on-close Job Objects (ADR 0024).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
+# Never used here: it turns on bindgen's `runtime` feature for sqlite-plugin's
+# build script, so that script loads libclang where the OS keeps it, as
+# goodfetch-test-support's does.
+[build-dependencies]
+bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
+# The pinned downloads' HTTPS stand-in (tests/it/downloads.rs).
+hyper = { workspace = true, features = ["server"] }
+rcgen = { workspace = true, features = ["ring"] }
 insta.workspace = true
 mimalloc.workspace = true
+proptest.workspace = true
+proptest-state-machine.workspace = true
 rstest.workspace = true
-tracing-subscriber.workspace = true
+# Reads the transition tables' source to show they match with no wildcard
+# (ADR 0128, src/transition/tests.rs).
+syn = { workspace = true, features = ["visit"] }
+tempfile.workspace = true
 
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
 [[bench]]
@@ -35,6 +100,10 @@ harness = false
 [[bench]]
 name = "heap"
 harness = false
+
+[package.metadata.cargo-shear]
+# flate2 is never named: it only picks the backend zip inflates with.
+ignored = ["bindgen", "flate2"]
 
 [lints]
 workspace = true

@@ -1,10 +1,19 @@
 # cargo-nextest's profiles (TESTING.md, No retries and Time budgets; ADRs 0061
 # and 0064). Every profile keeps zero retries with every lock on, fails leaky
 # tests and writes JUnit XML to `target/nextest/<profile>/junit.xml`.
-nextest-version = { required = "0.9.131" }
+# 0.9.148 is the first whose stress run (`just repeat`'s `--stress-count`)
+# fails when any run failed; before it, with fail-fast off, it exited with the
+# last run's code (nextest-rs/nextest#3624).
+nextest-version = { required = "0.9.148" }
+
+# The LazyFS power cuts (`lazyfs::` in an integration-test binary) run only in
+# the Release suite on Linux x64 (ADR 0060), where `just lazyfs-test` builds
+# LazyFS and selects them with `--ignore-default-filter`; every other run
+# leaves them out.
 
 # Local runs without a suite: the Pre-merge caps.
 [profile.default]
+default-filter = "not (kind(test) & test(/^lazyfs::/))"
 retries = 0
 flaky-result = "fail"
 fail-fast = false
@@ -28,6 +37,7 @@ path = "junit.xml"
 
 # The Pre-merge and Release suites in CI: slow after 30 s, killed at 5 min.
 [profile.ci]
+default-filter = "not (kind(test) & test(/^lazyfs::/))"
 retries = 0
 flaky-result = "fail"
 fail-fast = false
@@ -37,15 +47,24 @@ leak-timeout = { period = "200ms", result = "fail" }
 [profile.ci.junit]
 path = "junit.xml"
 
-# `xtask`'s tests that build a fixture crate (codegen, compat, perf, stress,
-# test tools) each build into a target folder their workspace holds alone
-# (the harness's numbered slots under `fixture-target/`), so copies whose
-# artifacts share names never meet. At most four run at once, in every
-# profile: each slot builds the fixture's dependencies once, and four Cargo
-# builds beside the other tests keep the host's cores shared.
+# `xtask`'s tests that build a fixture crate (codegen, compat, the Feature
+# generators, perf, stress, test tools) each build into a target folder their
+# workspace holds alone (the harness's numbered slots under `fixture-target/`),
+# so copies whose artifacts share names never meet. At most four run at once,
+# in every profile: each slot builds the fixture's dependencies once, and four
+# Cargo builds beside the other tests keep the host's cores shared.
+#
+# `daemon install`'s real installs (`service_manager::`) register services
+# with the user's own service manager, which the whole user shares: one at
+# a time, each named by its test's Goodfetch home (TESTING.md, Isolation).
 [test-groups]
 fixture-builds = { max-threads = 4 }
+service-manager = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^perf_build::/) | test(/^stress::/) | test(/^test_tools::/))"
+filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^feature_generators::/) | test(/^perf_build::/) | test(/^stress::/) | test(/^test_tools::/))"
 test-group = "fixture-builds"
+
+[[profile.default.overrides]]
+filter = "kind(test) & test(/^service_manager::/)"
+test-group = "service-manager"

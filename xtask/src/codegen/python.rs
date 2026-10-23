@@ -55,14 +55,18 @@ pub(super) fn generate(layer: &Layer) -> Generated {
     input["type"] = Value::from("object");
     input["additionalProperties"] = Value::Bool(false);
     allow_unknown_fields(&mut input);
+    let mut files = vec![
+        ("__init__.py", init(layer)),
+        ("operations.py", operations(layer)),
+        ("events.py", events(layer)),
+        ("errors.py", errors(layer)),
+        ("plugins.py", plugins(layer)),
+    ];
+    if !layer.shared_types.is_empty() {
+        files.push(("shared_types.py", shared_types(layer)));
+    }
     Generated {
-        files: vec![
-            ("__init__.py", init(layer)),
-            ("operations.py", operations(layer)),
-            ("events.py", events(layer)),
-            ("errors.py", errors(layer)),
-            ("plugins.py", plugins(layer)),
-        ],
+        files,
         types: TypesFile {
             output: "models.py",
             input,
@@ -183,6 +187,67 @@ fn docstring(
 
 fn deprecation_message(deprecated: &Deprecation) -> String {
     format!("Since {}: {}", deprecated.since, deprecated.note)
+}
+
+/// Each type both Products share that the layer adds values to (ADR 0095),
+/// as its values' `Literal` open to any other string, which the package
+/// keeps as received (ADR 0079); Foxhound's adds its values to Collie's.
+fn shared_types(layer: &Layer) -> String {
+    let mut text = docstring_header(&format!(
+        "The values {} adds to the types both Products share (ADR 0095).",
+        layer.product.name()
+    ));
+    text.push_str(
+        "\n\nfrom __future__ import annotations\n\nfrom typing import Literal, TypeAlias\n",
+    );
+    let extended: Vec<String> = layer
+        .shared_types
+        .iter()
+        .filter(|shared| shared.extends_collie)
+        .map(|shared| {
+            let name = pascal(&shared.name);
+            format!("{name} as Collie{name}")
+        })
+        .collect();
+    if !extended.is_empty() {
+        let _ = writeln!(
+            text,
+            "\nfrom {CLIENT_PACKAGE}.shared_types import {}",
+            extended.join(", ")
+        );
+    }
+    for shared in &layer.shared_types {
+        let name = pascal(&shared.name);
+        let literals: Vec<String> = shared
+            .values
+            .iter()
+            .map(|(value, _)| format!("{value:?}"))
+            .collect();
+        let literal = format!("Literal[{}]", literals.join(", "));
+        if shared.extends_collie {
+            let _ = writeln!(text, "\n{name}: TypeAlias = Collie{name} | {literal}");
+        } else {
+            let _ = writeln!(text, "\n{name}: TypeAlias = {literal} | str");
+        }
+        let mut description = if shared.extends_collie {
+            format!(
+                "A `{}`, a type both Products share (ADR 0095).\n\nCollie's values and {}'s own below; a value this package does not know is\nkept as received (ADR 0079).\n",
+                shared.name,
+                layer.product.name()
+            )
+        } else {
+            format!(
+                "A `{}`, a type both Products share (ADR 0095).\n\n{}'s values below; a value this package does not know is kept as\nreceived (ADR 0079).\n",
+                shared.name,
+                layer.product.name()
+            )
+        };
+        for (value, value_description) in &shared.values {
+            let _ = write!(description, "\n- `{value}`: {value_description}");
+        }
+        let _ = writeln!(text, "\"\"\"{}\n\"\"\"", escape(&description));
+    }
+    text
 }
 
 fn init(layer: &Layer) -> String {
@@ -425,11 +490,13 @@ fn errors(layer: &Layer) -> String {
     }
     let mut registry = Vec::new();
     for code in &layer.error_codes {
-        let group = group_class(&code.group);
+        // A code named like its group is raised as its group's class,
+        // which every code the registry lacks falls back to, as in
+        // TypeScript: the group's class takes the code's fields.
         if code.name == code.group {
-            registry.push((code.name.clone(), group));
             continue;
         }
+        let group = group_class(&code.group);
         let class = format!("{}Error", pascal(&code.name));
         let _ = write!(text, "\n\nclass {class}({group}):\n");
         text.push_str(&docstring(

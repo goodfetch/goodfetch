@@ -1,5 +1,471 @@
 {
   "$defs": {
+    "Acted": {
+      "description": "What a locator action answers once its input landed on its target:\nnothing, since no operation returns a handle on an element (ADR 0085).",
+      "type": "object"
+    },
+    "ArtifactId": {
+      "description": "Which Pinned artifact: its kind, its name and its build.",
+      "properties": {
+        "build": {
+          "arrived_in": "0.1",
+          "description": "Its build ID, such as `141.0.7390.54-linux64`.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ArtifactKind",
+          "arrived_in": "0.1",
+          "description": "What it is."
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, such as `chrome-for-testing`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "build"
+      ],
+      "type": "object"
+    },
+    "ArtifactKind": {
+      "description": "What a Pinned artifact is (ADR 0098: the clean-up's rule covers every\nkind). An entry of a kind the engine does not know is one it cannot read,\nand keeps.",
+      "oneOf": [
+        {
+          "const": "browser",
+          "description": "A browser build, such as Chrome for Testing's.",
+          "type": "string"
+        },
+        {
+          "const": "driver",
+          "description": "Playwright's driver (ADR 0019).",
+          "type": "string"
+        },
+        {
+          "const": "executable_copy",
+          "description": "The versioned copy of an executable a Daemon runs from (ADR 0024).",
+          "type": "string"
+        },
+        {
+          "const": "engine_executable",
+          "description": "The engine executable a Product's Rust crate downloads (ADR 0051).",
+          "type": "string"
+        },
+        {
+          "const": "clean_up_rules",
+          "description": "A full Clean-up rules set (ADR 0047).",
+          "type": "string"
+        },
+        {
+          "const": "mouse_movements",
+          "description": "Recorded mouse movements (ADR 0035).",
+          "type": "string"
+        }
+      ]
+    },
+    "Asked": {
+      "const": true,
+      "description": "The format, with its default options."
+    },
+    "AuditVerified": {
+      "description": "What `audit.verify` answers.",
+      "properties": {
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "How many entries the log holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "first_broken": {
+          "arrived_in": "0.1",
+          "description": "The first sequence that does not verify: an entry edited, missing\nor out of its place, or, past the last entry, a tail the head file\nsays was there; none when intact.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "intact": {
+          "arrived_in": "0.1",
+          "description": "Whether every entry chains to the one before it and the head file\nagrees with the last one.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "intact",
+        "entries"
+      ],
+      "type": "object"
+    },
+    "AuditVerifyParams": {
+      "additionalProperties": false,
+      "description": "What `audit.verify` takes: nothing.",
+      "type": "object"
+    },
+    "Checkpoint": {
+      "description": "A Checkpoint as the engine reports it (ADRs 0002, 0102 and 0116): a\nconsistent, self-contained copy of a Run's state, complete at its\nlocation before it is reported, from which the Run resumes on this\nmachine or another one.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "journal_position": {
+          "arrived_in": "0.1",
+          "description": "The position of the run's journal it holds: how many commits of the\nrun file it contains. A resume from it redoes the work after.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where it is: the file's path on the engine's machine.",
+          "type": "string"
+        },
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch of the writer that took it (ADR 0003), which a\ndestination compares and sets: one older than it holds is refused.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "Its size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "time": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it was taken."
+        }
+      },
+      "required": [
+        "run_id",
+        "location",
+        "size",
+        "digest",
+        "run_epoch",
+        "journal_position",
+        "time"
+      ],
+      "type": "object"
+    },
+    "ClickParams": {
+      "additionalProperties": false,
+      "description": "What `locator.click` takes: the locator whose element it clicks.",
+      "properties": {
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        }
+      },
+      "required": [
+        "locator"
+      ],
+      "type": "object"
+    },
+    "Completeness": {
+      "description": "Whether a Run's results cover everything in its scope (ADRs 0005 and\n0029).",
+      "oneOf": [
+        {
+          "const": "complete",
+          "description": "They do.",
+          "type": "string"
+        },
+        {
+          "const": "incomplete",
+          "description": "The Run ended early.",
+          "type": "string"
+        },
+        {
+          "const": "unverified",
+          "description": "It finished, but the engine cannot vouch that nothing was missed.",
+          "type": "string"
+        }
+      ]
+    },
+    "ConfigExplainParams": {
+      "additionalProperties": false,
+      "description": "What `config.explain` takes.",
+      "properties": {
+        "keys": {
+          "arrived_in": "0.1",
+          "description": "The keys to explain, each a key or a prefix of keys, such as\n`timeout`; every key when empty.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where those run values come from: a scope's `settings` option by\ndefault, or the CLI's flags when the CLI asks a Daemon."
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration to explain with."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Run-layer values to explain with, as a Run's `settings` would give\nthem.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "ConsoleFailure": {
+      "description": "Why a Daemon's Console did not start: an Error code, its message and\nwhat to do instead.",
+      "properties": {
+        "code": {
+          "arrived_in": "0.1",
+          "description": "The Error code, such as `console_port_in_use`.",
+          "type": "string"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead.",
+          "type": "string"
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What happened.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "ConsoleState": {
+      "description": "Where a Daemon's Console is, as its runtime file and `daemon status`\nreport it.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The Console is served at this URL, such as `http://127.0.0.1:7801/`.",
+          "properties": {
+            "serving": {
+              "arrived_in": "0.1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "serving"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The Console did not start; the Daemon still serves its Clients.",
+          "properties": {
+            "failed": {
+              "$ref": "#/$defs/ConsoleFailure",
+              "arrived_in": "0.1"
+            }
+          },
+          "required": [
+            "failed"
+          ],
+          "type": "object"
+        },
+        {
+          "const": "absent",
+          "description": "The engine carries no Console, as an SDK crate's linked engine.",
+          "type": "string"
+        }
+      ]
+    },
+    "DaemonEndpoint": {
+      "description": "Where a Daemon or an Attached engine's private endpoint listens (ADR\n0024): a `0600` Unix socket on macOS and Linux, loopback TCP on\nWindows.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A Unix socket's path.",
+          "properties": {
+            "unix": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "unix"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A loopback address and port.",
+          "properties": {
+            "tcp": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tcp"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DaemonParams": {
+      "additionalProperties": false,
+      "description": "What `daemon.status` and `daemon.stop` take: nothing.",
+      "type": "object"
+    },
+    "DaemonStatus": {
+      "description": "What `daemon.status` answers.",
+      "properties": {
+        "clients": {
+          "arrived_in": "0.1",
+          "description": "How many Clients are connected, the caller and Consoles included.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "console": {
+          "$ref": "#/$defs/ConsoleState",
+          "arrived_in": "0.1",
+          "description": "Where its Console is served, or why it is not."
+        },
+        "endpoint": {
+          "$ref": "#/$defs/DaemonEndpoint",
+          "arrived_in": "0.1",
+          "description": "Where it listens."
+        },
+        "idle_timeout": {
+          "arrived_in": "0.1",
+          "description": "Its `daemon.idle_timeout`, in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kept_alive": {
+          "arrived_in": "0.1",
+          "description": "Whether it never stops idle: `--keep-alive`, a held Schedule or an\ninstalled service.",
+          "type": "boolean"
+        },
+        "live_runs": {
+          "arrived_in": "0.1",
+          "description": "How many of its Runs are live.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pid": {
+          "arrived_in": "0.1",
+          "description": "Its process ID.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "product": {
+          "$ref": "#/$defs/Product",
+          "arrived_in": "0.1",
+          "description": "The Product the Daemon runs as."
+        },
+        "product_version": {
+          "$ref": "#/$defs/ProductVersion",
+          "arrived_in": "0.1",
+          "description": "Its Product version."
+        }
+      },
+      "required": [
+        "product",
+        "product_version",
+        "pid",
+        "endpoint",
+        "clients",
+        "live_runs",
+        "kept_alive",
+        "idle_timeout",
+        "console"
+      ],
+      "type": "object"
+    },
+    "DaemonStopping": {
+      "description": "What `daemon.stop` answers, before the Daemon stops.",
+      "properties": {
+        "live_runs": {
+          "arrived_in": "0.1",
+          "description": "How many live Runs it stops, each resumable from its own state.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "live_runs"
+      ],
+      "type": "object"
+    },
+    "DownloadProgress": {
+      "description": "What `browser_cache.download_progress` reports.",
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactId",
+          "arrived_in": "0.1",
+          "description": "The artifact being downloaded."
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The host it comes from.",
+          "type": "string"
+        },
+        "received_bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes received so far.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes the answer announced, when it did.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "artifact",
+        "host",
+        "received_bytes"
+      ],
+      "type": "object"
+    },
     "EngineInfo": {
       "description": "What `engine.info` answers.",
       "properties": {
@@ -39,6 +505,995 @@
       "description": "What `engine.info` takes: nothing.",
       "type": "object"
     },
+    "EngineInstance": {
+      "description": "One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "EventsSubscribeParams": {
+      "additionalProperties": false,
+      "description": "What `events.subscribe` takes.",
+      "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LastRead"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The last event the Client read, `{engine_instance, position}`: the\nsubscription resumes after it, or starts with `events.resync` when\nthe engine no longer holds it or another engine instance gave it, as\nafter a Daemon restart. Absent, it starts with the next event."
+        }
+      },
+      "type": "object"
+    },
+    "ExplainedSetting": {
+      "description": "One setting as `config explain` shows it.",
+      "properties": {
+        "applied": {
+          "arrived_in": "0.1",
+          "description": "Whether this engine applies it: `false` for a key only the other\nProduct honours, which a shared file may hold (ADR 0087).",
+          "type": "boolean"
+        },
+        "cap": {
+          "arrived_in": "0.1",
+          "description": "An Operator policy's cap on it, if any."
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "Its key.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The layer that set it."
+        },
+        "locked_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsLayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The layer that locked it, if any: an Operator policy's lock, a\nRecipe that declares it without exposing it, or the default for an\nhonesty guarantee."
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "For the run layer, where the value came from."
+        },
+        "products": {
+          "arrived_in": "0.1",
+          "description": "The Products that honour it, from its Product mark (ADR 0095).",
+          "items": {
+            "$ref": "#/$defs/Product"
+          },
+          "type": "array"
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The effective value, or for a key this engine does not apply, the\nvalue its highest layer wrote."
+        },
+        "weakens": {
+          "arrived_in": "0.1",
+          "description": "Whether its value weakens a guarantee class or switches off a costly\ncontrol, which the results it touches are marked with (ADR 0028).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "key",
+        "products",
+        "applied",
+        "value",
+        "layer",
+        "weakens"
+      ],
+      "type": "object"
+    },
+    "FillParams": {
+      "additionalProperties": false,
+      "description": "What `locator.fill` takes: the locator whose field it fills, and the\ntext.",
+      "properties": {
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The text the field holds afterwards; an empty text clears it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "locator",
+        "value"
+      ],
+      "type": "object"
+    },
+    "FormatsParams": {
+      "additionalProperties": false,
+      "description": "What `page.formats` takes: the page, and the formats it asks for.",
+      "properties": {
+        "formats": {
+          "$ref": "#/$defs/FormatsRequest",
+          "arrived_in": "0.1",
+          "description": "The formats."
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id",
+        "formats"
+      ],
+      "type": "object"
+    },
+    "FormatsRequest": {
+      "additionalProperties": false,
+      "description": "The formats a `page.formats` call asks for, each `true` or its options:\none value, which a Record can carry and a Dataset's schema can be\ngenerated from (ADR 0103). A format left out is left out of the result.",
+      "properties": {
+        "markdown": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MarkdownFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page's content as Markdown, with GFM's tables."
+        }
+      },
+      "type": "object"
+    },
+    "GotoParams": {
+      "additionalProperties": false,
+      "description": "What `page.goto` takes: the page, the URL it goes to, and when it\nanswers.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL.",
+          "type": "string"
+        },
+        "wait_until": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WaitUntil"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When the navigation answers; `load` when absent."
+        }
+      },
+      "required": [
+        "page_id",
+        "url"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreDeleted": {
+      "description": "What `key_value_store.delete` answers once the key is gone.",
+      "properties": {
+        "existed": {
+          "arrived_in": "0.1",
+          "description": "Whether the key existed.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "existed"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreKeyParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.get` and `key_value_store.delete` take: the Run\nand the key.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        }
+      },
+      "required": [
+        "run_id",
+        "key"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreKeysEnded": {
+      "description": "What `key_value_store.keys` answers once it sent its last key.",
+      "properties": {
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many keys it sent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreKeysParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.keys` takes: the Run, and the prefix every key it\nsends starts with.",
+      "properties": {
+        "prefix": {
+          "arrived_in": "0.1",
+          "description": "The prefix of the keys it sends; every key when left out.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreSet": {
+      "description": "What `key_value_store.set` answers once the value is committed.",
+      "type": "object"
+    },
+    "KeyValueStoreSetParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.set` takes: the Run, the key and its value.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The value: any JSON but a top-level null, which `value_invalid`\nrefuses; a nested null is kept."
+        }
+      },
+      "required": [
+        "run_id",
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreValue": {
+      "description": "What `key_value_store.get` answers: the key's committed value, or null\nwhen the key is absent.",
+      "properties": {
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The value, or null for an absent key."
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "type": "object"
+    },
+    "LastRead": {
+      "additionalProperties": false,
+      "description": "The last event a Client read: its position, and the engine instance\nthat gave it.",
+      "properties": {
+        "engine_instance": {
+          "$ref": "#/$defs/EngineInstance",
+          "arrived_in": "0.1",
+          "description": "The engine instance, as its `hello` named it."
+        },
+        "position": {
+          "$ref": "#/$defs/Position",
+          "arrived_in": "0.1",
+          "description": "The event's position."
+        }
+      },
+      "required": [
+        "engine_instance",
+        "position"
+      ],
+      "type": "object"
+    },
+    "Lifecycle": {
+      "description": "Where a Run is (ADR 0029).",
+      "oneOf": [
+        {
+          "const": "running",
+          "description": "It runs.",
+          "type": "string"
+        },
+        {
+          "const": "stopped",
+          "description": "It ended early: by a Limit, an abort, its timeout, the loss of its\nengine or exhausted resources.",
+          "type": "string"
+        },
+        {
+          "const": "finished",
+          "description": "It reached its end.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "An error in the engine or the program's code ended it.",
+          "type": "string"
+        }
+      ]
+    },
+    "Limit": {
+      "description": "One Limit of the Usage ledger: a generic row, which a newer engine may\nwrite with a scope kind, a Usage kind, a currency or a period this one\ndoes not know (ADR 0041).",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period: a count of the Usage kind, or\nmillionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the Usage kind's price in, an ISO 4217 code;\nnone for a Limit on the Usage itself.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "must_understand": {
+          "arrived_in": "0.1",
+          "description": "Whether an engine that cannot evaluate it must refuse the runs it\ncannot place outside it, with `limit_not_understood`.",
+          "type": "boolean"
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again,\nsuch as a Client connection's."
+        },
+        "scope": {
+          "$ref": "#/$defs/LimitScope",
+          "arrived_in": "0.1",
+          "description": "What it is on."
+        },
+        "set_by": {
+          "$ref": "#/$defs/LimitSetter",
+          "arrived_in": "0.1",
+          "description": "Who set it."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps, a value of a type both Products share.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind",
+        "amount",
+        "must_understand",
+        "set_by"
+      ],
+      "type": "object"
+    },
+    "LimitScope": {
+      "description": "What a Limit is on: a scope kind, a value of a type both Products share\n(`install`, `daemon`, `person`, `token`, `connection`, and Foxhound's\n`partitioned_crawl`), and which one of its kind (ADR 0041). A kind this\nreader does not know is kept as it is.",
+      "properties": {
+        "id": {
+          "arrived_in": "0.1",
+          "description": "Which one of its kind: the major's name for a Daemon, the person's\nname, the token's name or the Client connection's ID; empty for the\ninstall.",
+          "type": "string"
+        },
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "The scope's kind.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    "LimitSetter": {
+      "description": "Who set a Limit, which decides whether it allows paying (ADR 0045).",
+      "oneOf": [
+        {
+          "const": "person",
+          "description": "A person, in the Console or an interactive CLI prompt.",
+          "type": "string"
+        },
+        {
+          "const": "managed_policy",
+          "description": "A managed Operator policy.",
+          "type": "string"
+        },
+        {
+          "const": "client",
+          "description": "A Client, which only adds a Limit of its own.",
+          "type": "string"
+        }
+      ]
+    },
+    "LimitStanding": {
+      "description": "What the engine that read a Limit makes of it.",
+      "oneOf": [
+        {
+          "const": "held",
+          "description": "It holds its runs to it.",
+          "type": "string"
+        },
+        {
+          "const": "foxhound",
+          "description": "It is on a value only Foxhound carries, such as `paid_fetch`, which\na Collie engine keeps untouched (ADR 0098).",
+          "type": "string"
+        },
+        {
+          "const": "not_understood",
+          "description": "It cannot evaluate it: a newer engine wrote it.",
+          "type": "string"
+        }
+      ]
+    },
+    "LimitUsage": {
+      "description": "One Limit with the Usage counted against it in its current period.",
+      "properties": {
+        "charged": {
+          "arrived_in": "0.1",
+          "description": "The Usage charged in the current period: what ended runs used, and\nwhat was reclaimed from dead engines' Slices.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held": {
+          "arrived_in": "0.1",
+          "description": "The Usage live runs hold in Slices they have not returned yet.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "left": {
+          "arrived_in": "0.1",
+          "description": "What is left of the amount in the current period.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "limit": {
+          "$ref": "#/$defs/Limit",
+          "arrived_in": "0.1",
+          "description": "The Limit."
+        },
+        "managed_major": {
+          "arrived_in": "0.1",
+          "description": "The major of the managed Operator policy whose row it is; none for\na row no managed policy wrote.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period_started_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When the current period started; none for a Limit without one."
+        },
+        "resets_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When the next period starts; none for a Limit without one."
+        },
+        "standing": {
+          "$ref": "#/$defs/LimitStanding",
+          "arrived_in": "0.1",
+          "description": "What the engine that read it makes of it."
+        }
+      },
+      "required": [
+        "limit",
+        "standing",
+        "charged",
+        "held",
+        "left"
+      ],
+      "type": "object"
+    },
+    "Locator": {
+      "additionalProperties": false,
+      "description": "A locator (ADR 0085): what an action looks for on a page, resolved\nagain at each use, never a handle on an element. This tracer's locators\nare CSS selectors.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page it looks on."
+        },
+        "selector": {
+          "arrived_in": "0.1",
+          "description": "A CSS selector, which also matches inside open shadow roots.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "selector"
+      ],
+      "type": "object"
+    },
+    "LogLevel": {
+      "description": "The level of the engine's log events a Connection receives: those at\nit and above; `off`, the default, receives none.",
+      "oneOf": [
+        {
+          "const": "off",
+          "description": "No log event.",
+          "type": "string"
+        },
+        {
+          "const": "error",
+          "description": "Errors only.",
+          "type": "string"
+        },
+        {
+          "const": "warn",
+          "description": "Warnings and errors.",
+          "type": "string"
+        },
+        {
+          "const": "info",
+          "description": "State changes, warnings and errors: what `info` logs.",
+          "type": "string"
+        },
+        {
+          "const": "debug",
+          "description": "Also a line per request, fetch or command.",
+          "type": "string"
+        },
+        {
+          "const": "trace",
+          "description": "Everything the engine logs.",
+          "type": "string"
+        }
+      ]
+    },
+    "LogLevelSet": {
+      "additionalProperties": false,
+      "description": "What `connection.set_log_level` answers: nothing more.",
+      "type": "object"
+    },
+    "MainContent": {
+      "description": "Whether the extractor found the document's main content.",
+      "oneOf": [
+        {
+          "const": "found",
+          "description": "It found it.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "The document has none: the formats read from it are empty, a value\nand never the whole page in its place.",
+          "type": "string"
+        }
+      ]
+    },
+    "MarkdownContent": {
+      "description": "How much of the page a Markdown format holds.",
+      "oneOf": [
+        {
+          "const": "main",
+          "description": "The main content the extractor finds, the default.",
+          "type": "string"
+        }
+      ]
+    },
+    "MarkdownFormat": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Asked",
+          "description": "With its default options."
+        },
+        {
+          "$ref": "#/$defs/MarkdownOptions",
+          "description": "With these options."
+        }
+      ],
+      "description": "The `markdown` format of a request: `true`, or its options."
+    },
+    "MarkdownOptions": {
+      "additionalProperties": false,
+      "description": "The options of the `markdown` format.",
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/MarkdownContent",
+          "arrived_in": "0.1",
+          "description": "How much of the page it holds."
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
+    },
+    "Navigated": {
+      "description": "What a navigation answers: the document's response, or none for a\nnavigation within the same document, to a URL no server answers, such as\n`about:blank`, to a file the browser downloads instead of showing, which\n`page.download` reports, or back or forward from the last entry of the\npage's history. A 404 or a 500 is a response, a value.",
+      "properties": {
+        "response": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PageResponse"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The document's response."
+        }
+      },
+      "type": "object"
+    },
+    "NewPageParams": {
+      "additionalProperties": false,
+      "description": "What `run.new_page` takes: the Run whose default Session opens the page.",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "NotUnderstoodLimit": {
+      "description": "A Limit flagged *must understand* that a Run's engine cannot evaluate,\nas the Run stopped for it names it (ADR 0041): its scope, Usage kind,\ncurrency and period as the ledger holds them.",
+      "properties": {
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps a price in, for a price Limit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its period; none for a Limit that never starts again."
+        },
+        "scope": {
+          "$ref": "#/$defs/LimitScope",
+          "arrived_in": "0.1",
+          "description": "The Limit's scope."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind"
+      ],
+      "type": "object"
+    },
+    "PageBodyParams": {
+      "additionalProperties": false,
+      "description": "What `page.body` takes: the body to read.",
+      "properties": {
+        "body": {
+          "arrived_in": "0.1",
+          "description": "Its ID.",
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose folder holds it."
+        }
+      },
+      "required": [
+        "run_id",
+        "body"
+      ],
+      "type": "object"
+    },
+    "PageBodyRead": {
+      "description": "What `page.body` answers once it sent the last chunk.",
+      "properties": {
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The body's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size"
+      ],
+      "type": "object"
+    },
+    "PageDownload": {
+      "description": "What `page.download` reports: a navigation of a page that the browser\nturned into a download.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page whose navigation it was."
+        },
+        "suggested_filename": {
+          "arrived_in": "0.1",
+          "description": "The file name the browser suggests for it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The file's URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "url",
+        "suggested_filename"
+      ],
+      "type": "object"
+    },
+    "PageFormats": {
+      "description": "What `page.formats` answers: the formats the request asked for, and\nnone it did not, with the document's URL, its base URL and whether it\nhas main content. Text is as the document holds it, never repaired.",
+      "properties": {
+        "base_url": {
+          "arrived_in": "0.1",
+          "description": "The URL its relative URLs resolve against: its first `<base href>`,\nelse its URL.",
+          "type": "string"
+        },
+        "main_content": {
+          "$ref": "#/$defs/MainContent",
+          "arrived_in": "0.1",
+          "description": "Whether it has main content."
+        },
+        "markdown": {
+          "arrived_in": "0.1",
+          "description": "Its content as Markdown, when the request asked for it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The document's URL, after redirects.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "base_url",
+        "main_content"
+      ],
+      "type": "object"
+    },
+    "PageId": {
+      "description": "A page of a Run, named by the engine when it opens it.",
+      "type": "string"
+    },
+    "PageOpened": {
+      "description": "What `run.new_page` answers: the page, and the Session it belongs to,\nwhich `page.session()` returns.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "session_id": {
+          "$ref": "#/$defs/SessionId",
+          "arrived_in": "0.1",
+          "description": "Its Session: the Run's default Session."
+        }
+      },
+      "required": [
+        "page_id",
+        "session_id"
+      ],
+      "type": "object"
+    },
+    "PageParams": {
+      "additionalProperties": false,
+      "description": "What `page.reload`, `page.go_back` and `page.go_forward` take: the page.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id"
+      ],
+      "type": "object"
+    },
+    "PageResponse": {
+      "description": "The response to a request of a page, such as a navigation's document.",
+      "properties": {
+        "encoding": {
+          "arrived_in": "0.1",
+          "description": "For a navigation's document, the encoding the browser decoded it\nwith, as `document.characterSet` names it, such as `Shift_JIS` (ADR\n0119); none for another response, and for a navigation that answered\nat `commit`, before its document was decoded.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Its headers, their names lower-cased, as the browser received them.",
+          "type": "object"
+        },
+        "status": {
+          "arrived_in": "0.1",
+          "description": "Its HTTP status.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status_text": {
+          "arrived_in": "0.1",
+          "description": "Its status text.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its final URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "status",
+        "status_text",
+        "headers"
+      ],
+      "type": "object"
+    },
+    "Period": {
+      "description": "The period a Limit counts over, in an explicit IANA time zone, so that\nit never depends on the host's (ADR 0041).",
+      "properties": {
+        "every": {
+          "$ref": "#/$defs/PeriodLength",
+          "arrived_in": "0.1",
+          "description": "How long it counts."
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone its midnights are in, such as `Europe/Paris`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "every",
+        "time_zone"
+      ],
+      "type": "object"
+    },
+    "PeriodLength": {
+      "description": "How long a period Limit counts before it starts again (ADR 0041).",
+      "oneOf": [
+        {
+          "const": "day",
+          "description": "From one midnight to the next.",
+          "type": "string"
+        },
+        {
+          "const": "week",
+          "description": "From Monday's midnight to the next Monday's.",
+          "type": "string"
+        },
+        {
+          "const": "month",
+          "description": "From the first day's midnight to the next month's.",
+          "type": "string"
+        }
+      ]
+    },
+    "PointInTime": {
+      "description": "A point in time in UTC, as RFC 3339.",
+      "format": "date-time",
+      "type": "string"
+    },
+    "Position": {
+      "description": "An event's position among every event of one engine, which only goes up.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "PressParams": {
+      "additionalProperties": false,
+      "description": "What `locator.press` takes: the locator whose element gets the key, and\nthe key.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by\nPlaywright's key names.",
+          "type": "string"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        }
+      },
+      "required": [
+        "locator",
+        "key"
+      ],
+      "type": "object"
+    },
     "Product": {
       "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
       "oneOf": [
@@ -59,10 +1514,568 @@
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
       "type": "string"
     },
+    "ProgressMessage": {
+      "description": "A program's own status line about its Run (RT-15).",
+      "maxLength": 512,
+      "type": "string"
+    },
+    "ProjectSettings": {
+      "additionalProperties": false,
+      "description": "A project configuration's values, which a Client reads where it runs and\nsends with a scope it opens (ADR 0083).",
+      "properties": {
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The file's path, as the Client found it.",
+          "type": "string"
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its settings, nested as the file nests them.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "path",
+        "settings"
+      ],
+      "type": "object"
+    },
     "ProtocolVersion": {
       "description": "A version `major.minor` (ADR 0030).",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
       "type": "string"
+    },
+    "ReachedLimit": {
+      "description": "The Limit a Run cannot take more of: what `limit_reached` details, and\nwhat a Run stopped for it names (ADR 0041).",
+      "properties": {
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps a price in, for a price Limit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its period; none for a Limit that never starts again."
+        },
+        "resets_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When its period starts again; none for a Limit without one."
+        },
+        "scope": {
+          "$ref": "#/$defs/LimitScope",
+          "arrived_in": "0.1",
+          "description": "The Limit's scope."
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind"
+      ],
+      "type": "object"
+    },
+    "Resync": {
+      "description": "What `events.resync` gives: the current state, from which the stream\ncontinues.",
+      "properties": {
+        "runs": {
+          "arrived_in": "0.1",
+          "description": "The axes of each Run the engine knows, live or ended.",
+          "items": {
+            "$ref": "#/$defs/RunAxes"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "runs"
+      ],
+      "type": "object"
+    },
+    "RunAbortParams": {
+      "additionalProperties": false,
+      "description": "What `run.abort` takes: the Run, and whether the abort was forwarded.",
+      "properties": {
+        "forwarded": {
+          "arrived_in": "0.1",
+          "description": "Set by an engine that forwards the abort to the owner the Run index\nnames (ADR 0031): an engine that does not own the Run then answers\n`run_not_owned` instead of taking its writer role.",
+          "type": "boolean"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunAborting": {
+      "description": "What `run.aborting` carries.",
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/StoppedBy",
+          "arrived_in": "0.1",
+          "description": "Who aborts it."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "by"
+      ],
+      "type": "object"
+    },
+    "RunAxes": {
+      "description": "A Run's three axes as they are now (ADR 0029): what\n`run.axes_changed` reports, and what a resync gives of each Run.",
+      "properties": {
+        "completeness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Completeness"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Whether its results cover its scope, once it ended."
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "arrived_in": "0.1",
+          "description": "Where it is."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verdict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Whether its own checks prove what it committed, once it ended."
+        }
+      },
+      "required": [
+        "run_id",
+        "lifecycle"
+      ],
+      "type": "object"
+    },
+    "RunCheckpointParams": {
+      "additionalProperties": false,
+      "description": "What `run.checkpoint` takes.",
+      "properties": {
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where to write the Checkpoint, a path on the engine's machine; by\ndefault where the engine keeps the Run's Checkpoints, its own folder.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunCheckpointing": {
+      "description": "What `run.checkpointing` carries.",
+      "properties": {
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch the Checkpoint is taken under.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "run_epoch"
+      ],
+      "type": "object"
+    },
+    "RunId": {
+      "description": "A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
+      "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
+      "type": "string"
+    },
+    "RunMigrating": {
+      "description": "What `run.migrating` carries.",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunOrigin": {
+      "description": "Where a run-layer value came from (ADR 0083).",
+      "oneOf": [
+        {
+          "const": "argument",
+          "description": "A call's argument.",
+          "type": "string"
+        },
+        {
+          "const": "settings",
+          "description": "A scope's `settings` option.",
+          "type": "string"
+        },
+        {
+          "const": "flag",
+          "description": "A CLI flag.",
+          "type": "string"
+        },
+        {
+          "const": "form",
+          "description": "An Integration's form.",
+          "type": "string"
+        }
+      ]
+    },
+    "RunParams": {
+      "additionalProperties": false,
+      "description": "What `run.finish` and `run.abort` take: the Run.",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunProgress": {
+      "description": "A Run's progress as it is now (ADR 0102): what `run.progress` reports.",
+      "properties": {
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "arrived_in": "0.1",
+          "description": "Where it is."
+        },
+        "message": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProgressMessage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The program's own status line, once it set one."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "lifecycle"
+      ],
+      "type": "object"
+    },
+    "RunReport": {
+      "description": "What a Run states about itself when it ends (ADR 0102): its three axes\n(ADR 0029) and when it ran.",
+      "properties": {
+        "checkpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Checkpoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The last Checkpoint written of it in this engine, when one was (ADR\n0102)."
+        },
+        "completeness": {
+          "$ref": "#/$defs/Completeness",
+          "arrived_in": "0.1",
+          "description": "Whether its results cover its scope."
+        },
+        "ended_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it ended."
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "arrived_in": "0.1",
+          "description": "Where it ended."
+        },
+        "policy_version": {
+          "arrived_in": "0.1",
+          "description": "The version of the Operator policy it ran under, when one applied\n(ADR 0028).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "started_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it started."
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StopReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Why it stopped, when it did."
+        },
+        "uncapped": {
+          "arrived_in": "0.1",
+          "description": "Whether it spent, or reserved, money in a currency no Limit holding\nit caps (ADR 0041): *uncapped*.",
+          "type": "boolean"
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict",
+          "arrived_in": "0.1",
+          "description": "Whether its own checks prove what it committed."
+        },
+        "weakened_by": {
+          "arrived_in": "0.1",
+          "description": "Every setting it ran with that weakens a guarantee class or switches\noff a costly control, with its value and layer (ADR 0028).",
+          "items": {
+            "$ref": "#/$defs/SettingLimit"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "run_id",
+        "lifecycle",
+        "verdict",
+        "completeness",
+        "started_at",
+        "ended_at"
+      ],
+      "type": "object"
+    },
+    "RunResumeParams": {
+      "additionalProperties": false,
+      "description": "What `run.resume` takes.",
+      "properties": {
+        "checkpoint": {
+          "arrived_in": "0.1",
+          "description": "A Checkpoint to resume from, a path on the engine's machine, which\nbecomes the Run's state in this engine's run folder; by default the\nRun resumes from its run file on this machine.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Run's settings from the resume on, nested by key: the run layer\n(ADRs 0083 and 0102).",
+          "type": "object"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunSetProgressMessageParams": {
+      "additionalProperties": false,
+      "description": "What `run.set_progress_message` takes.",
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/ProgressMessage",
+          "arrived_in": "0.1",
+          "description": "The program's status line, which replaces the one before."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "message"
+      ],
+      "type": "object"
+    },
+    "RunStartParams": {
+      "additionalProperties": false,
+      "description": "What `run.start` takes.",
+      "properties": {
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "run_id": {
+          "arrived_in": "0.1",
+          "description": "The Run's ID; the engine generates a lowercase ULID when it is\nabsent. An existing ID returns that Run when the caller and the\ninputs match, and fails with `run_conflict` otherwise.",
+          "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Run's settings, nested by key: the run layer (ADR 0083).",
+          "type": "object"
+        },
+        "tags": {
+          "$ref": "#/$defs/Tags",
+          "arrived_in": "0.1",
+          "description": "The Run's opaque tags."
+        }
+      },
+      "type": "object"
+    },
+    "RunStarted": {
+      "description": "What a start answers once its Run is started, never at its end.",
+      "properties": {
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "arrived_in": "0.1",
+          "description": "Where it is now."
+        },
+        "needs": {
+          "$ref": "#/$defs/Product",
+          "arrived_in": "0.1",
+          "description": "The Product it needs (ADR 0098): Collie until it uses an entry the\ncatalog marks Foxhound's, Foxhound from then on."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "started_as": {
+          "$ref": "#/$defs/StartedAs",
+          "arrived_in": "0.1",
+          "description": "Whether the start began it."
+        }
+      },
+      "required": [
+        "run_id",
+        "started_as",
+        "lifecycle",
+        "needs"
+      ],
+      "type": "object"
+    },
+    "RunStopping": {
+      "description": "What `run.stopping` carries.",
+      "properties": {
+        "cause": {
+          "$ref": "#/$defs/StopReason",
+          "arrived_in": "0.1",
+          "description": "Why it stops."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "cause"
+      ],
+      "type": "object"
     },
     "SampleEchoParams": {
       "additionalProperties": false,
@@ -135,9 +2148,545 @@
         "replaced"
       ],
       "type": "object"
+    },
+    "SessionId": {
+      "description": "A Session of a Run, named by the engine when it opens it.",
+      "type": "string"
+    },
+    "SetLogLevelParams": {
+      "additionalProperties": false,
+      "description": "What `connection.set_log_level` takes.",
+      "properties": {
+        "log_level": {
+          "$ref": "#/$defs/LogLevel",
+          "arrived_in": "0.1",
+          "description": "The Connection's new level."
+        }
+      },
+      "required": [
+        "log_level"
+      ],
+      "type": "object"
+    },
+    "SettingLimit": {
+      "description": "A setting that decided an outcome: its key, its value and the layer that\nset it (ADRs 0028 and 0079).",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The setting's key.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The layer that set it."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "Its value."
+        }
+      },
+      "required": [
+        "key",
+        "value",
+        "layer"
+      ],
+      "type": "object"
+    },
+    "SettingsExplanation": {
+      "description": "What `config.explain` answers and `config explain --json` prints:\nevery setting's effective value, the layer that set it and the layer\nthat locked it (ADR 0028), and the files read.",
+      "properties": {
+        "files": {
+          "arrived_in": "0.1",
+          "description": "The files of the configuration layers, lowest first.",
+          "items": {
+            "$ref": "#/$defs/SettingsFile"
+          },
+          "type": "array"
+        },
+        "policy_version": {
+          "arrived_in": "0.1",
+          "description": "The Operator policy's version, `sha256:` and the first 16 hex digits\nof its file's digest, which the run report names; `None` without a\npolicy.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "settings": {
+          "arrived_in": "0.1",
+          "description": "Each setting, by key.",
+          "items": {
+            "$ref": "#/$defs/ExplainedSetting"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "files",
+        "settings"
+      ],
+      "type": "object"
+    },
+    "SettingsFile": {
+      "description": "A layer's file, as `config explain` names it.",
+      "properties": {
+        "found": {
+          "arrived_in": "0.1",
+          "description": "Whether it exists; a missing file sets nothing.",
+          "type": "boolean"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "Its layer."
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Its path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "layer",
+        "path",
+        "found"
+      ],
+      "type": "object"
+    },
+    "SettingsLayer": {
+      "description": "The layers settings resolve through, lowest first (ADRs 0028 and 0083).",
+      "oneOf": [
+        {
+          "const": "default",
+          "description": "The built-in default.",
+          "type": "string"
+        },
+        {
+          "const": "operator_policy",
+          "description": "An Operator policy.",
+          "type": "string"
+        },
+        {
+          "const": "user_configuration",
+          "description": "User configuration.",
+          "type": "string"
+        },
+        {
+          "const": "project_configuration",
+          "description": "Project configuration.",
+          "type": "string"
+        },
+        {
+          "const": "recipe",
+          "description": "A Recipe.",
+          "type": "string"
+        },
+        {
+          "const": "run",
+          "description": "The run: a program's settings, a call's argument, a CLI flag or an\nIntegration's form.",
+          "type": "string"
+        }
+      ]
+    },
+    "StartedAs": {
+      "description": "Whether a start began its Run or found it.",
+      "oneOf": [
+        {
+          "const": "new",
+          "description": "The start began it.",
+          "type": "string"
+        },
+        {
+          "const": "existing",
+          "description": "Its Run ID named a Run started before with the same inputs, which is\nreturned as it is.",
+          "type": "string"
+        },
+        {
+          "const": "resumed",
+          "description": "It was interrupted and goes on from its committed state, its run\nfile or a Checkpoint, at the next run epoch (ADRs 0002, 0003 and\n0102).",
+          "type": "string"
+        }
+      ]
+    },
+    "StopReason": {
+      "description": "Why a Run stopped (ADR 0102); the other causes join with the tickets that\nstop Runs for them.",
+      "oneOf": [
+        {
+          "description": "Its program, a person or a Client aborted it, a Connection's close\nincluded (ADR 0078).",
+          "properties": {
+            "by": {
+              "$ref": "#/$defs/StoppedBy",
+              "arrived_in": "0.1",
+              "description": "Who stopped it."
+            },
+            "kind": {
+              "const": "abort",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "by"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "It was paused: checkpointed and stopped, to be resumed by its Run ID\n(RT-11).",
+          "properties": {
+            "kind": {
+              "const": "pause",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "It was migrated: checkpointed and stopped, to be resumed from its\nCheckpoint on another machine (ADR 0002).",
+          "properties": {
+            "kind": {
+              "const": "migrate",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Its `timeout.run` passed, and it stopped at its next safe point,\nresumable with a fresh clock (ADR 0080); no Error code of its own.",
+          "properties": {
+            "kind": {
+              "const": "timeout",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Its foreground Daemon drained on `SIGTERM`: checkpointed and\nstopped, to be resumed by its Run ID on the Daemon's next start\n(ADR 0049).",
+          "properties": {
+            "kind": {
+              "const": "drain",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/ReachedLimit",
+          "description": "It could not take another Slice of a Limit, and stopped at its next\nsafe point, resumable once the period starts again or a person\nraises the Limit (ADR 0041).",
+          "properties": {
+            "kind": {
+              "const": "limit",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/NotUnderstoodLimit",
+          "description": "A Limit flagged *must understand* that its engine cannot evaluate\ncame to cover it when it charged, and it stopped at its next safe\npoint, resumable by an engine that can (ADR 0041): the stop of the\nError code `limit_not_understood`.",
+          "properties": {
+            "kind": {
+              "const": "limit_not_understood",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "StoppedBy": {
+      "description": "Who stopped a call (ADR 0113).",
+      "oneOf": [
+        {
+          "const": "client",
+          "description": "A Client, such as through `$/cancel`.",
+          "type": "string"
+        }
+      ]
+    },
+    "SubscriptionEnded": {
+      "description": "What `events.subscribe` answers when its subscription ends without the\nClient cancelling it: the engine stopped.",
+      "type": "object"
+    },
+    "Tag": {
+      "description": "An opaque text a Run is tagged with (ADR 0036).",
+      "maxLength": 64,
+      "type": "string"
+    },
+    "Tags": {
+      "description": "A Run's tags, in the order given.",
+      "items": {
+        "$ref": "#/$defs/Tag"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "UsageListParams": {
+      "additionalProperties": false,
+      "description": "What `usage.list` takes.",
+      "type": "object"
+    },
+    "UsageListResult": {
+      "description": "What `usage.list` answers, and what `usage --json` prints.",
+      "properties": {
+        "limits": {
+          "arrived_in": "0.1",
+          "description": "Every Limit of the Usage ledger, by scope, with its Usage.",
+          "items": {
+            "$ref": "#/$defs/LimitUsage"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "limits"
+      ],
+      "type": "object"
+    },
+    "UsageRaiseParams": {
+      "additionalProperties": false,
+      "description": "What `usage.raise` takes: a Limit a person sets, which replaces every\nLimit of its scope, Usage kind, currency and period that is not a\nmanaged Operator policy's, keeping the Usage counted against them.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period from now on: a count of the Usage\nkind, or millionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the price in, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again."
+        },
+        "scope": {
+          "arrived_in": "0.1",
+          "description": "The scope's kind.",
+          "type": "string"
+        },
+        "scope_id": {
+          "arrived_in": "0.1",
+          "description": "Which one of its kind; the person's own when absent (their Client\nconnection, their person, the engine's Daemon, the install).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind",
+        "amount"
+      ],
+      "type": "object"
+    },
+    "UsageSetParams": {
+      "additionalProperties": false,
+      "description": "What `usage.set` takes: a Limit of the caller's own, which holds beside\nthe others, so the tightest one holds.",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much it allows per period: a count of the Usage kind, or\nmillionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the price in, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The period it counts over; none for a Limit that never starts again."
+        },
+        "scope": {
+          "arrived_in": "0.1",
+          "description": "The scope's kind.",
+          "type": "string"
+        },
+        "scope_id": {
+          "arrived_in": "0.1",
+          "description": "Which one of its kind; the caller's own when absent (its Client\nconnection, its person, the engine's Daemon, the install).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "usage_kind",
+        "amount"
+      ],
+      "type": "object"
+    },
+    "Verdict": {
+      "description": "Whether a Run's own checks prove what it committed (ADR 0029).",
+      "oneOf": [
+        {
+          "const": "verified",
+          "description": "Every check the Run relies on passed, none was switched off, and no\nEffect is left uncertain.",
+          "type": "string"
+        },
+        {
+          "const": "rejected",
+          "description": "A declared Success check failed.",
+          "type": "string"
+        },
+        {
+          "const": "needs_review",
+          "description": "Everything else: a person reviews it.",
+          "type": "string"
+        }
+      ]
+    },
+    "WaitUntil": {
+      "description": "When a navigation answers, by the state its document reached\n(Playwright's `waitUntil`).",
+      "oneOf": [
+        {
+          "const": "commit",
+          "description": "Once the browser committed the document, its response received: a\nbody cut after that is left to the body's read.",
+          "type": "string"
+        },
+        {
+          "const": "domcontentloaded",
+          "description": "Once the document fired `DOMContentLoaded`.",
+          "type": "string"
+        },
+        {
+          "const": "load",
+          "description": "Once the document fired `load`.",
+          "type": "string"
+        }
+      ]
     }
   },
   "error_codes": [
+    {
+      "arrived_in": "0.1",
+      "description": "The host has addresses only in an IP family the Session holds no local address of, such as IPv6 addresses for a Session bound to an IPv4 address. Add a local address of that family to the run's local addresses, or reach the host another way.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "address_family_unavailable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browsers install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "artifact_download_failed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The `offline` setting refused a pinned download the call needed. Run the Product's `browsers install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "artifact_unavailable_offline",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run's folder holds no body of this ID: the Run or the body is unknown, or the ID is not a body's.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "body_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.",
+      "exit_code": 12,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "browser_host_outdated",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "browser_launch_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "browser_not_installed",
+      "product": "collie",
+      "retryable": false
+    },
     {
       "arrived_in": "0.1",
       "description": "The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it.",
@@ -145,6 +2694,176 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "call_cancelled",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "closed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "console_port_in_use",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "daemon_draining",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call's deadline passed before what it waited for came, such as a response's first byte or a navigation. Its `limit` names the timeout's setting, its value and the layer that set it: raise that setting, or wait for the right thing.",
+      "exit_code": null,
+      "group": "deadline_exceeded",
+      "json_rpc_class": -32005,
+      "name": "deadline_exceeded",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "engine_exited",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`connect()` found no engine executable to start: the Product's engine-path variable names no executable, or the Product's platform package is not installed. The `fix` names the variable or the package.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "engine_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The engine wrote a line that is not one JSON-RPC message on the Connection, such as a log line on an Attached engine's stdout, so the Client ended the Connection. A bug in Goodfetch: report it with the line its details carry.",
+      "exit_code": null,
+      "group": "internal",
+      "json_rpc_class": -32007,
+      "name": "engine_output_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "executable_blocked_by_smart_app_control",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again.",
+      "exit_code": 14,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "file_write_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A file, such as a run state or a Checkpoint, is of a format version this engine cannot read: a newer minor or major, written by a newer engine, which `fix` says to upgrade to, or an older major, which `upgrade-files` upgrades. The file is left as it is.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "format_version_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "limit_not_understood",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.",
+      "exit_code": 16,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "limit_reached",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "name_lookup_failed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The resolver found no address for the host name. The engine's own resolver, used on Linux and for Sessions with a local address, reads the system's resolver configuration and hosts file but asks neither NSS modules (such as a directory service or a VPN client's) nor multicast DNS, so a name only they resolve, such as a `.local` name, fails here. Map such a name to its address with the `resolve` setting, or correct the name.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "name_not_resolved",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The navigation reached no document: the browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`, is in the details, or the browser failed it for a reason it did not name.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "navigation_failed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Another navigation of the page started before this one committed, so this one reached no document: the page went where the other took it.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "navigation_interrupted",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call asks a Daemon about itself, and this engine is an Attached engine. Ask the Daemon of the major, found through its runtime file, or run `daemon status`.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "not_a_daemon",
       "product": "collie",
       "retryable": false
     },
@@ -160,6 +2879,46 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The page's renderer crashed, or its browser process was lost while the call ran; `browser_exit` says how the browser ended when it is what was lost. The page is gone: open another.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "page_crashed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.",
+      "exit_code": 13,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "path_not_writable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "pattern_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "person_required",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.",
       "exit_code": 11,
       "group": "unavailable",
@@ -170,11 +2929,221 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.",
+      "exit_code": 15,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "resources_exhausted",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "response_truncated",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "run_busy",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "run_conflict",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run ID is not one the engine takes: lowercase letters, digits, `.`, `_` and `-`, at most 128, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "run_id_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Another engine holds the Run's writer lock, so this one cannot write the Run; the other may end.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "run_in_use",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No Run has this Run ID: the Run index does not list it.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "run_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The action was forwarded to this engine as the Run's owner, and this engine does not own the Run: the Run index named an engine that has since ended or restarted. The engine that forwarded it retries the Run's writer lock.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "run_not_owned",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "run_state_unavailable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The sample operation refused the text.",
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "sample_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Secret placeholder's value would go to a domain outside its binding's `domains`: the field's frame or the request's URL. The details name the placeholder, the reference and the domain, never a value.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "secret_domain_not_allowed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "secret_unavailable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No scope binds the Secret placeholder a call names. `bound` lists the placeholders bound, never a value.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "secret_unbound",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run is bound to the machine its Session source is on, and this is another machine: its login would reach sites from a new IP under the same cookies. Resume it on its own machine, or serve its Session source through a Browser host.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "session_bound_to_machine",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "setting_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A value a lower layer locked or capped, outside a Recipe's exposed bounds, or one only a lower layer may set or widen, such as `tls.trusted_cas` from a run. `limit` names the setting and the layer that holds it.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "setting_locked",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A setting given where it cannot take effect: in a layer that may not hold it, such as `browser_cache.max_unused_age` outside user configuration and an Operator policy, or on a Run it does not apply to, such as a crawl's setting on a Collie Run.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "setting_not_applicable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A key no Product knows, or an unknown `GOODFETCH_` variable. The message names the closest valid one.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "setting_unknown",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "target_not_unique",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "too_many_redirects",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "upgrade_source_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "value_invalid",
       "product": "collie",
       "retryable": false
     }
@@ -226,6 +3195,115 @@
   "events": [
     {
       "arrived_in": "0.1",
+      "class": "telemetry",
+      "deprecated": null,
+      "description": "A Pinned artifact the call needs is downloading into the Browser cache: the bytes received so far, out of those announced.",
+      "name": "browser_cache.download_progress",
+      "payload": {
+        "$ref": "#/$defs/DownloadProgress"
+      },
+      "product": "collie",
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, from which the stream continues.",
+      "name": "events.resync",
+      "payload": {
+        "$ref": "#/$defs/Resync"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A navigation of the page reached a file the browser downloads instead of showing, such as a PDF: the navigation answers no response and the page keeps its document. Names the page, the file's URL and the name the browser suggests.",
+      "name": "page.download",
+      "payload": {
+        "$ref": "#/$defs/PageDownload"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A Run is being aborted: it stops at its next safe point. Lossless.",
+      "name": "run.aborting",
+      "payload": {
+        "$ref": "#/$defs/RunAborting"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A Run's Lifecycle, Verdict or Completeness changed: it started running, or it ended. Lossless: while a subscriber's queue is full, the Run waits.",
+      "name": "run.axes_changed",
+      "payload": {
+        "$ref": "#/$defs/RunAxes"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A Checkpoint of a Run is being written: on `run.checkpoint`, a pause, a migration, a clean stop or the periodic `checkpoint.interval`. Lossless.",
+      "name": "run.checkpointing",
+      "payload": {
+        "$ref": "#/$defs/RunCheckpointing"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A Run is being migrated to another machine: it checkpoints, then stops. Lossless.",
+      "name": "run.migrating",
+      "payload": {
+        "$ref": "#/$defs/RunMigrating"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "telemetry",
+      "deprecated": null,
+      "description": "A Run's progress changed, such as the program's own status line. Telemetry: a newer value of the same Run replaces an unsent one.",
+      "name": "run.progress",
+      "payload": {
+        "$ref": "#/$defs/RunProgress"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A Run is stopping at its next safe point, with its cause: an abort, a pause or a migration. Lossless.",
+      "name": "run.stopping",
+      "payload": {
+        "$ref": "#/$defs/RunStopping"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "telemetry",
       "deprecated": null,
       "description": "A text was repeated.",
       "name": "sample.echoed",
@@ -236,6 +3314,129 @@
       "stability": "experimental"
     }
   ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "The command did what it was asked.",
+      "name": "success",
+      "product": "collie"
+    },
+    {
+      "code": 1,
+      "description": "A bug in Goodfetch. Report it.",
+      "name": "internal",
+      "product": "collie"
+    },
+    {
+      "code": 2,
+      "description": "The command line is wrong: an unknown command or flag, or a bad value. Nothing reached the engine.",
+      "name": "usage",
+      "product": "collie"
+    },
+    {
+      "code": 3,
+      "description": "The program is wrong: its call, its settings or its own handler code. Fix the program.",
+      "name": "program",
+      "product": "collie"
+    },
+    {
+      "code": 4,
+      "description": "A policy, a Limit, a lock or a person refused. Change a setting, raise the Limit or ask the operator.",
+      "name": "refused",
+      "product": "collie"
+    },
+    {
+      "code": 5,
+      "description": "The page or site never reached the state the call needed. Read the Run trace; change the step, the wait or the Access mode.",
+      "name": "page",
+      "product": "collie"
+    },
+    {
+      "code": 6,
+      "description": "The Model provider's answer was unusable. Change the model or the strategy.",
+      "name": "model",
+      "product": "collie"
+    },
+    {
+      "code": 7,
+      "description": "The deadline passed. Raise it, or wait for the right thing.",
+      "name": "deadline_exceeded",
+      "product": "collie"
+    },
+    {
+      "code": 8,
+      "description": "Something Goodfetch depends on is unreachable or gone. Retry, or fix the setup.",
+      "name": "unavailable",
+      "product": "collie"
+    },
+    {
+      "code": 10,
+      "description": "The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.",
+      "name": "not_in_product",
+      "product": "collie"
+    },
+    {
+      "code": 11,
+      "description": "The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.",
+      "name": "protocol_version_unsupported",
+      "product": "collie"
+    },
+    {
+      "code": 12,
+      "description": "The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.",
+      "name": "browser_host_outdated",
+      "product": "collie"
+    },
+    {
+      "code": 13,
+      "description": "The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.",
+      "name": "path_not_writable",
+      "product": "collie"
+    },
+    {
+      "code": 14,
+      "description": "The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again.",
+      "name": "file_write_failed",
+      "product": "collie"
+    },
+    {
+      "code": 15,
+      "description": "The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.",
+      "name": "resources_exhausted",
+      "product": "collie"
+    },
+    {
+      "code": 16,
+      "description": "A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.",
+      "name": "limit_reached",
+      "product": "collie"
+    },
+    {
+      "code": 20,
+      "description": "The Run ended `stopped`: a Limit, an abort, its timeout, a pause or the loss of its engine stopped it. Resume it by its Run ID.",
+      "name": "run_stopped",
+      "product": "collie"
+    },
+    {
+      "code": 21,
+      "description": "`--require-verified` was given and the Run, or the Agent's Success check, ended with a Verdict other than `verified`: `rejected` or `needs_review`.",
+      "name": "verdict_not_verified",
+      "product": "collie"
+    },
+    {
+      "code": 130,
+      "description": "The command was interrupted (`SIGINT`, or `CTRL_BREAK_EVENT` on Windows): its call was cancelled, and the Run it started checkpointed and stopped, resumable by its Run ID.",
+      "name": "interrupted",
+      "product": "collie"
+    },
+    {
+      "code": 143,
+      "description": "The command was sent `SIGTERM`: its call was cancelled, and the Run it started checkpointed and stopped, resumable by its Run ID.",
+      "name": "terminated",
+      "product": "collie"
+    }
+  ],
+  "handler_requests": [],
   "hook_stages": [
     {
       "arrived_in": "0.1",
@@ -261,17 +3462,567 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
+      "description": "Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows.",
+      "events": [],
+      "kind": "query",
+      "name": "audit.verify",
+      "params": {
+        "$ref": "#/$defs/AuditVerifyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/AuditVerified"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "config.explain",
+      "params": {
+        "$ref": "#/$defs/ConfigExplainParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SettingsExplanation"
+      },
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Sets the level of the engine's log events this Connection receives as `$/log` notifications, from the next one on: `off`, `error`, `warn`, `info`, `debug` or `trace`, as `hello`'s `log_level` set it first. Each Connection has its own. Log events are telemetry: one the Connection is too slow to receive is dropped, and the next counts it in `dropped`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "connection.set_log_level",
+      "params": {
+        "$ref": "#/$defs/SetLogLevelParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/LogLevelSet"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "daemon.status",
+      "params": {
+        "$ref": "#/$defs/DaemonParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/DaemonStatus"
+      },
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "daemon.stop",
+      "params": {
+        "$ref": "#/$defs/DaemonParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/DaemonStopping"
+      },
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
       "description": "Says which Product the engine runs as, its Product version and major, and the protocol version it speaks.",
       "events": [],
+      "kind": "round_trip",
       "name": "engine.info",
       "params": {
         "$ref": "#/$defs/EngineInfoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/EngineInfo"
       },
       "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart.",
+      "events": [
+        "events.resync",
+        "run.axes_changed"
+      ],
+      "kind": "sequence",
+      "name": "events.subscribe",
+      "params": {
+        "$ref": "#/$defs/EventsSubscribeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SubscriptionEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Removes a key from a live Run's Key-value store and answers whether it existed.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.delete",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreKeyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreDeleted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.get",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreKeyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreValue"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock.",
+      "events": [],
+      "kind": "sequence",
+      "name": "key_value_store.keys",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreKeysParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreKeysEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.set",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreSetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreSet"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.click",
+      "params": {
+        "$ref": "#/$defs/ClickParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.fill",
+      "params": {
+        "$ref": "#/$defs/FillParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.press",
+      "params": {
+        "$ref": "#/$defs/PressParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.",
+      "events": [],
+      "kind": "sequence",
+      "name": "page.body",
+      "params": {
+        "$ref": "#/$defs/PageBodyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageBodyRead"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: \"none\"`, a value. It needs neither layout nor pixels, so every tier serves it.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.formats",
+      "params": {
+        "$ref": "#/$defs/FormatsParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageFormats"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.go_back",
+      "params": {
+        "$ref": "#/$defs/PageParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Navigated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.go_forward",
+      "params": {
+        "$ref": "#/$defs/PageParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Navigated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`.",
+      "events": [
+        "page.download"
+      ],
+      "kind": "round_trip",
+      "name": "page.goto",
+      "params": {
+        "$ref": "#/$defs/GotoParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Navigated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.reload",
+      "params": {
+        "$ref": "#/$defs/PageParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Navigated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.abort",
+      "params": {
+        "$ref": "#/$defs/RunAbortParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
+      "events": [
+        "run.checkpointing"
+      ],
+      "kind": "round_trip",
+      "name": "run.checkpoint",
+      "params": {
+        "$ref": "#/$defs/RunCheckpointParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Checkpoint"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.finish",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.",
+      "events": [
+        "run.migrating",
+        "run.checkpointing",
+        "run.stopping"
+      ],
+      "kind": "round_trip",
+      "name": "run.migrate",
+      "params": {
+        "$ref": "#/$defs/RunCheckpointParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.new_page",
+      "params": {
+        "$ref": "#/$defs/NewPageParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageOpened"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint.",
+      "events": [
+        "run.checkpointing",
+        "run.stopping"
+      ],
+      "kind": "round_trip",
+      "name": "run.pause",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.",
+      "events": [],
+      "kind": "opener",
+      "name": "run.resume",
+      "params": {
+        "$ref": "#/$defs/RunResumeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Sets the program's own status line about a live Run, at most 512 characters, which replaces the one before: kept in the Run's state, so a resume keeps it, shown in its Run index row and carried on its progress, `run.progress`. Answers the Run's progress. A Run this engine does not run fails with `run_not_found`.",
+      "events": [
+        "run.progress"
+      ],
+      "kind": "round_trip",
+      "name": "run.set_progress_message",
+      "params": {
+        "$ref": "#/$defs/RunSetProgressMessageParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/RunProgress"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.",
+      "events": [],
+      "kind": "opener",
+      "name": "run.start",
+      "params": {
+        "$ref": "#/$defs/RunStartParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
     },
     {
       "arrived_in": "0.1",
@@ -285,13 +4036,72 @@
       "events": [
         "sample.echoed"
       ],
+      "kind": "round_trip",
       "name": "sample.echo",
       "params": {
         "$ref": "#/$defs/SampleEchoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleEchoResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.",
+      "events": [],
+      "kind": "query",
+      "name": "usage.list",
+      "params": {
+        "$ref": "#/$defs/UsageListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/UsageListResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Sets a Limit to a person's amount, in place of every Limit of its scope, Usage kind, currency and period but a managed Operator policy's, keeping the Usage counted. A person's answer: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "usage.raise",
+      "params": {
+        "$ref": "#/$defs/UsageRaiseParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/LimitUsage"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "usage.set",
+      "params": {
+        "$ref": "#/$defs/UsageSetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/LimitUsage"
       },
       "stability": "experimental"
     }
@@ -321,18 +4131,904 @@
   "settings": [
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission.",
+      "name": "admission.max_requests_per_minute",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+      "name": "browser.headless",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": 2592000000,
+      "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only.",
+      "name": "browser_cache.max_unused_age",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally.",
+      "name": "checkpoint.interval",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "narrowed",
+      "clearable": false,
+      "default": [],
+      "description": "The domains whose consent prompts a run accepts instead of refusing. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+      "name": "consent.domains",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": "127.0.0.1:7700",
+      "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
+      "name": "console.address",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": "127.0.0.1:7600",
+      "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+      "name": "daemon.address",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 110000,
+      "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+      "name": "daemon.drain_grace",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 600000,
+      "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+      "name": "daemon.idle_timeout",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
+      "name": "egress.offline",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": [],
+      "description": "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
+      "name": "filter_lists.extra",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only.",
+      "name": "log.format",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "text",
+          "json"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": {},
+      "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
+      "name": "network.resolve",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "items": {
+            "format": "ip",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only.",
+      "name": "otlp.traces_endpoint",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "shared",
+      "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+      "name": "politeness.sharing",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "shared",
+          "per_daemon",
+          "run"
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 250,
+      "description": "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
+      "name": "resolver.attempt_delay",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 50,
+      "description": "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
+      "name": "resolver.resolution_delay",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "full",
+      "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+      "name": "run_state.durability",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "full",
+          "fast"
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": true,
+      "default": null,
+      "description": "The Secret reference of the key-encryption key that wraps each Run's data key, resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration; none by default.",
+      "name": "run_state.key_reference",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A Secret reference, such as `env:NAME`.",
+        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": "per_run",
+      "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+      "name": "run_state.layout",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "per_run",
+          "per_install"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "The folder that holds the run folders, each named by its Run ID; by default the per-user, per-major data folder of the Goodfetch home.",
+      "name": "run_state.location",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 1,
       "description": "How many times the sample operation repeats a text.",
       "name": "sample.echo_repeats",
-      "product": "collie"
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "fixed",
+      "clearable": false,
+      "default": true,
+      "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
+      "name": "secrets.by_reference",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "not_by_recipe",
+      "clearable": true,
+      "default": null,
+      "description": "Where a Session's login comes from. A Recipe never sets or locks it; it may only expose it to its users.",
+      "name": "session.source",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+      "name": "timeout.action",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
+      "name": "timeout.first_byte",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+      "name": "timeout.navigation",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default.",
+      "name": "timeout.run",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+      "name": "timeout.secret",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration_except",
+      "clearable": false,
+      "default": {},
+      "description": "Domains whose certificate may fail verification, each with a pin, `any`, or `null` for trust on first use. A pin and `any` are taken only from an Operator policy and user and project configuration; a Recipe or a run may list a domain only for trust on first use.",
+      "name": "tls.accept_invalid_certs",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": "object"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": false,
+      "default": {},
+      "description": "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
+      "name": "tls.trusted_cas",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": true,
+      "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+      "name": "version.age_notice",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "operator_policy",
+      "clearable": false,
+      "default": [],
+      "description": "The domains whose Walls no run reads past, whatever another layer allows. Set only in an Operator policy.",
+      "name": "wall.denied_domains",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "narrowed",
+      "clearable": false,
+      "default": [],
+      "description": "The domains whose Walls a run may read past by generic means. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+      "name": "wall.domains",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "narrowed",
+      "clearable": false,
+      "default": [],
+      "description": "The domains on which reading past a Wall may fetch a page again. A Recipe or a run only narrows it; it is widened only in configuration, never by an answer.",
+      "name": "wall.refetch_domains",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "fixed",
+      "clearable": false,
+      "default": true,
+      "description": "Every webhook Goodfetch sends is signed, an honesty guarantee that stays locked whatever the layer.",
+      "name": "webhook.signing",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
     }
   ],
   "shared_type_values": [
+    {
+      "arrived_in": "0.1",
+      "description": "A page that asks a person to prove they are human.",
+      "name": "captcha",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A run reached a host whose domain accepts any certificate, `any` (ADR 0042).",
+      "name": "certificate_any_used",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person accepted a pinned host's changed certificate, with both hashes (ADR 0042).",
+      "name": "certificate_change_accepted",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The certificate exceptions a run used, once per run, by host and kind (ADR 0042).",
+      "name": "certificate_exceptions_used",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A host's certificate was pinned on first use under its domain's exception, with the SHA-256 of its public key (ADR 0042).",
+      "name": "certificate_pinned",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A page that checks the browser before it lets it through.",
+      "name": "challenge",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a Client connection starts, while it lasts.",
+      "name": "connection",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A wall that asks for consent before it shows the page (ADR 0048).",
+      "name": "consent_required",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a Daemon runs.",
+      "name": "daemon",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`.",
+      "name": "endpoint_authentication_failed",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "An Exposed Daemon's setup completed through its setup link (ADR 0049).",
+      "name": "exposed_daemon_set_up",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run of the user on the machine, whichever engine runs it.",
+      "name": "install",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site refused the address the request came from.",
+      "name": "ip_block",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A page was lent to the program's own Playwright client (ADR 0089).",
+      "name": "lent_page_attached",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.",
+      "name": "paid_solves",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site asked to be paid for the page (ADR 0045).",
+      "name": "payment_required",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a person starts.",
+      "name": "person",
+      "product": "collie",
+      "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A run set a value that presses a site harder than its default, with the setting and its value (ADR 0086).",
+      "name": "pressing_harder_value_set",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A run allowed private addresses through `egress.private_ranges`, with the ranges it listed.",
+      "name": "private_addresses_allowed",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Bytes a run sent and received through a proxy, per proxy kind.",
+      "name": "proxy_bytes",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site refused because too many requests came too fast.",
+      "name": "rate_limit",
+      "product": "collie",
+      "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A raw CDP client attached to a Session's browser.",
+      "name": "raw_cdp_attached",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Requests a run sent: a crawl's Crawl requests, and a page's navigations.",
+      "name": "requests",
+      "product": "collie",
+      "type": "usage_kind"
+    },
     {
       "arrived_in": "0.1",
       "description": "Texts the sample operation repeated.",
       "name": "sample_echoes",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Secret reference was resolved and used: its placeholder, its reference and the domain that received it, never its value.",
+      "name": "secret_reference_used",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A security control was switched off for a run, once per run, with its setting and the layer that set it (ADR 0016).",
+      "name": "security_switch_turned_off",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session was exported to an encrypted bundle.",
+      "name": "session_exported",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session was imported from an encrypted bundle.",
+      "name": "session_imported",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "An Exposed Daemon started with `daemon.tls.upstream`, TLS terminated in front of it (ADR 0049).",
+      "name": "tls_terminated_upstream",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every run a Connection holding a named token starts.",
+      "name": "token",
+      "product": "collie",
+      "type": "limit_scope"
     }
   ]
 }

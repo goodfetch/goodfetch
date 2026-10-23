@@ -8,3 +8,40 @@
 )]
 
 mod attached;
+mod audit;
+#[cfg(unix)]
+mod background_traffic;
+mod browsers;
+#[cfg(target_os = "macos")]
+mod checkpoint;
+mod client_conformance;
+mod commands;
+mod config;
+mod console;
+mod daemon;
+mod daemon_run;
+mod events;
+mod exit_codes;
+mod help;
+mod human_output;
+mod invalid_calls;
+mod journeys;
+mod launch;
+mod layout;
+#[cfg(target_os = "linux")]
+mod lazyfs;
+mod locator;
+mod log;
+mod page;
+mod parent_death;
+mod private_endpoint;
+mod run;
+mod secrets;
+mod service_manager;
+mod settings_flags;
+mod upgrade_files;
+mod usage;
+#[cfg(target_os = "linux")]
+mod virtual_display;
+mod websocket;
+mod writer_lock;

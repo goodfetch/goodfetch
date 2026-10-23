@@ -1,0 +1,13 @@
+---
+source: crates/goodfetch-engine/src/dns/tests.rs
+expression: error
+---
+CallError {
+    code: "name_lookup_failed",
+    message: "the name servers gave no usable answer for staging.proving.test",
+    retryable: true,
+    details: {
+        "name": String("staging.proving.test"),
+        "resolver": String("engine"),
+    },
+}

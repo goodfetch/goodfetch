@@ -11,9 +11,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HookStage, Instrument, Metric,
-    Operation, OperationClass, PluginKind, PluginMethod, ProtocolVersion, Setting, SharedType,
-    SharedTypeValue, Stability, schema_of,
+    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, HookStage,
+    Instrument, Metric, Operation, OperationClass, OperationKind, PluginKind, PluginMethod,
+    ProtocolVersion, Reach, Setting, SharedType, SharedTypeValue, Stability, schema_of,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -61,11 +61,16 @@ pub struct SampleStorePutResult {
 const SAMPLE_ECHOED: Event = Event {
     name: "sample.echoed",
     description: "A text was repeated.",
+    class: EventClass::Telemetry,
     payload: schema_of::<SampleEchoed>,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
+
+fn one() -> serde_json::Value {
+    serde_json::json!(1)
+}
 
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
@@ -74,6 +79,8 @@ pub const ENTRIES: Entries = Entries {
         name: "sample.echo",
         description: "Repeats a text back to the caller.",
         class: OperationClass::Read,
+        kind: OperationKind::RoundTrip,
+        reach: Reach::AllSurfaces,
         params: schema_of::<SampleEchoParams>,
         result: schema_of::<SampleEchoResult>,
         events: &[&SAMPLE_ECHOED],
@@ -86,6 +93,7 @@ pub const ENTRIES: Entries = Entries {
         arrived_in: ARRIVED_IN,
     }],
     events: &[SAMPLE_ECHOED],
+    handler_requests: &[],
     error_codes: &[ErrorCodeDefinition {
         name: "sample_refused",
         description: "The sample operation refused the text.",
@@ -117,6 +125,11 @@ pub const ENTRIES: Entries = Entries {
     settings: &[Setting {
         name: "sample.echo_repeats",
         description: "How many times the sample operation repeats a text.",
+        kind: crate::catalog::ValueKind::Count,
+        default: one,
+        clearable: false,
+        authority: crate::catalog::Authority::Every,
+        weakens: None,
         arrived_in: ARRIVED_IN,
     }],
     hook_stages: &[HookStage {

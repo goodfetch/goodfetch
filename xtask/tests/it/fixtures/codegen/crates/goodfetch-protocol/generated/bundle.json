@@ -1,5 +1,33 @@
 {
   "$defs": {
+    "CaseLogEntry": {
+      "additionalProperties": false,
+      "description": "A sample case log entry.",
+      "properties": {
+        "case": {
+          "description": "The case's ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case"
+      ],
+      "type": "object"
+    },
+    "HelloParams": {
+      "additionalProperties": false,
+      "description": "What a `hello` says, the Connection's own message.",
+      "properties": {
+        "protocol_version": {
+          "description": "The protocol version the sender speaks.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_version"
+      ],
+      "type": "object"
+    },
     "Journey": {
       "additionalProperties": false,
       "description": "A sample Journey.",
@@ -18,6 +46,35 @@
         "goal"
       ],
       "type": "object"
+    },
+    "ResultDocument": {
+      "description": "A sample result document.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A sample Journey variant's result.",
+          "properties": {
+            "journey_id": {
+              "description": "The Journey.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "journey",
+              "type": "string"
+            },
+            "outcome": {
+              "description": "Its outcome.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "journey_id",
+            "outcome"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "SampleCrawlParams": {
       "additionalProperties": false,
@@ -144,11 +201,38 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "connection": {
+    "hello": {
+      "params": {
+        "$ref": "#/$defs/HelloParams"
+      }
+    }
+  },
+  "documents": {
+    "case_log_entry": {
+      "$ref": "#/$defs/CaseLogEntry"
+    },
+    "result_document": {
+      "$ref": "#/$defs/ResultDocument"
+    }
+  },
   "files": {
     "journeys/J-*.toml": {
       "$ref": "#/$defs/Journey"
     }
   },
+  "formats": [
+    {
+      "hello_from": [],
+      "name": "sample-store",
+      "rule": "default",
+      "schema": {
+        "type": "object"
+      },
+      "storage": "sqlite",
+      "version": "0.1"
+    }
+  ],
   "protocol_version": "0.1",
   "title": "Goodfetch protocol"
 }

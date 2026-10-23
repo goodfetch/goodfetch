@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import EngineInfo, EngineInfoParams, SampleEchoParams, SampleEchoResult
+from .models import Acted, AuditVerified, AuditVerifyParams, Checkpoint, ClickParams, ConfigExplainParams, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageFormats, PageOpened, PageParams, PressParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, SampleEchoParams, SampleEchoResult, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams
 
 
 class AsyncCaller(Protocol):
@@ -41,9 +41,196 @@ class AsyncCollieOperations:
         """Takes the runtime that sends each call."""
         self._caller = caller
 
+    async def audit_verify(self, params: AuditVerifyParams) -> AuditVerified:
+        """Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return AuditVerified.model_construct(**_fields(await self._caller.call("audit.verify", params)))
+
+    async def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
+        """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's."""
+        return SettingsExplanation.model_construct(**_fields(await self._caller.call("config.explain", params)))
+
+    async def connection_set_log_level(self, params: SetLogLevelParams) -> LogLevelSet:
+        """Sets the level of the engine's log events this Connection receives as `$/log` notifications, from the next one on: `off`, `error`, `warn`, `info`, `debug` or `trace`, as `hello`'s `log_level` set it first. Each Connection has its own. Log events are telemetry: one the Connection is too slow to receive is dropped, and the next counts it in `dropped`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return LogLevelSet.model_construct(**_fields(await self._caller.call("connection.set_log_level", params)))
+
+    async def daemon_status(self, params: DaemonParams) -> DaemonStatus:
+        """Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle."""
+        return DaemonStatus.model_construct(**_fields(await self._caller.call("daemon.status", params)))
+
+    async def daemon_stop(self, params: DaemonParams) -> DaemonStopping:
+        """Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed."""
+        return DaemonStopping.model_construct(**_fields(await self._caller.call("daemon.stop", params)))
+
     async def engine_info(self, params: EngineInfoParams) -> EngineInfo:
         """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""
         return EngineInfo.model_construct(**_fields(await self._caller.call("engine.info", params)))
+
+    async def events_subscribe(self, params: EventsSubscribeParams) -> SubscriptionEnded:
+        """Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return SubscriptionEnded.model_construct(**_fields(await self._caller.call("events.subscribe", params)))
+
+    async def key_value_store_delete(self, params: KeyValueStoreKeyParams) -> KeyValueStoreDeleted:
+        """Removes a key from a live Run's Key-value store and answers whether it existed.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreDeleted.model_construct(**_fields(await self._caller.call("key_value_store.delete", params)))
+
+    async def key_value_store_get(self, params: KeyValueStoreKeyParams) -> KeyValueStoreValue:
+        """Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreValue.model_construct(**_fields(await self._caller.call("key_value_store.get", params)))
+
+    async def key_value_store_keys(self, params: KeyValueStoreKeysParams) -> KeyValueStoreKeysEnded:
+        """Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreKeysEnded.model_construct(**_fields(await self._caller.call("key_value_store.keys", params)))
+
+    async def key_value_store_set(self, params: KeyValueStoreSetParams) -> KeyValueStoreSet:
+        """Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreSet.model_construct(**_fields(await self._caller.call("key_value_store.set", params)))
+
+    async def locator_click(self, params: ClickParams) -> Acted:
+        """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(await self._caller.call("locator.click", params)))
+
+    async def locator_fill(self, params: FillParams) -> Acted:
+        """Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(await self._caller.call("locator.fill", params)))
+
+    async def locator_press(self, params: PressParams) -> Acted:
+        """Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(await self._caller.call("locator.press", params)))
+
+    async def page_body(self, params: PageBodyParams) -> PageBodyRead:
+        """Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageBodyRead.model_construct(**_fields(await self._caller.call("page.body", params)))
+
+    async def page_formats(self, params: FormatsParams) -> PageFormats:
+        """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageFormats.model_construct(**_fields(await self._caller.call("page.formats", params)))
+
+    async def page_go_back(self, params: PageParams) -> Navigated:
+        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(await self._caller.call("page.go_back", params)))
+
+    async def page_go_forward(self, params: PageParams) -> Navigated:
+        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(await self._caller.call("page.go_forward", params)))
+
+    async def page_goto(self, params: GotoParams) -> Navigated:
+        """Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(await self._caller.call("page.goto", params)))
+
+    async def page_reload(self, params: PageParams) -> Navigated:
+        """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(await self._caller.call("page.reload", params)))
+
+    async def run_abort(self, params: RunAbortParams) -> RunReport:
+        """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(await self._caller.call("run.abort", params)))
+
+    async def run_checkpoint(self, params: RunCheckpointParams) -> Checkpoint:
+        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Checkpoint.model_construct(**_fields(await self._caller.call("run.checkpoint", params)))
+
+    async def run_finish(self, params: RunParams) -> RunReport:
+        """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(await self._caller.call("run.finish", params)))
+
+    async def run_migrate(self, params: RunCheckpointParams) -> RunReport:
+        """Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(await self._caller.call("run.migrate", params)))
+
+    async def run_new_page(self, params: NewPageParams) -> PageOpened:
+        """Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageOpened.model_construct(**_fields(await self._caller.call("run.new_page", params)))
+
+    async def run_pause(self, params: RunParams) -> RunReport:
+        """Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(await self._caller.call("run.pause", params)))
+
+    async def run_resume(self, params: RunResumeParams) -> RunStarted:
+        """Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunStarted.model_construct(**_fields(await self._caller.call("run.resume", params)))
+
+    async def run_set_progress_message(self, params: RunSetProgressMessageParams) -> RunProgress:
+        """Sets the program's own status line about a live Run, at most 512 characters, which replaces the one before: kept in the Run's state, so a resume keeps it, shown in its Run index row and carried on its progress, `run.progress`. Answers the Run's progress. A Run this engine does not run fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunProgress.model_construct(**_fields(await self._caller.call("run.set_progress_message", params)))
+
+    async def run_start(self, params: RunStartParams) -> RunStarted:
+        """Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunStarted.model_construct(**_fields(await self._caller.call("run.start", params)))
 
     @deprecated("Since 0.1: A sample entry, which the real catalog replaces.")
     async def sample_echo(self, params: SampleEchoParams) -> SampleEchoResult:
@@ -55,6 +242,20 @@ class AsyncCollieOperations:
         """
         return SampleEchoResult.model_construct(**_fields(await self._caller.call("sample.echo", params)))
 
+    async def usage_list(self, params: UsageListParams) -> UsageListResult:
+        """Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return UsageListResult.model_construct(**_fields(await self._caller.call("usage.list", params)))
+
+    async def usage_set(self, params: UsageSetParams) -> LimitUsage:
+        """Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return LimitUsage.model_construct(**_fields(await self._caller.call("usage.set", params)))
+
 
 class CollieOperations:
     """Collie's operations, each a sync method."""
@@ -63,9 +264,196 @@ class CollieOperations:
         """Takes the runtime that sends each call."""
         self._caller = caller
 
+    def audit_verify(self, params: AuditVerifyParams) -> AuditVerified:
+        """Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return AuditVerified.model_construct(**_fields(self._caller.call("audit.verify", params)))
+
+    def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
+        """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's."""
+        return SettingsExplanation.model_construct(**_fields(self._caller.call("config.explain", params)))
+
+    def connection_set_log_level(self, params: SetLogLevelParams) -> LogLevelSet:
+        """Sets the level of the engine's log events this Connection receives as `$/log` notifications, from the next one on: `off`, `error`, `warn`, `info`, `debug` or `trace`, as `hello`'s `log_level` set it first. Each Connection has its own. Log events are telemetry: one the Connection is too slow to receive is dropped, and the next counts it in `dropped`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return LogLevelSet.model_construct(**_fields(self._caller.call("connection.set_log_level", params)))
+
+    def daemon_status(self, params: DaemonParams) -> DaemonStatus:
+        """Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle."""
+        return DaemonStatus.model_construct(**_fields(self._caller.call("daemon.status", params)))
+
+    def daemon_stop(self, params: DaemonParams) -> DaemonStopping:
+        """Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed."""
+        return DaemonStopping.model_construct(**_fields(self._caller.call("daemon.stop", params)))
+
     def engine_info(self, params: EngineInfoParams) -> EngineInfo:
         """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""
         return EngineInfo.model_construct(**_fields(self._caller.call("engine.info", params)))
+
+    def events_subscribe(self, params: EventsSubscribeParams) -> SubscriptionEnded:
+        """Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return SubscriptionEnded.model_construct(**_fields(self._caller.call("events.subscribe", params)))
+
+    def key_value_store_delete(self, params: KeyValueStoreKeyParams) -> KeyValueStoreDeleted:
+        """Removes a key from a live Run's Key-value store and answers whether it existed.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreDeleted.model_construct(**_fields(self._caller.call("key_value_store.delete", params)))
+
+    def key_value_store_get(self, params: KeyValueStoreKeyParams) -> KeyValueStoreValue:
+        """Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreValue.model_construct(**_fields(self._caller.call("key_value_store.get", params)))
+
+    def key_value_store_keys(self, params: KeyValueStoreKeysParams) -> KeyValueStoreKeysEnded:
+        """Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreKeysEnded.model_construct(**_fields(self._caller.call("key_value_store.keys", params)))
+
+    def key_value_store_set(self, params: KeyValueStoreSetParams) -> KeyValueStoreSet:
+        """Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreSet.model_construct(**_fields(self._caller.call("key_value_store.set", params)))
+
+    def locator_click(self, params: ClickParams) -> Acted:
+        """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(self._caller.call("locator.click", params)))
+
+    def locator_fill(self, params: FillParams) -> Acted:
+        """Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(self._caller.call("locator.fill", params)))
+
+    def locator_press(self, params: PressParams) -> Acted:
+        """Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Acted.model_construct(**_fields(self._caller.call("locator.press", params)))
+
+    def page_body(self, params: PageBodyParams) -> PageBodyRead:
+        """Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageBodyRead.model_construct(**_fields(self._caller.call("page.body", params)))
+
+    def page_formats(self, params: FormatsParams) -> PageFormats:
+        """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageFormats.model_construct(**_fields(self._caller.call("page.formats", params)))
+
+    def page_go_back(self, params: PageParams) -> Navigated:
+        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(self._caller.call("page.go_back", params)))
+
+    def page_go_forward(self, params: PageParams) -> Navigated:
+        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(self._caller.call("page.go_forward", params)))
+
+    def page_goto(self, params: GotoParams) -> Navigated:
+        """Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(self._caller.call("page.goto", params)))
+
+    def page_reload(self, params: PageParams) -> Navigated:
+        """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Navigated.model_construct(**_fields(self._caller.call("page.reload", params)))
+
+    def run_abort(self, params: RunAbortParams) -> RunReport:
+        """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(self._caller.call("run.abort", params)))
+
+    def run_checkpoint(self, params: RunCheckpointParams) -> Checkpoint:
+        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Checkpoint.model_construct(**_fields(self._caller.call("run.checkpoint", params)))
+
+    def run_finish(self, params: RunParams) -> RunReport:
+        """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(self._caller.call("run.finish", params)))
+
+    def run_migrate(self, params: RunCheckpointParams) -> RunReport:
+        """Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(self._caller.call("run.migrate", params)))
+
+    def run_new_page(self, params: NewPageParams) -> PageOpened:
+        """Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageOpened.model_construct(**_fields(self._caller.call("run.new_page", params)))
+
+    def run_pause(self, params: RunParams) -> RunReport:
+        """Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(self._caller.call("run.pause", params)))
+
+    def run_resume(self, params: RunResumeParams) -> RunStarted:
+        """Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunStarted.model_construct(**_fields(self._caller.call("run.resume", params)))
+
+    def run_set_progress_message(self, params: RunSetProgressMessageParams) -> RunProgress:
+        """Sets the program's own status line about a live Run, at most 512 characters, which replaces the one before: kept in the Run's state, so a resume keeps it, shown in its Run index row and carried on its progress, `run.progress`. Answers the Run's progress. A Run this engine does not run fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunProgress.model_construct(**_fields(self._caller.call("run.set_progress_message", params)))
+
+    def run_start(self, params: RunStartParams) -> RunStarted:
+        """Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunStarted.model_construct(**_fields(self._caller.call("run.start", params)))
 
     @deprecated("Since 0.1: A sample entry, which the real catalog replaces.")
     def sample_echo(self, params: SampleEchoParams) -> SampleEchoResult:
@@ -76,3 +464,17 @@ class CollieOperations:
         Deprecated since 0.1: A sample entry, which the real catalog replaces.
         """
         return SampleEchoResult.model_construct(**_fields(self._caller.call("sample.echo", params)))
+
+    def usage_list(self, params: UsageListParams) -> UsageListResult:
+        """Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return UsageListResult.model_construct(**_fields(self._caller.call("usage.list", params)))
+
+    def usage_set(self, params: UsageSetParams) -> LimitUsage:
+        """Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return LimitUsage.model_construct(**_fields(self._caller.call("usage.set", params)))

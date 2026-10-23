@@ -8,7 +8,47 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Final
 
-from goodfetch_collie_client.generated.errors import GoodfetchError, RefusedError
+from goodfetch_collie_client.generated.errors import GoodfetchError, ProgramError, RefusedError, UnavailableError
+
+
+class AttemptEndedError(ProgramError):
+    """The call names an attempt that already ended: its handler returned, it failed or was skipped, its lease ended, or its Run stopped. Nothing it asked for was done, so a forgotten `await` never silently loses a link."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="attempt_ended", group="program", retryable=False)
+
+
+class ClientGoneError(UnavailableError):
+    """The Connection the attempt's request went on ended before its handler answered: the program or one of its `workers=N` handler processes ended, or its Connection dropped. Not the handler's own failure (`handler_failed`): the attempt committed nothing and is retried, on another Connection that serves the crawl, under `crawl.retry.max`."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="client_gone", group="unavailable", retryable=True)
+
+
+class HandlerFailedError(ProgramError):
+    """The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="handler_failed", group="program", retryable=True)
+
+
+class HandlerLostError(UnavailableError):
+    """The attempt's lease ended with no answer from the program's handler: its process ended, its Connection dropped, or it hung. The attempt committed nothing and counts against `crawl.retry.max`."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="handler_lost", group="unavailable", retryable=True)
+
+
+class LeaseLostError(UnavailableError):
+    """The attempt's lease ended before it committed: its handler answered after the lease's end, or the run file holds a later lease of its work item. Its outputs are discarded, and the commit of the work item's next attempt is the one that counts."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="lease_lost", group="unavailable", retryable=True)
 
 
 class SampleCrawlRefusedError(RefusedError):
@@ -20,6 +60,11 @@ class SampleCrawlRefusedError(RefusedError):
 
 
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
+    "attempt_ended": AttemptEndedError,
+    "client_gone": ClientGoneError,
+    "handler_failed": HandlerFailedError,
+    "handler_lost": HandlerLostError,
+    "lease_lost": LeaseLostError,
     "sample_crawl_refused": SampleCrawlRefusedError,
 }
 """The exception class of each Error code."""

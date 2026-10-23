@@ -8,37 +8,58 @@
 )]
 
 use std::io::Write as _;
-use std::process::{ChildStdin, Stdio};
+use std::process::{ChildStdin, Command, Stdio};
+use std::time::Duration;
 
 use goodfetch_protocol::jsonrpc::Message;
-use goodfetch_test_support::{Process, StrictStdout, TestEnv};
+use goodfetch_test_support::{MESSAGE_DEADLINE, Process, StrictStdout, TestEnv, record_command};
 use serde_json::{Value, json};
 
-/// A running Attached engine of Collie's executable.
-struct Attached {
+/// A running Attached engine of Collie's executable, started in a test's
+/// setup.
+pub(crate) struct Attached<'env> {
+    env: &'env TestEnv,
     process: Process,
     stdin: Option<ChildStdin>,
     stdout: StrictStdout,
 }
 
-impl Attached {
-    fn start(env: &TestEnv) -> Self {
+impl<'env> Attached<'env> {
+    pub(crate) fn start(env: &'env TestEnv) -> Self {
+        Self::start_with(env, |_| {})
+    }
+
+    /// Starts it after `configure` changed its command, such as its
+    /// environment.
+    pub(crate) fn start_with(env: &'env TestEnv, configure: impl FnOnce(&mut Command)) -> Self {
+        Self::start_waiting(env, MESSAGE_DEADLINE, configure)
+    }
+
+    /// Starts it as [`Attached::start_with`] does, each message awaited for
+    /// up to `deadline`, as a call that launches a browser needs.
+    pub(crate) fn start_waiting(
+        env: &'env TestEnv,
+        deadline: Duration,
+        configure: impl FnOnce(&mut Command),
+    ) -> Self {
         let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-collie"));
         command
             .arg("attached-engine")
             .env("GOODFETCH_LOG", "trace")
             .stderr(Stdio::piped());
+        configure(&mut command);
         let process = env.spawn(&mut command).unwrap();
         let stdin = process.child().stdin.take();
-        let stdout = StrictStdout::of(&process).unwrap();
+        let stdout = StrictStdout::of(&process).unwrap().within(deadline);
         Self {
+            env,
             process,
             stdin,
             stdout,
         }
     }
 
-    fn send(&mut self, message: &Value) {
+    pub(crate) fn send(&mut self, message: &Value) {
         let stdin = self.stdin.as_mut().unwrap();
         let mut line = serde_json::to_vec(message).unwrap();
         line.push(b'\n');
@@ -47,26 +68,60 @@ impl Attached {
     }
 
     /// The next message, read as one of the protocol's (ADR 0038).
-    fn next(&mut self) -> Option<Value> {
+    pub(crate) fn next(&mut self) -> Option<Value> {
         let message = self.stdout.try_next().unwrap()?;
         serde_json::from_value::<Message>(message.clone()).unwrap();
         Some(message)
     }
 
+    /// The engine's process ID, which names its log file.
+    pub(crate) fn pid(&self) -> u32 {
+        self.process.child().id()
+    }
+
+    /// Kills the engine (`kill -9`) and waits for it to end, as a power cut
+    /// or a crash ends it.
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(
+            dead_code,
+            reason = "only the LazyFS power cut, on Linux, kills the engine"
+        )
+    )]
+    pub(crate) fn kill(self) {
+        self.process.stop().unwrap();
+    }
+
     /// Ends the input and waits for the engine to exit, returning whatever
     /// it still sent.
-    fn finish(mut self) -> (Vec<Value>, bool) {
+    /// Records `attached-engine` and its exit code in the test's command
+    /// record, for the exercise audit (ADR 0072).
+    pub(crate) fn finish(mut self) -> (Vec<Value>, bool) {
         drop(self.stdin.take());
         let mut rest = Vec::new();
         while let Some(message) = self.next() {
             rest.push(message);
         }
         let status = self.process.child().wait().unwrap();
+        record_command(self.env, &["attached-engine"], status.code()).unwrap();
         (rest, status.success())
+    }
+
+    /// As [`Attached::finish`], answering what it still sent and everything
+    /// it wrote on stderr.
+    pub(crate) fn finish_with_stderr(mut self) -> (Vec<Value>, String) {
+        drop(self.stdin.take());
+        let mut rest = Vec::new();
+        while let Some(message) = self.next() {
+            rest.push(message);
+        }
+        let status = self.process.child().wait().unwrap();
+        record_command(self.env, &["attached-engine"], status.code()).unwrap();
+        (rest, self.stdout.stderr_to_end())
     }
 }
 
-fn hello(needs: &str, protocol_version: &str) -> Value {
+pub(crate) fn hello(needs: &str, protocol_version: &str) -> Value {
     json!({
         "jsonrpc": "2.0",
         "id": 0,
@@ -84,22 +139,38 @@ fn request(id: i64, method: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": {} })
 }
 
-/// Covers: story:3-1, story:3-3
+/// Covers: story:3-1, story:3-3, command:attached-engine
 #[test]
 fn an_attached_engine_answers_hello_over_stdio_and_stops_at_the_end_of_its_input() {
     let env = TestEnv::new();
     let mut engine = Attached::start(&env);
 
     engine.send(&hello("collie", "0.1"));
-    let reply = engine.next().unwrap();
+    let mut reply = engine.next().unwrap();
+    let private_endpoint = reply["result"]
+        .as_object_mut()
+        .unwrap()
+        .remove("private_endpoint");
+    let engine_instance = reply["result"]
+        .as_object_mut()
+        .unwrap()
+        .remove("engine_instance");
 
     assert_eq!(
-        reply,
-        json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "result": { "protocol_version": "0.1", "product": "collie", "product_version": "0.0.0" },
-        })
+        (
+            reply,
+            private_endpoint.is_some_and(|it| it.is_object()),
+            engine_instance.is_some_and(|it| it.is_string())
+        ),
+        (
+            json!({
+                "jsonrpc": "2.0",
+                "id": 0,
+                "result": { "protocol_version": "0.1", "product": "collie", "product_version": "0.0.0" },
+            }),
+            true,
+            true
+        )
     );
     assert_eq!(engine.finish(), (vec![], true));
 }

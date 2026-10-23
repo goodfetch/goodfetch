@@ -1,0 +1,131 @@
+# The coverage job (ADR 0072; TESTING.md, Code coverage and mutation
+# testing), in no suite, on GitHub-hosted Linux x64: weekly while the nightly
+# tier is off (nightly once it is on), and by hand. `just coverage all` runs
+# the Pre-merge suite's tests over the whole workspace with every Rust crate
+# built for coverage, so each SDK, Journey and Console run starts the
+# instrumented executables of both Products (ADR 0094), and writes three
+# reports: cargo-llvm-cov's over nextest and those runs, Vitest's `v8`
+# provider's in Node and in Browser Mode, and coverage.py's with branches.
+# They are attached to the run as `coverage-report`. Nothing gates on them:
+# no threshold, no `--fail-under-*`, no badge and no coverage service.
+#
+# Its tests' verdicts come from no instrumented build: the step is no test
+# step, and its JUnit files carry the runtime `instrumented`, a configuration
+# of their own in the results store, so they decide no Feature's status and
+# make no test flaky.
+#
+# While the repository is private, its minutes count toward test health's
+# ceiling (ADRs 0064 and 0072): `budget` starts it only while the month's
+# count is below 550 minutes, and says so in the job summary when it skips
+# it. Each finished run is ingested into the results store (results.yml).
+#
+# It runs the product, so it denies outbound traffic before its tests (ADR
+# 0043) through ci/egress/egress.sh's hosted backend, and runs them through
+# ci/egress/under-deny.sh.
+name: coverage
+
+on:
+  schedule:
+    # Saturdays, apart from test health's daily and Sunday runs.
+    - cron: "29 5 * * 6"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: coverage
+  cancel-in-progress: false
+
+jobs:
+  budget:
+    name: budget
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    outputs:
+      admitted: ${{ steps.ceiling.outputs.admitted }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out the results store
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/test-results
+          token: ${{ secrets.TEST_RESULTS_TOKEN }}
+          path: test-results
+          persist-credentials: false
+      - name: Build xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Check the month's minutes against the coverage job's threshold
+        id: ceiling
+        run: >-
+          cargo run --quiet --locked -p xtask -- results ceiling --store test-results
+          --run coverage --today "$(date -u +%F)" --summary "$GITHUB_STEP_SUMMARY"
+          | tee -a "$GITHUB_OUTPUT"
+
+  coverage:
+    name: coverage
+    needs: budget
+    if: needs.budget.outputs.admitted == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2.87.23
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      - name: Add the toolchain's LLVM tools
+        run: rustup component add llvm-tools
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: Measure the coverage of every test of the Pre-merge suite
+        run: ci/egress/under-deny.sh just coverage all
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/ target/coverage/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-coverage-weekly-linux-x64-instrumented-1
+          path: target/junit/
+          if-no-files-found: ignore
+      - name: Attach the coverage reports
+        id: report
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report
+          path: target/coverage/
+          if-no-files-found: ignore
+      # The link each milestone's gate issue carries (ADR 0072).
+      - name: Link the coverage reports from the job summary
+        if: always() && steps.report.outputs.artifact-url != ''
+        env:
+          URL: ${{ steps.report.outputs.artifact-url }}
+        run: |
+          echo "Coverage reports: $URL" >>"$GITHUB_STEP_SUMMARY"

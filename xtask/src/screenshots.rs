@@ -1,7 +1,9 @@
 //! Reference screenshots (ADR 0073): `fetch` applies the screenshots of one
 //! `update-screenshots` run, downloaded by `just screenshots-fetch <run>`,
 //! only when the run rendered them in the pinned Playwright image on the
-//! branch's head; `orphans` refuses a reference no visual test read.
+//! branch's head; `orphans` refuses a reference no visual test read; `check`
+//! (Quick) refuses a comparison tolerance set outside the shared visual
+//! config and a Reference screenshot over 512 KiB.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
@@ -18,6 +20,9 @@ use serde::Deserialize;
 use crate::check::Finding;
 use crate::environment::Environment;
 use crate::output;
+use crate::tree;
+
+mod tolerance;
 
 /// The pinned Playwright image, read by the workflows and by this module.
 const PINNED_IMAGE: &str = "ci/visual/image.toml";
@@ -33,9 +38,17 @@ const RUN_SCREENSHOTS: &str = "screenshots";
 /// Playwright, `vitest.config.ts` for Vitest).
 const READ_RECORDS: &str = "target/visual/read";
 
-/// Folders the walk never enters, wherever they are: version control, build
-/// outputs and installed packages.
-const SKIPPED: [&str; 4] = [".git", "target", "node_modules", ".venv"];
+/// The shared visual config of Vitest and Playwright, the one file that may
+/// set a comparison's tolerance (ADR 0073).
+const SHARED_CONFIG: &str = "test-support/typescript/src/visual-config.ts";
+
+/// ADR 0073's limit for one Reference screenshot: 512 KiB.
+const REFERENCE_LIMIT_BYTES: u64 = 512 * 1024;
+
+/// Folders the walk never enters, wherever they are: build outputs and
+/// installed packages. Hidden folders (version control, other checkouts'
+/// worktrees, environments) are never entered either.
+const SKIPPED: [&str; 2] = ["target", "node_modules"];
 
 /// The frozen R&D archive at the root (ADR 0032).
 const FROZEN: &str = "rnd";
@@ -248,6 +261,48 @@ pub(crate) fn orphans(root: &Path) -> Result<Vec<Finding>> {
         .collect())
 }
 
+/// Every comparison tolerance set outside the shared visual config, in the
+/// files the suites run (fixtures and frozen `rnd/` aside), and every
+/// Reference screenshot over 512 KiB.
+pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
+    let mut findings = Vec::new();
+    for file in tree::files(root, "")? {
+        let code = Path::new(&file)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| tolerance::EXTENSIONS.contains(&extension));
+        if !code || file == SHARED_CONFIG {
+            continue;
+        }
+        let path = root.join(&file);
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        for (line, setting) in tolerance::settings(&text) {
+            findings.push(Finding::new(
+                "tolerance-outside-shared-config",
+                format!("{file}:{line}"),
+                format!("`{setting}` is set outside {SHARED_CONFIG}; a comparison takes zero mismatched pixels at the default threshold, and the shared config alone sets that"),
+            ));
+        }
+    }
+    let mut references = Vec::new();
+    walk(root, root, &mut references)?;
+    for reference in references {
+        let path = root.join(&reference);
+        let bytes = std::fs::metadata(&path)
+            .with_context(|| format!("reading {}", path.display()))?
+            .len();
+        if bytes > REFERENCE_LIMIT_BYTES {
+            findings.push(Finding::new(
+                "oversized-reference-screenshot",
+                reference,
+                format!("{bytes} bytes is over the 512 KiB limit; clip the screenshot to the region the test is about"),
+            ));
+        }
+    }
+    Ok(findings)
+}
+
 /// Collects every Reference screenshot under `folder`, as repository paths.
 fn walk(root: &Path, folder: &Path, references: &mut Vec<String>) -> Result<()> {
     let mut entries = std::fs::read_dir(folder)
@@ -264,7 +319,10 @@ fn walk(root: &Path, folder: &Path, references: &mut Vec<String>) -> Result<()> 
             .with_context(|| format!("reading {}", path.display()))?;
         let relative = path.strip_prefix(root)?;
         if metadata.is_dir() {
-            if SKIPPED.contains(&name) || (folder == root && name == FROZEN) {
+            if name.starts_with('.')
+                || SKIPPED.contains(&name)
+                || (folder == root && name == FROZEN)
+            {
                 continue;
             }
             walk(root, &path, references)?;
@@ -327,6 +385,9 @@ pub(crate) enum Command {
     /// Fails on a Reference screenshot that no visual test read, after a
     /// run of every visual project.
     Orphans,
+    /// Fails on a comparison tolerance set outside the shared visual config
+    /// and on a Reference screenshot over 512 KiB (Quick suite).
+    Check,
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
@@ -334,5 +395,6 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
     Ok(crate::check::report(&match command {
         Command::Fetch { run } => fetch(root, &environment.path(&run))?,
         Command::Orphans => orphans(root)?,
+        Command::Check => check(root)?,
     }))
 }

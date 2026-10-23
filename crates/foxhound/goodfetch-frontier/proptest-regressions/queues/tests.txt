@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 6645cf9c7d3f26f328c94954b46b67aada86533aa769d713c04d4e7e1bbf955b # shrinks to steps = [Comes { domain: 2, priority: 1, forefront: false }, Comes { domain: 2, priority: 0, forefront: true }, Admit], bound = 1

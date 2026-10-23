@@ -33,7 +33,7 @@
 # every Linux cell. The suites of other areas (every Sink's suite on
 # Foxhound's executable, browser conformance on Collie's, skew and upgrades
 # from released artifacts, the security suites, the resident-memory
-# ceilings, the exercise audit) join each cell as steps, or through
+# ceilings) join each cell as steps, or through
 # `just test release`, as their areas add them.
 #
 # A step whose name starts with "Test" is a test step (ADR 0064): a cell
@@ -129,6 +129,10 @@ jobs:
       CELL: ${{ matrix.cell }}
       TARGET: ${{ matrix.target }}
       SHARD: 1/1
+      # A hosted Ubuntu runner's AppArmor refuses unprivileged user
+      # namespaces, so `DnsNamespace` comes up through `sudo` (ADR 0067);
+      # declared, a fallback to another way fails.
+      GOODFETCH_TEST_DNS_NAMESPACE: sudo
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -168,7 +172,36 @@ jobs:
       # not depend on the target. The runner's own Java runs it.
       - name: Fetch the pinned TLA+ tools
         if: matrix.cell == 'linux-x64-gnu'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: just tlc-fetch
+      # ADR 0067's Release-suite security jobs, on Linux x64 glibc: the
+      # AddressSanitizer run of every crate that opts into `unsafe`, on the
+      # nightly of ci/sanitizer-toolchain.toml (its standard library rebuilt,
+      # so its build fetches before the deny); the V8 memory-corruption
+      # scripts on the test V8 build fetched by digest, and the ZAP baseline
+      # of the Console from its image by digest, each a slot until its
+      # subject exists (ci/v8-corruption.sh, ci/zap.sh).
+      - name: Install the sanitizer toolchain
+        if: matrix.cell == 'linux-x64-gnu'
+        run: >-
+          rustup toolchain install
+          "$(sed -n 's/^toolchain = "\(.*\)"$/\1/p' ci/sanitizer-toolchain.toml)"
+          --profile minimal --component rust-src
+      - name: Build the AddressSanitizer tests
+        if: matrix.cell == 'linux-x64-gnu'
+        run: just asan build
+      - name: Fetch the test V8 build by its digest
+        if: matrix.cell == 'linux-x64-gnu'
+        run: just v8-corruption fetch
+      - name: Pull the pinned ZAP image
+        if: matrix.cell == 'linux-x64-gnu'
+        run: just zap fetch
+      # The LazyFS power cuts (ADR 0060), on one cell: FUSE from the runner's
+      # packages, LazyFS from its pinned source archives.
+      - name: Build the pinned LazyFS
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/host/lazyfs.sh
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
       - name: Deny outbound traffic
@@ -181,12 +214,35 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # ADR 0072's exercise audit over the Rust tests the cell ran: every
+      # test but the quarantined ones (ADR 0064) and those that cannot run
+      # on the cell, which leave no record. With the justfile's
+      # `exercise_audit` at `gate`, a declaring test that never reached its
+      # Feature fails it, so it is a test step (ADR 0064).
+      - name: "Test: audit what each declaring test reached"
+        run: ci/egress/under-deny.sh just features-audit
+      # The resident-memory check on both Products' executables (ADRs 0071,
+      # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
+      - name: "Test: resident memory"
+        run: ci/egress/under-deny.sh ci/release/cell.sh rss
       - name: "Test: TLC on every model"
         if: matrix.cell == 'linux-x64-gnu'
         run: ci/egress/under-deny.sh just tlc --all
       - name: "Test: the sample's broken variant fails TLC"
         if: matrix.cell == 'linux-x64-gnu'
         run: ci/egress/under-deny.sh just tlc-self-test
+      - name: "Test: AddressSanitizer on the crates that opt into unsafe"
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/egress/under-deny.sh just asan test
+      - name: "Test: the V8 memory-corruption scripts"
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/egress/under-deny.sh just v8-corruption test
+      - name: "Test: the ZAP baseline of the Console"
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/egress/under-deny.sh just zap scan
+      - name: "Test: LazyFS power cuts"
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/egress/under-deny.sh ci/release/cell.sh lazyfs
       - name: Measure the base, then the commit, against the Performance budget
         if: endsWith(matrix.cell, '-gnu')
         run: ci/egress/under-deny.sh ci/release/perf.sh run
@@ -200,15 +256,19 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/leaks.sh target/junit/ target/release-suite/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-release-dispatch-${{ matrix.cell }}-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Save the size report keyed by the tested tree
-        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success'
+        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: size-report-${{ steps.size.outputs.tree }}-${{ matrix.target }}
@@ -234,6 +294,10 @@ jobs:
       CELL: ${{ matrix.cell }}
       TARGET: ${{ matrix.target }}
       SHARD: 1/1
+      # A hosted Ubuntu runner's AppArmor refuses unprivileged user
+      # namespaces, so `DnsNamespace` comes up through `sudo` (ADR 0067);
+      # declared, a fallback to another way fails.
+      GOODFETCH_TEST_DNS_NAMESPACE: sudo
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -281,6 +345,17 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # ADR 0072's exercise audit over the Rust tests the cell ran: every
+      # test but the quarantined ones (ADR 0064) and those that cannot run
+      # on the cell, which leave no record. With the justfile's
+      # `exercise_audit` at `gate`, a declaring test that never reached its
+      # Feature fails it, so it is a test step (ADR 0064).
+      - name: "Test: audit what each declaring test reached"
+        run: ci/egress/under-deny.sh just features-audit
+      # The resident-memory check on both Products' executables (ADRs 0071,
+      # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
+      - name: "Test: resident memory"
+        run: ci/egress/under-deny.sh ci/release/cell.sh rss
       - name: Measure the base, then the commit, against the Performance budget
         if: endsWith(matrix.cell, '-gnu')
         run: ci/egress/under-deny.sh ci/release/perf.sh run
@@ -294,15 +369,19 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/leaks.sh target/junit/ target/release-suite/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-release-dispatch-${{ matrix.cell }}-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Save the size report keyed by the tested tree
-        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success'
+        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: size-report-${{ steps.size.outputs.tree }}-${{ matrix.target }}
@@ -357,6 +436,17 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # ADR 0072's exercise audit over the Rust tests the cell ran: every
+      # test but the quarantined ones (ADR 0064) and those that cannot run
+      # on the cell, which leave no record. With the justfile's
+      # `exercise_audit` at `gate`, a declaring test that never reached its
+      # Feature fails it, so it is a test step (ADR 0064).
+      - name: "Test: audit what each declaring test reached"
+        run: ci/egress/under-deny.sh just features-audit
+      # The resident-memory check on both Products' executables (ADRs 0071,
+      # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
+      - name: "Test: resident memory"
+        run: ci/egress/under-deny.sh ci/release/cell.sh rss
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -367,15 +457,20 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        shell: bash
+        run: ci/leaks.sh target/junit/ target/release-suite/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-release-dispatch-windows-x64-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Save the size report keyed by the tested tree
-        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success'
+        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: size-report-${{ steps.size.outputs.tree }}-x86_64-pc-windows-msvc
@@ -431,6 +526,17 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # ADR 0072's exercise audit over the Rust tests the cell ran: every
+      # test but the quarantined ones (ADR 0064) and those that cannot run
+      # on the cell, which leave no record. With the justfile's
+      # `exercise_audit` at `gate`, a declaring test that never reached its
+      # Feature fails it, so it is a test step (ADR 0064).
+      - name: "Test: audit what each declaring test reached"
+        run: ci/egress/under-deny.sh just features-audit
+      # The resident-memory check on both Products' executables (ADRs 0071,
+      # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
+      - name: "Test: resident memory"
+        run: ci/egress/under-deny.sh ci/release/cell.sh rss
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -441,15 +547,19 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/leaks.sh target/junit/ target/release-suite/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-release-dispatch-macos-arm64-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Save the size report keyed by the tested tree
-        if: always() && steps.size.outcome == 'success'
+        if: always() && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: size-report-${{ steps.size.outputs.tree }}-aarch64-apple-darwin
@@ -506,6 +616,17 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      # ADR 0072's exercise audit over the Rust tests the cell ran: every
+      # test but the quarantined ones (ADR 0064) and those that cannot run
+      # on the cell, which leave no record. With the justfile's
+      # `exercise_audit` at `gate`, a declaring test that never reached its
+      # Feature fails it, so it is a test step (ADR 0064).
+      - name: "Test: audit what each declaring test reached"
+        run: ci/egress/under-deny.sh just features-audit
+      # The resident-memory check on both Products' executables (ADRs 0071,
+      # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
+      - name: "Test: resident memory"
+        run: ci/egress/under-deny.sh ci/release/cell.sh rss
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -516,15 +637,19 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/leaks.sh target/junit/ target/release-suite/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-release-dispatch-macos-x64-rosetta-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Save the size report keyed by the tested tree
-        if: always() && steps.size.outcome == 'success'
+        if: always() && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: size-report-${{ steps.size.outputs.tree }}-x86_64-apple-darwin
@@ -563,6 +688,9 @@ jobs:
       - name: Refuse the Egress canary
         run: ci/egress/egress.sh canary
       - name: "Test: the visual projects in the pinned image"
+        # Firefox's and WebKit's visual projects run in the Release suite only.
+        env:
+          GOODFETCH_TEST_SUITE: release
         run: ci/vm/visual.sh test
       - name: Check that every Reference screenshot was read
         run: ci/vm/exec.sh cargo run --quiet --locked -p xtask -- screenshots orphans
@@ -576,15 +704,19 @@ jobs:
       - name: Summarize the failed tests
         if: always()
         run: ci/junit-summary.sh vm
-      - name: Upload the JUnit files
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
         if: always()
+        run: ci/vm/exec.sh ci/leaks.sh target/junit/ target/vitest-attachments/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-visual-dispatch-linux-x64-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Upload the expected, actual and diff images
-        if: failure()
+        if: failure() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: visual-differences-release-dispatch

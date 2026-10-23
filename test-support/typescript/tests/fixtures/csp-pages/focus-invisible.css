@@ -1,0 +1,5 @@
+/* The second button draws nothing when it has focus. */
+.no-ring:focus,
+.no-ring:focus-visible {
+  outline: none;
+}

@@ -1,0 +1,229 @@
+//! `daemon install` for real, with the user's own service manager (spec
+//! #213's Seam 1; ADRs 0024, 0031, 0059 and 0098): a launch agent on macOS
+//! and a systemd user unit on Linux, each started by the first connection
+//! to its socket, and a logon task on Windows. The service manager is
+//! shared by the whole user, so these tests run in a nextest test group,
+//! each service named by its test's own Goodfetch home, and each test
+//! removes its service when it ends. They need the user's service manager,
+//! which `ci/os-services.sh` checks: on Linux in the Pre-merge suite, on
+//! macOS and Windows in the Release suite only (TESTING.md, Storage,
+//! network and OS services).
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the tests read the user's session from their own process, and the service's files themselves"
+)]
+
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
+
+use goodfetch_test_support::{Cli, TestEnv, cli};
+#[cfg(unix)]
+use goodfetch_test_support::{ConsoleState, DaemonEndpoint, RuntimeFile};
+use serde_json::{Value, json};
+
+#[cfg(unix)]
+use crate::daemon::RawClient;
+use crate::daemon::{short_idle, validate};
+
+const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
+
+/// This commit's Product version, whose major folder is `0.0`.
+#[cfg(unix)]
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The variables through which a command reaches the user's own service
+/// manager, from the test's process, over the test's isolated ones: where
+/// the user's agents and units are read from, the session's bus, and the
+/// programs' `PATH`.
+const USER_SESSION: [&str; 7] = [
+    "HOME",
+    "PATH",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "USERNAME",
+    "USERDOMAIN",
+    "SystemRoot",
+];
+
+/// A run of `executable` in the user's own session, Goodfetch home still
+/// the test's.
+pub(crate) fn in_session<'env>(env: &'env TestEnv, executable: &str) -> Cli<'env> {
+    let mut command = cli(env, executable);
+    for name in USER_SESSION {
+        if let Some(value) = std::env::var_os(name) {
+            command = command.env(name, value);
+        }
+    }
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
+    if let Some(config) = config {
+        command = command.env("XDG_CONFIG_HOME", config);
+    }
+    command
+}
+
+pub(crate) fn json_in_session(env: &TestEnv, executable: &str, arguments: &[&str]) -> Value {
+    let output = in_session(env, executable).args(arguments).run().unwrap();
+    assert_eq!(output.exit, Some(0), "{}", output.stderr);
+    serde_json::from_str(&output.stdout).unwrap()
+}
+
+/// Removes the test home's service when the test ends, passing or failing.
+pub(crate) struct RemovesTheService<'env>(pub(crate) &'env TestEnv);
+
+impl Drop for RemovesTheService<'_> {
+    fn drop(&mut self) {
+        let _ = in_session(self.0, COLLIE)
+            .args(["daemon", "uninstall"])
+            .run();
+    }
+}
+
+/// What a Client of the installed service's socket needs: the socket and
+/// the persistent token.
+#[cfg(unix)]
+pub(crate) fn service_reach(env: &TestEnv, service: &Value) -> RuntimeFile {
+    let token = std::fs::read_to_string(env.home().join("0.0").join("daemon.token")).unwrap();
+    RuntimeFile {
+        endpoint: DaemonEndpoint::Unix(PathBuf::from(service["socket"].as_str().unwrap())),
+        token,
+        version: VERSION.to_owned(),
+        pid: 0,
+        console: ConsoleState::Absent,
+    }
+}
+
+#[cfg(unix)]
+fn mode(path: &Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+}
+
+/// `daemon install` registers the major's service, whose socket the
+/// service manager listens on: the first connection, with the persistent
+/// token from its `0600` file, starts the Daemon, kept alive past a short
+/// idle timeout, from the versioned copy the service names; `daemon
+/// uninstall` stops it and removes every file the service had.
+///
+/// Covers: story:3-21, story:3-18, command:daemon.install, command:daemon.uninstall, command:daemon.status
+#[cfg(unix)]
+#[test]
+fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
+    let env = TestEnv::new();
+    short_idle(&env, 300);
+    let _removes = RemovesTheService(&env);
+
+    let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
+    let service = installed["service"].clone();
+    let before = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
+    let mut client = RawClient::opened(&service_reach(&env, &service), "collie");
+    let status = client.call(1, "daemon.status", &json!({}));
+    let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
+    drop(client);
+    let token_mode = mode(&env.home().join("0.0").join("daemon.token"));
+    let uninstalled = json_in_session(&env, COLLIE, &["daemon", "uninstall", "--json"]);
+    let after = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
+
+    validate(&installed, "DaemonInstallOutput");
+    validate(&uninstalled, "DaemonUninstallOutput");
+    let files: Vec<bool> = service["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| Path::new(file.as_str().unwrap()).exists())
+        .collect();
+    assert_eq!(
+        (
+            before["daemon"].clone(),
+            before["service"] == service,
+            status["result"]["product"].clone(),
+            status["result"]["kept_alive"].clone(),
+            status["result"]["pid"] == json!(found.pid),
+            token_mode,
+            Path::new(service["executable"].as_str().unwrap())
+                .starts_with(env.home().join("browsers")),
+            uninstalled["removed"] == service,
+            files,
+            after["service"].clone(),
+            after["daemon"].clone(),
+            env.home().join("0.0").join("daemon.token").exists(),
+        ),
+        (
+            Value::Null,
+            true,
+            json!("collie"),
+            json!(true),
+            true,
+            0o600,
+            true,
+            true,
+            vec![false; service["files"].as_array().unwrap().len()],
+            Value::Null,
+            Value::Null,
+            false,
+        )
+    );
+}
+
+/// A rotation stops the Daemon that took the old token: a Client with the
+/// old token is closed unanswered, and one with the new token starts the
+/// next Daemon.
+///
+/// Covers: story:3-21, command:daemon.rotate-token
+#[cfg(unix)]
+#[test]
+fn after_a_rotation_only_the_new_token_opens_a_connection() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _removes = RemovesTheService(&env);
+    let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
+    let old = service_reach(&env, &installed["service"]);
+    drop(RawClient::opened(&old, "collie"));
+
+    let rotated = json_in_session(&env, COLLIE, &["daemon", "rotate-token", "--json"]);
+    let refused = RawClient::refused(&old);
+    let new = service_reach(&env, &installed["service"]);
+    let mut client = RawClient::opened(&new, "collie");
+    let status = client.call(1, "daemon.status", &json!({}));
+
+    validate(&rotated, "DaemonRotateTokenOutput");
+    assert_eq!(
+        (
+            rotated["stopped"].clone(),
+            refused,
+            new.token == old.token,
+            status["result"]["product"].clone(),
+        ),
+        (json!({ "live_runs": 0 }), true, false, json!("collie"))
+    );
+}
+
+/// On Windows the logon task starts the Daemon at logon, and the
+/// installed service keeps it running past its idle timeout.
+///
+/// Covers: story:3-21, command:daemon.install, command:daemon.uninstall
+#[cfg(windows)]
+#[test]
+fn the_installed_logon_task_keeps_the_daemon_running() {
+    let env = TestEnv::new();
+    short_idle(&env, 300);
+    let _removes = RemovesTheService(&env);
+
+    let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
+    let started = json_in_session(&env, COLLIE, &["daemon", "start", "--json"]);
+    let uninstalled = json_in_session(&env, COLLIE, &["daemon", "uninstall", "--json"]);
+    let after = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
+
+    validate(&installed, "DaemonInstallOutput");
+    assert_eq!(
+        (
+            installed["service"]["manager"].clone(),
+            started["daemon"]["kept_alive"].clone(),
+            uninstalled["removed"] == installed["service"],
+            after["daemon"].clone(),
+        ),
+        (json!("task_scheduler"), json!(true), true, Value::Null)
+    );
+}

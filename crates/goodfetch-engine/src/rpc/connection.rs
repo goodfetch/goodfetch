@@ -1,31 +1,74 @@
-//! One Connection's life: it opens with `hello`, then each request goes to
+//! One Connection's life, whose states change only as the engine's
+//! transition table says (ADR 0128): it opens with `hello`, then each request goes to
 //! its handler as a task of the Connection's owner, each call under its own
 //! cancellation token that `$/cancel` trips, while one writer task sends
 //! every line whole. A refused `hello` is answered before any other message
 //! and the Connection then closes (ADR 0066). At the end of input, calls in
 //! flight are cancelled at their next cancellation point, answered, and the
-//! Connection closes once they all are.
+//! Connection closes once they all are. A Connection the engine closes
+//! while its Client still sends, such as a refused one, ends its sending
+//! side first and drops what still comes until the Client closes too, for a
+//! short while at most, so a Client that wrote behind its `hello` reads the
+//! refusal and the end rather than a failed write or a reset.
+//!
+//! The engine also sends the Client handler requests, such as a crawl's
+//! `crawl_request.handle`, each under an id of its own, and routes each
+//! reply back to its sender; a sender's cancel of one still unanswered
+//! goes to the Client as `$/cancel`, and the reply that still comes is
+//! routed the same way. The Connection's end fails those still waiting. A `$/credit` adds credits to the streaming call it names.
+//!
+//! A Connection to a Daemon or to an Attached engine's private endpoint
+//! must open with a `hello` carrying that listener's token: anything else
+//! is closed without an answer, so a stranger learns nothing (ADRs 0024 and
+//! 0031). Each refusal is logged under [`REFUSAL_TARGET`], with its
+//! listener and its reason, until the Audit log records it (area 4). An
+//! Exposed Daemon's address carries its Connections as lines or over
+//! WebSocket (ADR 0049), whose refused handshakes are logged the same way.
+//! Only the Client of an Attached engine's stdio is told its private
+//! endpoint, in the reply to its `hello`.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{Product, Reach};
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams, StoppedBy,
+    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams,
+    PERSON_REQUIRED, PrivateEndpoint, StoppedBy, Surface,
 };
+use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
-use goodfetch_protocol::jsonrpc::{Notification, ProtocolFailure, Request, RequestId};
+use goodfetch_protocol::jsonrpc::{
+    ErrorObject, Notification, ProtocolFailure, Request, RequestId, Version,
+};
 use serde_json::{Map, Value};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
-use super::{failure_line, handshake, not_in_product, record, success_line};
-use crate::composition::{CallContext, CallError, Handler};
+use super::websocket::{
+    self, Authorities, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
+};
+use super::{
+    failure_line, handshake, line, not_in_product, notification_line, record, record_cancel,
+    success_line,
+};
+use crate::client::{Client, Outgoing};
+use crate::clock::Clock;
+use crate::composition::{
+    CallContext, CallError, CallStream, ConnectionContext, DaemonSide, Handler,
+};
+use crate::events::{Credits, Events};
+use crate::log::LogEvents;
 use crate::product::{Identity, Requested};
+use crate::runs::Runs;
 use crate::tasks::TaskOwner;
-use crate::transport::{Connection, ConnectionReader, ConnectionWriter};
+use crate::transition::engine::{
+    ConnectionEffect, ConnectionEvent, ConnectionState, InvalidConnectionTransition,
+};
+use crate::transition::{self, Refusal};
+use crate::transport::{Connection, ConnectionWriter};
 
 /// How many bytes one read takes from the Connection.
 const READ_CHUNK: usize = 8 * 1024;
@@ -36,23 +79,216 @@ const MAX_IN_FLIGHT: usize = 256;
 /// How many lines wait for the writer before their senders wait.
 const OUTGOING_LINES: usize = 64;
 
+/// How long a Connection the engine closed still reads what its Client
+/// sends, waiting for the Client to close too.
+const LINGER: Duration = Duration::from_secs(2);
+
+/// What a dispatch record names a method no catalog holds.
+const UNKNOWN_METHOD: &str = "(unknown)";
+
+/// The `tracing` target of a listener's refusals of a Connection.
+pub const REFUSAL_TARGET: &str = "goodfetch::rpc::refusal";
+
 /// What every Connection of an engine dispatches to.
 pub(crate) struct Dispatch {
     pub(crate) identity: Arc<Identity>,
     pub(crate) handlers: BTreeMap<&'static str, Handler>,
+    /// The process's log events, which each Connection receives at its
+    /// own level.
+    pub(crate) log_events: LogEvents,
 }
 
-/// Serves `connection` until it ends, its tasks those of `owner`.
+/// How a Connection reached the engine, which says what its `hello` must
+/// carry and what its reply tells.
+pub(crate) enum Access {
+    /// An Attached engine's stdio, or an in-process Connection: no token;
+    /// its reply names the engine's private endpoint, when it has one.
+    Attached(Option<PrivateEndpoint>),
+    /// A Daemon's listener: its token, and what else the Daemon gives.
+    Daemon(Arc<dyn DaemonSide>),
+    /// An Exposed Daemon's address (ADR 0049): a Daemon's listener that
+    /// also carries the protocol over WebSocket, its handshake held to the
+    /// names the Daemon is reached at.
+    Exposed(Arc<dyn DaemonSide>, Arc<Authorities>),
+    /// An Attached engine's private endpoint: its token.
+    PrivateEndpoint(Arc<str>),
+}
+
+impl Access {
+    /// The token its `hello` must carry, if any.
+    fn token(&self) -> Option<&str> {
+        match self {
+            Self::Attached(_) => None,
+            Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(daemon.token()),
+            Self::PrivateEndpoint(token) => Some(token),
+        }
+    }
+
+    /// The Daemon it reaches, if any.
+    fn daemon(&self) -> Option<Arc<dyn DaemonSide>> {
+        match self {
+            Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(Arc::clone(daemon)),
+            Self::Attached(_) | Self::PrivateEndpoint(_) => None,
+        }
+    }
+
+    /// Its listener's name in the endpoint table (ADR 0067), for a
+    /// Connection of newline-delimited JSON-RPC.
+    fn listener(&self) -> &'static str {
+        match self {
+            Self::Attached(_) => "stdio",
+            Self::Daemon(_) => "daemon_socket",
+            Self::Exposed(..) => "exposed_daemon",
+            Self::PrivateEndpoint(_) => "private_endpoint",
+        }
+    }
+}
+
+/// The endpoint table's name of a Daemon's WebSocket listener (ADR 0067).
+const WEBSOCKET_LISTENER: &str = "daemon_websocket";
+
+/// How a Connection's messages arrive: as lines, or as WebSocket messages.
+enum Reading {
+    Lines {
+        reader: Prefixed,
+        framer: Framer,
+        chunk: Vec<u8>,
+    },
+    Messages(MessageReader),
+}
+
+impl Reading {
+    fn lines(reader: Prefixed) -> Self {
+        Self::Lines {
+            reader,
+            framer: Framer::new(MAX_MESSAGE_BYTES),
+            chunk: vec![0; READ_CHUNK],
+        }
+    }
+
+    /// Reads what comes next and appends each message it ends to `frames`;
+    /// `false` once the Connection has ended, after appending its last.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing the Connection sent.
+    async fn read(&mut self, frames: &mut Vec<Frame>) -> bool {
+        match self {
+            Self::Lines {
+                reader,
+                framer,
+                chunk,
+            } => match reader.read(chunk).await {
+                Ok(0) | Err(_) => {
+                    frames.extend(framer.finish());
+                    false
+                }
+                Ok(read) => {
+                    framer.feed(&chunk[..read], frames);
+                    true
+                }
+            },
+            Self::Messages(messages) => messages.read(frames).await,
+        }
+    }
+}
+
+/// How a Connection's messages leave: as lines, or as WebSocket messages.
+enum Writing {
+    Lines(ConnectionWriter),
+    Messages(MessageWriter),
+}
+
+/// How `connection`, reached through `access`, carries its messages, and
+/// its listener's name; `None` when an Exposed Daemon's WebSocket handshake
+/// was refused or failed, which closes it.
+async fn carriage(
+    connection: Connection,
+    access: &Access,
+) -> Option<(Reading, Writing, &'static str)> {
+    let (mut reader, writer) = connection.split();
+    let Access::Exposed(_, authorities) = access else {
+        let reader = Prefixed::new(Vec::new(), reader);
+        return Some((
+            Reading::lines(reader),
+            Writing::Lines(writer),
+            access.listener(),
+        ));
+    };
+    let mut first = vec![0; READ_CHUNK];
+    let read = reader.read(&mut first).await.unwrap_or(0);
+    first.truncate(read);
+    let reader = Prefixed::new(first, reader);
+    if !reader.opens_a_request() {
+        return Some((
+            Reading::lines(reader),
+            Writing::Lines(writer),
+            access.listener(),
+        ));
+    }
+    match websocket::accept(Rejoined::new(reader, writer), authorities).await {
+        Ok((messages, sent)) => Some((
+            Reading::Messages(messages),
+            Writing::Messages(sent),
+            WEBSOCKET_LISTENER,
+        )),
+        Err(NotOpened::Refused(refusal)) => {
+            tracing::warn!(target: REFUSAL_TARGET, listener = WEBSOCKET_LISTENER, reason = refusal.reason(), "a WebSocket handshake whose `Host` or `Origin` is not the Daemon's was refused");
+            None
+        }
+        Err(NotOpened::Failed(error)) => {
+            tracing::debug!(%error, "a request that is no WebSocket handshake closes");
+            None
+        }
+    }
+}
+
+/// Serves `connection` until it ends, its tasks those of `owner`, lingering
+/// on `clock` after the engine closes it.
 ///
 /// # Cancel safety
 ///
 /// Dropping the future leaves the calls it started to `owner`, which stops
 /// them.
-pub(crate) async fn serve(dispatch: Arc<Dispatch>, connection: Connection, owner: &TaskOwner) {
-    let (mut reader, writer) = connection.split();
+pub(crate) async fn serve(
+    dispatch: Arc<Dispatch>,
+    connection: Connection,
+    owner: &TaskOwner,
+    runs: Runs,
+    events: Events,
+    access: Access,
+    clock: Clock,
+) {
+    let Some((mut reading, writing, listener)) = carriage(connection, &access).await else {
+        return;
+    };
     let (outgoing, lines) = mpsc::channel(OUTGOING_LINES);
-    owner.spawn(write_lines(writer, lines));
+    owner.spawn(write_lines(writing, lines));
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
+    let (client, requests) = Client::new();
+    let daemon = access.daemon();
+    let log = dispatch.log_events.connection();
+    let logging = CancellationToken::new();
+    let forwarding = log.forward(outgoing.clone());
+    let stop_logging = logging.clone();
+    owner.spawn(async move {
+        // Polled first, it sends every log event already waiting before
+        // the Connection's end stops it.
+        tokio::select! {
+            biased;
+            () = forwarding => {}
+            () = stop_logging.cancelled() => {}
+        }
+    });
+    let connection = Arc::new(ConnectionContext {
+        identity: Arc::clone(&dispatch.identity),
+        client,
+        surface: OnceLock::new(),
+        runs,
+        events,
+        daemon,
+        log,
+    });
     let mut session = Session {
         dispatch,
         owner,
@@ -61,32 +297,118 @@ pub(crate) async fn serve(dispatch: Arc<Dispatch>, connection: Connection, owner
         completions,
         in_flight: BTreeMap::new(),
         behind_gateway: false,
-        opened: false,
+        state: ConnectionState::Opening,
+        connection,
+        requests,
+        pending: BTreeMap::new(),
+        next_request: 0,
+        opened_client: None,
+        access,
+        listener,
     };
-    session.run(&mut reader).await;
+    let ended = session.run(&mut reading).await;
+    logging.cancel();
     session.cancel_in_flight();
     drop(session);
     owner.wait().await;
+    if !ended {
+        linger(&mut reading, clock).await;
+    }
 }
 
-/// Writes each line whole, flushing once no other line waits; shuts the
-/// Connection's sending side down when every sender is gone.
-async fn write_lines(mut writer: ConnectionWriter, mut lines: mpsc::Receiver<Vec<u8>>) {
+/// Once the engine closed a Connection whose Client still sends, such as
+/// one whose `hello` it refused, reads and drops what comes until the
+/// Client closes too, for at most [`LINGER`]. A Client that wrote behind
+/// its last message then reads the engine's last message and the end, and
+/// never meets a Connection already gone: its write never fails, and no
+/// reset of unread bytes destroys what the engine sent (ADR 0066).
+///
+/// # Cancel safety
+///
+/// Dropping the future closes the Connection at once.
+async fn linger(reading: &mut Reading, clock: Clock) {
+    let drained = async {
+        let mut dropped = Vec::new();
+        while reading.read(&mut dropped).await {
+            dropped.clear();
+        }
+    };
+    tokio::select! {
+        () = drained => {}
+        () = clock.sleep(LINGER) => {}
+    }
+}
+
+/// Writes each line whole, or as one WebSocket message, flushing once no
+/// other line waits; shuts the Connection's sending side down, or closes
+/// its WebSocket, when every sender is gone.
+async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>) {
     while let Some(line) = lines.recv().await {
-        if writer.write_all(&line).await.is_err() {
+        let sent = match &mut writing {
+            Writing::Lines(writer) => writer.write_all(&line).await.is_ok(),
+            Writing::Messages(messages) => messages.feed(line).await,
+        };
+        if !sent {
             return;
         }
-        if lines.is_empty() && writer.flush().await.is_err() {
-            return;
+        if lines.is_empty() {
+            let flushed = match &mut writing {
+                Writing::Lines(writer) => writer.flush().await.is_ok(),
+                Writing::Messages(messages) => messages.flush().await,
+            };
+            if !flushed {
+                return;
+            }
         }
     }
-    let _ = writer.shutdown().await;
+    match writing {
+        Writing::Lines(mut writer) => {
+            let _ = writer.shutdown().await;
+        }
+        Writing::Messages(messages) => messages.close().await,
+    }
 }
 
 /// A call in flight.
 struct InFlight {
     token: CancellationToken,
     cancellable: bool,
+    credits: Option<Credits>,
+}
+
+/// A message read from the Connection, by the event of the engine's table
+/// it is.
+enum Message {
+    Hello(Request),
+    Request(Request),
+    Notification(Notification),
+    Reply {
+        id: RequestId,
+        answer: Result<Value, ErrorObject>,
+    },
+    Unreadable(DecodeError),
+}
+
+impl Message {
+    fn of(incoming: Result<Incoming, DecodeError>) -> Self {
+        match incoming {
+            Ok(Incoming::Request(request)) if request.method == HELLO => Self::Hello(request),
+            Ok(Incoming::Request(request)) => Self::Request(request),
+            Ok(Incoming::Notification(notification)) => Self::Notification(notification),
+            Ok(Incoming::Reply { id, answer }) => Self::Reply { id, answer },
+            Err(error) => Self::Unreadable(error),
+        }
+    }
+
+    fn event(&self) -> ConnectionEvent {
+        match self {
+            Self::Hello(_) => ConnectionEvent::Hello,
+            Self::Request(_) => ConnectionEvent::Request,
+            Self::Notification(_) => ConnectionEvent::Notification,
+            Self::Reply { .. } => ConnectionEvent::Reply,
+            Self::Unreadable(_) => ConnectionEvent::Unreadable,
+        }
+    }
 }
 
 /// Whether the Connection goes on after a message.
@@ -103,42 +425,93 @@ struct Session<'owner> {
     completions: mpsc::Receiver<RequestId>,
     in_flight: BTreeMap<RequestId, InFlight>,
     behind_gateway: bool,
-    opened: bool,
+    /// Where it is, which only the engine's table changes (ADR 0128).
+    state: ConnectionState,
+    connection: Arc<ConnectionContext>,
+    requests: mpsc::Receiver<Outgoing>,
+    pending: BTreeMap<RequestId, Pending>,
+    next_request: i64,
+    /// On a Daemon, the count of this Client, held while it is open.
+    opened_client: Option<Box<dyn Send + Sync>>,
+    /// How the Connection reached the engine.
+    access: Access,
+    /// Its listener's name in the endpoint table (ADR 0067).
+    listener: &'static str,
+}
+
+/// A handler request the engine sent, waiting for its reply.
+struct Pending {
+    method: &'static str,
+    reply: oneshot::Sender<Result<Value, ErrorObject>>,
 }
 
 impl Session<'_> {
-    async fn run(&mut self, reader: &mut ConnectionReader) {
-        let mut framer = Framer::new(MAX_MESSAGE_BYTES);
+    /// Serves the Connection until the Client's input ended and every call
+    /// was answered, or the engine closed it; answers whether the input
+    /// ended.
+    async fn run(&mut self, reading: &mut Reading) -> bool {
         let mut pending = Vec::new();
-        let mut chunk = vec![0; READ_CHUNK];
         let mut ended = false;
+        let mut lost = false;
         loop {
             for frame in std::mem::take(&mut pending) {
                 if let Flow::Close = self.handle(frame).await {
-                    return;
+                    return ended;
                 }
             }
             if ended {
-                self.cancel_in_flight();
+                if !lost {
+                    lost = true;
+                    match self.transition(ConnectionEvent::ClientLost) {
+                        Ok(ConnectionEffect::CancelCalls) => self.cancel_in_flight(),
+                        Ok(
+                            ConnectionEffect::Handshake
+                            | ConnectionEffect::Serve
+                            | ConnectionEffect::Answer
+                            | ConnectionEffect::Refuse
+                            | ConnectionEffect::Nothing,
+                        ) => {}
+                        Err(refused) => {
+                            let _ = refused.logged();
+                            return true;
+                        }
+                    }
+                }
                 if self.in_flight.is_empty() {
-                    return;
+                    if let Err(refused) = self.transition(ConnectionEvent::CallsEnded) {
+                        let _ = refused.logged();
+                    }
+                    return true;
                 }
             }
-            let reading = !ended && self.in_flight.len() < MAX_IN_FLIGHT;
+            let open = !ended && self.in_flight.len() < MAX_IN_FLIGHT;
+            let sending = self.state != ConnectionState::Opening;
             tokio::select! {
                 biased;
                 Some(id) = self.completions.recv() => {
                     self.in_flight.remove(&id);
                 }
-                read = reader.read(&mut chunk), if reading => match read {
-                    Ok(0) | Err(_) => {
-                        ended = true;
-                        pending.extend(framer.finish());
+                Some(request) = self.requests.recv(), if sending => {
+                    if let Flow::Close = self.send_request(request).await {
+                        return ended;
                     }
-                    Ok(read) => framer.feed(&chunk[..read], &mut pending),
-                },
+                }
+                more = reading.read(&mut pending), if open => {
+                    ended = !more;
+                }
             }
         }
+    }
+
+    /// Applies `event` to the Connection's state, as the engine's table
+    /// says: its effect, or why it is refused.
+    fn transition(
+        &mut self,
+        event: ConnectionEvent,
+    ) -> Result<ConnectionEffect, InvalidConnectionTransition> {
+        let (next, effect) = transition::engine::connection(self.state, event)?;
+        self.state = next;
+        Ok(effect)
     }
 
     fn cancel_in_flight(&self) {
@@ -154,47 +527,210 @@ impl Session<'_> {
             Frame::TooLarge => Err(DecodeError::too_large()),
             Frame::Line(line) => decode(&line),
         };
-        match (incoming, self.opened) {
-            (Err(error), opened) => {
+        let message = Message::of(incoming);
+        match self.transition(message.event()) {
+            Ok(
+                ConnectionEffect::Handshake
+                | ConnectionEffect::Serve
+                | ConnectionEffect::Answer
+                | ConnectionEffect::CancelCalls
+                | ConnectionEffect::Nothing,
+            ) => self.serve(message).await,
+            Ok(ConnectionEffect::Refuse) => self.refuse(message).await,
+            Err(refused) => self.refuse_transition(refused, message).await,
+        }
+    }
+
+    /// Serves a message the Connection's state lets through: checks its
+    /// `hello`, calls a request's handler, routes a reply, acts on a
+    /// notification, or answers a line it cannot read.
+    async fn serve(&mut self, message: Message) -> Flow {
+        match message {
+            Message::Hello(request) => self.open(request).await,
+            Message::Request(request) => self.request(request).await,
+            Message::Notification(notification) => {
+                self.notification(&notification);
+                Flow::Continue
+            }
+            Message::Reply { id, answer } => {
+                self.reply(&id, answer);
+                Flow::Continue
+            }
+            Message::Unreadable(error) => {
                 let failure = CallError::protocol(error.failure, error.detail);
-                if self.send(failure_line(error.id, &failure)).await && opened {
+                if self.send(failure_line(error.id, &failure)).await {
                     Flow::Continue
                 } else {
                     Flow::Close
                 }
             }
-            (Ok(Incoming::Request(request)), false) => self.open(request).await,
-            (Ok(Incoming::Notification(notification)), false) => {
-                tracing::debug!(method = %notification.method, "a Connection that does not open with `hello` closes");
-                Flow::Close
-            }
-            (Ok(Incoming::Request(request)), true) => self.request(request).await,
-            (Ok(Incoming::Notification(notification)), true) => {
-                self.notification(&notification);
-                Flow::Continue
-            }
         }
     }
 
-    /// The first request, which must be `hello`.
-    async fn open(&mut self, request: Request) -> Flow {
-        if request.method != HELLO {
-            let error = CallError::protocol(
-                ProtocolFailure::InvalidRequest,
-                "a Connection opens with `hello`",
-            );
-            record(&request.method, Some(error.code()));
-            self.send(failure_line(Some(request.id), &error)).await;
+    /// Refuses a first message that is no `hello`, then closes: unanswered
+    /// on a listener with a token, answered with its error otherwise.
+    async fn refuse(&mut self, message: Message) -> Flow {
+        if self.access.token().is_some() {
+            self.refused("hello_not_first");
             return Flow::Close;
         }
-        let answered = serde_json::from_value::<HelloParams>(request.params.unwrap_or(Value::Null))
-            .map_err(|error| CallError::protocol(ProtocolFailure::InvalidParams, error.to_string()))
-            .and_then(|hello| handshake::answer(&self.dispatch.identity, &hello));
+        match message {
+            Message::Hello(request) | Message::Request(request) => {
+                let error = CallError::protocol(
+                    ProtocolFailure::InvalidRequest,
+                    "a Connection opens with `hello`",
+                );
+                record(self.named(&request.method), Some(error.code()));
+                self.send(failure_line(Some(request.id), &error)).await;
+            }
+            Message::Unreadable(error) => {
+                let failure = CallError::protocol(error.failure, error.detail);
+                self.send(failure_line(error.id, &failure)).await;
+            }
+            Message::Notification(_) => {
+                tracing::debug!("a notification before `hello` closes the Connection");
+            }
+            Message::Reply { id, .. } => {
+                tracing::debug!(?id, "a Connection that does not open with `hello` closes");
+            }
+        }
+        Flow::Close
+    }
+
+    /// Answers a message the engine's table refuses in the Connection's
+    /// state: a program's second `hello` with `invalid_request`, the
+    /// Connection going on; one only a bug causes, logged, by closing.
+    async fn refuse_transition(
+        &mut self,
+        refused: InvalidConnectionTransition,
+        message: Message,
+    ) -> Flow {
+        let refused = refused.logged();
+        let request = match (refused.refusal, message) {
+            (Refusal::Program(_), Message::Hello(request)) => request,
+            (Refusal::Program(_) | Refusal::Internal, _) => return Flow::Close,
+        };
+        let error = CallError::protocol(
+            ProtocolFailure::InvalidRequest,
+            "a Connection opens with `hello` once",
+        );
+        record(self.named(&request.method), Some(error.code()));
+        if self.send(failure_line(Some(request.id), &error)).await {
+            Flow::Continue
+        } else {
+            Flow::Close
+        }
+    }
+
+    /// Sends a handler request under the next id of the engine's own, or
+    /// `$/cancel` of one still waiting for its reply.
+    async fn send_request(&mut self, request: Outgoing) -> Flow {
+        let line = match request {
+            Outgoing::Request {
+                method,
+                params,
+                sent,
+                reply,
+            } => {
+                let id = RequestId::Number(self.next_request);
+                self.next_request += 1;
+                let message = Request {
+                    jsonrpc: Version,
+                    id: id.clone(),
+                    method: method.to_owned(),
+                    params: Some(params),
+                };
+                let _ = sent.send(id.clone());
+                self.pending.insert(id, Pending { method, reply });
+                line(&message)
+            }
+            Outgoing::Cancel(id) => {
+                if !self.pending.contains_key(&id) {
+                    return Flow::Continue;
+                }
+                notification_line(CANCEL, &CancelParams { id })
+            }
+        };
+        if self.send(line).await {
+            Flow::Continue
+        } else {
+            Flow::Close
+        }
+    }
+
+    /// Routes a reply to the handler request it answers; a reply whose
+    /// sender stopped waiting, or that answers no request, is dropped.
+    fn reply(&mut self, id: &RequestId, answer: Result<Value, ErrorObject>) {
+        let Some(pending) = self.pending.remove(id) else {
+            tracing::debug!(?id, "a reply that answers no handler request is ignored");
+            return;
+        };
+        record(
+            pending.method,
+            answer.as_ref().err().map(|error| error.data.code.as_str()),
+        );
+        let _ = pending.reply.send(answer);
+    }
+
+    /// The Connection's `hello`, which carries the token on a Daemon and
+    /// on a private endpoint.
+    async fn open(&mut self, request: Request) -> Flow {
+        let daemon = self.connection.daemon.clone();
+        let hello = serde_json::from_value::<HelloParams>(request.params.unwrap_or(Value::Null));
+        if let Some(expected) = self.access.token() {
+            let token = hello.as_ref().ok().and_then(|hello| hello.token.as_deref());
+            match token {
+                None => {
+                    self.refused("token_missing");
+                    return self.rejected();
+                }
+                Some(token) if !same_token(token, expected) => {
+                    self.refused("token_wrong");
+                    return self.rejected();
+                }
+                Some(_) => {}
+            }
+        }
+        let answered = match hello {
+            Ok(hello) => handshake::answer(
+                &self.dispatch.identity,
+                self.connection.events.instance(),
+                &hello,
+            )
+            .map(|accepted| (accepted, hello.surface, hello.log_level)),
+            Err(error) => Err(handshake::Refused::Invalid(CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                error.to_string(),
+            ))),
+        };
+        let answered = match answered {
+            Ok(accepted) => Ok(accepted),
+            Err(refusal) => {
+                let handover = match &daemon {
+                    Some(daemon) if refusal.by_product_or_version() => daemon.refusing().await,
+                    _ => false,
+                };
+                Err(refusal.into_error(handover))
+            }
+        };
         match answered {
-            Ok(accepted) => {
+            Ok((mut accepted, surface, log_level)) => {
                 record(HELLO, None);
-                self.opened = true;
+                self.connection.log.set(log_level.unwrap_or_default());
+                if let Err(refused) = self.transition(ConnectionEvent::Accepted) {
+                    let _ = refused.logged();
+                    return Flow::Close;
+                }
+                // A Connection answers one `hello`: the first sets it.
+                let _ = self.connection.surface.set(surface);
+                self.opened_client = daemon.map(|daemon| daemon.opened(surface));
                 self.behind_gateway = accepted.behind_gateway;
+                if let Access::Attached(private_endpoint) = &self.access {
+                    accepted
+                        .result
+                        .private_endpoint
+                        .clone_from(private_endpoint);
+                }
                 let result = serde_json::to_value(accepted.result)
                     .expect("invariant: a `hello` reply encodes");
                 if self.send(success_line(request.id, result)).await {
@@ -206,21 +742,24 @@ impl Session<'_> {
             Err(error) => {
                 record(HELLO, Some(error.code()));
                 self.send(failure_line(Some(request.id), &error)).await;
-                Flow::Close
+                self.rejected()
             }
         }
+    }
+
+    /// Its `hello` was refused: it closes.
+    fn rejected(&mut self) -> Flow {
+        if let Err(refused) = self.transition(ConnectionEvent::Rejected) {
+            let _ = refused.logged();
+        }
+        Flow::Close
     }
 
     async fn request(&mut self, request: Request) -> Flow {
         let Request {
             id, method, params, ..
         } = request;
-        let refusal = if method == HELLO {
-            Some(CallError::protocol(
-                ProtocolFailure::InvalidRequest,
-                "a Connection opens with `hello` once",
-            ))
-        } else if method == CANCEL {
+        let refusal = if method == CANCEL {
             Some(CallError::protocol(
                 ProtocolFailure::InvalidRequest,
                 "`$/cancel` is a notification",
@@ -231,9 +770,18 @@ impl Session<'_> {
                 format!("a call with the id {id:?} is already in flight"),
             ))
         } else if let Some(handler) = self.dispatch.handlers.get(method.as_str()) {
-            let handler = handler.clone();
-            self.call(id, &handler, params);
-            return Flow::Continue;
+            if handler.operation().reach == Reach::PersonOnly
+                && !matches!(
+                    self.connection.surface.get(),
+                    Some(Surface::Cli | Surface::Console)
+                )
+            {
+                Some(person_required(&method))
+            } else {
+                let handler = handler.clone();
+                self.call(id, &handler, params);
+                return Flow::Continue;
+            }
         } else if !self.dispatch.identity.product.contains(Product::Foxhound)
             && foxhound_names::OPERATIONS.contains(&method.as_str())
         {
@@ -252,7 +800,7 @@ impl Session<'_> {
         let Some(error) = refusal else {
             return Flow::Continue;
         };
-        record(&method, Some(error.code()));
+        record(self.named(&method), Some(error.code()));
         if self.send(failure_line(Some(id), &error)).await {
             Flow::Continue
         } else {
@@ -264,13 +812,20 @@ impl Session<'_> {
     fn call(&mut self, id: RequestId, handler: &Handler, params: Option<Value>) {
         let token = self.owner.token().child_token();
         let operation = handler.operation();
-        let context = CallContext::new(Arc::clone(&self.dispatch.identity), token.clone());
+        let credits = handler.streams().then(Credits::new);
+        let stream = credits.clone().map(|credits| CallStream {
+            id: id.clone(),
+            credits,
+            outgoing: self.outgoing.clone(),
+        });
+        let context = CallContext::new(Arc::clone(&self.connection), token.clone(), stream);
         let answer = handler.call(params.unwrap_or(Value::Object(Map::new())), context);
         self.in_flight.insert(
             id.clone(),
             InFlight {
                 token: token.clone(),
                 cancellable: operation.cancellable,
+                credits,
             },
         );
         let (outgoing, completed) = (self.outgoing.clone(), self.completed.clone());
@@ -304,20 +859,42 @@ impl Session<'_> {
     }
 
     fn notification(&self, notification: &Notification) {
+        if notification.method == CREDIT {
+            self.credit(notification);
+            return;
+        }
         if notification.method != CANCEL {
-            tracing::debug!(method = %notification.method, "an unknown notification is ignored");
+            tracing::debug!("an unknown notification is ignored");
             return;
         }
         let params = notification.params.clone().unwrap_or(Value::Null);
-        match serde_json::from_value::<CancelParams>(params) {
-            Ok(CancelParams { id }) => {
-                if let Some(call) = self.in_flight.get(&id)
-                    && call.cancellable
-                {
-                    call.token.cancel();
-                }
-            }
-            Err(error) => tracing::debug!(%error, "a `$/cancel` without a call's id is ignored"),
+        let Ok(CancelParams { id }) = serde_json::from_value::<CancelParams>(params) else {
+            tracing::debug!("a `$/cancel` without a call's id is ignored");
+            return;
+        };
+        if let Some(call) = self.in_flight.get(&id)
+            && call.cancellable
+        {
+            record_cancel(CANCEL);
+            call.token.cancel();
+        }
+    }
+
+    /// Adds a `$/credit`'s credits to the call it names; one for a call no
+    /// longer in flight, or for one that does not stream, is ignored.
+    fn credit(&self, notification: &Notification) {
+        let params = notification.params.clone().unwrap_or(Value::Null);
+        let Ok(CreditParams { id, credits }) = serde_json::from_value::<CreditParams>(params)
+        else {
+            tracing::debug!("a `$/credit` that is not one is ignored");
+            return;
+        };
+        if let Some(call_credits) = self
+            .in_flight
+            .get(&id)
+            .and_then(|call| call.credits.as_ref())
+        {
+            call_credits.grant(credits);
         }
     }
 
@@ -325,4 +902,49 @@ impl Session<'_> {
     async fn send(&self, line: Vec<u8>) -> bool {
         self.outgoing.send(line).await.is_ok()
     }
+}
+
+impl Session<'_> {
+    /// `method` as a record names it: a name of the catalog, `hello` or
+    /// `$/cancel`, or [`UNKNOWN_METHOD`] for any other, which a Client
+    /// wrote and no log keeps (ADR 0132's bounded values).
+    fn named<'method>(&self, method: &'method str) -> &'method str {
+        let known = method == HELLO
+            || method == CANCEL
+            || self.dispatch.handlers.contains_key(method)
+            || foxhound_names::OPERATIONS.contains(&method);
+        if known { method } else { UNKNOWN_METHOD }
+    }
+
+    /// Logs the listener's refusal of the Connection, with its reason.
+    fn refused(&self, reason: &'static str) {
+        let listener = self.listener;
+        tracing::warn!(target: REFUSAL_TARGET, listener, reason, "a Connection that did not open with `hello` and its token was closed");
+    }
+}
+
+/// Whether two tokens are equal, in time that depends only on their
+/// lengths, so a Client cannot guess one byte at a time.
+fn same_token(given: &str, expected: &str) -> bool {
+    let (given, expected) = (given.as_bytes(), expected.as_bytes());
+    given.len() == expected.len()
+        && given
+            .iter()
+            .zip(expected)
+            .fold(0_u8, |difference, (left, right)| {
+                difference | (left ^ right)
+            })
+            == 0
+}
+
+/// `person_required`: `method` is a person's answer, which only the Console
+/// and the CLI's interactive prompt ask for (ADRs 0011 and 0041).
+fn person_required(method: &str) -> CallError {
+    CallError::new(
+        &PERSON_REQUIRED,
+        format!(
+            "`{method}` is a person's answer: give it in the Console, or in the CLI's interactive prompt"
+        ),
+        &serde_json::Map::new(),
+    )
 }

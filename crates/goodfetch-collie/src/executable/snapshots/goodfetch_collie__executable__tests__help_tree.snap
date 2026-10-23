@@ -1,0 +1,745 @@
+---
+source: crates/goodfetch-collie/src/executable/tests.rs
+expression: tree
+---
+$ goodfetch-collie --help
+Collie, Goodfetch's Product for browser automation.
+
+Usage: goodfetch-collie [OPTIONS] <COMMAND>
+
+Commands:
+  browsers         Manages the browser builds this version pins in the Browser cache
+  config           Shows the settings and where each value comes from
+  daemon           Starts, stops and shows the Daemon of this executable's major, which both Products share
+  runs             Works on the runs of this executable's major, of both Products
+  usage            Shows, sets and raises the Limits of the user's Usage ledger, which hold every engine of the user
+  upgrade-files    Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
+  engine           Calls the catalog's `engine` operations
+  events           Calls the catalog's `events` operations
+  run              Calls the catalog's `run` operations
+  page             Calls the catalog's `page` operations
+  locator          Calls the catalog's `locator` operations
+  key-value-store  Calls the catalog's `key_value_store` operations
+  audit            Calls the catalog's `audit` operations
+  sample           Calls the catalog's `sample` operations
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie attached-engine --help
+Runs as an Attached engine over stdio, which stops at the end of its input: what an SDK starts
+
+Usage: goodfetch-collie attached-engine [OPTIONS]
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie browsers --help
+Manages the browser builds this version pins in the Browser cache
+
+Usage: goodfetch-collie browsers [OPTIONS] <COMMAND>
+
+Commands:
+  install  Downloads every build this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images
+  clean    Deletes the builds nothing installed pins, unused for `browser_cache.max_unused_age` and held by no running browser
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie browsers install --help
+Downloads every build this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images
+
+Usage: goodfetch-collie browsers install [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie browsers clean --help
+Deletes the builds nothing installed pins, unused for `browser_cache.max_unused_age` and held by no running browser
+
+Usage: goodfetch-collie browsers clean [OPTIONS]
+
+Options:
+      --dry-run       Lists what it would delete, and deletes nothing
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie config --help
+Shows the settings and where each value comes from
+
+Usage: goodfetch-collie config [OPTIONS] <COMMAND>
+
+Commands:
+  explain  Shows each effective setting, the layer that set it and the layer that locked it: the built-in default, the Operator policy, user configuration, the project configuration or these flags
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie config explain --help
+Shows each effective setting, the layer that set it and the layer that locked it: the built-in default, the Operator policy, user configuration, the project configuration or these flags
+
+Usage: goodfetch-collie config explain [OPTIONS] [KEYS]...
+
+Arguments:
+  [KEYS]...  Keys, or prefixes of keys such as `timeout`, to show; every key when none
+
+Options:
+      --set <KEY=VALUE>    Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --project <PROJECT>  Reads this project configuration instead of the `goodfetch.toml` found from the working folder upward
+      --json               Prints the result as JSON
+      --daemon             Asks the Daemon of the major, starting it if none runs, instead of resolving in this process
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-collie daemon --help
+Starts, stops and shows the Daemon of this executable's major, which both Products share
+
+Usage: goodfetch-collie daemon [OPTIONS] <COMMAND>
+
+Commands:
+  start         Starts the Daemon, the major's pick, unless one runs
+  stop          Stops the Daemon; its live Runs stop with it
+  restart       Stops the Daemon, then starts the major's pick
+  status        Shows whether the Daemon runs, as which Product, and its Clients
+  install       Registers the major's Daemon as a per-user service, which starts the major's pick: a launch agent on macOS and a systemd user unit on Linux, each started by the first connection to its socket, and a logon task on Windows
+  uninstall     Removes the major's per-user service, stopping its Daemon
+  rotate-token  Replaces the persistent token of the service's Daemon, which stops with every Connection that opened with the old one
+  run           Runs the Daemon in the foreground, for Docker, Kubernetes and systemd: as this executable's Product, listening on `daemon.address`, with no runtime file and no idle stop, logging JSON lines to stdout; on `SIGTERM` it takes no run, checkpoints each run as resumable and exits within `daemon.drain_grace`
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie daemon start --help
+Starts the Daemon, the major's pick, unless one runs
+
+Usage: goodfetch-collie daemon start [OPTIONS]
+
+Options:
+      --keep-alive    Never stops it after `daemon.idle_timeout` with no Client
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie daemon stop --help
+Stops the Daemon; its live Runs stop with it
+
+Usage: goodfetch-collie daemon stop [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie daemon restart --help
+Stops the Daemon, then starts the major's pick
+
+Usage: goodfetch-collie daemon restart [OPTIONS]
+
+Options:
+      --keep-alive    Never stops it after `daemon.idle_timeout` with no Client
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie daemon status --help
+Shows whether the Daemon runs, as which Product, and its Clients
+
+Usage: goodfetch-collie daemon status [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie daemon install --help
+Registers the major's Daemon as a per-user service, which starts the major's pick: a launch agent on macOS and a systemd user unit on Linux, each started by the first connection to its socket, and a logon task on Windows
+
+Usage: goodfetch-collie daemon install [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie daemon uninstall --help
+Removes the major's per-user service, stopping its Daemon
+
+Usage: goodfetch-collie daemon uninstall [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie daemon rotate-token --help
+Replaces the persistent token of the service's Daemon, which stops with every Connection that opened with the old one
+
+Usage: goodfetch-collie daemon rotate-token [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie daemon run --help
+Runs the Daemon in the foreground, for Docker, Kubernetes and systemd: as this executable's Product, listening on `daemon.address`, with no runtime file and no idle stop, logging JSON lines to stdout; on `SIGTERM` it takes no run, checkpoints each run as resumable and exits within `daemon.drain_grace`
+
+Usage: goodfetch-collie daemon run [OPTIONS]
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie daemon launched --help
+Runs as the Daemon a start or the installed service launched, from a versioned copy
+
+Usage: goodfetch-collie daemon launched [OPTIONS]
+
+Options:
+      --copy <COPY>               The build of the versioned copy it runs from
+      --keep-alive                Never stops it after `daemon.idle_timeout` with no Client
+      --service                   Started by the major's service: starts the pick in its place when it is not the pick, and takes the socket its service manager hands over
+      --environment <NAME=VALUE>  A deployment variable the service passes, as `NAME=VALUE`; repeatable
+      --color <WHEN>              When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                      Print help
+
+$ goodfetch-collie runs --help
+Works on the runs of this executable's major, of both Products
+
+Usage: goodfetch-collie runs [OPTIONS] <COMMAND>
+
+Commands:
+  reindex  Rebuilds the Run index from the run folders: the configured locations and the given paths. A run it does not find stays listed as missing; a run discarded on purpose stays erased
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie runs reindex --help
+Rebuilds the Run index from the run folders: the configured locations and the given paths. A run it does not find stays listed as missing; a run discarded on purpose stays erased
+
+Usage: goodfetch-collie runs reindex [OPTIONS] [PATHS]...
+
+Arguments:
+  [PATHS]...  Run folders, or folders of run folders, to look in as well
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie usage --help
+Shows, sets and raises the Limits of the user's Usage ledger, which hold every engine of the user
+
+Usage: goodfetch-collie usage [OPTIONS] <COMMAND>
+
+Commands:
+  list   Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left
+  set    Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage
+  raise  Raises a Limit, in place of the ones of its scope, Usage kind, currency and period but a managed Operator policy's: a person's answer, asked at the terminal, and refused with `person_required` when stdin is no terminal
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie usage list --help
+Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left
+
+Usage: goodfetch-collie usage list [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie usage set --help
+Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage
+
+Usage: goodfetch-collie usage set [OPTIONS] --amount <AMOUNT> --scope <SCOPE> --usage-kind <USAGE_KIND>
+
+Options:
+      --amount <AMOUNT>          How much it allows per period: a count of the Usage kind, or millionths of the currency
+      --currency <CURRENCY>      The currency it caps the price in, an ISO 4217 code
+      --period <PERIOD>          The period it counts over; none for a Limit that never starts again
+      --scope <SCOPE>            The scope's kind
+      --scope-id <SCOPE_ID>      Which one of its kind; the caller's own when absent (its Client connection, its person, the engine's Daemon, the install)
+      --usage-kind <USAGE_KIND>  The Usage kind it caps
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --json                     Prints the result as JSON
+  -h, --help                     Print help
+
+$ goodfetch-collie usage raise --help
+Raises a Limit, in place of the ones of its scope, Usage kind, currency and period but a managed Operator policy's: a person's answer, asked at the terminal, and refused with `person_required` when stdin is no terminal
+
+Usage: goodfetch-collie usage raise [OPTIONS] --scope <SCOPE> --usage-kind <USAGE_KIND> --amount <AMOUNT>
+
+Options:
+      --scope <SCOPE>            The scope's kind
+      --scope-id <SCOPE_ID>      Which one of its kind; the person's own when absent
+      --usage-kind <USAGE_KIND>  The Usage kind it caps
+      --currency <CURRENCY>      The currency it caps the price in, an ISO 4217 code
+      --period <PERIOD>          The period it counts over, as JSON such as `{"every":"month","time_zone":"UTC"}`; none for a Limit that never starts again
+      --amount <AMOUNT>          How much it allows per period from now on: a count of the Usage kind, or millionths of the currency
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                     Print help
+
+$ goodfetch-collie upgrade-files --help
+Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
+
+Usage: goodfetch-collie upgrade-files [OPTIONS]
+
+Options:
+      --from <MAJOR>  The older major to upgrade from, such as `1` or `0.4`; the newest older major Goodfetch home holds when not given
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie engine --help
+Calls the catalog's `engine` operations
+
+Usage: goodfetch-collie engine [OPTIONS] <COMMAND>
+
+Commands:
+  info  Says which Product the engine runs as, its Product version and major, and the protocol version it speaks
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie engine info --help
+Says which Product the engine runs as, its Product version and major, and the protocol version it speaks
+
+Usage: goodfetch-collie engine info [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie events --help
+Calls the catalog's `events` operations
+
+Usage: goodfetch-collie events [OPTIONS] <COMMAND>
+
+Commands:
+  subscribe  Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie events subscribe --help
+Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart
+
+Usage: goodfetch-collie events subscribe [OPTIONS] --follow
+
+Options:
+      --follow         Prints what the call sends as it arrives, until it ends
+      --after <AFTER>  The last event the Client read, `{engine_instance, position}`: the subscription resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart. Absent, it starts with the next event
+      --json           Prints what the call sends as one JSON object per line
+      --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help           Print help
+
+$ goodfetch-collie run --help
+Calls the catalog's `run` operations
+
+Usage: goodfetch-collie run [OPTIONS] <COMMAND>
+
+Commands:
+  new-page    Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call
+  start       Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise
+  finish      Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait
+  abort       Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
+  checkpoint  Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file
+  pause       Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint
+  migrate     Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint
+  resume      Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie run new-page --help
+Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call
+
+Usage: goodfetch-collie run new-page [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie run start --help
+Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise
+
+Usage: goodfetch-collie run start [OPTIONS]
+
+Options:
+      --project <PROJECT>  The project configuration the Client found, layer 3 (ADR 0083)
+      --run-id <RUN_ID>    The Run's ID; the engine generates a lowercase ULID when it is absent. An existing ID returns that Run when the caller and the inputs match, and fails with `run_conflict` otherwise
+      --set <KEY=VALUE>    Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --tags <TAGS>        The Run's opaque tags
+      --json               Prints the result as JSON
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-collie run finish --help
+Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait
+
+Usage: goodfetch-collie run finish [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --json              Prints the result as JSON
+      --require-verified  Exits 21 when the Run ended with a Verdict other than `verified`
+      --color <WHEN>      When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help              Print help
+
+$ goodfetch-collie run abort --help
+Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
+
+Usage: goodfetch-collie run abort [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --forwarded         Set by an engine that forwards the abort to the owner the Run index names (ADR 0031): an engine that does not own the Run then answers `run_not_owned` instead of taking its writer role
+      --json              Prints the result as JSON
+      --require-verified  Exits 21 when the Run ended with a Verdict other than `verified`
+      --color <WHEN>      When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help              Print help
+
+$ goodfetch-collie run checkpoint --help
+Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file
+
+Usage: goodfetch-collie run checkpoint [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --location <LOCATION>  Where to write the Checkpoint, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder
+      --json                 Prints the result as JSON
+      --color <WHEN>         When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                 Print help
+
+$ goodfetch-collie run pause --help
+Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint
+
+Usage: goodfetch-collie run pause [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --json              Prints the result as JSON
+      --require-verified  Exits 21 when the Run ended with a Verdict other than `verified`
+      --color <WHEN>      When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help              Print help
+
+$ goodfetch-collie run migrate --help
+Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint
+
+Usage: goodfetch-collie run migrate [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --location <LOCATION>  Where to write the Checkpoint, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder
+      --json                 Prints the result as JSON
+      --require-verified     Exits 21 when the Run ended with a Verdict other than `verified`
+      --color <WHEN>         When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                 Print help
+
+$ goodfetch-collie run resume --help
+Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`
+
+Usage: goodfetch-collie run resume [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --checkpoint <CHECKPOINT>  A Checkpoint to resume from, a path on the engine's machine, which becomes the Run's state in this engine's run folder; by default the Run resumes from its run file on this machine
+      --project <PROJECT>        The project configuration the Client found, layer 3 (ADR 0083)
+      --set <KEY=VALUE>          Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->        Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --json                     Prints the result as JSON
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                     Print help
+
+$ goodfetch-collie page --help
+Calls the catalog's `page` operations
+
+Usage: goodfetch-collie page [OPTIONS] <COMMAND>
+
+Commands:
+  goto        Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`
+  reload      Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`
+  go-back     Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121)
+  go-forward  Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121)
+  formats     Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it
+  body        Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie page goto --help
+Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`
+
+Usage: goodfetch-collie page goto [OPTIONS] --url <URL> <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --url <URL>                The URL
+      --wait-until <WAIT_UNTIL>  When the navigation answers; `load` when absent
+      --json                     Prints the result as JSON
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                     Print help
+
+$ goodfetch-collie page reload --help
+Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`
+
+Usage: goodfetch-collie page reload [OPTIONS] <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie page go-back --help
+Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121)
+
+Usage: goodfetch-collie page go-back [OPTIONS] <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie page go-forward --help
+Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121)
+
+Usage: goodfetch-collie page go-forward [OPTIONS] <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie page formats --help
+Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it
+
+Usage: goodfetch-collie page formats [OPTIONS] --formats <FORMATS> <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --formats <FORMATS>  The formats
+      --json               Prints the result as JSON
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-collie page body --help
+Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size
+
+Usage: goodfetch-collie page body [OPTIONS] --follow --body <BODY> --run-id <RUN_ID>
+
+Options:
+      --follow           Prints what the call sends as it arrives, until it ends
+      --body <BODY>      Its ID
+      --run-id <RUN_ID>  The Run whose folder holds it
+      --json             Prints what the call sends as one JSON object per line
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
+
+$ goodfetch-collie locator --help
+Calls the catalog's `locator` operations
+
+Usage: goodfetch-collie locator [OPTIONS] <COMMAND>
+
+Commands:
+  click  Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes
+  fill   Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes
+  press  Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie locator click --help
+Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes
+
+Usage: goodfetch-collie locator click [OPTIONS] --locator <LOCATOR>
+
+Options:
+      --locator <LOCATOR>  The locator
+      --json               Prints the result as JSON
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-collie locator fill --help
+Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes
+
+Usage: goodfetch-collie locator fill [OPTIONS] --locator <LOCATOR> --value <VALUE>
+
+Options:
+      --locator <LOCATOR>  The locator
+      --value <VALUE>      The text the field holds afterwards; an empty text clears it
+      --json               Prints the result as JSON
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-collie locator press --help
+Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes
+
+Usage: goodfetch-collie locator press [OPTIONS] --key <KEY> --locator <LOCATOR>
+
+Options:
+      --key <KEY>          A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by Playwright's key names
+      --locator <LOCATOR>  The locator
+      --json               Prints the result as JSON
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-collie key-value-store --help
+Calls the catalog's `key_value_store` operations
+
+Usage: goodfetch-collie key-value-store [OPTIONS] <COMMAND>
+
+Commands:
+  get     Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it
+  set     Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`
+  delete  Removes a key from a live Run's Key-value store and answers whether it existed
+  keys    Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie key-value-store get --help
+Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it
+
+Usage: goodfetch-collie key-value-store get [OPTIONS] --key <KEY> --run-id <RUN_ID>
+
+Options:
+      --key <KEY>        The key
+      --run-id <RUN_ID>  The Run whose store it is
+      --json             Prints the result as JSON
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
+
+$ goodfetch-collie key-value-store set --help
+Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`
+
+Usage: goodfetch-collie key-value-store set [OPTIONS] --key <KEY> --run-id <RUN_ID> --value <VALUE>
+
+Options:
+      --key <KEY>        The key
+      --run-id <RUN_ID>  The Run whose store it is
+      --value <VALUE>    The value: any JSON but a top-level null, which `value_invalid` refuses; a nested null is kept
+      --json             Prints the result as JSON
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
+
+$ goodfetch-collie key-value-store delete --help
+Removes a key from a live Run's Key-value store and answers whether it existed
+
+Usage: goodfetch-collie key-value-store delete [OPTIONS] --key <KEY> --run-id <RUN_ID>
+
+Options:
+      --key <KEY>        The key
+      --run-id <RUN_ID>  The Run whose store it is
+      --json             Prints the result as JSON
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
+
+$ goodfetch-collie key-value-store keys --help
+Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock
+
+Usage: goodfetch-collie key-value-store keys [OPTIONS] --follow --run-id <RUN_ID>
+
+Options:
+      --follow           Prints what the call sends as it arrives, until it ends
+      --prefix <PREFIX>  The prefix of the keys it sends; every key when left out
+      --run-id <RUN_ID>  The Run whose store it is
+      --json             Prints what the call sends as one JSON object per line
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
+
+$ goodfetch-collie audit --help
+Calls the catalog's `audit` operations
+
+Usage: goodfetch-collie audit [OPTIONS] <COMMAND>
+
+Commands:
+  verify  Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie audit verify --help
+Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows
+
+Usage: goodfetch-collie audit verify [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie sample --help
+Calls the catalog's `sample` operations
+
+Usage: goodfetch-collie sample [OPTIONS] <COMMAND>
+
+Commands:
+  echo  Repeats a text back to the caller
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie sample echo --help
+Repeats a text back to the caller
+
+Usage: goodfetch-collie sample echo [OPTIONS] --text <TEXT>
+
+Options:
+      --text <TEXT>   The text to repeat
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+Deprecated since protocol 0.1, and removed no earlier than the next major: A sample entry, which the real catalog replaces.

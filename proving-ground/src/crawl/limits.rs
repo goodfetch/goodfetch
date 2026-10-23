@@ -126,10 +126,16 @@ fn quota(address: &mut Address) -> Admission {
 /// has waited and dropped it.
 pub(crate) struct Held {
     delay: Duration,
-    _slot: Slot,
+    /// The request's place in flight, when its host counts them.
+    _slot: Option<Slot>,
 }
 
 impl Held {
+    /// A hold of `delay` on a host that counts no request in flight.
+    pub(crate) fn after(delay: Duration) -> Self {
+        Self { delay, _slot: None }
+    }
+
     /// Waits the hold, then frees the request's place in flight.
     pub(crate) async fn release(self) {
         tokio::time::sleep(self.delay).await;
@@ -239,7 +245,7 @@ pub(super) fn respond(visit: &Visit<'_>, state: &State) -> Page {
     Page {
         held: Some(Held {
             delay: HOLD,
-            _slot: slot,
+            _slot: Some(slot),
         }),
         ..Page::ok(html)
     }

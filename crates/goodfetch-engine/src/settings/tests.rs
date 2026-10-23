@@ -1,0 +1,1053 @@
+//! The settings resolver through its interface, in process (spec #213's
+//! module seam): layers given as the files and values each layer writes.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::settings::{
+    Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsLayer,
+};
+use proptest::prelude::*;
+use rstest::rstest;
+use serde_json::{Map, Value, json};
+
+use super::{
+    Layers, Policy, Recipe, Resolved, SettingsError, Values, check_environment, configuration,
+    operator_policy, resolve, rewrite,
+};
+
+fn nested(value: Value) -> Map<String, Value> {
+    match value {
+        Value::Object(map) => map,
+        _ => panic!("settings are a table"),
+    }
+}
+
+fn values(layer: SettingsLayer, value: Value) -> Values {
+    Values::read(layer, &nested(value), Product::Foxhound).unwrap()
+}
+
+fn policy(settings: Value, lock: Value, cap: Value) -> Policy {
+    Policy {
+        settings: values(SettingsLayer::OperatorPolicy, settings),
+        lock: values(SettingsLayer::OperatorPolicy, lock),
+        cap: values(SettingsLayer::OperatorPolicy, cap),
+        version: Some("sha256:0123456789abcdef".to_owned()),
+        managed: None,
+    }
+}
+
+fn recipe(settings: Value, expose: &[(&str, Exposure)]) -> Recipe {
+    Recipe::read(
+        &RecipeManifest {
+            name: "listings".to_owned(),
+            product: Product::Collie,
+            settings: nested(settings),
+            expose: expose
+                .iter()
+                .map(|(key, exposure)| ((*key).to_owned(), exposure.clone()))
+                .collect(),
+        },
+        Product::Foxhound,
+    )
+    .unwrap()
+}
+
+/// The layers with `value` for `key` in `layer` alone.
+fn only(layer: SettingsLayer, key: &str, value: &Value) -> Layers {
+    let set = json!({ key: value });
+    let mut layers = Layers::default();
+    match layer {
+        SettingsLayer::OperatorPolicy => {
+            layers.operator_policy = policy(set, json!({}), json!({}));
+        }
+        SettingsLayer::UserConfiguration => {
+            layers.user_configuration = values(layer, set);
+        }
+        SettingsLayer::ProjectConfiguration => {
+            layers.project_configuration = values(layer, set);
+        }
+        SettingsLayer::Recipe => layers.recipe = Some(recipe(set, &[])),
+        SettingsLayer::Run => layers.run = values(layer, set),
+        SettingsLayer::Default => {}
+    }
+    layers
+}
+
+fn resolved(layers: &Layers) -> Resolved {
+    resolve(layers, Product::Foxhound, Product::Foxhound).unwrap()
+}
+
+fn refusal(layers: &Layers) -> SettingsError {
+    resolve(layers, Product::Foxhound, Product::Foxhound).unwrap_err()
+}
+
+fn every_layer_sets_navigation() -> Layers {
+    Layers {
+        operator_policy: policy(
+            json!({ "timeout": { "navigation": 1_000 } }),
+            json!({}),
+            json!({}),
+        ),
+        user_configuration: values(
+            SettingsLayer::UserConfiguration,
+            json!({ "timeout": { "navigation": 2_000 } }),
+        ),
+        project_configuration: values(
+            SettingsLayer::ProjectConfiguration,
+            json!({ "timeout.navigation": 3_000 }),
+        ),
+        recipe: Some(recipe(
+            json!({ "timeout": { "navigation": 4_000 } }),
+            &[("timeout.navigation", Exposure::default())],
+        )),
+        run: values(
+            SettingsLayer::Run,
+            json!({ "timeout": { "navigation": 5_000 } }),
+        )
+        .from_origin(RunOrigin::Settings),
+    }
+}
+
+/// Covers: story:3-86, setting:timeout.navigation
+#[test]
+fn the_highest_layer_that_sets_a_value_wins_where_nothing_locked_it() {
+    let effective = resolved(&every_layer_sets_navigation());
+
+    let navigation = effective.get("timeout.navigation").unwrap();
+    assert_eq!(
+        (
+            &navigation.value,
+            navigation.layer,
+            navigation.origin,
+            navigation.locked_by
+        ),
+        (
+            &json!(5_000),
+            SettingsLayer::Run,
+            Some(RunOrigin::Settings),
+            None
+        )
+    );
+}
+
+/// Covers: story:3-86
+#[rstest]
+#[case::the_default(SettingsLayer::Default, json!(30_000))]
+#[case::the_operator_policy(SettingsLayer::OperatorPolicy, json!(1_000))]
+#[case::user_configuration(SettingsLayer::UserConfiguration, json!(1_000))]
+#[case::project_configuration(SettingsLayer::ProjectConfiguration, json!(1_000))]
+#[case::the_recipe(SettingsLayer::Recipe, json!(1_000))]
+#[case::the_run(SettingsLayer::Run, json!(1_000))]
+fn a_value_set_in_one_layer_is_the_effective_one_with_that_layer(
+    #[case] layer: SettingsLayer,
+    #[case] value: Value,
+) {
+    let effective = resolved(&only(layer, "timeout.navigation", &value));
+
+    let navigation = effective.get("timeout.navigation").unwrap();
+    assert_eq!((&navigation.value, navigation.layer), (&value, layer));
+}
+
+/// `null` clears a setting that can be cleared, over a lower layer's value
+/// (ADR 0083's three states).
+///
+/// Covers: story:3-86, setting:timeout.run
+#[test]
+fn null_from_the_run_clears_a_lower_layers_value() {
+    let mut layers = only(SettingsLayer::Run, "timeout.run", &Value::Null);
+    layers.user_configuration = values(
+        SettingsLayer::UserConfiguration,
+        json!({ "timeout": { "run": 3_600_000 } }),
+    );
+
+    let effective = resolved(&layers);
+
+    let run = effective.get("timeout.run").unwrap();
+    assert_eq!((&run.value, run.layer), (&Value::Null, SettingsLayer::Run));
+}
+
+/// Covers: story:3-86, setting:egress.offline
+#[rstest]
+#[case::by_default(None, false)]
+#[case::from_user_configuration(Some(true), true)]
+fn offline_is_off_unless_a_layer_turns_it_on(#[case] set: Option<bool>, #[case] offline: bool) {
+    let layers = set.map_or_else(Layers::default, |value| {
+        only(
+            SettingsLayer::UserConfiguration,
+            "egress.offline",
+            &json!(value),
+        )
+    });
+
+    let effective = resolved(&layers);
+
+    assert_eq!(effective.boolean("egress.offline"), Some(offline));
+}
+
+/// Covers: story:3-86, story:3-88
+#[rstest]
+#[case::user_configuration(SettingsLayer::UserConfiguration)]
+#[case::project_configuration(SettingsLayer::ProjectConfiguration)]
+#[case::the_recipe(SettingsLayer::Recipe)]
+#[case::the_run(SettingsLayer::Run)]
+fn an_operator_policy_lock_refuses_every_higher_layers_value(#[case] layer: SettingsLayer) {
+    let mut layers = only(layer, "timeout.navigation", &json!(9_000));
+    layers.operator_policy = policy(
+        json!({}),
+        json!({ "timeout": { "navigation": 10_000 } }),
+        json!({}),
+    );
+
+    let refused = refusal(&layers);
+
+    assert_eq!(
+        refused,
+        SettingsError::Locked {
+            key: "timeout.navigation".to_owned(),
+            layer,
+            limit: SettingLimit {
+                key: "timeout.navigation".to_owned(),
+                value: json!(10_000),
+                layer: SettingsLayer::OperatorPolicy,
+            },
+            fix: "ask the operator to change the Operator policy's lock on `timeout.navigation`"
+                .to_owned(),
+        }
+    );
+}
+
+/// Covers: story:3-88, story:3-89
+#[test]
+fn a_locked_value_says_the_layer_that_locked_it() {
+    let layers = Layers {
+        operator_policy: policy(
+            json!({}),
+            json!({ "network": { "resolve": { "staging.example": ["127.0.0.1"] } } }),
+            json!({}),
+        ),
+        ..Layers::default()
+    };
+
+    let effective = resolved(&layers);
+
+    let resolve = effective.get("network.resolve").unwrap();
+    assert_eq!(
+        (&resolve.value, resolve.layer, resolve.locked_by),
+        (
+            &json!({ "staging.example": ["127.0.0.1"] }),
+            SettingsLayer::OperatorPolicy,
+            Some(SettingsLayer::OperatorPolicy)
+        )
+    );
+}
+
+/// Covers: story:3-134, setting:network.resolve
+#[test]
+fn resolve_gives_each_host_its_addresses_for_a_resolvers_mapping() {
+    let effective = resolved(&only(
+        SettingsLayer::UserConfiguration,
+        "network.resolve",
+        &json!({ "staging.example": ["127.0.0.1", "::1"] }),
+    ));
+
+    assert_eq!(
+        effective.hosts("network.resolve"),
+        [(
+            "staging.example".to_owned(),
+            vec![
+                std::net::IpAddr::from([127, 0, 0, 1]),
+                std::net::IpAddr::from(std::net::Ipv6Addr::LOCALHOST)
+            ]
+        )]
+    );
+}
+
+/// Covers: story:3-134, setting:network.resolve
+#[rstest]
+#[case::the_operator_policy(SettingsLayer::OperatorPolicy)]
+#[case::user_configuration(SettingsLayer::UserConfiguration)]
+#[case::project_configuration(SettingsLayer::ProjectConfiguration)]
+#[case::the_recipe(SettingsLayer::Recipe)]
+#[case::the_run(SettingsLayer::Run)]
+fn resolve_maps_host_names_from_every_layer(#[case] layer: SettingsLayer) {
+    let mapping = json!({ "staging.example": ["127.0.0.1", "::1"] });
+
+    let effective = resolved(&only(layer, "network.resolve", &mapping));
+
+    assert_eq!(effective.value("network.resolve"), &mapping);
+}
+
+/// Covers: story:3-87
+#[test]
+fn a_recipes_declared_setting_is_locked_for_its_users() {
+    let layers = Layers {
+        recipe: Some(recipe(json!({ "timeout": { "navigation": 4_000 } }), &[])),
+        run: values(
+            SettingsLayer::Run,
+            json!({ "timeout": { "navigation": 5_000 } }),
+        ),
+        ..Layers::default()
+    };
+
+    let refused = refusal(&layers);
+
+    assert_eq!(refused.code(), "setting_locked");
+}
+
+/// Covers: story:3-87
+#[test]
+fn a_recipes_declared_setting_says_the_recipe_locked_it() {
+    let layers = Layers {
+        recipe: Some(recipe(json!({ "timeout": { "navigation": 4_000 } }), &[])),
+        ..Layers::default()
+    };
+
+    let effective = resolved(&layers);
+
+    let navigation = effective.get("timeout.navigation").unwrap();
+    assert_eq!(
+        (navigation.layer, navigation.locked_by),
+        (SettingsLayer::Recipe, Some(SettingsLayer::Recipe))
+    );
+}
+
+fn bounded() -> Exposure {
+    Exposure {
+        minimum: Some(1_000),
+        maximum: Some(10_000),
+        one_of: Vec::new(),
+    }
+}
+
+/// Covers: story:3-87
+#[rstest]
+#[case::within_its_bounds(json!(7_000), true)]
+#[case::at_its_maximum(json!(10_000), true)]
+#[case::below_its_minimum(json!(500), false)]
+#[case::above_its_maximum(json!(20_000), false)]
+fn a_recipes_exposed_setting_takes_a_value_within_its_bounds(
+    #[case] value: Value,
+    #[case] accepted: bool,
+) {
+    let layers = Layers {
+        recipe: Some(recipe(
+            json!({ "timeout": { "navigation": 4_000 } }),
+            &[("timeout.navigation", bounded())],
+        )),
+        run: values(
+            SettingsLayer::Run,
+            json!({ "timeout": { "navigation": value } }),
+        ),
+        ..Layers::default()
+    };
+
+    let outcome = resolve(&layers, Product::Foxhound, Product::Foxhound).map(|_| ());
+
+    assert_eq!(outcome.is_ok(), accepted);
+}
+
+/// Covers: story:3-87
+#[test]
+fn a_value_outside_a_recipes_bounds_names_the_bounds_as_its_limit() {
+    let layers = Layers {
+        recipe: Some(recipe(json!({}), &[("timeout.navigation", bounded())])),
+        run: values(
+            SettingsLayer::Run,
+            json!({ "timeout": { "navigation": 20_000 } }),
+        ),
+        ..Layers::default()
+    };
+
+    let refused = refusal(&layers);
+
+    let SettingsError::Locked { limit, .. } = refused else {
+        panic!("expected setting_locked, got {refused:?}");
+    };
+    assert_eq!(
+        limit,
+        SettingLimit {
+            key: "timeout.navigation".to_owned(),
+            value: json!({ "minimum": 1_000, "maximum": 10_000 }),
+            layer: SettingsLayer::Recipe,
+        }
+    );
+}
+
+/// The keys a Recipe and the run only narrow, or never set (spec #213's
+/// story 90): each refused when it widens or sets what is reserved.
+/// Covers: story:3-90, setting:paid_fetch.domains, setting:paid_fetch.max_price_per_page, setting:consent.domains, setting:wall.domains, setting:wall.refetch_domains, setting:wall.denied_domains, setting:tls.trusted_cas, setting:tls.accept_invalid_certs, setting:paid_fetch.exchange_rates, setting:paid_fetch.chain_rpc_endpoints
+#[rstest]
+#[case::paid_fetch_domains_widened_by_the_run(
+    "paid_fetch.domains", json!(["shop.example"]), SettingsLayer::Run, json!(["shop.example", "other.example"])
+)]
+#[case::paid_fetch_domains_widened_by_a_recipe(
+    "paid_fetch.domains", json!(["shop.example"]), SettingsLayer::Recipe, json!(["other.example"])
+)]
+#[case::max_price_per_page_raised_by_the_run(
+    "paid_fetch.max_price_per_page", json!("0.05 USD"), SettingsLayer::Run, json!("0.10 USD")
+)]
+#[case::consent_domains_widened_by_the_run(
+    "consent.domains", json!(["news.example"]), SettingsLayer::Run, json!(["news.example", "blog.example"])
+)]
+#[case::wall_domains_widened_by_the_run(
+    "wall.domains", json!(["paper.example"]), SettingsLayer::Run, json!(["other.example"])
+)]
+#[case::wall_refetch_domains_widened_by_the_run(
+    "wall.refetch_domains", json!([]), SettingsLayer::Run, json!(["paper.example"])
+)]
+#[case::wall_denied_domains_from_user_configuration(
+    "wall.denied_domains", json!(["paper.example"]), SettingsLayer::UserConfiguration, json!([])
+)]
+#[case::trusted_cas_from_the_run(
+    "tls.trusted_cas", json!({}), SettingsLayer::Run, json!({ "intranet.example": ["ca.pem"] })
+)]
+#[case::a_pin_from_the_run(
+    "tls.accept_invalid_certs", json!({}), SettingsLayer::Run, json!({ "intranet.example": "sha256/AAAA" })
+)]
+#[case::any_from_a_recipe(
+    "tls.accept_invalid_certs", json!({}), SettingsLayer::Recipe, json!({ "intranet.example": "any" })
+)]
+#[case::exchange_rates_from_the_run(
+    "paid_fetch.exchange_rates", json!({}), SettingsLayer::Run, json!({ "EUR/USD": "1.1" })
+)]
+#[case::chain_rpc_endpoints_from_a_recipe(
+    "paid_fetch.chain_rpc_endpoints", json!({}), SettingsLayer::Recipe, json!({ "base": "https://rpc.example" })
+)]
+fn a_key_reserved_to_lower_layers_refuses_a_wider_value_from_above(
+    #[case] key: &str,
+    #[case] configured: Value,
+    #[case] layer: SettingsLayer,
+    #[case] value: Value,
+) {
+    let mut layers = only(layer, key, &value);
+    layers.operator_policy = policy(json!({ key: configured }), json!({}), json!({}));
+
+    let refused = refusal(&layers);
+
+    assert_eq!(refused.code(), "setting_locked");
+}
+
+/// Covers: story:3-90, setting:paid_fetch.domains, setting:paid_fetch.max_price_per_page, setting:consent.domains, setting:wall.domains, setting:wall.refetch_domains, setting:tls.accept_invalid_certs
+#[rstest]
+#[case::paid_fetch_domains_narrowed(
+    "paid_fetch.domains", json!(["shop.example", "other.example"]), SettingsLayer::Run, json!(["shop.example"])
+)]
+#[case::max_price_per_page_lowered(
+    "paid_fetch.max_price_per_page", json!("0.05 USD"), SettingsLayer::Recipe, json!("0.01 USD")
+)]
+#[case::consent_domains_narrowed(
+    "consent.domains", json!(["news.example"]), SettingsLayer::Run, json!([])
+)]
+#[case::wall_domains_narrowed(
+    "wall.domains", json!(["paper.example", "daily.example"]), SettingsLayer::Run, json!(["daily.example"])
+)]
+#[case::wall_refetch_domains_narrowed(
+    "wall.refetch_domains", json!(["paper.example"]), SettingsLayer::Recipe, json!(["paper.example"])
+)]
+#[case::trust_on_first_use_from_the_run(
+    "tls.accept_invalid_certs", json!({}), SettingsLayer::Run, json!({ "intranet.example": null })
+)]
+fn a_key_reserved_to_lower_layers_takes_a_narrower_value_from_above(
+    #[case] key: &str,
+    #[case] configured: Value,
+    #[case] layer: SettingsLayer,
+    #[case] value: Value,
+) {
+    let mut layers = only(layer, key, &value);
+    layers.operator_policy = policy(json!({ key: configured }), json!({}), json!({}));
+
+    let effective = resolved(&layers);
+
+    assert_eq!(
+        (effective.value(key), effective.get(key).unwrap().layer),
+        (&value, layer)
+    );
+}
+
+/// Covers: story:3-90, setting:filter_lists.extra
+#[rstest]
+#[case::from_configuration(SettingsLayer::UserConfiguration, true)]
+#[case::from_the_run(SettingsLayer::Run, false)]
+fn a_filter_lists_scriptlets_run_only_when_configuration_set_it(
+    #[case] layer: SettingsLayer,
+    #[case] scriptlets: bool,
+) {
+    let effective = resolved(&only(
+        layer,
+        "filter_lists.extra",
+        &json!(["lists/extra.txt"]),
+    ));
+
+    assert_eq!(
+        effective
+            .get("filter_lists.extra")
+            .unwrap()
+            .layer
+            .is_configuration(),
+        scriptlets
+    );
+}
+
+/// Covers: story:3-90, setting:session.source
+#[test]
+fn a_recipe_never_sets_session_source() {
+    let layers = only(
+        SettingsLayer::Recipe,
+        "session.source",
+        &json!("profile:work"),
+    );
+
+    let refused = refusal(&layers);
+
+    assert_eq!(refused.code(), "setting_locked");
+}
+
+/// Covers: story:3-90, setting:session.source
+#[test]
+fn a_recipe_exposes_session_source_for_its_users_to_set() {
+    let layers = Layers {
+        recipe: Some(recipe(
+            json!({}),
+            &[("session.source", Exposure::default())],
+        )),
+        run: values(
+            SettingsLayer::Run,
+            json!({ "session": { "source": "profile:work" } }),
+        ),
+        ..Layers::default()
+    };
+
+    let effective = resolved(&layers);
+
+    assert_eq!(
+        (
+            effective.value("session.source"),
+            effective.get("session.source").unwrap().locked_by
+        ),
+        (&json!("profile:work"), None)
+    );
+}
+
+/// Covers: story:3-91, setting:delivery.write_ids_and_epochs, setting:delivery.report_guarantee_class, setting:webhook.signing, setting:secrets.by_reference
+#[rstest]
+fn an_honesty_guarantee_stays_locked_whatever_the_layer(
+    #[values(
+        "delivery.write_ids_and_epochs",
+        "delivery.report_guarantee_class",
+        "webhook.signing",
+        "secrets.by_reference"
+    )]
+    key: &str,
+    #[values(
+        SettingsLayer::OperatorPolicy,
+        SettingsLayer::UserConfiguration,
+        SettingsLayer::ProjectConfiguration,
+        SettingsLayer::Recipe,
+        SettingsLayer::Run
+    )]
+    layer: SettingsLayer,
+) {
+    let refused = refusal(&only(layer, key, &json!(false)));
+
+    assert_eq!(
+        refused,
+        SettingsError::Locked {
+            key: key.to_owned(),
+            layer,
+            limit: SettingLimit {
+                key: key.to_owned(),
+                value: json!(true),
+                layer: SettingsLayer::Default,
+            },
+            fix: format!("`{key}` is an honesty guarantee no layer changes"),
+        }
+    );
+}
+
+/// Covers: story:3-91
+#[test]
+fn an_honesty_guarantee_says_the_default_locked_it() {
+    let effective = resolved(&Layers::default());
+
+    let signing = effective.get("webhook.signing").unwrap();
+    assert_eq!(
+        (&signing.value, signing.locked_by),
+        (&json!(true), Some(SettingsLayer::Default))
+    );
+}
+
+/// Covers: story:3-136, setting:browser_cache.max_unused_age
+#[rstest]
+#[case::the_operator_policy(SettingsLayer::OperatorPolicy, None)]
+#[case::user_configuration(SettingsLayer::UserConfiguration, None)]
+#[case::project_configuration(SettingsLayer::ProjectConfiguration, Some("setting_not_applicable"))]
+#[case::the_recipe(SettingsLayer::Recipe, Some("setting_not_applicable"))]
+#[case::the_run(SettingsLayer::Run, Some("setting_not_applicable"))]
+fn browser_cache_max_unused_age_is_set_only_by_the_machines_own_layers(
+    #[case] layer: SettingsLayer,
+    #[case] refused: Option<&str>,
+) {
+    let layers = only(layer, "browser_cache.max_unused_age", &json!(86_400_000));
+
+    let outcome = resolve(&layers, Product::Foxhound, Product::Foxhound);
+
+    assert_eq!(outcome.err().map(|error| error.code()), refused);
+}
+
+/// Covers: story:3-88, setting:crawl.handler.concurrency
+#[test]
+fn a_value_above_an_operator_policy_cap_is_refused() {
+    let mut layers = only(SettingsLayer::Run, "crawl.handler.concurrency", &json!(64));
+    layers.operator_policy = policy(
+        json!({}),
+        json!({}),
+        json!({ "crawl": { "handler": { "concurrency": 8 } } }),
+    );
+
+    let refused = refusal(&layers);
+
+    let SettingsError::Locked { limit, .. } = refused else {
+        panic!("expected setting_locked, got {refused:?}");
+    };
+    assert_eq!(
+        (limit.value, limit.layer),
+        (json!(8), SettingsLayer::OperatorPolicy)
+    );
+}
+
+/// Covers: story:3-88, setting:crawl.handler.concurrency
+#[test]
+fn a_default_above_an_operator_policy_cap_takes_the_cap() {
+    let layers = Layers {
+        operator_policy: policy(
+            json!({}),
+            json!({}),
+            json!({ "crawl": { "handler": { "concurrency": 8 } } }),
+        ),
+        ..Layers::default()
+    };
+
+    let effective = resolved(&layers);
+
+    let concurrency = effective.get("crawl.handler.concurrency").unwrap();
+    assert_eq!(
+        (&concurrency.value, concurrency.layer, &concurrency.cap),
+        (&json!(8), SettingsLayer::OperatorPolicy, &Some(json!(8)))
+    );
+}
+
+/// An unset clearable key is no bound, so an Operator policy cap bounds it.
+///
+/// Covers: story:3-51, setting:admission.max_requests_per_minute
+#[test]
+fn an_unset_rate_cap_under_an_operator_policy_cap_takes_the_cap() {
+    let layers = Layers {
+        operator_policy: policy(
+            json!({}),
+            json!({}),
+            json!({ "admission": { "max_requests_per_minute": 120 } }),
+        ),
+        ..Layers::default()
+    };
+
+    let effective = resolved(&layers);
+
+    let rate = effective.get("admission.max_requests_per_minute").unwrap();
+    assert_eq!(
+        (&rate.value, rate.layer),
+        (&json!(120), SettingsLayer::OperatorPolicy)
+    );
+}
+
+/// Covers: story:3-51, setting:admission.max_requests_per_minute
+#[test]
+fn a_run_going_with_no_rate_cap_takes_a_new_operator_policy_cap() {
+    let opened = resolved(&Layers::default());
+    let tightened = policy(
+        json!({}),
+        json!({}),
+        json!({ "admission": { "max_requests_per_minute": 30 } }),
+    );
+
+    let admitted = opened.under_caps_of(&tightened);
+
+    assert_eq!(
+        admitted.value("admission.max_requests_per_minute"),
+        &json!(30)
+    );
+}
+
+/// Covers: story:3-88, setting:crawl.retry.max
+#[test]
+fn a_run_already_going_takes_a_tightened_cap() {
+    let opened = resolved(&only(SettingsLayer::Run, "crawl.retry.max", &json!(5)));
+    let tightened = policy(
+        json!({}),
+        json!({}),
+        json!({ "crawl": { "retry": { "max": 1 } } }),
+    );
+
+    let admitted = opened.under_caps_of(&tightened);
+
+    assert_eq!(
+        (admitted.value("crawl.retry.max"), admitted.policy_version()),
+        (&json!(1), Some("sha256:0123456789abcdef"))
+    );
+}
+
+/// Covers: story:3-92, setting:tls.accept_invalid_certs
+#[test]
+fn a_setting_that_weakens_a_guarantee_is_marked_on_the_results() {
+    let effective = resolved(&only(
+        SettingsLayer::Run,
+        "tls.accept_invalid_certs",
+        &json!({ "intranet.example": null }),
+    ));
+
+    assert_eq!(
+        effective.weakened_by(),
+        [SettingLimit {
+            key: "tls.accept_invalid_certs".to_owned(),
+            value: json!({ "intranet.example": null }),
+            layer: SettingsLayer::Run,
+        }]
+    );
+}
+
+#[test]
+fn an_unknown_key_names_the_closest_known_one() {
+    let read = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "timeout": { "navigation_": 1_000 } })),
+        Product::Collie,
+    );
+
+    assert_eq!(
+        read,
+        Err(SettingsError::Unknown {
+            key: "timeout.navigation_".to_owned(),
+            layer: Some(SettingsLayer::Run),
+            closest: Some("timeout.navigation".to_owned()),
+        })
+    );
+}
+
+#[rstest]
+#[case::text_for_a_duration(json!({ "timeout": { "navigation": "60s" } }))]
+#[case::null_for_a_key_that_cannot_be_cleared(json!({ "timeout": { "navigation": null } }))]
+#[case::a_host_mapped_to_a_name(json!({ "network": { "resolve": { "a.example": ["b.example"] } } }))]
+fn a_value_not_of_its_keys_kind_is_invalid(#[case] settings: Value) {
+    let read = Values::read(SettingsLayer::Run, &nested(settings), Product::Collie);
+
+    assert_eq!(read.map(|_| ()).unwrap_err().code(), "setting_invalid");
+}
+
+/// Covers: story:3-142
+#[rstest]
+#[case::user_configuration(SettingsLayer::UserConfiguration)]
+#[case::project_configuration(SettingsLayer::ProjectConfiguration)]
+fn a_configuration_file_of_a_collie_engine_keeps_foxhounds_keys_unapplied(
+    #[case] layer: SettingsLayer,
+) {
+    let read = Values::read(
+        layer,
+        &nested(json!({ "crawl": { "retry": { "max": 5 } }, "timeout": { "navigation": 1_000 } })),
+        Product::Collie,
+    )
+    .unwrap();
+    let mut layers = Layers::default();
+    match layer {
+        SettingsLayer::UserConfiguration => layers.user_configuration = read,
+        _ => layers.project_configuration = read,
+    }
+
+    let explained = resolve(&layers, Product::Collie, Product::Collie)
+        .unwrap()
+        .explain(&["crawl".to_owned()], Vec::new());
+
+    assert_eq!(
+        serde_json::to_value(&explained.settings).unwrap(),
+        json!([{
+            "key": "crawl.retry.max",
+            "products": ["foxhound"],
+            "applied": false,
+            "value": 5,
+            "layer": layer.as_str(),
+            "weakens": false,
+        }])
+    );
+}
+
+/// Covers: story:3-142
+#[rstest]
+#[case::the_recipe(SettingsLayer::Recipe)]
+#[case::the_run(SettingsLayer::Run)]
+fn a_foxhound_key_given_explicitly_to_a_collie_engine_is_not_in_product(
+    #[case] layer: SettingsLayer,
+) {
+    let read = Values::read(
+        layer,
+        &nested(json!({ "crawl": { "retry": { "max": 5 } } })),
+        Product::Collie,
+    );
+
+    assert_eq!(
+        read,
+        Err(SettingsError::NotInProduct {
+            key: "crawl.retry.max".to_owned(),
+            needs: Product::Foxhound,
+        })
+    );
+}
+
+/// Covers: story:3-143
+#[test]
+fn a_crawls_key_on_a_collie_run_of_a_foxhound_engine_is_not_applicable() {
+    let layers = only(SettingsLayer::Run, "crawl.retry.max", &json!(5));
+
+    let refused = resolve(&layers, Product::Foxhound, Product::Collie).unwrap_err();
+
+    assert_eq!(refused.code(), "setting_not_applicable");
+}
+
+/// Covers: story:3-143
+#[test]
+fn a_collie_engine_refuses_a_recipe_that_names_foxhound() {
+    let manifest = RecipeManifest {
+        name: "catalog-crawl".to_owned(),
+        product: Product::Foxhound,
+        settings: Map::new(),
+        expose: std::collections::BTreeMap::new(),
+    };
+
+    let refused = Recipe::read(&manifest, Product::Collie);
+
+    assert_eq!(
+        refused,
+        Err(SettingsError::NotInProduct {
+            key: "catalog-crawl".to_owned(),
+            needs: Product::Foxhound,
+        })
+    );
+}
+
+/// Covers: story:3-89
+#[test]
+fn an_explanation_lists_each_effective_value_with_its_layers() {
+    let explained = resolved(&every_layer_sets_navigation()).explain(
+        &["timeout.nav".to_owned(), "timeout.navigation".to_owned()],
+        Vec::new(),
+    );
+
+    assert_eq!(
+        serde_json::to_value(&explained).unwrap(),
+        json!({
+            "policy_version": "sha256:0123456789abcdef",
+            "files": [],
+            "settings": [{
+                "key": "timeout.navigation",
+                "products": ["collie", "foxhound"],
+                "applied": true,
+                "value": 5_000,
+                "layer": "run",
+                "origin": "settings",
+                "weakens": false,
+            }],
+        })
+    );
+}
+
+#[test]
+fn a_configuration_file_reads_its_settings_nested_by_key() {
+    let text = "version = \"0.1\"\n\n[settings.timeout]\nnavigation = 2000\n\n[settings.network.resolve]\n\"staging.example\" = [\"127.0.0.1\"]\n";
+
+    let read = configuration(SettingsLayer::UserConfiguration, text, Product::Collie).unwrap();
+
+    assert_eq!(
+        (read.get("timeout.navigation"), read.get("network.resolve")),
+        (
+            Some(&json!(2000)),
+            Some(&json!({ "staging.example": ["127.0.0.1"] }))
+        )
+    );
+}
+
+/// This crate's Product version, the engine's.
+fn engine() -> ProductVersion {
+    ProductVersion::parse(env!("CARGO_PKG_VERSION")).unwrap()
+}
+
+/// Covers: format:user-configuration
+#[rstest]
+#[case::no_version("[settings.timeout]\nnavigation = 2000\n")]
+#[case::an_entry_outside_settings("version = \"0.1\"\ntimeout = 1\n")]
+#[case::a_lowest_minor_that_is_no_minor("version = \"0.1\"\nlowest_minor = \"1\"\n")]
+#[case::no_toml("version = ")]
+fn a_settings_file_that_is_not_one_this_engine_reads_is_invalid(#[case] text: &str) {
+    let read = configuration(SettingsLayer::UserConfiguration, text, Product::Collie);
+
+    assert_eq!(read.map(|_| ()).unwrap_err().code(), "setting_invalid");
+}
+
+#[test]
+fn an_operator_policy_cap_is_on_a_count_or_a_duration() {
+    let text = "version = \"0.1\"\n[cap.egress]\noffline = true\n";
+
+    let read = operator_policy(text, Product::Collie, &engine());
+
+    assert_eq!(read.map(|_| ()).unwrap_err().code(), "setting_invalid");
+}
+
+#[test]
+fn an_operator_policy_version_is_its_digest() {
+    let read = operator_policy("version = \"0.1\"\n", Product::Collie, &engine()).unwrap();
+
+    assert_eq!(read.version.as_deref(), Some("sha256:0227dc879fda140d"));
+}
+
+/// Covers: story:3-77
+#[rstest]
+#[case::unmanaged("version = \"0.1\"\n", None)]
+#[case::managed(
+    "version = \"0.1\"\n\n[managed]\ninstall_limits = [{ usage_kind = \"paid_solves\", currency = \"USD\", period = { every = \"month\", time_zone = \"Europe/Paris\" }, amount = 20000000 }]\n",
+    Some(json!({ "install_limits": [{
+        "usage_kind": "paid_solves",
+        "currency": "USD",
+        "period": { "every": "month", "time_zone": "Europe/Paris" },
+        "amount": 20_000_000,
+    }] })),
+)]
+#[case::managed_with_no_limit("version = \"0.1\"\n\n[managed]\n", Some(json!({})))]
+fn a_managed_operator_policy_names_its_install_limits(
+    #[case] text: &str,
+    #[case] managed: Option<Value>,
+) {
+    let read = operator_policy(text, Product::Collie, &engine()).unwrap();
+
+    assert_eq!(
+        read.managed
+            .map(|managed| serde_json::to_value(managed).unwrap()),
+        managed
+    );
+}
+
+#[test]
+fn a_managed_limit_that_does_not_read_is_refused() {
+    let refused = operator_policy(
+        "version = \"0.1\"\n\n[managed]\ninstall_limits = [{ usage_kind = \"requests\" }]\n",
+        Product::Collie,
+        &engine(),
+    );
+
+    assert_eq!(
+        refused.map(drop).map_err(|error| error.code()),
+        Err("setting_invalid")
+    );
+}
+
+/// Covers: story:3-142
+#[test]
+fn rewriting_a_shared_file_keeps_every_other_entry_byte_for_byte() {
+    let text = "version = \"0.1\"\n# Foxhound's, kept by Collie.\n[settings.crawl.retry]\nmax = 5 # five\n\n[settings.timeout]\nnavigation = 2000 # two seconds\n";
+
+    let rewritten = rewrite(text, "settings", "timeout.navigation", &json!(3000)).unwrap();
+
+    assert_eq!(
+        rewritten,
+        "version = \"0.1\"\n# Foxhound's, kept by Collie.\n[settings.crawl.retry]\nmax = 5 # five\n\n[settings.timeout]\nnavigation = 3000 # two seconds\n"
+    );
+}
+
+/// Covers: story:3-133
+#[rstest]
+#[case::the_home("GOODFETCH_HOME")]
+#[case::collies_engine_path("GOODFETCH_COLLIE_ENGINE_PATH")]
+#[case::foxhounds_engine_path("GOODFETCH_FOXHOUND_ENGINE_PATH")]
+#[case::the_browsers_path("GOODFETCH_BROWSERS_PATH")]
+fn a_deployment_variable_of_either_product_is_on_the_closed_list(#[case] name: &str) {
+    let environment = std::collections::BTreeMap::from([(name.into(), "/opt/goodfetch".into())]);
+
+    assert_eq!(check_environment(&environment), Ok(()));
+}
+
+/// Covers: story:3-133, error:setting_unknown
+#[test]
+fn an_unknown_goodfetch_variable_names_the_closest_deployment_variable() {
+    let environment = std::collections::BTreeMap::from([("GOODFETCH_HOMES".into(), "/opt".into())]);
+
+    assert_eq!(
+        check_environment(&environment),
+        Err(SettingsError::Unknown {
+            key: "GOODFETCH_HOMES".to_owned(),
+            layer: None,
+            closest: Some("GOODFETCH_HOME".to_owned()),
+        })
+    );
+}
+
+/// Covers: story:3-133, error:setting_invalid
+#[test]
+fn an_empty_deployment_variable_is_invalid() {
+    let environment = std::collections::BTreeMap::from([("GOODFETCH_HOME".into(), "".into())]);
+
+    assert_eq!(
+        check_environment(&environment).unwrap_err().code(),
+        "setting_invalid"
+    );
+}
+
+#[test]
+fn a_variable_outside_the_reserved_prefix_is_not_checked() {
+    let environment = std::collections::BTreeMap::from([("GOODFETCHER".into(), "".into())]);
+
+    assert_eq!(check_environment(&environment), Ok(()));
+}
+
+mod settings_file {
+    goodfetch_test_support::fuzz_replay!(crate::settings::fuzz_settings_file, "fuzz/settings_file");
+}
+
+proptest! {
+    /// A higher layer wins only where no lower layer locked the value
+    /// (ADR 0028), for any layers that set, lock or leave a duration.
+    /// Covers: story:3-86
+    #[test]
+    fn a_higher_layer_wins_only_where_no_lower_layer_locked(
+        policy_value in proptest::option::of(0_u64..100_000),
+        locked in any::<bool>(),
+        user in proptest::option::of(0_u64..100_000),
+        project in proptest::option::of(0_u64..100_000),
+        run in proptest::option::of(0_u64..100_000),
+    ) {
+        let table = |value: Option<u64>| value.map_or_else(|| json!({}), |value| json!({ "timeout.run": value }));
+        let layers = Layers {
+            operator_policy: if locked {
+                policy(json!({}), table(policy_value), json!({}))
+            } else {
+                policy(table(policy_value), json!({}), json!({}))
+            },
+            user_configuration: values(SettingsLayer::UserConfiguration, table(user)),
+            project_configuration: values(SettingsLayer::ProjectConfiguration, table(project)),
+            recipe: None,
+            run: values(SettingsLayer::Run, table(run)),
+        };
+        let lock_holds = locked && policy_value.is_some();
+        let above = [user, project, run].iter().any(Option::is_some);
+
+        let outcome = resolve(&layers, Product::Collie, Product::Collie);
+
+        if lock_holds && above {
+            prop_assert_eq!(outcome.unwrap_err().code(), "setting_locked");
+        } else {
+            let expected = run.or(project).or(user).or(policy_value);
+            let effective = outcome.unwrap();
+            prop_assert_eq!(effective.count("timeout.run"), expected);
+        }
+    }
+}
+
+mod versions;

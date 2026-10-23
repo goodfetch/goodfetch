@@ -26,8 +26,24 @@
 //! from the Proving ground's `tasks --seed N`, and `tasks --check`, in the
 //! Pre-merge suite, fails with `task-list-drift` on a committed list that
 //! differs from the Proving ground's, is missing, or is of a seed no Journey
-//! uses. The rule on the tests of each variant joins later, since it reads
-//! the runners' listings.
+//! uses.
+//!
+//! With `--listings`, `check` also holds the tests of each variant to ADR
+//! 0063's rule 4 (see [`variants`]), from the runners' listings that
+//! `listings` writes, in the Pre-merge suite where the tests are built:
+//! - `unknown-journey`: a test names a Journey no file is;
+//! - `retired-journey`: a test names a retired Journey;
+//! - `unlisted-variant`: a test's surface is not one its Journey has a
+//!   variant on, `foxhound-cli` included;
+//! - `duplicate-variant`: two tests carry one variant;
+//! - `malformed-variant`: a Journey test carries no single Journey and
+//!   surface.
+//!
+//! Each variant of an active Journey that no test carries is reported as a
+//! `note[untested-variant]` line, which fails nothing. `select` prints the
+//! runners' filters for chosen variants (see [`select`]). `report` prints
+//! each variant's outcome on `main`'s latest Release run, and an owner
+//! test's "Journeys to try" (see [`report`]).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -41,10 +57,18 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 use serde_json::Value;
 
-use goodfetch_protocol::journey::{Journey, JourneyCatalog, Status, Surface};
+use goodfetch_protocol::journey::{Journey, JourneyCatalog, JourneyId, Milestone, Status, Surface};
 
 use crate::check::Finding;
 use crate::environment::Environment;
+use crate::output;
+
+mod listings;
+mod report;
+mod select;
+mod variants;
+
+pub(crate) use report::ManualException;
 
 /// The catalog's folder, from the root.
 const FOLDER: &str = "journeys";
@@ -59,19 +83,114 @@ const SCHEMA: &str = "journeys/journey.schema.json";
 /// which `tasks` writes from the Proving ground's own.
 const TASK_LISTS: &str = "journeys/tasks";
 
+/// Reads each `manual` exception whose Feature is due at a milestone, given
+/// every active variant: the Feature inventory's reader, passed in by the
+/// caller since `features` imports this module.
+pub(crate) type ManualExceptions =
+    fn(&Path, Milestone, &[CatalogVariant]) -> Result<Vec<ManualException>>;
+
 #[derive(clap::Subcommand)]
 pub(crate) enum Command {
     /// Fails on a Journey file that breaks one of ADR 0063's rules that need
     /// no process: it does not parse or fit its schema, it is not named after
     /// its ID, its ID repeats or reaches the next free number, it names a
     /// surface ADR 0063 does not list or one due before it ships, or it is
-    /// retired without a reason.
-    Check,
+    /// retired without a reason. With `--listings`, also fails on a test
+    /// that breaks ADR 0063's rule on the tests of each variant, and
+    /// reports each variant no test carries.
+    Check(Check),
+    /// Writes the four runners' listings of the workspace's tests, which
+    /// `check --listings` reads: `nextest.json`, `vitest.json`,
+    /// `playwright.json` and `pytest.json`.
+    Listings(Listings),
+    /// Prints each variant of an active Journey with its outcome on `main`'s
+    /// latest Release run in the results store, by milestone, area and
+    /// Product: `proved` or `failed` as its result documents give,
+    /// `rejected` when the reader refuses one, `unproved` when none was
+    /// kept. With `--out`, also writes `journeys.json` and `journeys.md`
+    /// there. With `--owner-test`, prints instead that milestone's owner
+    /// test's "Journeys to try".
+    Report(Report),
+    /// Prints, one `<runner>\t<argument>` line each, the runners' filters
+    /// that select the variants of active Journeys the flags choose: values
+    /// of one flag add variants, different flags intersect. Fails when no
+    /// variant is chosen.
+    Select(Select),
     /// Writes the Proving ground's task list of each seed the catalog uses
     /// to `journeys/tasks/seed-<seed>.json`, from its `tasks --seed`, and
     /// removes the list of any seed no Journey uses; with `--check`, writes
     /// nothing and fails on each committed list that differs.
     Tasks(Tasks),
+}
+
+#[derive(clap::Args)]
+pub(crate) struct Check {
+    /// The folder of the runners' listings that `listings` writes.
+    #[arg(long)]
+    listings: Option<PathBuf>,
+}
+
+#[derive(clap::Args)]
+pub(crate) struct Listings {
+    /// The folder to write them to.
+    #[arg(long)]
+    out: PathBuf,
+    /// The Cargo profile nextest builds the tests with, the suite's own.
+    #[arg(long)]
+    cargo_profile: Option<String>,
+}
+
+#[derive(clap::Args)]
+pub(crate) struct Report {
+    /// The results store's checkout; without it, no variant is proved.
+    #[arg(long)]
+    store: Option<PathBuf>,
+    /// The folder to write `journeys.json` and `journeys.md` to.
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// Prints the "Journeys to try" of this milestone's owner test, `M1` to
+    /// `M4`: both Products' Journeys with a variant due at it, their manual
+    /// steps, and the `manual` exceptions of its Features.
+    #[arg(long, value_parser = parse_milestone)]
+    owner_test: Option<Milestone>,
+}
+
+#[derive(clap::Args)]
+pub(crate) struct Select {
+    /// A Journey's ID, such as `J-001`.
+    #[arg(long = "id", value_parser = parse_id)]
+    ids: Vec<JourneyId>,
+    /// A surface of ADR 0063, or `foxhound-cli`.
+    #[arg(long = "surface", value_parser = parse_surface)]
+    surfaces: Vec<String>,
+    /// The milestone a variant is due at, `M1` to `M4`.
+    #[arg(long = "milestone", value_parser = parse_milestone)]
+    milestones: Vec<Milestone>,
+    /// The number of the ADR 0037 area whose spec owns the Journey.
+    #[arg(long = "area")]
+    areas: Vec<u8>,
+    /// A Git tag whose catalog to read instead of the working tree's.
+    #[arg(long)]
+    tag: Option<String>,
+}
+
+fn parse_id(text: &str) -> Result<JourneyId, String> {
+    JourneyId::try_from(text.to_owned()).map_err(|error| error.to_string())
+}
+
+fn parse_surface(text: &str) -> Result<String, String> {
+    if variants::is_surface(text) {
+        Ok(text.to_owned())
+    } else {
+        Err(format!(
+            "`{text}` is no surface of ADR 0063, nor `foxhound-cli`"
+        ))
+    }
+}
+
+fn parse_milestone(text: &str) -> Result<Milestone, String> {
+    Milestone::deserialize(serde::de::value::StrDeserializer::<serde::de::value::Error>::new(text))
+        .map_err(|_| format!("`{text}` is not M1, M2, M3 or M4"))
 }
 
 #[derive(clap::Args)]
@@ -85,9 +204,87 @@ pub(crate) struct Tasks {
     check: bool,
 }
 
-pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCode> {
+pub(crate) fn run(
+    command: &Command,
+    environment: &Environment,
+    manual_exceptions: ManualExceptions,
+) -> Result<ExitCode> {
     match command {
-        Command::Check => Ok(crate::check::report(&check(&environment.root)?)),
+        Command::Check(arguments) => {
+            let listings = arguments
+                .listings
+                .as_ref()
+                .map(|folder| environment.path(folder));
+            Ok(crate::check::report(&check(
+                &environment.root,
+                listings.as_deref(),
+            )?))
+        }
+        Command::Listings(arguments) => {
+            listings::write(
+                &environment.root,
+                &environment.path(&arguments.out),
+                &environment.cargo,
+                arguments.cargo_profile.as_deref(),
+            )?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Report(arguments) => {
+            let journeys = working_journeys(&environment.root)?;
+            if let Some(milestone) = arguments.owner_test {
+                let exceptions = manual_exceptions(
+                    &environment.root,
+                    milestone,
+                    &active_variants(&environment.root)?,
+                )?;
+                let text = report::journeys_to_try(&journeys, milestone, &exceptions);
+                output::line(text.trim_end_matches('\n'));
+                return Ok(ExitCode::SUCCESS);
+            }
+            let store = arguments
+                .store
+                .as_ref()
+                .map(|store| environment.path(store));
+            let built = report::build(&journeys, store.as_deref())?;
+            let markdown = report::markdown(&built);
+            if let Some(out) = &arguments.out {
+                write_report(&environment.path(out), &built, &markdown)?;
+            }
+            output::line(markdown.trim_end_matches('\n'));
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Select(arguments) => {
+            let journeys = match &arguments.tag {
+                Some(tag) => tagged_journeys(&environment.root, tag)?,
+                None => working_journeys(&environment.root)?,
+            };
+            let choice = select::Choice {
+                ids: arguments.ids.clone(),
+                surfaces: arguments.surfaces.clone(),
+                milestones: arguments.milestones.clone(),
+                areas: arguments.areas.clone(),
+            };
+            let active = journeys
+                .iter()
+                .filter(|journey| journey.status == Status::Active)
+                .flat_map(variants::of)
+                .collect();
+            let chosen = select::chosen(active, &choice);
+            if chosen.is_empty() {
+                output::error("error: no variant of an active Journey matches the flags");
+                return Ok(ExitCode::from(1));
+            }
+            let (filters, unrun) = select::filters(&chosen);
+            for variant in unrun {
+                output::error(&format!(
+                    "skipped: {variant}, since no runner runs its surface's variants yet"
+                ));
+            }
+            for (runner, argument) in filters {
+                output::line(&format!("{}\t{argument}", runner.name()));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Tasks(tasks) => {
             let proving_ground = environment.path(&tasks.proving_ground);
             let lists = proving_ground_lists(&environment.root, &proving_ground)?;
@@ -99,6 +296,18 @@ pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCo
             }
         }
     }
+}
+
+/// Writes the report's `journeys.json` and `journeys.md` into `out`.
+fn write_report(out: &Path, built: &report::Report, markdown: &str) -> Result<()> {
+    std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
+    let mut json = serde_json::to_string_pretty(built)?;
+    json.push('\n');
+    for (name, contents) in [("journeys.json", json.as_str()), ("journeys.md", markdown)] {
+        let path = out.join(name);
+        std::fs::write(&path, contents).with_context(|| format!("writing {}", path.display()))?;
+    }
+    Ok(())
 }
 
 /// The task list the Proving ground prints for each seed the parsed
@@ -224,7 +433,9 @@ struct Parsed {
     json: Value,
 }
 
-pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
+/// Every finding of the catalog's rules, and with `listings`, of the rule on
+/// the tests of each variant, whose untested variants it writes as notes.
+pub(crate) fn check(root: &Path, listings: Option<&Path>) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
     let next = read_catalog(root, &mut findings);
     let schema = read_schema(root, &mut findings);
@@ -255,6 +466,17 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     for file in &parsed {
         findings.extend(file_findings(file, schema.as_ref(), next, &numbers));
         findings.extend(task_findings(file, &lists));
+    }
+    if let Some(folder) = listings {
+        let tests = listings::read(root, folder)?;
+        let journeys: Vec<&Journey> = parsed.iter().map(|file| &file.journey).collect();
+        let (tested, untested) = variants::check(&journeys, &tests);
+        findings.extend(tested);
+        for variant in untested {
+            output::line(&format!(
+                "note[untested-variant] {variant}: no test carries it, so it stays unproved"
+            ));
+        }
     }
     findings.sort_by(|left, right| left.subject.cmp(&right.subject));
     Ok(findings)
@@ -472,6 +694,110 @@ fn parse(text: &str) -> Result<(Journey, Value), String> {
     let table: toml::Table = toml::from_str(text).map_err(|error| error.to_string())?;
     let json = serde_json::to_value(table).map_err(|error| error.to_string())?;
     Ok((journey, json))
+}
+
+/// One variant of an active Journey, as the Feature report reads it
+/// (ADR 0075): its ID, `J-NNN@<surface>`, the milestone it is due at, and
+/// the Features its Journey covers.
+pub(crate) struct CatalogVariant {
+    pub(crate) id: String,
+    pub(crate) milestone: Milestone,
+    pub(crate) covers: Vec<String>,
+}
+
+/// Every variant of each active Journey of the working tree's catalog,
+/// `foxhound-cli` included.
+pub(crate) fn active_variants(root: &Path) -> Result<Vec<CatalogVariant>> {
+    let journeys = working_journeys(root)?;
+    Ok(journeys
+        .iter()
+        .filter(|journey| journey.status == Status::Active)
+        .flat_map(variants::of)
+        .map(|variant| CatalogVariant {
+            id: variant.id(),
+            milestone: variant.milestone,
+            covers: variant
+                .journey
+                .covers
+                .iter()
+                .map(|feature| feature.as_str().to_owned())
+                .collect(),
+        })
+        .collect())
+}
+
+/// The tests that carry each variant, by its ID, from the runners' listings
+/// in `folder`: each as `(<runner>, <test ID>)`, the test named as its
+/// runner and the results store name it. A test that carries no single
+/// variant carries none here; the Journey check fails on it.
+pub(crate) fn variant_tests(
+    root: &Path,
+    folder: &Path,
+) -> Result<BTreeMap<String, Vec<(String, String)>>> {
+    let mut carriers: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    for test in listings::read(root, folder)? {
+        let variants::Carried::Variant { journey, surface } = &test.carried else {
+            continue;
+        };
+        let Some((runner, id)) = test.subject.split_once(' ') else {
+            continue;
+        };
+        carriers
+            .entry(format!("{journey}@{surface}"))
+            .or_default()
+            .push((runner.to_owned(), id.to_owned()));
+    }
+    Ok(carriers)
+}
+
+/// Every Journey of the working tree's catalog, which must parse.
+fn working_journeys(root: &Path) -> Result<Vec<Journey>> {
+    journey_files(root)?
+        .into_iter()
+        .map(|path| {
+            let text = std::fs::read_to_string(root.join(&path))
+                .with_context(|| format!("reading {path}"))?;
+            parsed_journey(&path, &text)
+        })
+        .collect()
+}
+
+/// Every Journey of the catalog at a Git tag, which must parse.
+fn tagged_journeys(root: &Path, tag: &str) -> Result<Vec<Journey>> {
+    let git = |args: &[&str]| -> Result<String> {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .stdin(Stdio::null())
+            .output()
+            .context("running git")?;
+        if !output.status.success() {
+            bail!(
+                "git {} failed: {}",
+                args.join(" "),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        String::from_utf8(output.stdout).context("reading git's output")
+    };
+    let commit = format!("{tag}^{{commit}}");
+    let listed = git(&["ls-tree", "--name-only", &commit, &format!("{FOLDER}/")])?;
+    listed
+        .lines()
+        .filter(|path| {
+            Path::new(path)
+                .extension()
+                .is_some_and(|extension| extension == "toml")
+                && *path != CATALOG
+        })
+        .map(|path| parsed_journey(path, &git(&["show", &format!("{commit}:{path}")])?))
+        .collect()
+}
+
+fn parsed_journey(path: &str, text: &str) -> Result<Journey> {
+    parse(text).map(|(journey, _)| journey).map_err(|error| {
+        anyhow::anyhow!("{path} does not parse ({error}); run `xtask journeys check`")
+    })
 }
 
 /// The next free number, or a finding when the catalog file does not parse.

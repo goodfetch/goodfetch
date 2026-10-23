@@ -16,7 +16,11 @@ use crate::sample;
 /// assert!(composition.operations().any(|operation| operation == "sample.crawl"));
 /// ```
 pub fn composition() -> Composition {
-    goodfetch_collie::composition().with(sample::contribution())
+    goodfetch_collie::composition()
+        .with(sample::contribution())
+        .with(goodfetch_frontier::contribution())
+        .with(goodfetch_session_pool::contribution())
+        .with(goodfetch_crawl::contribution())
 }
 
 #[cfg(test)]

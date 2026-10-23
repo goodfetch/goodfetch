@@ -13,12 +13,21 @@ publish = false
 assert_cmd.workspace = true
 chacha20.workspace = true
 clap.workspace = true
+data-encoding.workspace = true
+expectrl.workspace = true
+insta = { workspace = true, features = ["filters"] }
 jiff.workspace = true
+# Protocol fuzzing checks each generated call and each answer against the
+# committed JSON Schema bundle (ADR 0067).
+jsonschema.workspace = true
 proptest.workspace = true
+proptest-state-machine.workspace = true
+regex.workspace = true
 rusqlite.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_json_canonicalizer.workspace = true
 sha2.workspace = true
 sqlite-plugin.workspace = true
 tempfile.workspace = true
@@ -27,7 +36,17 @@ toml.workspace = true
 # `test-util` pauses the runtime's clock, so callers need no feature of their own.
 tokio = { workspace = true, features = ["rt", "time", "test-util"] }
 tracing.workspace = true
-tracing-subscriber.workspace = true
+tracing-subscriber = { workspace = true, features = ["json"] }
+# The endpoint table's runner opens a WebSocket listener's handshakes, a
+# foreign `Host` or no `Origin` among them (ADR 0067).
+tungstenite.workspace = true
+# `JourneyRun` submits a tool's result to the Proving ground's oracle, and
+# `Canaries` plants and reads Secret canaries through it.
+ureq.workspace = true
+
+# `NoExec`'s seccomp filter and its child's start (ADR 0067).
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
 
 # Never used here: it turns on bindgen's `runtime` feature for sqlite-plugin's
 # build script, so that script loads libclang where the OS keeps it (Xcode,
@@ -36,11 +55,16 @@ tracing-subscriber.workspace = true
 [build-dependencies]
 bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
 
+# Its integration tests start the Proving ground and both Products'
+# executables through the test tool manifest, so a change to any runs them
+# (TESTING.md, Commands).
+[package.metadata.goodfetch]
+runs = ["goodfetch-collie", "goodfetch-foxhound", "goodfetch-proving-ground"]
+
 [package.metadata.cargo-shear]
 ignored = ["bindgen"]
 
 [dev-dependencies]
-jsonschema.workspace = true
 rstest.workspace = true
 
 [lints]

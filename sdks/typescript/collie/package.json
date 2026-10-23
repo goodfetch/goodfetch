@@ -1,0 +1,28 @@
+{
+  "name": "@goodfetch/collie",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Collie's TypeScript SDK and its goodfetch-collie executable (ADRs 0090 and 0095).",
+  "bin": {
+    "goodfetch-collie": "./src/bin.ts"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@goodfetch/collie-client": "workspace:*"
+  },
+  "devDependencies": {
+    "@goodfetch/test-support": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

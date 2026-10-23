@@ -5,6 +5,9 @@
 #                    deny and its first test step: starts the services, then
 #                    checks them (`xtask os-services check`). A service that
 #                    does not come up fails the job; no test is skipped.
+#                    `--without-service-manager` leaves the user's service
+#                    manager out, for a caller whose tests do not include
+#                    `service_manager::` (`just linux`, ci/linux.sh).
 #   skipped <file>   for `just test`: in CI (`CI` set) the same check, failing
 #                    on a missing service; on a local host, appends each
 #                    missing service to <file> and prints the test-name
@@ -26,7 +29,22 @@
 #     job's container gets the capability from ci/vm/start.sh; on a runner's
 #     own system, `tc` gets it as a file capability, so the tests, run as the
 #     runner's user, shape only their own network namespace's loopback.
+#   - Linux also: Xvfb installed, which Collie's `virtual_display` tests
+#     start for a headful browser on a display of their own.
 #   - Windows and Linux: 127.0.0.0/8 answers already; the check confirms it.
+#   - Linux also: user namespaces for Collie's PID 1 test, through a
+#     root-owned copy of util-linux's `unshare` at $TEST_UNSHARE. Where
+#     AppArmor restricts unprivileged user namespaces (Ubuntu 23.10 and
+#     later), ci/apparmor/goodfetch-test-unshare gives them to that copy
+#     only, as Chromium's docs do for Chrome (ADR 0049): no sysctl changes,
+#     and /usr/bin/unshare stays restricted. The setup fails unless the copy
+#     maps this user to root in a user namespace of its own.
+#   - Linux also: systemd's user manager, which `daemon install`'s tests
+#     register services with for real in the Pre-merge suite (spec #213). A
+#     host booted with systemd keeps the user's manager running through
+#     lingering; a container that does not boot systemd has none, and the
+#     check fails. On macOS and Windows those tests run in the Release suite
+#     only, so a local `just test` of another suite skips them.
 #
 # It keeps to bash 3.2, which stock macOS runs on the owner's machine.
 set -euo pipefail
@@ -42,7 +60,7 @@ for ((i = 2; i <= EXTRA_LOOPBACK_COUNT + 1; i++)); do addresses+=("127.0.0.$i");
 RUNTIME=${RUNNER_TEMP:-/tmp}/goodfetch-os-services
 
 services=(--loopback "${addresses[@]}")
-[[ "$(uname -s)" == Linux ]] && services+=(--secret-service --netem)
+[[ "$(uname -s)" == Linux ]] && services+=(--secret-service --netem --service-manager)
 
 xtask_check() {
   (cd "$root" && cargo run --quiet --locked -p xtask -- os-services check "${services[@]}" "$@")
@@ -53,12 +71,38 @@ as_root() {
   if [[ "$(id -u)" -eq 0 ]]; then "$@"; else sudo -n "$@"; fi
 }
 
+# The tests' copy of `unshare`; the AppArmor profile and Collie's PID 1 test
+# name the same path.
+TEST_UNSHARE=/usr/local/libexec/goodfetch-test-tools/unshare
+
+# Installs the tests' `unshare`, with its AppArmor profile where AppArmor
+# restricts unprivileged user namespaces, and checks that it maps this user
+# to root in a user namespace of its own.
+setup_user_namespaces() {
+  local parser restricted=/proc/sys/kernel/apparmor_restrict_unprivileged_userns refused
+  as_root install -d -m 0755 "$(dirname "$TEST_UNSHARE")"
+  as_root install -m 0755 "$(command -v unshare)" "$TEST_UNSHARE"
+  parser=$(PATH="$PATH:/usr/sbin:/sbin" command -v apparmor_parser || true)
+  if [[ "$(cat "$restricted" 2>/dev/null)" == 1 && -n "$parser" ]]; then
+    as_root install -m 0644 "$root/ci/apparmor/goodfetch-test-unshare" /etc/apparmor.d/goodfetch-test-unshare
+    as_root "$parser" --replace /etc/apparmor.d/goodfetch-test-unshare
+  fi
+  if ! refused=$("$TEST_UNSHARE" --user --map-root-user true 2>&1); then
+    echo "error: $TEST_UNSHARE cannot map $(id -un) to root in a user namespace ($refused); where AppArmor restricts unprivileged user namespaces, ci/apparmor/goodfetch-test-unshare gives them to it, which needs apparmor_parser" >&2
+    exit 1
+  fi
+  echo "$TEST_UNSHARE makes user namespaces."
+}
+
 setup_linux() {
   local missing=()
   command -v dbus-daemon >/dev/null || missing+=(dbus-daemon)
   command -v gnome-keyring-daemon >/dev/null || missing+=(gnome-keyring)
   command -v secret-tool >/dev/null || missing+=(libsecret-tools)
   PATH="$PATH:/usr/sbin:/sbin" command -v tc >/dev/null || missing+=(iproute2)
+  # Xvfb, the virtual display Collie's `virtual_display` tests start for a
+  # headful browser.
+  command -v Xvfb >/dev/null || missing+=(xvfb)
   if [[ "$(id -u)" -ne 0 ]]; then
     PATH="$PATH:/usr/sbin:/sbin" command -v setcap >/dev/null || missing+=(libcap2-bin)
   fi
@@ -69,6 +113,7 @@ setup_linux() {
   if [[ "$(id -u)" -ne 0 ]]; then
     as_root setcap cap_net_admin+ep "$(PATH="$PATH:/usr/sbin:/sbin" command -v tc)"
   fi
+  setup_user_namespaces
 
   rm -rf "$RUNTIME"
   mkdir -p "$RUNTIME"
@@ -92,6 +137,12 @@ setup_linux() {
   } >"$RUNTIME/env"
   if [[ -n "${GITHUB_ENV:-}" ]]; then cat "$RUNTIME/env" >>"$GITHUB_ENV"; fi
   echo "Started a D-Bus session and gnome-keyring's Secret Service, unlocked."
+
+  # The user's systemd manager, kept running by lingering, when systemd
+  # booted this host; `systemctl --user` reaches it through its own bus.
+  if [[ -d /run/systemd/system ]] && command -v loginctl >/dev/null; then
+    as_root loginctl enable-linger "$(id -un)" || true
+  fi
 }
 
 setup_macos() {
@@ -108,6 +159,16 @@ setup_macos() {
 
 case "${1:-}" in
   setup)
+    if [[ "${2:-}" == --without-service-manager ]]; then
+      kept=()
+      for service in "${services[@]}"; do
+        [[ "$service" == --service-manager ]] || kept+=("$service")
+      done
+      services=("${kept[@]}")
+    elif [[ -n "${2:-}" ]]; then
+      echo "usage: ci/os-services.sh setup [--without-service-manager]" >&2
+      exit 2
+    fi
     case "$(uname -s)" in
       Linux) setup_linux ;;
       Darwin) setup_macos ;;
@@ -121,6 +182,9 @@ case "${1:-}" in
       xtask_check >&2
     else
       mkdir -p "$(dirname "$file")"
+      if [[ "$(uname -s)" != Linux ]]; then
+        services+=(--service-manager --suite "${GOODFETCH_TEST_SUITE:-quick}")
+      fi
       xtask_check --skipped "$file"
     fi
     ;;
@@ -128,7 +192,7 @@ case "${1:-}" in
     printf '%s\n' "${addresses[@]}"
     ;;
   *)
-    echo "usage: ci/os-services.sh setup|skipped <file>|addresses" >&2
+    echo "usage: ci/os-services.sh setup [--without-service-manager]|skipped <file>|addresses" >&2
     exit 2
     ;;
 esac

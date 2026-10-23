@@ -73,6 +73,12 @@ impl ProvingGround {
         }
     }
 
+    /// The address it answers on (`host:port`), to which a target maps the
+    /// host names of its pages (the `resolve` setting, ADR 0059).
+    pub fn address(&self) -> &str {
+        &self.address
+    }
+
     /// Whether it is the online copy, whose results report and never block
     /// a release; the local copy is not.
     pub fn is_online(&self) -> bool {
@@ -110,6 +116,36 @@ impl ProvingGround {
             .header("host", host)
             .call();
         Self::answer(url, response)
+    }
+
+    /// Its own observations (`GET /observations`): every request its page
+    /// hosts received and what their pages' scripts reported.
+    ///
+    /// # Errors
+    ///
+    /// When the Proving ground cannot be reached, answers another status
+    /// than 200 or serves no JSON.
+    pub fn observations(&self) -> Result<serde_json::Value, ProvingGroundError> {
+        let url = format!("http://{}/observations", self.address);
+        let body = Self::answer(&url, self.agent.get(&url).call())?;
+        serde_json::from_str(&body).map_err(|source| ProvingGroundError::Unreadable { url, source })
+    }
+
+    /// Sets the Proving ground's time step, which its time-dependent pages
+    /// follow: the `pacing` family holds each answer longer at each step.
+    ///
+    /// # Errors
+    ///
+    /// When the Proving ground cannot be reached or refuses the step.
+    pub fn set_time_step(&self, step: u64) -> Result<(), ProvingGroundError> {
+        let url = format!("http://{}/time-step", self.address);
+        Self::answer(
+            &url,
+            self.agent
+                .put(&url)
+                .send_json(serde_json::json!({ "step": step })),
+        )
+        .map(drop)
     }
 
     /// The oracle's answer for a submitted result.

@@ -1,15 +1,19 @@
 // One test's setup from `goodfetch-test-env` (ADR 0062): TypeScript reuses
 // the Rust setup and rewrites none of it. The executable, found through the
-// test tool manifest, prints one JSON description, which is validated
+// test tool manifest, starts the Proving ground and the Daemon a test asks
+// for, prints one JSON description, which is validated
 // against the committed schema, and tears the setup down when its stdin
 // closes.
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
-import { Ajv2020, type SchemaObject, type ValidateFunction } from "ajv/dist/2020.js";
-import { fullFormats } from "ajv-formats/dist/formats.js";
+import type { ValidateFunction } from "ajv/dist/2020.js";
 import { TestSupportError } from "./errors.ts";
 import type { ProcessRecord, RecordedProcess } from "./process-record.ts";
+import type { DaemonDescription } from "./daemon.ts";
+import type { Product } from "./product-env.ts";
+import type { ProvingGroundDescription } from "./proving-ground.ts";
+import { ajv, committedSchema } from "./schemas.ts";
 
 /** The commit's executables, each present when its crate exists in the workspace. */
 export interface Tools {
@@ -23,6 +27,8 @@ export interface Tools {
   readonly test_env?: string | undefined;
   /** `goodfetch-scripted-engine`, the Scripted engine. */
   readonly scripted_engine?: string | undefined;
+  /** `goodfetch-conformance`, whose `read` loads a result document through `goodfetch-protocol`'s reader. */
+  readonly conformance?: string | undefined;
 }
 
 /** One test's setup, as `goodfetch-test-env` describes it. */
@@ -39,6 +45,10 @@ export interface TestEnvDescription {
   readonly start_time: string;
   /** The commit's executables, from the test tool manifest. */
   readonly tools: Tools;
+  /** The Proving ground started on the seed the test asked for, if any. */
+  readonly proving_ground?: ProvingGroundDescription | undefined;
+  /** The Daemon started in the test's home, if the test asked for one. */
+  readonly daemon?: DaemonDescription | undefined;
 }
 
 /** A program and its arguments. */
@@ -57,6 +67,10 @@ export interface TestEnvStart {
   readonly toolManifest: string | undefined;
   /** What runs in place of the manifest's `goodfetch-test-env`, when given. */
   readonly program?: Program | undefined;
+  /** The seed of a Proving ground to start beside the setup, when given. */
+  readonly provingGroundSeed?: number | undefined;
+  /** The Product whose Daemon to start in the test's home, when given. */
+  readonly daemon?: Product | undefined;
 }
 
 /** A started setup. */
@@ -78,20 +92,11 @@ const TOOLS_VARIABLE = "GOODFETCH_TEST_TOOLS";
 const RUN_WITH_JUST =
   "run the tests with `just test`, which builds the commit's executables and writes the test tool manifest";
 
-const ajv = new Ajv2020({ allErrors: true });
-ajv.addFormat("date-time", fullFormats["date-time"]);
-// schemars writes Rust's `u64` as this format; the description's seed is also
-// at most 2^53 - 1, so every language reads it exactly.
-ajv.addFormat("uint64", {
-  type: "number",
-  validate: (value: number) => Number.isSafeInteger(value) && value >= 0,
-});
-
 const isTools: ValidateFunction<Tools> = ajv.compile<Tools>(
-  schema("test-tool-manifest.schema.json"),
+  committedSchema("test-tool-manifest.schema.json"),
 );
 const isDescription: ValidateFunction<TestEnvDescription> = ajv.compile<TestEnvDescription>(
-  schema("test-env-description.schema.json"),
+  committedSchema("test-env-description.schema.json"),
 );
 
 /** Starts `goodfetch-test-env` for one test and reads its description. */
@@ -104,9 +109,14 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
     ...process.env,
     [TOOLS_VARIABLE]: start.toolManifest,
   };
+  const provingGround =
+    start.provingGroundSeed === undefined
+      ? []
+      : ["--proving-ground", String(start.provingGroundSeed)];
+  const daemon = start.daemon === undefined ? [] : [`--daemon=${start.daemon}`];
   const started = start.processes.spawn(
     program.command,
-    [...program.args, "--test-name", start.testName],
+    [...program.args, "--test-name", start.testName, ...provingGround, ...daemon],
     {
       env,
     },
@@ -143,6 +153,21 @@ export function toolPath(tools: Tools, tool: keyof Tools): string {
       `the test tool manifest lists no ${tool}: run the tests with \`just test\`, which builds every executable the workspace has`,
     );
   }
+  return path;
+}
+
+/**
+ * Writes at `path` the test tool manifest `manifest` with `engine` as the
+ * executable of `product`, so everything the setup starts runs it, as a
+ * skew run does (ADR 0066); gives `path`.
+ */
+export function manifestWithEngine(
+  manifest: string | undefined,
+  product: Product,
+  engine: string,
+  path: string,
+): string {
+  writeFileSync(path, `${JSON.stringify({ ...readTools(manifest), [product]: engine })}\n`);
   return path;
 }
 
@@ -238,12 +263,4 @@ function forwardStderr(stream: Readable): () => string {
     }
   });
   return () => text;
-}
-
-/** A committed schema of `test-support/fixtures/schemas/`, which Ajv checks as it compiles it. */
-function schema(file: string): SchemaObject {
-  const committed: SchemaObject = JSON.parse(
-    readFileSync(new URL(`../../fixtures/schemas/${file}`, import.meta.url), "utf8"),
-  );
-  return committed;
 }

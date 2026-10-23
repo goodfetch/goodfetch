@@ -13,7 +13,7 @@ use serde_json::{Map, Value};
 
 use super::connection::ListenerAddress;
 use super::table::{EndpointTable, Expected, ListenerKind, Rule, Transport};
-use super::{http, json_rpc};
+use super::{http, json_rpc, websocket};
 
 /// The method of the first message that is not a `hello`.
 const NOT_HELLO: &str = "ping";
@@ -67,6 +67,15 @@ pub enum Endpoint {
     Http {
         /// Where it listens.
         address: SocketAddr,
+    },
+    /// A WebSocket listener on loopback TCP, whose valid handshake names
+    /// `address` as its `Host` and `http://<address>` as its `Origin`, and
+    /// whose first message is a `hello`.
+    WebSocket {
+        /// Where it listens.
+        address: SocketAddr,
+        /// The `hello` it accepts.
+        hello: Hello,
     },
 }
 
@@ -265,6 +274,10 @@ impl<A: AuditVerifier> EndpointRunner<A> {
                 address: *address,
                 protected_path,
             },
+            (Endpoint::WebSocket { address, hello }, Transport::WebSocket) => Reach::WebSocket {
+                address: *address,
+                hello,
+            },
             _ => {
                 return Err(EndpointRunError::TransportMismatch {
                     listener: listener.kind,
@@ -314,6 +327,7 @@ fn apply(
         Rule::TokenInQueryString => reach.attempt(token, Attempt::TokenInQuery),
         Rule::HostForeign => reach.attempt(token, Attempt::ForeignHost),
         Rule::OriginForeign => reach.attempt(token, Attempt::ForeignOrigin),
+        Rule::OriginMissing => reach.attempt(token, Attempt::NoOrigin),
         Rule::HelloNotFirst => reach.attempt(token, Attempt::NotHello),
         Rule::ProbesAnswerStatusOnly => {
             return PROBES
@@ -349,8 +363,11 @@ enum Attempt<'a> {
     TokenInQuery,
     /// An HTTP request with the valid token and a foreign `Host`.
     ForeignHost,
-    /// An HTTP request with the valid token and a foreign `Origin`.
+    /// An HTTP request or WebSocket handshake with the valid token and a
+    /// foreign `Origin`.
     ForeignOrigin,
+    /// A WebSocket handshake without an `Origin`, then the valid `hello`.
+    NoOrigin,
     /// A first message with the valid token that is no `hello`.
     NotHello,
     /// A request without a token for one of the ops listener's probes.
@@ -366,6 +383,10 @@ enum Reach<'a> {
     Http {
         address: SocketAddr,
         protected_path: &'static str,
+    },
+    WebSocket {
+        address: SocketAddr,
+        hello: &'a Hello,
     },
 }
 
@@ -383,9 +404,33 @@ impl Reach<'_> {
                     | Attempt::TokenInQuery
                     | Attempt::ForeignHost
                     | Attempt::ForeignOrigin
+                    | Attempt::NoOrigin
                     | Attempt::Probe(_) => hello.message("hello", Some(token)),
                 };
                 json_rpc::attempt(address, &message)
+            }
+            Self::WebSocket { address, hello } => {
+                let authority = address.to_string();
+                let origin = format!("http://{authority}");
+                let mut handshake = websocket::Handshake {
+                    target: "/".to_owned(),
+                    host: &authority,
+                    origin: Some(&origin),
+                };
+                let mut message = hello.message("hello", Some(token));
+                match attempt {
+                    Attempt::Valid | Attempt::Probe(_) => {}
+                    Attempt::Token(token) => message = hello.message("hello", token),
+                    Attempt::TokenInQuery => {
+                        handshake.target = format!("/?access_token={}", percent_encoded(token));
+                        message = hello.message("hello", None);
+                    }
+                    Attempt::ForeignHost => handshake.host = FOREIGN_HOST,
+                    Attempt::ForeignOrigin => handshake.origin = Some(FOREIGN_ORIGIN),
+                    Attempt::NoOrigin => handshake.origin = None,
+                    Attempt::NotHello => message = hello.message(NOT_HELLO, Some(token)),
+                }
+                websocket::attempt(*address, &handshake, &message)
             }
             Self::Http {
                 address,
@@ -399,7 +444,7 @@ impl Reach<'_> {
                     origin: None,
                 };
                 match attempt {
-                    Attempt::Valid | Attempt::NotHello => {}
+                    Attempt::Valid | Attempt::NotHello | Attempt::NoOrigin => {}
                     Attempt::Token(token) => request.bearer = token,
                     Attempt::TokenInQuery => {
                         request.target =

@@ -1,0 +1,24 @@
+# gitleaks' own rules, as CI's secret scans read them (ADR 0067): over each
+# job's outputs before they upload (ci/leaks.sh) and over each pull request's
+# commits while the repository is private (ci/commit-leaks.sh). Each scan
+# also runs the Secret canaries' rule, test-support/fixtures/canaries/
+# gitleaks.toml, on its own: gitleaks extends one configuration only, either
+# its defaults or a file.
+#
+# The allowlists name only values committed on purpose that look like
+# secrets and are not: each entry says why.
+title = "Goodfetch"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "The Proving ground's seeded test accounts, fake by construction (ADR 0063's task lists), and the canaries' own fixtures"
+paths = [
+  '''(^|/)journeys/tasks/seed-[0-9]+\.json$''',
+  '''(^|/)test-support/fixtures/canaries/''',
+]
+
+[[allowlists]]
+description = "RFC 6455's sample Sec-WebSocket-Key, which the Proving ground's WebSocket tests send"
+regexes = ['''dGhlIHNhbXBsZSBub25jZQ==''']

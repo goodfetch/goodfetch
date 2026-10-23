@@ -6,18 +6,48 @@
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "tests run on the test Clock and Entropy (ADR 0059)"
+)]
+
+mod checkpoint;
+mod daemon;
+mod durability;
+mod events;
+mod key_value_store;
+mod layout;
+mod lifecycle;
+mod log;
+mod progress;
+mod refusals;
+mod run;
+mod settings;
+mod takeover;
+mod usage;
+mod versions;
+mod websocket;
 
 use std::time::Duration;
 
-use goodfetch_protocol::catalog::{Operation, OperationClass, Product, Stability, schema_of};
+use goodfetch_protocol::catalog::{
+    Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
+};
 use goodfetch_protocol::connection::ProductVersion;
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 
-use super::Engine;
+use goodfetch_test_support::TestEnv;
+
+use super::{Dependencies, Engine};
+use crate::clock::Clock;
 use crate::composition::{CallContext, CallError, Composition, Contribution, Handler};
+use crate::entropy::Entropy;
+use crate::home::{Home, RunStateLocation};
 use crate::product::{Channel, Identity};
+use crate::run_state::RunStateOptions;
+use crate::tasks::BlockingPolicy;
 use crate::transport::{self, ConnectionReader, ConnectionWriter, Network};
 
 /// A call that waits until it is cancelled, at its one await point.
@@ -25,6 +55,8 @@ const WAIT: Operation = Operation {
     name: "test.wait",
     description: "Waits until it is cancelled.",
     class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
     params: schema_of::<Value>,
     result: schema_of::<Value>,
     events: &[],
@@ -54,14 +86,23 @@ fn test_operations() -> Contribution {
 }
 
 fn engine(product: Product) -> Engine {
+    engine_with(product, None)
+}
+
+/// An engine of `product` with the engine's own operations, the tests' and
+/// `more`.
+fn engine_with(product: Product, more: Option<Contribution>) -> Engine {
     let identity = Identity {
         product,
         product_version: ProductVersion::parse("1.4.0").unwrap(),
         channel: Channel::CratesIo,
     };
-    let composition = Composition::default()
+    let mut composition = Composition::default()
         .with(crate::info::contribution())
         .with(test_operations());
+    if let Some(more) = more {
+        composition = composition.with(more);
+    }
     Engine::new(identity, &composition).unwrap()
 }
 
@@ -95,12 +136,17 @@ struct Client {
 
 impl Client {
     async fn send(&mut self, messages: &[Value]) {
+        self.try_send(messages).await.unwrap();
+    }
+
+    /// Sends `messages`, answering whether the Connection took them.
+    async fn try_send(&mut self, messages: &[Value]) -> std::io::Result<()> {
         let mut bytes = Vec::new();
         for message in messages {
             bytes.extend(serde_json::to_vec(message).unwrap());
             bytes.push(b'\n');
         }
-        self.writer.write_all(&bytes).await.unwrap();
+        self.writer.write_all(&bytes).await
     }
 
     async fn send_bytes(&mut self, bytes: &[u8]) {
@@ -118,6 +164,22 @@ impl Client {
     }
 }
 
+/// What an in-process test's engine runs on: the test's home, the test
+/// `Clock` and `Entropy`, and blocking work inline. Made on the runtime the
+/// engine runs on, as the paused `Clock` must be.
+fn dependencies(env: &TestEnv) -> Dependencies {
+    Dependencies {
+        environment: std::collections::BTreeMap::new(),
+        home: Home::new(env.home().to_owned()),
+        clock: Clock::paused(env.start_time()),
+        entropy: Entropy::seeded(env.seed()),
+        blocking: BlockingPolicy::Inline,
+        run_state_location: RunStateLocation::PerMajor,
+        run_state: RunStateOptions::default(),
+        politeness: crate::politeness::PolitenessOptions::default(),
+    }
+}
+
 /// Runs `engine` as an Attached engine on the in-memory network while
 /// `client` talks to it, on the tests' paused runtime.
 fn attached<F, Fut, T>(engine: &Engine, client: F) -> T
@@ -125,7 +187,39 @@ where
     F: FnOnce(Client) -> Fut,
     Fut: Future<Output = T>,
 {
+    attached_on(engine, &TestEnv::new(), client)
+}
+
+/// [`attached`], in `env`.
+fn attached_on<F, Fut, T>(engine: &Engine, env: &TestEnv, client: F) -> T
+where
+    F: FnOnce(Client) -> Fut,
+    Fut: Future<Output = T>,
+{
+    attached_with(engine, || dependencies(env), client)
+}
+
+/// [`attached`], on the `Dependencies` that `dependencies` makes on the
+/// runtime. The test `tracing` subscriber, timed by their `Clock`, writes
+/// the dispatch records into the test's exercise record (ADR 0072), unless
+/// the test installed its own, as [`dispatch_records`] does.
+fn attached_with<D, F, Fut, T>(engine: &Engine, dependencies: D, client: F) -> T
+where
+    D: FnOnce() -> Dependencies,
+    F: FnOnce(Client) -> Fut,
+    Fut: Future<Output = T>,
+{
     goodfetch_test_support::runtime().block_on(async {
+        let dependencies = dependencies();
+        let clock = dependencies.clock;
+        let unset = tracing::dispatcher::get_default(
+            tracing::Dispatch::is::<tracing::subscriber::NoSubscriber>,
+        );
+        let _subscriber = unset.then(|| {
+            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
+                clock.wall()
+            }))
+        });
         let (network, dialer) = transport::in_memory();
         let talk = async {
             let (reader, writer) = dialer.connect().await.unwrap().split();
@@ -135,8 +229,10 @@ where
             })
             .await
         };
-        let (served, observed) =
-            tokio::join!(engine.run_attached(Network::InMemory(network)), talk);
+        let (served, observed) = tokio::join!(
+            engine.run_attached(Network::InMemory(network), dependencies),
+            talk
+        );
         served.unwrap();
         observed
     })
@@ -156,28 +252,48 @@ fn exchange(engine: &Engine, messages: &[Value]) -> Vec<Value> {
     })
 }
 
+/// Takes the engine instance out of an accepted `hello`'s `reply`,
+/// answering whether it names one: 16 lowercase hex digits, new in each
+/// engine process.
+fn takes_engine_instance(reply: &mut Value) -> bool {
+    reply["result"]
+        .as_object_mut()
+        .and_then(|result| result.remove("engine_instance"))
+        .and_then(|instance| instance.as_str().map(str::to_owned))
+        .is_some_and(|instance| {
+            instance.len() == 16
+                && instance
+                    .bytes()
+                    .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        })
+}
+
 fn pretty(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap()
 }
 
 /// Covers: story:3-3
 #[test]
-fn an_accepted_hello_answers_the_engines_product_and_versions() {
-    let received = exchange(&engine(Product::Collie), &[hello("collie", "0.1")]);
+fn an_accepted_hello_answers_the_engines_product_and_versions_and_instance() {
+    let mut received = exchange(&engine(Product::Collie), &[hello("collie", "0.1")]);
+    let named = takes_engine_instance(&mut received[0]);
 
     assert_eq!(
-        received,
-        [json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "result": { "protocol_version": "0.1", "product": "collie", "product_version": "1.4.0" },
-        })]
+        (received, named),
+        (
+            vec![json!({
+                "jsonrpc": "2.0",
+                "id": 0,
+                "result": { "protocol_version": "0.1", "product": "collie", "product_version": "1.4.0" },
+            })],
+            true
+        )
     );
 }
 
 /// Covers: story:3-132, error:protocol_version_unsupported, format:protocol
 #[rstest]
-#[case::newer_minor("0.2")]
+#[case::newer_preview("0.2")]
 #[case::newer_major("1.0")]
 fn a_hello_of_another_version_is_refused_before_any_other_message_and_closed(
     #[case] protocol_version: &str,
@@ -510,8 +626,15 @@ impl std::io::Write for LogWriter {
     }
 }
 
-#[test]
-fn dispatch_records_each_requests_method_and_its_error_code() {
+/// The records dispatch emits while `run` runs, sorted, each from its
+/// target on.
+fn dispatch_records<T>(run: impl FnOnce() -> T) -> Vec<String> {
+    records_of(crate::rpc::DISPATCH_TARGET, run)
+}
+
+/// The records `run` logs under `target`, sorted, each without its level
+/// and target.
+fn records_of<T>(target: &str, run: impl FnOnce() -> T) -> Vec<String> {
     let (sender, log) = std::sync::mpsc::channel();
     let writer = LogWriter(sender);
     let subscriber = tracing_subscriber::fmt()
@@ -520,8 +643,29 @@ fn dispatch_records_each_requests_method_and_its_error_code() {
         .without_time()
         .with_writer(move || writer.clone())
         .finish();
+    // With one dispatcher alive, tracing-core judges a callsite by the
+    // registering thread's own: another test's thread would cache that no
+    // one listens to a record this test reads. A second one, alive for the
+    // whole test, makes it judge every callsite by each thread's dispatcher.
+    let _second = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
 
-    tracing::subscriber::with_default(subscriber, || {
+    tracing::subscriber::with_default(subscriber, run);
+
+    let mut records: Vec<String> = log
+        .try_iter()
+        .map(|bytes| String::from_utf8(bytes).unwrap())
+        .filter_map(|line| {
+            line.split_once(target)
+                .map(|(_, record)| record.trim_end().to_owned())
+        })
+        .collect();
+    records.sort();
+    records
+}
+
+#[test]
+fn dispatch_records_each_requests_method_and_its_error_code() {
+    let records = dispatch_records(|| {
         exchange(
             &engine(Product::Collie),
             &[
@@ -532,21 +676,37 @@ fn dispatch_records_each_requests_method_and_its_error_code() {
         )
     });
 
-    let mut records: Vec<String> = log
-        .try_iter()
-        .map(|bytes| String::from_utf8(bytes).unwrap())
-        .filter_map(|line| {
-            line.split_once(crate::rpc::DISPATCH_TARGET)
-                .map(|(_, record)| record.trim_end().to_owned())
-        })
-        .collect();
-    records.sort();
     assert_eq!(
         records,
         [
             ": request answered method=\"engine.info\"",
             ": request answered method=\"hello\"",
             ": request failed method=\"sample.crawl\" error_code=\"not_in_product\"",
+        ]
+    );
+}
+
+/// A method no catalog holds is a value its Client wrote, which may hold a
+/// Secret: its record names none (ADR 0132's bounded values).
+///
+/// Covers: story:3-105
+#[test]
+fn dispatch_records_a_method_no_catalog_holds_without_its_name() {
+    let records = dispatch_records(|| {
+        let engine = engine(Product::Collie);
+        exchange(&engine, &[request(1, "token=GFCANARY-hunter2")]);
+        exchange(
+            &engine,
+            &[hello("collie", "0.1"), request(2, "token=GFCANARY-hunter2")],
+        )
+    });
+
+    assert_eq!(
+        records,
+        [
+            ": request answered method=\"hello\"",
+            ": request failed method=\"(unknown)\" error_code=\"invalid_request\"",
+            ": request failed method=\"(unknown)\" error_code=\"method_not_found\"",
         ]
     );
 }

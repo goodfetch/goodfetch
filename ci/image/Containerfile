@@ -21,7 +21,7 @@ RUN apt-get update \
 
 # The Cargo tools at pinned versions.
 RUN cargo install --locked --root /usr/local \
-      just@1.46.0 cargo-nextest@0.9.146 cargo-deny@0.20.2 cargo-insta@1.49.0 \
+      just@1.46.0 cargo-nextest@0.9.149 cargo-deny@0.20.2 cargo-insta@1.49.0 \
       cargo-shear@1.14.0 typos-cli@1.50.3 zizmor@1.30.1 \
       cargo-audit@0.22.0 cargo-hack@0.6.45 \
  && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
@@ -38,6 +38,16 @@ RUN apt-get update \
 # workspace's `rust-version`, ADR 0030; raise both together).
 RUN rustup component add rustfmt clippy \
  && rustup toolchain install 1.97 --profile minimal
+
+# The nightly toolchain fuzzing and the AddressSanitizer run share, with the
+# standard library's source the run rebuilds, and cargo-fuzz for `cargo fuzz
+# check` (ADR 0067), at ci/sanitizer-toolchain.toml's versions
+# (ci/tool-versions.sh checks they agree).
+ARG SANITIZER_TOOLCHAIN=nightly-2026-10-05
+ARG CARGO_FUZZ_VERSION=0.13.2
+RUN rustup toolchain install "${SANITIZER_TOOLCHAIN}" --profile minimal --component rust-src \
+ && cargo "+${SANITIZER_TOOLCHAIN}" install --locked --root /usr/local "cargo-fuzz@${CARGO_FUZZ_VERSION}" \
+ && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
 
 # The linters' and scripts' system tools.
 RUN apt-get update \
@@ -67,6 +77,15 @@ RUN curl -fsSLo /tmp/actionlint.tar.gz "https://github.com/rhysd/actionlint/rele
  && tar -xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint \
  && rm /tmp/actionlint.tar.gz
 
+# gitleaks, which `just lint` shows catching every Secret canary with the
+# rule test support generates (ci/canary-rule.sh, ADR 0067).
+ARG GITLEAKS_VERSION=8.30.1
+ARG GITLEAKS_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+RUN curl -fsSLo /tmp/gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+ && echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c - \
+ && tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks \
+ && rm /tmp/gitleaks.tar.gz
+
 # Test builds link with mold, as the hosted Linux jobs do through the
 # host-tools action; local builds keep the default linker. Rust's own
 # default on this target is rust-lld, which `-fuse-ld=mold` replaces.
@@ -81,9 +100,10 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=-Clink-arg=-fuse-ld=mold
 # The Secret Service the keychain tests meet (ci/os-services.sh starts it):
 # a D-Bus session bus, gnome-keyring and libsecret's secret-tool; and
 # iproute2's `tc`, which the Proving ground's netem tests shape `lo` with
-# (the container gets CAP_NET_ADMIN from ci/vm/start.sh).
+# (the container gets CAP_NET_ADMIN from ci/vm/start.sh); and `lsof`, whose
+# list of listening sockets shows that a launched browser opens no port.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends dbus-daemon gnome-keyring libsecret-tools iproute2 \
+ && apt-get install -y --no-install-recommends dbus-daemon gnome-keyring libsecret-tools iproute2 lsof \
  && rm -rf /var/lib/apt/lists/*
 
 # libclang and Clang's own headers, which sqlite-plugin's build script loads
@@ -105,6 +125,12 @@ ARG PLAYWRIGHT_VERSION=1.64.1
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium \
  && rm -rf /var/lib/apt/lists/* /root/.npm
+
+# cargo-mutants, the in-diff mutation job's tool (ADR 0072; ci/mutants.sh).
+# It has a layer of its own at the end, so adding it rebuilt no other layer;
+# it joins the Cargo tools' layer above when that layer next changes.
+RUN cargo install --locked --root /usr/local cargo-mutants@27.1.0 \
+ && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
 
 ENV CI=true
 WORKDIR /work

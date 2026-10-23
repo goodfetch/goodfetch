@@ -1,0 +1,330 @@
+{
+  "name": "run-index",
+  "schema": {
+    "$defs": {
+      "Completeness": {
+        "description": "Whether a Run's results cover everything in its scope (ADRs 0005 and\n0029).",
+        "oneOf": [
+          {
+            "const": "complete",
+            "description": "They do.",
+            "type": "string"
+          },
+          {
+            "const": "incomplete",
+            "description": "The Run ended early.",
+            "type": "string"
+          },
+          {
+            "const": "unverified",
+            "description": "It finished, but the engine cannot vouch that nothing was missed.",
+            "type": "string"
+          }
+        ]
+      },
+      "DaemonEndpoint": {
+        "description": "Where a Daemon or an Attached engine's private endpoint listens (ADR\n0024): a `0600` Unix socket on macOS and Linux, loopback TCP on\nWindows.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "A Unix socket's path.",
+            "properties": {
+              "unix": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "unix"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A loopback address and port.",
+            "properties": {
+              "tcp": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tcp"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Lifecycle": {
+        "description": "Where a Run is (ADR 0029).",
+        "oneOf": [
+          {
+            "const": "running",
+            "description": "It runs.",
+            "type": "string"
+          },
+          {
+            "const": "stopped",
+            "description": "It ended early: by a Limit, an abort, its timeout, the loss of its\nengine or exhausted resources.",
+            "type": "string"
+          },
+          {
+            "const": "finished",
+            "description": "It reached its end.",
+            "type": "string"
+          },
+          {
+            "const": "failed",
+            "description": "An error in the engine or the program's code ended it.",
+            "type": "string"
+          }
+        ]
+      },
+      "PointInTime": {
+        "description": "A point in time in UTC, as RFC 3339.",
+        "format": "date-time",
+        "type": "string"
+      },
+      "Presence": {
+        "description": "Whether the state a Run index row points at is there (ADRs 0031 and\n0036).",
+        "oneOf": [
+          {
+            "const": "present",
+            "description": "Its state is at its location.",
+            "type": "string"
+          },
+          {
+            "const": "missing",
+            "description": "`runs reindex` found no state at its location; the row is kept.",
+            "type": "string"
+          },
+          {
+            "const": "erased",
+            "description": "The Run was discarded on purpose; `runs reindex` keeps its row\nerased.",
+            "type": "string"
+          }
+        ]
+      },
+      "PrivateEndpoint": {
+        "additionalProperties": false,
+        "description": "An Attached engine's private endpoint (ADRs 0024 and 0031): where it\nlistens, a `0600` Unix socket on macOS and Linux or loopback TCP on\nWindows, and the `0600` file holding the token that each Connection's\n`hello` there carries, as a Daemon's does.",
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/DaemonEndpoint",
+            "arrived_in": "0.1",
+            "description": "Where it listens."
+          },
+          "token_file": {
+            "arrived_in": "0.1",
+            "description": "The path of the file holding its token.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "address",
+          "token_file"
+        ],
+        "type": "object"
+      },
+      "Product": {
+        "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
+        "oneOf": [
+          {
+            "const": "collie",
+            "description": "Browser automation; Foxhound contains it.",
+            "type": "string"
+          },
+          {
+            "const": "foxhound",
+            "description": "Crawling, which contains Collie.",
+            "type": "string"
+          }
+        ]
+      },
+      "RunId": {
+        "description": "A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
+        "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
+        "type": "string"
+      },
+      "RunIndexRow": {
+        "description": "One row of the Run index (ADR 0031): a Run, where its state is, its three\naxes and, while it is live, the engine that owns it.",
+        "properties": {
+          "completeness": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Completeness"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its Completeness, once it ended."
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PointInTime"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it ended."
+          },
+          "kind": {
+            "$ref": "#/$defs/RunKind",
+            "description": "What kind of Run it is."
+          },
+          "lifecycle": {
+            "$ref": "#/$defs/Lifecycle",
+            "description": "Where it is."
+          },
+          "location": {
+            "description": "Its folder: relative to the per-major data folder when it is inside,\nabsolute otherwise.",
+            "type": "string"
+          },
+          "needs": {
+            "$ref": "#/$defs/Product",
+            "description": "The Product it needs (ADR 0098)."
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RunOwner"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "While it is live, where the engine that owns it is reached: a\nDaemon's endpoint, or an Attached engine's private endpoint. An\nengine that cannot take the Run's writer lock forwards live actions\nthere."
+          },
+          "presence": {
+            "$ref": "#/$defs/Presence",
+            "description": "Whether its state is at its location."
+          },
+          "progress_message": {
+            "description": "The program's own status line, once it set one (RT-15).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_id": {
+            "$ref": "#/$defs/RunId",
+            "description": "The Run's ID."
+          },
+          "started_at": {
+            "$ref": "#/$defs/PointInTime",
+            "description": "When it started."
+          },
+          "tags": {
+            "$ref": "#/$defs/Tags",
+            "description": "Its tags (ADR 0036)."
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Verdict"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its Verdict, once it ended."
+          }
+        },
+        "required": [
+          "run_id",
+          "location",
+          "kind",
+          "needs",
+          "tags",
+          "lifecycle",
+          "started_at",
+          "presence"
+        ],
+        "type": "object"
+      },
+      "RunKind": {
+        "description": "What kind of Run it is: a Collie Run its program drives, or a crawl\n(ADR 0102), which its start's inputs name.",
+        "oneOf": [
+          {
+            "const": "collie",
+            "description": "A Run its program drives page by page.",
+            "type": "string"
+          },
+          {
+            "const": "crawl",
+            "description": "A crawl, whose work items the engine leases to its handlers.",
+            "type": "string"
+          }
+        ]
+      },
+      "RunOwner": {
+        "description": "Where the engine that owns a live Run is reached (ADR 0031).",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "A Daemon, at the endpoint of its runtime file, which also holds its\ntoken.",
+            "properties": {
+              "daemon": {
+                "$ref": "#/$defs/DaemonEndpoint"
+              }
+            },
+            "required": [
+              "daemon"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "An Attached engine, at its private endpoint.",
+            "properties": {
+              "attached": {
+                "$ref": "#/$defs/PrivateEndpoint"
+              }
+            },
+            "required": [
+              "attached"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Tag": {
+        "description": "An opaque text a Run is tagged with (ADR 0036).",
+        "maxLength": 64,
+        "type": "string"
+      },
+      "Tags": {
+        "description": "A Run's tags, in the order given.",
+        "items": {
+          "$ref": "#/$defs/Tag"
+        },
+        "maxItems": 16,
+        "type": "array"
+      },
+      "Verdict": {
+        "description": "Whether a Run's own checks prove what it committed (ADR 0029).",
+        "oneOf": [
+          {
+            "const": "verified",
+            "description": "Every check the Run relies on passed, none was switched off, and no\nEffect is left uncertain.",
+            "type": "string"
+          },
+          {
+            "const": "rejected",
+            "description": "A declared Success check failed.",
+            "type": "string"
+          },
+          {
+            "const": "needs_review",
+            "description": "Everything else: a person reviews it.",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "$ref": "#/$defs/RunIndexRow"
+  },
+  "storage": "sqlite",
+  "version": "0.1"
+}

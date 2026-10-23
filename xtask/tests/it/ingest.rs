@@ -318,6 +318,50 @@ fn repeated_runs_become_one_record_each() {
     );
 }
 
+/// pytest-repeat adds each run's `<run>-<count>` to a parameterized case's
+/// parameter ID: the runs are the case's, under the ID it is listed with.
+#[test]
+fn repeated_runs_of_a_parameterized_pytest_case_are_the_cases() {
+    let workspace = Workspace::from_fixture("results-ingest");
+    let pytest = r#"<testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="3" time="0.3">
+<testcase classname="tests.test_sample" name="test_reads[a.log-1-3]" time="0.1" />
+<testcase classname="tests.test_sample" name="test_reads[a.log-2-3]" time="0.1"><failure message="boom">boom</failure></testcase>
+<testcase classname="tests.test_sample" name="test_reads[a.log-3-3]" time="0.1" />
+</testsuite></testsuites>"#;
+
+    let outcome = ingest_third_attempt(
+        &workspace,
+        "junit-pre-merge-diagnostic-linux-x64-1",
+        &[
+            (
+                "context.json",
+                br#"{ "commit": "c2", "tree": "t2", "job": "rerun", "order_seed": null, "entropy_seed": null, "repeat": 3 }"#,
+            ),
+            ("pytest.xml", pytest.as_bytes()),
+        ],
+    );
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let file = read_store_file(&workspace, &format!("{STORE}/runs/2026/10/42-3.tar.gz"));
+    let runs: Vec<(String, String)> = file
+        .test_runs
+        .iter()
+        .map(|run| {
+            (
+                run["test"].as_str().unwrap().to_owned(),
+                run["outcome"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    let run = |outcome: &str| {
+        (
+            "tests/test_sample.py::test_reads[a.log]".to_owned(),
+            outcome.to_owned(),
+        )
+    };
+    assert_eq!(runs, vec![run("passed"), run("failed"), run("passed")]);
+}
+
 /// The stress run (`just stress`) repeats its tests 20 times, and those taken
 /// off the quarantine list 200 times, in one job: each count's files sit in
 /// a `repeat-<count>/` folder beside the job's other JUnit files.

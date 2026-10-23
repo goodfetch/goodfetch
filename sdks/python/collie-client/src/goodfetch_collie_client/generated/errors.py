@@ -58,12 +58,196 @@ class InternalError(GoodfetchError):
     """A bug in Goodfetch. Report it."""
 
 
+class AddressFamilyUnavailableError(UnavailableError):
+    """The host has addresses only in an IP family the Session holds no local address of, such as IPv6 addresses for a Session bound to an IPv4 address. Add a local address of that family to the run's local addresses, or reach the host another way."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="address_family_unavailable", group="unavailable", retryable=False)
+
+
+class ArtifactDownloadFailedError(UnavailableError):
+    """A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browsers install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="artifact_download_failed", group="unavailable", retryable=True)
+
+
+class ArtifactUnavailableOfflineError(RefusedError):
+    """The `offline` setting refused a pinned download the call needed. Run the Product's `browsers install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="artifact_unavailable_offline", group="refused", retryable=False)
+
+
+class BodyNotFoundError(ProgramError):
+    """The Run's folder holds no body of this ID: the Run or the body is unknown, or the ID is not a body's."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="body_not_found", group="program", retryable=False)
+
+
+class BrowserHostOutdatedError(UnavailableError):
+    """The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="browser_host_outdated", group="unavailable", retryable=False)
+
+
+class BrowserLaunchFailedError(UnavailableError):
+    """The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="browser_launch_failed", group="unavailable", retryable=False)
+
+
+class BrowserNotInstalledError(UnavailableError):
+    """The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="browser_not_installed", group="unavailable", retryable=False)
+
+
 class CallCancelledError(UnavailableError):
     """The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="call_cancelled", group="unavailable", retryable=False)
+
+
+class ClosedError(ProgramError):
+    """The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="closed", group="program", retryable=False)
+
+
+class ConsolePortInUseError(UnavailableError):
+    """The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="console_port_in_use", group="unavailable", retryable=False)
+
+
+class DaemonDrainingError(UnavailableError):
+    """The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="daemon_draining", group="unavailable", retryable=True)
+
+
+class EngineExitedError(UnavailableError):
+    """The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="engine_exited", group="unavailable", retryable=False)
+
+
+class EngineNotFoundError(UnavailableError):
+    """`connect()` found no engine executable to start: the Product's engine-path variable names no executable, or the Product's platform package is not installed. The `fix` names the variable or the package."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="engine_not_found", group="unavailable", retryable=False)
+
+
+class EngineOutputInvalidError(InternalError):
+    """The engine wrote a line that is not one JSON-RPC message on the Connection, such as a log line on an Attached engine's stdout, so the Client ended the Connection. A bug in Goodfetch: report it with the line its details carry."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="engine_output_invalid", group="internal", retryable=False)
+
+
+class ExecutableBlockedBySmartAppControlError(RefusedError):
+    """Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="executable_blocked_by_smart_app_control", group="refused", retryable=False)
+
+
+class FileWriteFailedError(UnavailableError):
+    """The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="file_write_failed", group="unavailable", retryable=False)
+
+
+class FormatVersionUnsupportedError(UnavailableError):
+    """A file, such as a run state or a Checkpoint, is of a format version this engine cannot read: a newer minor or major, written by a newer engine, which `fix` says to upgrade to, or an older major, which `upgrade-files` upgrades. The file is left as it is."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="format_version_unsupported", group="unavailable", retryable=False)
+
+
+class LimitNotUnderstoodError(RefusedError):
+    """A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="limit_not_understood", group="refused", retryable=False)
+
+
+class LimitReachedError(RefusedError):
+    """A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="limit_reached", group="refused", retryable=False)
+
+
+class NameLookupFailedError(UnavailableError):
+    """The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="name_lookup_failed", group="unavailable", retryable=True)
+
+
+class NameNotResolvedError(UnavailableError):
+    """The resolver found no address for the host name. The engine's own resolver, used on Linux and for Sessions with a local address, reads the system's resolver configuration and hosts file but asks neither NSS modules (such as a directory service or a VPN client's) nor multicast DNS, so a name only they resolve, such as a `.local` name, fails here. Map such a name to its address with the `resolve` setting, or correct the name."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="name_not_resolved", group="unavailable", retryable=False)
+
+
+class NavigationFailedError(PageError):
+    """The navigation reached no document: the browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`, is in the details, or the browser failed it for a reason it did not name."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="navigation_failed", group="page", retryable=True)
+
+
+class NavigationInterruptedError(PageError):
+    """Another navigation of the page started before this one committed, so this one reached no document: the page went where the other took it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="navigation_interrupted", group="page", retryable=False)
+
+
+class NotADaemonError(ProgramError):
+    """The call asks a Daemon about itself, and this engine is an Attached engine. Ask the Daemon of the major, found through its runtime file, or run `daemon status`."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="not_a_daemon", group="program", retryable=False)
 
 
 class NotInProductError(UnavailableError):
@@ -74,12 +258,116 @@ class NotInProductError(UnavailableError):
         super().__init__(message, code="not_in_product", group="unavailable", retryable=False)
 
 
+class PageCrashedError(UnavailableError):
+    """The page's renderer crashed, or its browser process was lost while the call ran; `browser_exit` says how the browser ended when it is what was lost. The page is gone: open another."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="page_crashed", group="unavailable", retryable=True)
+
+
+class PathNotWritableError(ProgramError):
+    """The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="path_not_writable", group="program", retryable=False)
+
+
+class PatternUnsupportedError(ProgramError):
+    """A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="pattern_unsupported", group="program", retryable=False)
+
+
+class PersonRequiredError(RefusedError):
+    """Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="person_required", group="refused", retryable=False)
+
+
 class ProtocolVersionUnsupportedError(UnavailableError):
     """The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="protocol_version_unsupported", group="unavailable", retryable=False)
+
+
+class ResourcesExhaustedError(UnavailableError):
+    """The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="resources_exhausted", group="unavailable", retryable=False)
+
+
+class ResponseTruncatedError(PageError):
+    """The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="response_truncated", group="page", retryable=True)
+
+
+class RunBusyError(RefusedError):
+    """Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_busy", group="refused", retryable=True)
+
+
+class RunConflictError(ProgramError):
+    """The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_conflict", group="program", retryable=False)
+
+
+class RunIdInvalidError(ProgramError):
+    """The Run ID is not one the engine takes: lowercase letters, digits, `.`, `_` and `-`, at most 128, starting and ending with a letter or a digit, never a name Windows reserves for a device."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_id_invalid", group="program", retryable=False)
+
+
+class RunInUseError(RefusedError):
+    """Another engine holds the Run's writer lock, so this one cannot write the Run; the other may end."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_in_use", group="refused", retryable=True)
+
+
+class RunNotFoundError(ProgramError):
+    """No Run has this Run ID: the Run index does not list it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_not_found", group="program", retryable=False)
+
+
+class RunNotOwnedError(RefusedError):
+    """The action was forwarded to this engine as the Run's owner, and this engine does not own the Run: the Run index named an engine that has since ended or restarted. The engine that forwarded it retries the Run's writer lock."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_not_owned", group="refused", retryable=False)
+
+
+class RunStateUnavailableError(UnavailableError):
+    """The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_state_unavailable", group="unavailable", retryable=False)
 
 
 class SampleRefusedError(RefusedError):
@@ -90,10 +378,154 @@ class SampleRefusedError(RefusedError):
         super().__init__(message, code="sample_refused", group="refused", retryable=False)
 
 
+class SecretDomainNotAllowedError(RefusedError):
+    """A Secret placeholder's value would go to a domain outside its binding's `domains`: the field's frame or the request's URL. The details name the placeholder, the reference and the domain, never a value."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="secret_domain_not_allowed", group="refused", retryable=False)
+
+
+class SecretUnavailableError(UnavailableError):
+    """A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="secret_unavailable", group="unavailable", retryable=False)
+
+
+class SecretUnboundError(ProgramError):
+    """No scope binds the Secret placeholder a call names. `bound` lists the placeholders bound, never a value."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="secret_unbound", group="program", retryable=False)
+
+
+class SessionBoundToMachineError(RefusedError):
+    """The Run is bound to the machine its Session source is on, and this is another machine: its login would reach sites from a new IP under the same cookies. Resume it on its own machine, or serve its Session source through a Browser host."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="session_bound_to_machine", group="refused", retryable=False)
+
+
+class SettingInvalidError(ProgramError):
+    """A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="setting_invalid", group="program", retryable=False)
+
+
+class SettingLockedError(RefusedError):
+    """A value a lower layer locked or capped, outside a Recipe's exposed bounds, or one only a lower layer may set or widen, such as `tls.trusted_cas` from a run. `limit` names the setting and the layer that holds it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="setting_locked", group="refused", retryable=False)
+
+
+class SettingNotApplicableError(ProgramError):
+    """A setting given where it cannot take effect: in a layer that may not hold it, such as `browser_cache.max_unused_age` outside user configuration and an Operator policy, or on a Run it does not apply to, such as a crawl's setting on a Collie Run."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="setting_not_applicable", group="program", retryable=False)
+
+
+class SettingUnknownError(ProgramError):
+    """A key no Product knows, or an unknown `GOODFETCH_` variable. The message names the closest valid one."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="setting_unknown", group="program", retryable=False)
+
+
+class TargetNotUniqueError(PageError):
+    """The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="target_not_unique", group="page", retryable=False)
+
+
+class TooManyRedirectsError(PageError):
+    """The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="too_many_redirects", group="page", retryable=False)
+
+
+class UpgradeSourceUnsupportedError(RefusedError):
+    """`upgrade-files` does not upgrade from this major: one this release's upgrade paths do not list, whose message names the release to upgrade through first, or a newer major than the executable's, whose message says to upgrade. No file is changed."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="upgrade_source_unsupported", group="refused", retryable=False)
+
+
+class ValueInvalidError(ProgramError):
+    """The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="value_invalid", group="program", retryable=False)
+
+
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
+    "address_family_unavailable": AddressFamilyUnavailableError,
+    "artifact_download_failed": ArtifactDownloadFailedError,
+    "artifact_unavailable_offline": ArtifactUnavailableOfflineError,
+    "body_not_found": BodyNotFoundError,
+    "browser_host_outdated": BrowserHostOutdatedError,
+    "browser_launch_failed": BrowserLaunchFailedError,
+    "browser_not_installed": BrowserNotInstalledError,
     "call_cancelled": CallCancelledError,
+    "closed": ClosedError,
+    "console_port_in_use": ConsolePortInUseError,
+    "daemon_draining": DaemonDrainingError,
+    "engine_exited": EngineExitedError,
+    "engine_not_found": EngineNotFoundError,
+    "engine_output_invalid": EngineOutputInvalidError,
+    "executable_blocked_by_smart_app_control": ExecutableBlockedBySmartAppControlError,
+    "file_write_failed": FileWriteFailedError,
+    "format_version_unsupported": FormatVersionUnsupportedError,
+    "limit_not_understood": LimitNotUnderstoodError,
+    "limit_reached": LimitReachedError,
+    "name_lookup_failed": NameLookupFailedError,
+    "name_not_resolved": NameNotResolvedError,
+    "navigation_failed": NavigationFailedError,
+    "navigation_interrupted": NavigationInterruptedError,
+    "not_a_daemon": NotADaemonError,
     "not_in_product": NotInProductError,
+    "page_crashed": PageCrashedError,
+    "path_not_writable": PathNotWritableError,
+    "pattern_unsupported": PatternUnsupportedError,
+    "person_required": PersonRequiredError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
+    "resources_exhausted": ResourcesExhaustedError,
+    "response_truncated": ResponseTruncatedError,
+    "run_busy": RunBusyError,
+    "run_conflict": RunConflictError,
+    "run_id_invalid": RunIdInvalidError,
+    "run_in_use": RunInUseError,
+    "run_not_found": RunNotFoundError,
+    "run_not_owned": RunNotOwnedError,
+    "run_state_unavailable": RunStateUnavailableError,
     "sample_refused": SampleRefusedError,
+    "secret_domain_not_allowed": SecretDomainNotAllowedError,
+    "secret_unavailable": SecretUnavailableError,
+    "secret_unbound": SecretUnboundError,
+    "session_bound_to_machine": SessionBoundToMachineError,
+    "setting_invalid": SettingInvalidError,
+    "setting_locked": SettingLockedError,
+    "setting_not_applicable": SettingNotApplicableError,
+    "setting_unknown": SettingUnknownError,
+    "target_not_unique": TargetNotUniqueError,
+    "too_many_redirects": TooManyRedirectsError,
+    "upgrade_source_unsupported": UpgradeSourceUnsupportedError,
+    "value_invalid": ValueInvalidError,
 }
 """The exception class of each Error code."""

@@ -1,0 +1,34 @@
+---
+source: crates/goodfetch-test-support/tests/it/cli_json.rs
+expression: output.to_string()
+---
+exit: 0
+----- stdout -----
+{
+  "files": [
+    {
+      "found": false,
+      "layer": "operator_policy",
+      "path": "[FOLDER]/home/0.0/operator-policy.toml"
+    },
+    {
+      "found": true,
+      "layer": "user_configuration",
+      "path": "[FOLDER]/home/0.0/configuration.toml"
+    }
+  ],
+  "settings": [
+    {
+      "applied": true,
+      "key": "timeout.navigation",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": 30000,
+      "weakens": false
+    }
+  ]
+}
+----- stderr -----

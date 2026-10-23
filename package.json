@@ -4,9 +4,11 @@
   "type": "module",
   "devDependencies": {
     "@goodfetch/test-support": "workspace:*",
+    "@lingui/vite-plugin": "6.10.0",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "allure": "catalog:",
     "eslint-plugin-lingui": "0.16.0",
     "json-schema-to-typescript": "16.0.0",

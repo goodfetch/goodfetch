@@ -30,9 +30,11 @@ pub struct DeclaredCapability {
     pub cases: Vec<DeclaredCase>,
 }
 
-/// One case a suite declares.
+/// One case a suite declares. A case of the Client conformance case list
+/// (`conformance/clients/cases.toml`) also names its `surfaces`, `modes`,
+/// `script` or `task`, which `xtask clients check` and the runners read and
+/// the writer leaves aside.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DeclaredCase {
     /// Its ID, unique in the suite.
     pub id: String,

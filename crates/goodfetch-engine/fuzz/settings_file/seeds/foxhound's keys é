@@ -1,0 +1,7 @@
+version = "0.1"
+# kept by Collie
+[settings.crawl.retry]
+max = 5 # five
+[settings.paid_fetch]
+domains = ["shop.example"]
+max_price_per_page = "0.05 USD"

@@ -33,12 +33,48 @@ publish = false
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 # Commands with a cleared environment in tests (goodfetch-test-support, ADR 0062).
 assert_cmd = { version = "2.2.2", default-features = false }
+# `xtask console build` compresses each file of a Console build, which the
+# executables embed and serve as they are (ADR 0057).
+brotli = { version = "9.0.0", default-features = false, features = ["std"] }
 # A test's own seeded draws, such as a kill's moment (TESTING.md, Randomness:
 # chacha20, portable across versions).
 chacha20 = { version = "0.10.2", default-features = false, features = ["rng"] }
+# The CLI helper's pseudo-terminal runs on every OS, ConPTY on Windows
+# (goodfetch-test-support, ADR 0069).
+expectrl = { version = "0.9.0", default-features = false }
+# The main-content step and the Markdown converter of the page formats
+# (ADR 0007): dom-smoothie finds a document's main content and htmd writes
+# it as Markdown, from the html5ever tree markup5ever_rcdom holds, which
+# goodfetch-extractor's own htmd handlers read.
+dom_smoothie = { version = "0.18.2", default-features = false }
+# dom-smoothie's own tree, on which the main-content step reads what it found.
+dom_query = { version = "0.28.0", default-features = false }
+htmd = { version = "0.5.6", default-features = false }
+markup5ever_rcdom = { version = "0.38.0", default-features = false }
+# The Proving ground's oracle reads a submitted Markdown value as its
+# structure with pulldown-cmark, resolving its links with the url crate
+# below (ADR 0007).
+pulldown-cmark = { version = "0.13.4", default-features = false }
+# The OS generator that seeds `Entropy` in production (ADR 0059).
+getrandom = { version = "0.3.4", default-features = false }
+# The pinned Chromium's CDP bindings and the client's connection (spec #577).
+goodfetch-cdp = { path = "crates/goodfetch-cdp" }
+# Both executables' command line, which Foxhound's reaches without Collie's
+# executable crate (ADR 0090).
+goodfetch-cli = { path = "crates/goodfetch-cli" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
+# Foxhound's crawl; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
+goodfetch-crawl = { path = "crates/foxhound/goodfetch-crawl" }
 goodfetch-engine = { path = "crates/goodfetch-engine" }
+# The page formats read from a document (spec #580, ADR 0007).
+goodfetch-extractor = { path = "crates/goodfetch-extractor" }
+# Foxhound's Frontier, its per-domain queues; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
+goodfetch-frontier = { path = "crates/foxhound/goodfetch-frontier" }
+# Collie's pages, Sessions and browsers (spec #577).
+goodfetch-page = { path = "crates/goodfetch-page" }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
+# Foxhound's Session pool; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
+goodfetch-session-pool = { path = "crates/foxhound/goodfetch-session-pool" }
 # Only ever a dev-dependency (ADR 0062; `xtask dependency-direction`).
 goodfetch-test-support = { path = "crates/goodfetch-test-support" }
 # ADR 0071; its runner, gungraun-runner, is installed at the same version.
@@ -46,6 +82,9 @@ goodfetch-test-support = { path = "crates/goodfetch-test-support" }
 gungraun = { version = "=0.20.0", default-features = false, features = ["default"] }
 clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 # The base32 (RFC 4648) of the Proving ground's TOTP secrets.
+# The data folder of the OS's usual folders, which each Product's `main`
+# resolves when `GOODFETCH_HOME` is unset (ADR 0059).
+dirs = { version = "7.0.0", default-features = false }
 data-encoding = { version = "2.11.1", default-features = false, features = ["alloc"] }
 # The Proving ground's login forms (application/x-www-form-urlencoded).
 form_urlencoded = { version = "1.2.2", default-features = false, features = ["alloc"] }
@@ -85,9 +124,18 @@ web-bot-auth = { version = "0.7.0", default-features = false }
 ed25519-dalek = { version = "2.2.0", default-features = false }
 indexmap = { version = "2.14.2", default-features = false }
 insta = { version = "1.49.0", default-features = false }
+# The engine's own DNS resolver (ADRs 0024, 0044): the static musl
+# executables have no libc resolver to call, and Sessions with a local
+# address ask it on every OS. `system-config` reads the system's resolver
+# configuration.
+hickory-resolver = { version = "0.26.3", default-features = false }
 # The executables' global allocator (ADR 0024), and the Callgrind
 # benchmarks' (ADR 0071).
 mimalloc = { version = "0.1.48", default-features = false }
+# `xtask rss`'s peak reader: getrusage on Linux and macOS (ADR 0071); and
+# goodfetch-test-support's `NoExec`, which installs its seccomp filter and
+# starts its child with raw system calls on Linux (ADR 0067).
+libc = { version = "0.2.191", default-features = false }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
 # `xtask journeys check` validates each Journey file against its committed
 # JSON Schema (ADR 0063), and goodfetch-test-support's own tests validate the
@@ -97,22 +145,33 @@ jsonschema = { version = "0.59.0", default-features = false }
 # Property tests of parsers and stateful rules (TESTING.md); `std` reads
 # regex strategies.
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+# Model-based tests of run state and delivery (ADR 0060).
+proptest-state-machine = { version = "0.9.0", default-features = false, features = ["std"] }
+# The full Public Suffix List, private entries included, compiled in: a
+# crawl's domain keys (ADR 0004).
+psl = { version = "2.1.244", default-features = false, features = ["helpers"] }
 proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }
 quick-xml = { version = "0.41", default-features = false }
 quote = { version = "1.0.47", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode"] }
+# The parser behind `regex`, read for the construct a refused URL pattern
+# uses (ADR 0081).
+regex-syntax = { version = "0.8.11", default-features = false, features = ["std"] }
 rstest = { version = "0.27.0", default-features = false }
 # Run state, the Usage ledger and the Politeness file (ADR 0057), on the
 # SQLite it bundles. goodfetch-test-support's crash VFS (ADR 0060) registers
 # with that same SQLite through sqlite-plugin, whose build script runs
 # bindgen (libclang) and downloads nothing.
-rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
+rusqlite = { version = "0.40.2", default-features = false, features = ["backup", "bundled", "serialize"] }
 sqlite-plugin = { version = "0.11.0", default-features = false, features = ["static"] }
 schemars = { version = "1.2.3", default-features = false, features = ["std", "derive"] }
+# Credentials held as `SecretString`, zeroized when dropped (STYLE.md).
+secrecy = { version = "0.10.3", default-features = false }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde-saphyr = { version = "2.0.0", default-features = false, features = ["deserialize"] }
 serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
-# RFC 8785, which a Proving ground task's digest serializes in (ADR 0063).
+# RFC 8785, which a Proving ground task's digest and each Audit log entry's
+# hash serialize in (ADRs 0063 and 0016).
 serde_json_canonicalizer = { version = "0.3.2", default-features = false }
 sha1 = { version = "0.10.6", default-features = false }
 sha2 = { version = "0.10.9", default-features = false }
@@ -128,10 +187,47 @@ thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 tokio = { version = "1.53.3", default-features = false }
 tokio-util = { version = "0.7.20", default-features = false }
+# The protocol over WebSocket, an Exposed Daemon's carriage for edge and
+# serverless Clients (ADR 0049): tungstenite's handshake and framing, on
+# Tokio in the engine, and blocking in the endpoint table's runner.
+# futures-util drives its stream of messages and its sink.
+futures-util = { version = "0.3.34", default-features = false, features = ["sink"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
+tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
+# The settings files, which a rewrite keeps byte for byte but for the
+# value it writes (ADRs 0028, 0098).
+toml_edit = { version = "0.25.17", default-features = false, features = ["parse", "display"] }
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "serde"] }
-tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing = { version = "0.1.44", default-features = false, features = ["std", "attributes"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt"] }
+# The executables' opt-in OTLP export of the engine's spans (RT-18, ADR
+# 0132): tracing-opentelemetry turns spans into OpenTelemetry's, which the
+# SDK's batch processor exports over OTLP/HTTP in protobuf on its own thread,
+# through ureq, the blocking client ureq's users already link.
+opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "trace"] }
+opentelemetry-http = { version = "0.33.1", default-features = false }
+opentelemetry-proto = { version = "0.33.1", default-features = false, features = ["gen-tonic-messages", "trace"] }
+tracing-opentelemetry = { version = "0.34.0", default-features = false }
+async-trait = { version = "0.1.92", default-features = false }
+bytes = { version = "1.12.1", default-features = false, features = ["std"] }
+http = { version = "1.5.0", default-features = false, features = ["std"] }
+prost = { version = "0.14.1", default-features = false, features = ["std"] }
+# Run IDs, from the Clock and Entropy (ADRs 0036 and 0059).
+ulid = { version = "3.0.0", default-features = false }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }
+# The WHATWG URL Standard's parser, IDNA included: every URL a crawl's
+# Frontier meets (ADR 0120), and a URL glob resolved as Playwright resolves
+# one (ADR 0081).
+url = { version = "2.5.8", default-features = false, features = ["std"] }
+# Mozilla's root certificates, which the Browser cache's pinned downloads
+# trust (ADR 0043), as ureq's rustls already does.
+webpki-roots = { version = "1.0.9", default-features = false }
+# `xtask rss`'s peak reader: GetProcessMemoryInfo on Windows (ADR 0071).
+windows-sys = { version = "0.61.2", default-features = false }
+# The archives the Browser cache unpacks: Chrome for Testing ships ZIPs.
+zip = { version = "9.0.5", default-features = false }
 
 # STYLE.md, Lints, formatting and toolchain; `unsafe`; Async and concurrency.
 # `missing_docs` warns on `goodfetch-collie-client`, `goodfetch-collie`,
@@ -165,7 +261,13 @@ exit = "deny"
 iter_over_hash_type = "deny"
 undocumented_unsafe_blocks = "deny"
 
-# Build profiles (ADRs 0057, 0061 and 0071). `dev` and `test` stay Cargo's.
+# Build profiles (ADRs 0057, 0061 and 0071). `dev` and `test` stay Cargo's,
+# but for SHA-256: every launch checks its browser build's digest, some
+# 400 MB, which unoptimized takes tens of seconds and optimized well under
+# one (#695).
+[profile.dev.package.sha2]
+opt-level = 3
+
 #
 # Release: fat LTO, one codegen unit, unwinding on panic, debug information
 # split out beside each executable (`.dwp` on Linux, `.dSYM` on macOS, `.pdb`

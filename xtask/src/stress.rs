@@ -305,8 +305,8 @@ fn module_file(root_file: &Path, modules: &[&str]) -> PathBuf {
     file
 }
 
-/// A checkout of a commit in a temporary folder, with the workspace's
-/// installed packages linked in, so its runners list its tests.
+/// A checkout of a commit in a temporary folder, with its own npm packages
+/// and Python environment installed, so its runners list its tests.
 struct Checkout<'a> {
     root: &'a Path,
     _folder: tempfile::TempDir,
@@ -327,15 +327,50 @@ impl<'a> Checkout<'a> {
             _folder: folder,
             path,
         };
-        // A link resolves a relative original from its own folder.
-        let installed_root = canonical(root)?;
-        for installed in installed_folders(root)? {
-            let target = checkout.path.join(&installed);
-            if target.parent().is_some_and(Path::is_dir) && !target.exists() {
-                link(&installed_root.join(&installed), &target)?;
+        match checkout.install() {
+            Ok(()) => Ok(checkout),
+            Err(error) => {
+                checkout.remove()?;
+                Err(error)
             }
         }
-        Ok(checkout)
+    }
+
+    /// Installs the commit's npm packages and Python environment from its
+    /// own lockfiles, as `just fetch` does, from the package store and uv's
+    /// cache where it can. The head's would not do: pnpm links each
+    /// workspace package to the head's sources, and uv installs each
+    /// workspace member editable from them, so the commit's Vitest and
+    /// Playwright configs and its pytest tests would import the head's test
+    /// support and SDKs, and fail to load where they lack what is imported.
+    fn install(&self) -> Result<()> {
+        self.run_install(
+            Process::new("pnpm").args(["install", "--frozen-lockfile", "--prefer-offline"]),
+            "pnpm install",
+        )?;
+        // A project environment set for the head would be synced to the
+        // base's lockfile; the checkout's runners use its own `.venv`.
+        self.run_install(
+            Process::new("uv")
+                .args(["sync", "--frozen", "--all-extras"])
+                .env_remove("UV_PROJECT_ENVIRONMENT"),
+            "uv sync",
+        )
+    }
+
+    fn run_install(&self, command: &mut Process, name: &str) -> Result<()> {
+        let output = command
+            .current_dir(&self.path)
+            .output()
+            .with_context(|| format!("running {name}"))?;
+        if !output.status.success() {
+            bail!(
+                "{name} in the checkout of the base failed: {}{}",
+                String::from_utf8_lossy(&output.stdout).trim(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(())
     }
 
     fn path(&self) -> &Path {
@@ -350,49 +385,6 @@ impl<'a> Checkout<'a> {
         )?;
         Ok(())
     }
-}
-
-/// The workspace's installed packages: its `.venv` and each `node_modules`
-/// folder, as paths from its folder; never inside one of them, version
-/// control, the build output or the frozen `rnd/` archive.
-fn installed_folders(root: &Path) -> Result<Vec<PathBuf>> {
-    let mut found = Vec::new();
-    if root.join(".venv").is_dir() {
-        found.push(PathBuf::from(".venv"));
-    }
-    let mut folders = vec![PathBuf::new()];
-    while let Some(folder) = folders.pop() {
-        let path = root.join(&folder);
-        for entry in
-            std::fs::read_dir(&path).with_context(|| format!("reading {}", path.display()))?
-        {
-            let entry = entry.with_context(|| format!("reading {}", path.display()))?;
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            let relative = folder.join(&*name);
-            if name == "node_modules" {
-                found.push(relative);
-            } else if entry.file_type()?.is_dir()
-                && !name.starts_with('.')
-                && !(folder.as_os_str().is_empty() && (name == "target" || name == "rnd"))
-            {
-                folders.push(relative);
-            }
-        }
-    }
-    Ok(found)
-}
-
-#[cfg(unix)]
-fn link(original: &Path, link: &Path) -> Result<()> {
-    std::os::unix::fs::symlink(original, link)
-        .with_context(|| format!("linking {} to {}", link.display(), original.display()))
-}
-
-#[cfg(windows)]
-fn link(original: &Path, link: &Path) -> Result<()> {
-    std::os::windows::fs::symlink_dir(original, link)
-        .with_context(|| format!("linking {} to {}", link.display(), original.display()))
 }
 
 /// Writes the four listings of the workspace at `root` into

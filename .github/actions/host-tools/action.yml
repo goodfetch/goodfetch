@@ -2,8 +2,8 @@
 # VM: the Release suite's cells (ADRs 0061 and 0108) and the hosted test-health
 # jobs (ADR 0064). Every download happens here, before ADR 0043's deny:
 # the Rust toolchain of rust-toolchain.toml and the target, just, cargo-nextest,
-# cargo-insta and uv at the versions the CI image pins (ci/tool-versions.sh
-# checks they agree), pnpm, the runtimes,
+# cargo-insta, uv and gitleaks at the versions the CI image pins
+# (ci/tool-versions.sh checks they agree), pnpm, the runtimes,
 # then `just fetch`. A job calls it right after actions/checkout. Linux jobs
 # link with mold and Windows jobs build on a Dev Drive (spec #325).
 #
@@ -84,7 +84,12 @@ runs:
     - name: Install just, cargo-nextest, cargo-insta and uv
       uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2.87.23
       with:
-        tool: just@1.46.0,cargo-nextest@0.9.146,cargo-insta@1.49.0,uv@0.9.28
+        tool: just@1.46.0,cargo-nextest@0.9.149,cargo-insta@1.49.0,uv@0.9.28
+
+    # The scan of the job's outputs before they upload (ci/leaks.sh, ADR 0067).
+    - name: Install gitleaks
+      shell: bash
+      run: ci/host/gitleaks.sh
 
     # The newest line first, so the oldest, the default `node`, wins PATH.
     - name: Install Node 26

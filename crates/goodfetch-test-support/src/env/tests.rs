@@ -42,6 +42,8 @@ fn cleared_map_holds_only_the_listed_variables() {
     let mut expected = vec![
         "BREAKPAD_DUMP_LOCATION",
         "GOODFETCH_HOME",
+        "GOODFETCH_LOG",
+        "GOODFETCH_LOG_OUTPUT",
         "HOME",
         "LANG",
         "TZ",
@@ -194,4 +196,114 @@ fn an_unreadable_seed_fails_the_creation() {
         created,
         Err(super::TestEnvError::Seed(crate::SeedError::NotANumber))
     ));
+}
+
+#[test]
+fn map_turns_on_the_engines_json_log_with_the_dispatch_and_outcome_records() {
+    let env = test_env("env::tests::log");
+
+    let log = (
+        env.env()["GOODFETCH_LOG_OUTPUT"].as_str(),
+        env.env()["GOODFETCH_LOG"].as_str(),
+    );
+
+    assert_eq!(
+        log,
+        (
+            "file",
+            "info,goodfetch::rpc::dispatch=trace,goodfetch::run::outcome=trace"
+        )
+    );
+}
+
+/// Under `just coverage`, every executable a test starts writes its
+/// coverage profile where cargo-llvm-cov reads it (ADR 0072).
+#[test]
+fn map_passes_the_coverage_profile_file_on_when_one_is_set() {
+    let profile = "/work/target/llvm-cov-target/goodfetch-%p-%14m.profraw";
+    let variables = Variables::from_iter([("LLVM_PROFILE_FILE", profile)]);
+
+    let env = TestEnv::create("env::tests::coverage", &variables).unwrap();
+
+    assert_eq!(
+        env.env().get("LLVM_PROFILE_FILE").map(String::as_str),
+        Some(profile)
+    );
+}
+
+/// The variables of a test nextest runs under `just test`, whose exercise
+/// records go to `records`.
+fn recording(records: &Path) -> Variables {
+    Variables::from_iter([
+        ("GOODFETCH_TEST_RECORDS", records.to_str().unwrap()),
+        ("NEXTEST_BINARY_ID", "sample::it"),
+        ("NEXTEST_TEST_NAME", "store::keeps_a_value"),
+    ])
+}
+
+/// Every line of every file in `records`.
+fn record_lines(records: &Path) -> Vec<String> {
+    let mut files: Vec<_> = std::fs::read_dir(records)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    files.sort();
+    files
+        .iter()
+        .flat_map(|file| {
+            std::fs::read_to_string(file)
+                .unwrap()
+                .lines()
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+#[test]
+fn dropping_the_value_copies_the_engines_logs_of_its_home_into_the_tests_exercise_record() {
+    let records = tempfile::tempdir().unwrap();
+    let env = TestEnv::create("store::keeps_a_value", &recording(records.path())).unwrap();
+    let logs = env.home().join("logs");
+    std::fs::create_dir_all(&logs).unwrap();
+    std::fs::write(
+        logs.join("goodfetch-collie-7.jsonl"),
+        "{\"target\":\"goodfetch::rpc::dispatch\",\"fields\":{\"method\":\"hello\"}}\n",
+    )
+    .unwrap();
+
+    drop(env);
+
+    assert_eq!(
+        record_lines(records.path()),
+        [
+            r#"{"test":"sample::it store::keeps_a_value"}"#,
+            r#"{"target":"goodfetch::rpc::dispatch","fields":{"method":"hello"}}"#,
+        ]
+    );
+}
+
+#[test]
+fn a_test_whose_engine_never_logged_still_leaves_its_exercise_record() {
+    let records = tempfile::tempdir().unwrap();
+    let env = TestEnv::create("store::keeps_a_value", &recording(records.path())).unwrap();
+
+    drop(env);
+
+    assert_eq!(
+        record_lines(records.path()),
+        [r#"{"test":"sample::it store::keeps_a_value"}"#]
+    );
+}
+
+#[test]
+fn outside_nextest_a_test_leaves_no_exercise_record() {
+    let records = tempfile::tempdir().unwrap();
+    let variables =
+        Variables::from_iter([("GOODFETCH_TEST_RECORDS", records.path().to_str().unwrap())]);
+    let env = TestEnv::create("store::keeps_a_value", &variables).unwrap();
+
+    drop(env);
+
+    assert_eq!(record_lines(records.path()), Vec::<String>::new());
 }

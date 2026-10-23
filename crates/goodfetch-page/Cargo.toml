@@ -1,0 +1,52 @@
+[package]
+name = "goodfetch-page"
+description = "Collie's pages, Sessions and the browsers behind them: the driver over CDP, the Session-level driver and the page API's operation handlers (spec #577; ADRs 0085, 0087 and 0129)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+# benches/scenarios.rs is a module of the bench targets, not a target.
+autobenches = false
+
+[dependencies]
+goodfetch-cdp.workspace = true
+goodfetch-engine.workspace = true
+goodfetch-extractor.workspace = true
+goodfetch-protocol.workspace = true
+jiff.workspace = true
+regex.workspace = true
+regex-syntax.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process", "sync", "time", "macros"] }
+tracing.workspace = true
+url.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# The child's descriptors 3 and 4, set between fork and exec (ADR 0017).
+libc.workspace = true
+# The engine's ends of the browser's debugging pipe.
+tokio = { workspace = true, features = ["net"] }
+
+[dev-dependencies]
+goodfetch-test-support.workspace = true
+gungraun.workspace = true
+mimalloc.workspace = true
+proptest.workspace = true
+rstest.workspace = true
+tokio = { workspace = true, features = ["io-util", "rt"] }
+
+# ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
+[[bench]]
+name = "instructions"
+harness = false
+
+[[bench]]
+name = "heap"
+harness = false
+
+[lints]
+workspace = true

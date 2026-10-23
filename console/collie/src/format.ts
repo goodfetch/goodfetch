@@ -28,11 +28,15 @@ export function formatAmount(
   }
   const units = Math.trunc(amount / MILLIONTHS);
   const millionths = String(amount % MILLIONTHS).padStart(6, "0");
+  // A decimal string, which `Intl` formats exactly where a division by a
+  // million would round the largest amounts.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- digits, a dot and six digits: a numeric literal.
+  const decimal = `${String(units)}.${millionths}` as Intl.StringNumericLiteral;
   return new Intl.NumberFormat(locales, {
     style: "currency",
     currency,
     maximumFractionDigits: 6,
-  }).format(`${String(units)}.${millionths}`);
+  }).format(decimal);
 }
 
 /** The point in time `rfc3339` on the wall clock of `timeZone`, the browser's by default. */

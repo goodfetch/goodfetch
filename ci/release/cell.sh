@@ -3,10 +3,11 @@
 # runner's own system, after .github/actions/host-tools:
 #   build       before the deny: builds Collie's Console first (`just
 #               console-build`, ADR 0057), as the local gate does, then the
-#               target's tests once with `cargo nextest archive`, and both Products' executables with
-#               the thin-LTO `ci` profile, from one invocation (ADR 0094),
-#               the test tool manifest of the executables tests run, and the
-#               one of the `ci` executables the resident-memory check runs;
+#               target's tests once with `cargo nextest archive`, the test
+#               tool manifest of the executables tests run, and the `ci`
+#               executables with the thin-LTO `ci` profile, both Products'
+#               among them, from one invocation (ADR 0094), with the manifest
+#               the resident-memory check runs and the size report reads;
 #   size        writes the target's size report of both Products, keyed by
 #               the tree the cell tested (`xtask size`, ADR 0061);
 #   rust        one shard of the archive (`--partition hash:<k>/<n>`, never
@@ -85,7 +86,11 @@ case "$part" in
     just console-build
     cargo nextest archive --workspace --locked --target "$target" \
       --profile ci --cargo-profile ci-test --archive-file "$archive"
-    cargo build --workspace --locked --target "$target" --profile ci
+    # `test-tools` builds the `ci` executables itself, in one invocation of
+    # their own (ADR 0094's note), so no `cargo build --workspace` of that
+    # profile runs before it: its executables were built again and
+    # overwritten there, and its xtask never ran (6.5 of the 15 minutes the
+    # build took on the server on 2026-10-23).
     cargo run --quiet --locked -p xtask -- test-tools --cargo-profile ci-test \
       --target "$target" --out "$GOODFETCH_TEST_TOOLS"
     cargo run --quiet --locked -p xtask -- quarantine exclude >"$exclusions"

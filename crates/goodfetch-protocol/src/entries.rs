@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 38] = [
+pub const MODULES: [&Entries; 39] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &console::ENTRIES,
@@ -42,6 +42,7 @@ pub const MODULES: [&Entries; 38] = [
     &block::ENTRIES,
     &foxhound::ENTRIES,
     &foxhound::crawl::ENTRIES,
+    &foxhound::fetch::ENTRIES,
     &foxhound::frontier::ENTRIES,
     &foxhound::outcomes::ENTRIES,
     &foxhound::report::ENTRIES,

@@ -6,7 +6,7 @@ use flate2::Compression;
 use flate2::write::{DeflateEncoder, GzEncoder, ZlibEncoder};
 use rstest::rstest;
 
-use super::decode;
+use super::{decode, still_compressed};
 
 /// `abc` as a Brotli stream of one uncompressed meta-block (RFC 7932),
 /// checked once with `brotli --decompress`.
@@ -89,11 +89,26 @@ fn a_body_decodes_as_chrome_decodes_its_content_codings(
     body.truncate(body.len() / 2);
     body
 })]
-#[case::gzip_twice_labelled_once(&["gzip"], gzip(&gzip(b"abc")))]
-#[case::zstd_twice_labelled_once(&["zstd"], {
-    let once = zstd::stream::encode_all(&b"abc"[..], 0).unwrap();
-    zstd::stream::encode_all(&once[..], 0).unwrap()
-})]
 fn a_body_that_does_not_decode_as_labelled_fails(#[case] codings: &[&str], #[case] body: Vec<u8>) {
     assert!(decode(codings.iter().copied(), body).is_err());
+}
+
+#[rstest]
+#[case::gzip_twice_labelled_once_as_html(Some("text/html; charset=utf-8"), &["gzip"], gzip(&gzip(b"abc")), true)]
+#[case::zstd_twice_labelled_once_as_json(Some("application/ld+json"), &["zstd"], {
+    let once = zstd::stream::encode_all(&b"abc"[..], 0).unwrap();
+    zstd::stream::encode_all(&once[..], 0).unwrap()
+}, true)]
+#[case::a_gzip_file_served_as_itself(Some("application/gzip"), &["gzip"], gzip(&gzip(b"abc")), false)]
+#[case::an_untyped_body(None, &["gzip"], gzip(&gzip(b"abc")), false)]
+#[case::a_text_body_decoded_once(Some("text/html"), &["gzip"], gzip(b"abc"), false)]
+fn a_text_body_still_compressed_once_decoded_is_one_compressed_more_than_labelled(
+    #[case] content_type: Option<&str>,
+    #[case] codings: &[&str],
+    #[case] body: Vec<u8>,
+    #[case] expected: bool,
+) {
+    let decoded = decode(codings.iter().copied(), body).unwrap();
+
+    assert_eq!(still_compressed(content_type, &decoded), expected);
 }

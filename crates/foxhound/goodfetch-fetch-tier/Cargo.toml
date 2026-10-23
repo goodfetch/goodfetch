@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 brotli-decompressor.workspace = true
 bytes.workspace = true
+dom_query.workspace = true
 flate2.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-frontier.workspace = true

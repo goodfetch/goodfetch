@@ -5,9 +5,9 @@
 //! `URLRequestHttpJob`, a list naming `identity` or a coding Chrome does not
 //! know passes the whole body through undecoded, and bytes after a gzip or
 //! deflate stream's end are ignored. A body that does not decode as
-//! labelled fails, and so does a decoded body that still starts as a gzip
-//! or zstd stream: a text body compressed once more than labelled (spec
-//! #579). The charset order of a document's text is #764's; telling a cut
+//! labelled fails, and so does a text body that still starts as a gzip or
+//! zstd stream once decoded: one compressed once more than labelled (ADR
+//! 0119). The charset order of a document's text is #764's; telling a cut
 //! compressed stream (`response_truncated`) from a corrupt one is the cut
 //! bodies ticket's.
 
@@ -72,9 +72,34 @@ fn has_zlib_header(body: &[u8]) -> bool {
     }
 }
 
-/// Whether `body` still opens as a gzip stream or a zstd frame.
-fn still_compressed(body: &[u8]) -> bool {
-    body.starts_with(&[0x1f, 0x8b]) || body.starts_with(&[0x28, 0xb5, 0x2f, 0xfd])
+/// Whether `body`, decoded, of the type `content_type` names, is a text
+/// body that still opens as a gzip stream or a zstd frame (ADR 0119): the
+/// text types are `text/*`, `application/json`, `application/xml`,
+/// `application/xhtml+xml`, `application/javascript` and any `+json` or
+/// `+xml` type.
+pub(crate) fn still_compressed(content_type: Option<&str>, body: &[u8]) -> bool {
+    let compressed = body.starts_with(&[0x1f, 0x8b]) || body.starts_with(&[0x28, 0xb5, 0x2f, 0xfd]);
+    compressed && content_type.is_some_and(is_text)
+}
+
+/// Whether the `Content-Type` value `content_type` names a text type.
+fn is_text(content_type: &str) -> bool {
+    let essence = content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    essence.starts_with("text/")
+        || essence.ends_with("+json")
+        || essence.ends_with("+xml")
+        || [
+            "application/json",
+            "application/xml",
+            "application/xhtml+xml",
+            "application/javascript",
+        ]
+        .contains(&essence.as_str())
 }
 
 /// `body` with every coding of `codings` (each a `Content-Encoding` field's
@@ -95,13 +120,9 @@ pub(crate) fn decode<'a>(
     if named.is_empty() {
         return Ok(body);
     }
-    let decoded = named.iter().rev().try_fold(body, |body, coding| {
+    named.iter().rev().try_fold(body, |body, coding| {
         coding.decode(&body).map_err(|_| DecodingFailed)
-    })?;
-    if still_compressed(&decoded) {
-        return Err(DecodingFailed);
-    }
-    Ok(decoded)
+    })
 }
 
 #[cfg(test)]

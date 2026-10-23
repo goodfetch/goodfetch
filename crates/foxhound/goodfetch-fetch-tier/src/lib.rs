@@ -21,4 +21,5 @@ mod transports;
 pub use driver::{
     Body, Deadlines, Fetched, Hop, Sending, Sent, Transport, TransportFailure, fetch,
 };
+pub use tiers::{FetchTiers, HttpTier};
 pub use transports::{Reqwest, ReqwestConfig, ReqwestUnavailable};

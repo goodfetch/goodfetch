@@ -268,6 +268,14 @@ pub async fn fetch(
             .map(|(_, value)| value.as_str());
         let body = decoding::decode(codings, body)
             .map_err(|_| TransportFailure::ContentDecodingFailed.error(url))?;
+        let content_type = sent
+            .headers
+            .iter()
+            .find(|(name, _)| name == "content-type")
+            .map(|(_, value)| value.as_str());
+        if decoding::still_compressed(content_type, &body) {
+            return Err(TransportFailure::ContentDecodingFailed.error(url));
+        }
         Ok::<Fetched, CallError>(Fetched {
             url: hop.url.clone(),
             status: sent.status,

@@ -4,15 +4,23 @@
 //! is cancelled with `$/cancel` and an answer that still comes is a late
 //! commit, refused with `lease_lost`. Its answer also says what the Session
 //! that served it scored: a success, a block or a failed Page check.
+//!
+//! Under `fetch.tier: http` (spec #579), the attempt first fetches its
+//! request's document on the Run's HTTP tier, under the same lease, and
+//! hands the handler the page served from it, closed once the attempt
+//! ends; a fetch that fails ends the attempt with its error, as a
+//! handler's failure would, and sends the handler nothing.
 
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
+use goodfetch_fetch_tier::{FetchTiers, HttpTier};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled, HANDLER_FAILED,
     LEASE_LOST, WORK_ITEM_LEASED,
 };
+use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_session_pool::Effect;
 use serde_json::{Map, Value};
@@ -66,16 +74,61 @@ pub(super) async fn attempt(
     client: Client,
     (leased, session, counted): (Leased, ServingSession, Counted),
     lease: WorkItemLease,
+    fetching: Option<(FetchTiers, HttpTier)>,
 ) -> Attempt {
-    let params = CrawlRequestHandleParams {
-        run_id: run.id().clone(),
-        crawl_request: leased.crawl_request.clone(),
-        attempt: leased.attempt,
-        lease_epoch: leased.lease_epoch,
-        session: session.clone(),
+    let fetched = match &fetching {
+        None => Ok(None),
+        Some((tiers, http)) => tokio::select! {
+            biased;
+            document = tiers.serve(http, &run, &leased.crawl_request) => document
+                .map(Some)
+                .map_err(|error| Answer::Failed {
+                    code: error.code().to_owned(),
+                    retryable: error.retryable(),
+                    message: error.message().to_owned(),
+                    details: error.details().cloned().unwrap_or_default(),
+                }),
+            _ = lease.ended() => Err(Answer::LeaseEnded),
+        },
     };
-    let answer = match client
-        .send::<CrawlRequestHandled>(&CRAWL_REQUEST_HANDLE, &params)
+    let answer = match fetched {
+        Err(answer) => answer,
+        Ok(document) => {
+            let params = CrawlRequestHandleParams {
+                run_id: run.id().clone(),
+                crawl_request: leased.crawl_request.clone(),
+                attempt: leased.attempt,
+                lease_epoch: leased.lease_epoch,
+                session: session.clone(),
+                tier: document.as_ref().map(|_| FetchTier::Http),
+                page_id: document.clone(),
+            };
+            let answer = handled(&run, &client, &params, &lease).await;
+            if let (Some((tiers, _)), Some(page_id)) = (&fetching, &document) {
+                tiers.close(page_id);
+            }
+            answer
+        }
+    };
+    Attempt {
+        server,
+        leased,
+        _counted: counted,
+        session,
+        lease,
+        answer,
+    }
+}
+
+/// The handler request of one attempt, bounded by its lease.
+async fn handled(
+    run: &Run,
+    client: &Client,
+    params: &CrawlRequestHandleParams,
+    lease: &WorkItemLease,
+) -> Answer {
+    match client
+        .send::<CrawlRequestHandled>(&CRAWL_REQUEST_HANDLE, params)
         .await
     {
         Err(_) => Answer::ClientGone,
@@ -100,14 +153,6 @@ pub(super) async fn attempt(
                 Answer::LeaseEnded
             }
         },
-    };
-    Attempt {
-        server,
-        leased,
-        _counted: counted,
-        session,
-        lease,
-        answer,
     }
 }
 

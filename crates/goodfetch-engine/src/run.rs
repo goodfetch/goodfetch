@@ -5,7 +5,9 @@
 //! `run.pause` and `run.migrate` checkpoint a Run and stop it, resumable;
 //! `run.resume` takes the next run epoch of an interrupted Run and starts
 //! its kind's driver again; `run.set_progress_message` sets the program's
-//! own status line about its Run. Also the one translation of a start's, a Run's
+//! own status line about its Run; `run.progress` and `run.report` read a
+//! Run, through the engine that works it when that is another (ADR 0102).
+//! Also the one translation of a start's, a Run's
 //! or a setting's failure into its Error code, which a Product's own start,
 //! such as Foxhound's `crawl.start`, answers with too.
 

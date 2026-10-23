@@ -48,7 +48,7 @@ use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::settings::{RunSettings, Values};
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::route::{RouteId, UrlMatcher};
 use goodfetch_protocol::page::{BROWSER_BLOCK_RESOURCES, PageId, SessionId};
@@ -59,6 +59,7 @@ use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails};
 use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
 use self::clean_up::CleanUp;
+pub(crate) use self::clean_up::SESSION_KEYS;
 use self::pipeline::PageContext;
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
@@ -133,7 +134,8 @@ impl Interception {
 
     /// Puts the page `page_id` of the Session `session`, which `driver`
     /// drives for `run`, under the interception: every request of its
-    /// target is paused and passes the pipeline from now on.
+    /// target is paused and passes the pipeline from now on, its Clean-up
+    /// rules chosen by `own`, the Session's own settings, over the Run's.
     ///
     /// # Errors
     ///
@@ -150,6 +152,7 @@ impl Interception {
         session: &SessionId,
         driver: &PageDriver,
         run: &Run,
+        own: &Values,
     ) -> Result<(), CallError> {
         let policy = match run.settings() {
             Some(settings) => Policy::of(settings.resolved()),
@@ -169,11 +172,13 @@ impl Interception {
                 },
             )
         })?;
-        let choices = clean_up::choices(run.settings().map(RunSettings::resolved));
-        let warns = !choices.block_resources.is_empty();
+        let resolved = run.settings().map(RunSettings::resolved);
+        let choices = clean_up::choices(resolved, own);
+        let blocked = (!choices.block_resources.is_empty())
+            .then(|| clean_up::effective(resolved, own, BROWSER_BLOCK_RESOURCES.name).to_string());
         let blocking = self.shared.clean_up.blocking(choices, run.owner()).await;
-        if warns {
-            self.warn_of_blocked_resources(session, run).await;
+        if let Some(blocked) = blocked {
+            self.warn_of_blocked_resources(session, run, &blocked).await;
         }
         let state = {
             let mut tables = lock(&self.shared.tables);
@@ -212,23 +217,14 @@ impl Interception {
     }
 
     /// Warns `run`, once for the Session `session`, that its
-    /// `browser.block_resources` blocks loads the site can see missing,
+    /// `browser.block_resources`, `blocked`, blocks loads the site can see missing,
     /// since few people block images or fonts (ADRs 0047, 0117). It warns
     /// in `standard` and `stealth`, never in `identified`; until area 8's
     /// Access mode setting, every Session is `standard`.
-    async fn warn_of_blocked_resources(&self, session: &SessionId, run: &Run) {
+    async fn warn_of_blocked_resources(&self, session: &SessionId, run: &Run, blocked: &str) {
         if !lock(&self.shared.tables).warned.insert(session.clone()) {
             return;
         }
-        let blocked = run
-            .settings()
-            .map(|settings| {
-                settings
-                    .resolved()
-                    .value(BROWSER_BLOCK_RESOURCES.name)
-                    .to_string()
-            })
-            .unwrap_or_default();
         let warning = RunWarning {
             code: BLOCK_RESOURCES_VISIBLE.to_owned(),
             message: format!(

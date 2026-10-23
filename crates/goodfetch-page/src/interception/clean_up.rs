@@ -3,20 +3,21 @@
 //! Session turns one on, never at engine start, through a blocking task of
 //! the page's Run (ADR 0060), then shared by every Session of the engine
 //! behind one `Arc` with no lock; the never-block list, compiled once; and
-//! what a Run's settings choose of them.
+//! what a Session's own settings, over its Run's, choose of them.
 
 use std::sync::Arc;
 
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
 use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_clean_up_rules::rules::FilterLists;
-use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::settings::{Resolved, Values};
 use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_protocol::page::BROWSER_BLOCK_RESOURCES;
 use goodfetch_protocol::settings::{
     FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_FIRST_PARTY_SCRIPTS,
     FILTER_LISTS_TRACKERS,
 };
+use serde_json::Value;
 use tokio::sync::OnceCell;
 
 use super::steps::Blocking;
@@ -59,16 +60,30 @@ impl CleanUp {
     }
 }
 
-/// What `settings`, a Run's resolved settings, choose of the Clean-up
-/// rules; the defaults without any.
-pub(super) fn choices(settings: Option<&Resolved>) -> Choices {
-    let boolean = |key: &str, default: bool| {
-        settings
-            .and_then(|settings| settings.boolean(key))
-            .unwrap_or(default)
-    };
-    let block_resources = settings
-        .and_then(|settings| settings.value(BROWSER_BLOCK_RESOURCES.name).as_array())
+/// The settings a Session's own `settings` may set: the Clean-up rules'
+/// choices, which its pages take over the Run's.
+pub(crate) const SESSION_KEYS: [&str; 5] = [
+    FILTER_LISTS_ADS.name,
+    FILTER_LISTS_TRACKERS.name,
+    FILTER_LISTS_ANNOYANCES.name,
+    FILTER_LISTS_FIRST_PARTY_SCRIPTS.name,
+    BROWSER_BLOCK_RESOURCES.name,
+];
+
+/// The value of `key` a Session's pages take: `own`, the Session's own
+/// settings, else `run`, its Run's resolved settings; `null` without either.
+pub(super) fn effective<'a>(run: Option<&'a Resolved>, own: &'a Values, key: &str) -> &'a Value {
+    own.get(key)
+        .or_else(|| run.map(|run| run.value(key)))
+        .unwrap_or(&Value::Null)
+}
+
+/// What a Session's own settings `own`, over `run`, its Run's resolved
+/// settings, choose of the Clean-up rules; the defaults without either.
+pub(super) fn choices(run: Option<&Resolved>, own: &Values) -> Choices {
+    let boolean = |key: &str, default: bool| effective(run, own, key).as_bool().unwrap_or(default);
+    let block_resources = effective(run, own, BROWSER_BLOCK_RESOURCES.name)
+        .as_array()
         .into_iter()
         .flatten()
         .filter_map(|kind| match kind.as_str()? {

@@ -2198,9 +2198,12 @@ export interface NewSessionParams {
    */
   run_id: string;
   /**
-   * The Session's own settings, nested by key; `session.source` is
-   * refused here with `setting_not_applicable`, as the call's own
-   * `source` sets it.
+   * The Session's own settings, nested by key: `filter_lists.ads`,
+   * `.trackers`, `.annoyances`, `.first_party_scripts` and
+   * `browser.block_resources` choose its pages' Clean-up rules over the
+   * Run's. `session.source` is refused here with `setting_not_applicable`,
+   * as the call's own `source` sets it, and so is any other key, which
+   * only the Run sets.
    */
   settings?: {
     [k: string]: unknown;

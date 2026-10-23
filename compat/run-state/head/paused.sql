@@ -40,9 +40,9 @@ CREATE TABLE outcomes (
             attempts INTEGER NOT NULL,
             outcome TEXT NOT NULL
         ) STRICT;
-CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL) STRICT;
-INSERT INTO "page_sessions" VALUES(1,1,0);
-INSERT INTO "page_sessions" VALUES(2,0,1);
+CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL) STRICT;
+INSERT INTO "page_sessions" VALUES(1,1,0,'{}');
+INSERT INTO "page_sessions" VALUES(2,0,1,'{"filter_lists.ads":false}');
 CREATE TABLE pool_sessions (
             position INTEGER NOT NULL PRIMARY KEY,
             proxy_tier TEXT NOT NULL,

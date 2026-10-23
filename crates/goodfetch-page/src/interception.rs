@@ -46,6 +46,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use goodfetch_cdp::generated::fetch;
+use goodfetch_clean_up_rules::matching::Choices;
+use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::Policy;
@@ -110,6 +112,28 @@ pub(super) struct PageState {
     routes: Arc<RouteTable>,
     session: Arc<RouteTable>,
     failure: Mutex<Option<CallError>>,
+    /// The cosmetic rules its Session's Filter lists hold, when any is on.
+    cosmetic: Option<Cosmetic>,
+}
+
+/// The cosmetic rules a page's Session holds (ADR 0047): the embedded
+/// Filter lists, shared, and which of them its settings turn on; live
+/// hiding and extraction-side removal read them.
+#[derive(Clone)]
+pub(crate) struct Cosmetic {
+    /// The embedded Filter lists.
+    pub(crate) lists: Arc<FilterLists>,
+    /// What the Session's settings choose of them.
+    pub(crate) choices: Choices,
+}
+
+/// What a page's Session chose of the Clean-up rules beside its requests'
+/// blocking: its cosmetic rules, and its `live_view.hiding`.
+pub(crate) struct PageCleanUp {
+    /// Its cosmetic rules, when any Filter list is on.
+    pub(crate) cosmetic: Option<Cosmetic>,
+    /// Its `live_view.hiding`: `auto`, `off` or `always`.
+    pub(crate) live_hiding: String,
 }
 
 impl PageState {
@@ -141,6 +165,8 @@ impl Interception {
     /// target is paused and passes the pipeline from now on, its Clean-up
     /// rules chosen by `own`, the Session's own settings, over the Run's,
     /// each refusal left in `refusals` for the request's failure to carry.
+    /// It answers what the Session chose of the Clean-up rules beside its
+    /// requests' blocking.
     ///
     /// # Errors
     ///
@@ -159,7 +185,7 @@ impl Interception {
         run: &Run,
         own: &Values,
         refusals: Refusals,
-    ) -> Result<(), CallError> {
+    ) -> Result<PageCleanUp, CallError> {
         let policy = match run.settings() {
             Some(settings) => Policy::of(settings.resolved()),
             None => Policy::new(&["*"], &[] as &[&str]),
@@ -183,6 +209,13 @@ impl Interception {
         let blocked = (!choices.block_resources.is_empty())
             .then(|| clean_up::effective(resolved, own, BROWSER_BLOCK_RESOURCES.name).to_string());
         let blocking = self.shared.clean_up.blocking(choices, run.owner()).await;
+        let clean_up = PageCleanUp {
+            cosmetic: blocking.lists.as_ref().map(|lists| Cosmetic {
+                lists: Arc::clone(lists),
+                choices: blocking.choices.clone(),
+            }),
+            live_hiding: clean_up::live_hiding(resolved, own),
+        };
         if let Some(blocked) = blocked {
             self.warn_of_blocked_resources(session, run, &blocked).await;
         }
@@ -193,6 +226,7 @@ impl Interception {
                 routes: Arc::default(),
                 session,
                 failure: Mutex::new(None),
+                cosmetic: clean_up.cosmetic.clone(),
             });
             tables.pages.insert(page_id.clone(), Arc::clone(&state));
             state
@@ -224,7 +258,14 @@ impl Interception {
             run.clone(),
         ));
         run.spawn(pipeline::dispatch(events, context));
-        Ok(())
+        Ok(clean_up)
+    }
+
+    /// The cosmetic rules of the page `page_id`'s Session, when any of its
+    /// Filter lists is on.
+    pub(crate) fn cosmetic(&self, page_id: &PageId) -> Option<Cosmetic> {
+        let state = lock(&self.shared.tables).pages.get(page_id).cloned()?;
+        state.cosmetic.clone()
     }
 
     /// Warns `run`, once for the Session `session`, that its

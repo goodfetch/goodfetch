@@ -12,6 +12,7 @@
 mod driver;
 mod errors;
 mod guard;
+mod hiding;
 mod interception;
 mod launch;
 mod page_events;

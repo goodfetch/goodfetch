@@ -21,6 +21,18 @@ const SECTIONING: &str = "article, aside, main, nav, section";
 /// The main content of `html`, read at `url`, as HTML; none when the
 /// document has no text a person reads it for.
 pub(crate) fn main_content(html: &str, url: &str) -> Option<String> {
+    read(html, url).map(|(content, _)| content)
+}
+
+/// The length of the text of `html`'s main content, read at `url`, white
+/// space aside, in characters; 0 when it has none.
+pub(crate) fn main_text_length(html: &str, url: &str) -> usize {
+    read(html, url).map_or(0, |(_, length)| length)
+}
+
+/// The main content of `html`, read at `url`, as HTML, and the length of
+/// its text.
+fn read(html: &str, url: &str) -> Option<(String, usize)> {
     if !has_content_text(html) {
         return None;
     }
@@ -30,10 +42,11 @@ pub(crate) fn main_content(html: &str, url: &str) -> Option<String> {
         .or_else(|_| Readability::new(html, None, None))
         .ok()?;
     let article = readability.parse().ok()?;
-    if visible(&article.text_content).is_empty() {
+    let length = visible(&article.text_content).chars().count();
+    if length == 0 {
         return None;
     }
-    Some(article.content.to_string())
+    Some((article.content.to_string(), length))
 }
 
 /// Whether `html` holds text outside its navigation landmarks.

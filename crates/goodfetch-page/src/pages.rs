@@ -20,7 +20,6 @@ use goodfetch_engine::browser_cache::PinnedArtifact;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
-use goodfetch_extractor::{Context, Document};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::events::{
     PAGE_ON, PAGE_WAIT_FOR_REQUEST_FINISHED, PageOnEnded, PageOnParams, RESPONSE_BODY,
@@ -48,7 +47,10 @@ use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events;
 use crate::sessions::{self, OpenPage, Sessions};
+use crate::trace;
 use crate::url_pattern::UrlPattern;
+
+mod clean_up;
 
 /// What the page crate adds to the engine (ADR 0087): its run state's
 /// Sessions table and the handlers of `run.new_page`, of the Sessions'
@@ -500,6 +502,7 @@ impl Pages {
             action,
             window: Window { limit, duration },
             surface: context.surface(),
+            hiding: page.hiding.as_deref(),
         };
         guard::act(&page.driver, request, &page.clock).await?;
         Ok(Acted {})
@@ -516,27 +519,24 @@ impl Pages {
     }
 
     /// The formats the request names, read from one serialization of the
-    /// page's document on a blocking thread of its Run's.
+    /// page's document, its shadow roots included, on a blocking thread of
+    /// its Run's, once extraction-side removal took what its Session's
+    /// cosmetic rules match (ADR 0047), which Provenance records.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_FORMATS.name, run_id = tracing::field::Empty))]
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
         let page = self.open(&params.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let document = page.driver.document().await?;
         let request = params.formats;
-        Ok(page
+        let cosmetic = self.interception.cosmetic(&params.page_id);
+        let (formats, removed) = page
             .run
             .owner()
-            .blocking(move || {
-                goodfetch_extractor::formats(
-                    &Document {
-                        html: &document.html,
-                        url: &document.url,
-                        base_url: &document.base_url,
-                    },
-                    &request,
-                    &Context::default(),
-                )
-            })
-            .await)
+            .blocking(move || clean_up::read(&document, request, cosmetic.as_ref()))
+            .await;
+        if let Some(removed) = removed {
+            trace::provenance(&page.run, &removed.entry(&params.page_id, &page.session)).await;
+        }
+        Ok(formats)
     }
 }

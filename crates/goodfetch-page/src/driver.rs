@@ -701,6 +701,34 @@ impl PageDriver {
         self.browser.try_send(Some(&self.session), params).await
     }
 
+    /// Calls `function`, a JavaScript function's source, with `argument` in
+    /// the guard's isolated world of the frame `frame`'s document, made or
+    /// found by its name, outside any gesture's turn: the reads engine
+    /// scripts make of a frame, such as live hiding's (ADR 0047). A frame
+    /// gone, or a function that throws, answers none.
+    pub(crate) async fn read_in_frame(
+        &self,
+        frame: &page::FrameId,
+        function: &str,
+        argument: serde_json::Value,
+    ) -> Result<Option<serde_json::Value>, Failure> {
+        let made = self
+            .browser
+            .try_send(Some(&self.session), &isolated_world(frame.clone()))
+            .await?;
+        let called = self
+            .browser
+            .try_send(
+                Some(&self.session),
+                &world::call(function, argument, made.execution_context_id),
+            )
+            .await?;
+        if called.exception_details.is_some() {
+            return Ok(None);
+        }
+        Ok(called.result.value)
+    }
+
     /// Waits for the page's turn, in arrival order, for the gesture
     /// `operation`, whose failures raise its codes.
     ///
@@ -976,7 +1004,10 @@ impl PageDriver {
                     node_id: Some(root.node_id),
                     backend_node_id: None,
                     object_id: None,
-                    include_shadow_dom: None,
+                    // Every shadow root, open or closed, serialized as a
+                    // `<template shadowrootmode>`, so that extraction-side
+                    // removal walks them (ADR 0047).
+                    include_shadow_dom: Some(true),
                 },
                 &call,
             )

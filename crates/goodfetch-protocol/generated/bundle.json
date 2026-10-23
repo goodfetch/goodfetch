@@ -4993,7 +4993,7 @@
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "The Session's own settings, nested by key: `filter_lists.ads`,\n`.trackers`, `.annoyances`, `.first_party_scripts` and\n`browser.block_resources` choose its pages' Clean-up rules over the\nRun's. `session.source` is refused here with `setting_not_applicable`,\nas the call's own `source` sets it, and so is any other key, which\nonly the Run sets.",
+          "description": "The Session's own settings, nested by key: `filter_lists.ads`,\n`.trackers`, `.annoyances`, `.first_party_scripts`,\n`browser.block_resources` and `live_view.hiding` choose its pages'\nClean-up rules over the Run's. `session.source` is refused here with `setting_not_applicable`,\nas the call's own `source` sets it, and so is any other key, which\nonly the Run sets.",
           "type": "object"
         },
         "source": {
@@ -11809,6 +11809,20 @@
                 },
                 "type": "object"
               },
+              "live_view": {
+                "additionalProperties": false,
+                "properties": {
+                  "hiding": {
+                    "description": "Whether a Session's pages hide, on the live page, the elements the Filter lists' cosmetic rules match: `auto` (the default) and `always` hide them through a style sheet the site cannot see on Chromium, in every frame and every new document; `off` leaves the live page as served. When the guard finds an action's target hidden, it lifts the rule for the Session and acts. Extracted content has the elements removed whatever this says.",
+                    "enum": [
+                      "auto",
+                      "off",
+                      "always"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
               "log": {
                 "additionalProperties": false,
                 "properties": {
@@ -13264,6 +13278,20 @@
                     "description": "How often the engine's Resource governor reads memory, CPU and Tokio saturation, sizes its concurrency and sends `engine.system_info`: every second.",
                     "minimum": 0,
                     "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "live_view": {
+                "additionalProperties": false,
+                "properties": {
+                  "hiding": {
+                    "description": "Whether a Session's pages hide, on the live page, the elements the Filter lists' cosmetic rules match: `auto` (the default) and `always` hide them through a style sheet the site cannot see on Chromium, in every frame and every new document; `off` leaves the live page as served. When the guard finds an action's target hidden, it lifts the rule for the Session and acts. Extracted content has the elements removed whatever this says.",
+                    "enum": [
+                      "auto",
+                      "off",
+                      "always"
+                    ]
                   }
                 },
                 "type": "object"
@@ -14739,6 +14767,20 @@
                     "description": "How often the engine's Resource governor reads memory, CPU and Tokio saturation, sizes its concurrency and sends `engine.system_info`: every second.",
                     "minimum": 0,
                     "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "live_view": {
+                "additionalProperties": false,
+                "properties": {
+                  "hiding": {
+                    "description": "Whether a Session's pages hide, on the live page, the elements the Filter lists' cosmetic rules match: `auto` (the default) and `always` hide them through a style sheet the site cannot see on Chromium, in every frame and every new document; `off` leaves the live page as served. When the guard finds an action's target hidden, it lifts the rule for the Session and acts. Extracted content has the elements removed whatever this says.",
+                    "enum": [
+                      "auto",
+                      "off",
+                      "always"
+                    ]
                   }
                 },
                 "type": "object"

@@ -5247,6 +5247,17 @@
       ]
     },
     {
+      "id": "setting:live_view.hiding",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:log.file.max_files",
       "kind": "setting",
       "area": 3,

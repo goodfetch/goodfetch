@@ -12,7 +12,7 @@ use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::settings::{Resolved, Values};
 use goodfetch_engine::tasks::TaskOwner;
-use goodfetch_protocol::page::BROWSER_BLOCK_RESOURCES;
+use goodfetch_protocol::page::{BROWSER_BLOCK_RESOURCES, LIVE_VIEW_HIDING};
 use goodfetch_protocol::settings::{
     FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_FIRST_PARTY_SCRIPTS,
     FILTER_LISTS_TRACKERS,
@@ -62,12 +62,13 @@ impl CleanUp {
 
 /// The settings a Session's own `settings` may set: the Clean-up rules'
 /// choices, which its pages take over the Run's.
-pub(crate) const SESSION_KEYS: [&str; 5] = [
+pub(crate) const SESSION_KEYS: [&str; 6] = [
     FILTER_LISTS_ADS.name,
     FILTER_LISTS_TRACKERS.name,
     FILTER_LISTS_ANNOYANCES.name,
     FILTER_LISTS_FIRST_PARTY_SCRIPTS.name,
     BROWSER_BLOCK_RESOURCES.name,
+    LIVE_VIEW_HIDING.name,
 ];
 
 /// The value of `key` a Session's pages take: `own`, the Session's own
@@ -76,6 +77,15 @@ pub(super) fn effective<'a>(run: Option<&'a Resolved>, own: &'a Values, key: &st
     own.get(key)
         .or_else(|| run.map(|run| run.value(key)))
         .unwrap_or(&Value::Null)
+}
+
+/// The `live_view.hiding` a Session's own settings `own`, over `run`, its
+/// Run's resolved settings, choose: `auto` without either.
+pub(super) fn live_hiding(run: Option<&Resolved>, own: &Values) -> String {
+    effective(run, own, LIVE_VIEW_HIDING.name)
+        .as_str()
+        .unwrap_or("auto")
+        .to_owned()
 }
 
 /// What a Session's own settings `own`, over `run`, its Run's resolved

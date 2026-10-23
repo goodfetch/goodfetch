@@ -5,3 +5,4 @@
 mod matching;
 #[cfg(target_os = "linux")]
 mod memory;
+mod removal;

@@ -10,7 +10,7 @@ from typing import Final
 
 from pydantic import BaseModel
 
-from .models import ConsoleMessage, DownloadProgress, PageDownload, PageExchange, PageFired, PageRequest, PageWebSocket, Resync, RunAborting, RunAxes, RunCheckpointing, RunMigrating, RunProgress, RunStopping, SampleEchoed, SystemInfo, WebError, WebSocketClosed, WebSocketFrame
+from .models import ConsoleMessage, DownloadProgress, PageDownload, PageExchange, PageFired, PageOpened, PagePopup, PageRequest, PageWebSocket, Resync, RunAborting, RunAxes, RunCheckpointing, RunMigrating, RunProgress, RunStopping, SampleEchoed, SystemInfo, WebError, WebSocketClosed, WebSocketFrame
 
 EVENTS: Final[Mapping[str, type[BaseModel]]] = {
     "browser_cache.download_progress": DownloadProgress,
@@ -23,6 +23,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
     "page.download": PageDownload,
     "page.load": PageFired,
     "page.page_error": WebError,
+    "page.popup": PagePopup,
     "page.request": PageRequest,
     "page.request_failed": PageRequest,
     "page.request_finished": PageRequest,
@@ -35,6 +36,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
     "run.progress": RunProgress,
     "run.stopping": RunStopping,
     "sample.echoed": SampleEchoed,
+    "session.page": PageOpened,
     "web_socket.close": WebSocketClosed,
     "web_socket.frame_received": WebSocketFrame,
     "web_socket.frame_sent": WebSocketFrame,
@@ -51,6 +53,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 - `page.download`: A navigation of the page reached a file the browser downloads instead of showing, such as a PDF: the navigation answers no response and the page keeps its document. Names the page, the file's URL and the name the browser suggests.
 - `page.load`: The document of the page's main frame fired `load`. Published while `page.on` listens to `load`.
 - `page.page_error`: An exception the page did not catch, `WebError`: its name, message and stack. Published while `page.on` listens to `page_error`.
+- `page.popup`: The page opened a popup, `window.open()` or a link to a new tab: a page of the same Session, already under its routes and its interception, published before the popup's first request leaves. Published while `page.on` listens to `popup`.
 - `page.request`: The page sent a request, `Request`, once per hop of a redirect chain: its URL, method, headers, body, resource type, navigation flag and the hops before it. Published while `page.on` listens to `request`; a service worker's own requests are never a page's.
 - `page.request_failed`: A request of the page failed, `Request` with its `failure`, as Playwright reports one: the browser's network error, such as `net::ERR_FAILED` for one a route aborted or `net::ERR_NAME_NOT_RESOLVED`, and the Error code when the engine blocked it, such as `egress_refused`, so a refusal is never a timeout. A response whose body broke off fails too. Published while `page.on` listens to `request_failed`; the Run trace records each request the engine refused that no call waited on.
 - `page.request_finished`: A request of the page got its whole response, its body included. Published while `page.on` listens to `request_finished`.
@@ -63,6 +66,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 - `run.progress`: A Run's progress changed, such as the program's own status line. Telemetry: a newer value of the same Run replaces an unsent one.
 - `run.stopping`: A Run is stopping at its next safe point, with its cause: an abort, a pause or a migration. Lossless.
 - `sample.echoed`: A text was repeated.
+- `session.page`: A page opened in the Session: one `session.new_page` or `run.new_page` opened, or a popup one of its pages opened. Published while `session.on` listens to `page`.
 - `web_socket.close`: A page's WebSocket closed.
 - `web_socket.frame_received`: A page's WebSocket received a message frame: its text, or a binary frame's bytes in Base64.
 - `web_socket.frame_sent`: A page's WebSocket sent a message frame: its text, or a binary frame's bytes in Base64.
@@ -78,6 +82,7 @@ EXPERIMENTAL_EVENTS: Final[frozenset[str]] = frozenset({
     "page.download",
     "page.load",
     "page.page_error",
+    "page.popup",
     "page.request",
     "page.request_failed",
     "page.request_finished",
@@ -90,6 +95,7 @@ EXPERIMENTAL_EVENTS: Final[frozenset[str]] = frozenset({
     "run.progress",
     "run.stopping",
     "sample.echoed",
+    "session.page",
     "web_socket.close",
     "web_socket.frame_received",
     "web_socket.frame_sent",

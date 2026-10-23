@@ -543,6 +543,20 @@ impl Seat {
         Ok((page, in_browser))
     }
 
+    /// Takes in a popup, `popup`, that a page of the Session opened in the
+    /// browser `number`, its opener's: it counts there as a page the
+    /// Session opened, and its documents' origins are carried as theirs.
+    pub(crate) async fn popup_in(&self, number: u64, popup: &PageDriver) -> InBrowser {
+        let in_browser = self.shared.pool.page_opening(number, self.shared.number);
+        let events = popup.events().await;
+        self.shared
+            .pool
+            .shared
+            .run
+            .spawn(self.shared.origins.clone().watch(events));
+        in_browser
+    }
+
     /// Whether the Session is seated in the browser `number` now.
     pub(crate) async fn is_in(&self, number: u64) -> bool {
         self.shared

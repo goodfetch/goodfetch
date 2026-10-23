@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #706, #707, #708, #713, #715 and #717;
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #706, #707, #708, #713, #715, #717 and #719;
 # spec #580, ticket #783): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "16"
+version = "17"
 
 [[capability]]
 name = "sessions.default"
@@ -381,3 +381,21 @@ covers = ["story:5-47", "operation:page.request", "operation:response.body"]
 [[capability.case]]
 id = "a-page-request-whose-content-coding-fails-to-decode-raises-navigation-failed"
 covers = ["story:5-47", "operation:page.request", "error:navigation_failed"]
+
+[[capability]]
+name = "dialogs"
+
+[[capability.case]]
+id = "an-alert-a-confirm-and-a-prompt-with-no-handler-are-dismissed-and-a-beforeunload-is-accepted"
+covers = ["story:5-52", "operation:locator.click", "operation:page.goto"]
+
+[[capability.case]]
+id = "dialog-handlers-answer-later-first-one-that-answers-nothing-falls-through-and-one-that-throws-gives-the-default"
+covers = ["story:5-52", "story:5-53", "operation:page.on_dialog", "operation:dialog.accept", "operation:dialog.dismiss", "error:dialog_already_handled", "error:page_handler_failed"]
+
+[[capability]]
+name = "popups"
+
+[[capability.case]]
+id = "a-popup-listener-armed-before-the-click-catches-it-one-armed-after-does-not-and-session-pages-lists-it"
+covers = ["story:5-55", "operation:page.on", "event:page.popup", "operation:session.on", "event:session.page", "operation:session.pages", "operation:page.close", "event:page.close", "error:closed"]

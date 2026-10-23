@@ -48,7 +48,7 @@ const UNTHROTTLED_RATE: f64 = 2.0;
     clippy::disallowed_methods,
     reason = "the harness polls the Proving ground on its own thread, never an async worker"
 )]
-fn reports_once(
+pub(super) fn reports_once(
     site: &Site,
     path: &str,
     done: impl Fn(&[(String, String)]) -> bool,

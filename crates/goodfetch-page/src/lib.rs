@@ -12,6 +12,7 @@
 
 mod browser_fetch;
 mod consent;
+mod dialogs;
 mod driver;
 mod errors;
 mod guard;

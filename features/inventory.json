@@ -418,6 +418,17 @@
       ]
     },
     {
+      "id": "command:page.close",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:page.formats",
       "kind": "command",
       "area": 11,
@@ -639,6 +650,17 @@
     },
     {
       "id": "command:session.new-page",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:session.pages",
       "kind": "command",
       "area": 11,
       "milestone": null,
@@ -892,6 +914,17 @@
       "id": "error:deadline_exceeded",
       "kind": "error",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:dialog_already_handled",
+      "kind": "error",
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1632,6 +1665,17 @@
       ]
     },
     {
+      "id": "event:page.popup",
+      "kind": "event",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "event:page.request",
       "kind": "event",
       "area": 5,
@@ -1766,6 +1810,17 @@
       "id": "event:sample.echoed",
       "kind": "event",
       "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "event:session.page",
+      "kind": "event",
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2299,6 +2354,28 @@
       ]
     },
     {
+      "id": "operation:dialog.accept",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:dialog.dismiss",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:download.save_as",
       "kind": "operation",
       "area": 6,
@@ -2442,6 +2519,17 @@
       ]
     },
     {
+      "id": "operation:page.close",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:page.formats",
       "kind": "operation",
       "area": 6,
@@ -2487,6 +2575,17 @@
     },
     {
       "id": "operation:page.on",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:page.on_dialog",
       "kind": "operation",
       "area": 5,
       "milestone": null,
@@ -2833,6 +2932,28 @@
     },
     {
       "id": "operation:session.new_page",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:session.on",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:session.pages",
       "kind": "operation",
       "area": 5,
       "milestone": null,

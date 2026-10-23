@@ -192,6 +192,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The dialog was answered already, by an earlier `accept` or `dismiss`, or it closed, its handler having ended or the dialog having got its default: the first answer stands and this one changed nothing.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "dialog_already_handled",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The run's egress policy refused a request before it connected: a host the domain policy does not allow, an address that is not globally reachable, or a scheme no request may use. The details name the URL, the rule, the address when there is one and the setting that would allow it.",
       "exit_code": null,
       "group": "refused",
@@ -392,7 +402,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or else by the next call on its page. The details name the handler, the request's URL and what the failure said.",
+      "description": "A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed; a dialog handler's dialog got its default and the handler was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or by the call the dialog blocked, or else by the next call on its page. The details name the handler, the URL of the request or of the dialog's document, and what the failure said.",
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -930,6 +940,18 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
+      "description": "The page opened a popup, `window.open()` or a link to a new tab: a page of the same Session, already under its routes and its interception, published before the popup's first request leaves. Published while `page.on` listens to `popup`.",
+      "name": "page.popup",
+      "payload": {
+        "$ref": "#/$defs/PagePopup"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
       "description": "The page sent a request, `Request`, once per hop of a redirect chain: its URL, method, headers, body, resource type, navigation flag and the hops before it. Published while `page.on` listens to `request`; a service worker's own requests are never a page's.",
       "name": "page.request",
       "payload": {
@@ -1078,6 +1100,18 @@
       "name": "sample.echoed",
       "payload": {
         "$ref": "#/$defs/SampleEchoed"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A page opened in the Session: one `session.new_page` or `run.new_page` opened, or a popup one of its pages opened. Published while `session.on` listens to `page`.",
+      "name": "session.page",
+      "payload": {
+        "$ref": "#/$defs/PageOpened"
       },
       "product": "collie",
       "stability": "experimental"
@@ -1253,6 +1287,20 @@
       "product": "foxhound",
       "result": {
         "$ref": "#/$defs/CrawlRequestHandled"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "deprecated": null,
+      "description": "Asks a dialog handler to answer one dialog its page opened, named by its `dialog_id`, with `dialog.accept` or `dialog.dismiss`. The handler replies once it ends: a dialog it did not answer falls through to the handler before, and past the last one gets its default. A failure reply gives the dialog its default unless it was answered, removes the handler and raises `page_handler_failed`.",
+      "name": "dialog.handle",
+      "params": {
+        "$ref": "#/$defs/DialogHandleParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/DialogHandled"
       },
       "stability": "experimental"
     },
@@ -1739,6 +1787,44 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Answers a dialog by accepting it, a prompt with `prompt_text`, or else its default value; it answers once the page closed the dialog.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dialog.accept",
+      "params": {
+        "$ref": "#/$defs/DialogAcceptParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/DialogAnswered"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Answers a dialog by dismissing it, as its Cancel button does; it answers once the page closed the dialog.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dialog.dismiss",
+      "params": {
+        "$ref": "#/$defs/DialogDismissParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/DialogAnswered"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
@@ -1990,6 +2076,25 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.close",
+      "params": {
+        "$ref": "#/$defs/PageCloseParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageClosed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": true,
       "class": "read",
       "deprecated": null,
@@ -2087,7 +2192,8 @@
         "page.dom_content_loaded",
         "page.download",
         "page.crash",
-        "page.close"
+        "page.close",
+        "page.popup"
       ],
       "kind": "event",
       "name": "page.on",
@@ -2098,6 +2204,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageOnEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Hands the page's JavaScript dialogs to the program, armed when the call arrives: Playwright's `page.on('dialog')`. The call stays in flight, and for each dialog the engine sends `dialog.handle`, which the handler answers with `dialog.accept` or `dialog.dismiss`. Later handlers come first and the first answer wins; a handler that ends without one falls through, and past the last one, or with none, an `alert`, `confirm` or `prompt` is dismissed and a `beforeunload` dialog accepted, so a handler that answers nothing never stalls the page. Cancelling the call removes the handler; a handler that fails ends it with `page_handler_failed`, the dialog getting its default.",
+      "events": [],
+      "kind": "sequence",
+      "name": "page.on_dialog",
+      "params": {
+        "$ref": "#/$defs/PageOnDialogParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/DialogsEnded"
       },
       "stability": "experimental"
     },
@@ -2724,6 +2849,46 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageOpened"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.",
+      "events": [
+        "session.page"
+      ],
+      "kind": "event",
+      "name": "session.on",
+      "params": {
+        "$ref": "#/$defs/SessionOnParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SessionOnEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "session.pages",
+      "params": {
+        "$ref": "#/$defs/SessionParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SessionPages"
       },
       "stability": "experimental"
     },

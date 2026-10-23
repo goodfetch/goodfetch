@@ -121,6 +121,20 @@ export type DaemonEndpoint =
  */
 export type Unready = "draining" | "run_state_not_writable" | "browsers_missing" | "governor_last_resort";
 /**
+ * One dialog a handler answers, which `dialog.*` names.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DialogId".
+ */
+export type DialogId = string;
+/**
+ * A dialog's kind, as Playwright's `dialog.type()` names it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DialogType".
+ */
+export type DialogType = "alert" | "confirm" | "prompt" | "beforeunload";
+/**
  * A Download of a Run, named by the engine when it keeps its file:
  * `<run_id>.download-<position>`.
  *
@@ -458,7 +472,8 @@ export type PageEventName =
   | "load"
   | "dom_content_loaded"
   | "crash"
-  | "close";
+  | "close"
+  | "popup";
 /**
  * A page of a Run, named by the engine when it opens it.
  *
@@ -599,6 +614,13 @@ export type Tag = string;
  * @maxItems 16
  */
 export type Tags = Tag[];
+/**
+ * A Session's event a program listens to.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionEventName".
+ */
+export type SessionEventName = "page";
 /**
  * A Session of a Run, named by the engine when it opens it.
  *
@@ -1425,6 +1447,115 @@ export interface DaemonStopping {
    */
   live_runs: number;
 }
+/**
+ * A dialog as its handler sees it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Dialog".
+ */
+export interface Dialog {
+  /**
+   * A prompt's default value; empty for any other kind.
+   */
+  default_value: string;
+  /**
+   * Its message.
+   */
+  message: string;
+  /**
+   * Its kind.
+   */
+  type: "alert" | "confirm" | "prompt" | "beforeunload";
+}
+/**
+ * What `dialog.accept` takes: the dialog, and a prompt's text.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DialogAcceptParams".
+ */
+export interface DialogAcceptParams {
+  /**
+   * The dialog.
+   */
+  dialog_id: string;
+  /**
+   * The text a prompt returns; its default value when absent.
+   */
+  prompt_text?: string | null;
+}
+/**
+ * What an answer to a dialog answers once the page closed the dialog.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DialogAnswered".
+ */
+export interface DialogAnswered {}
+/**
+ * What `dialog.dismiss` takes: the dialog.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DialogDismissParams".
+ */
+export interface DialogDismissParams {
+  /**
+   * The dialog.
+   */
+  dialog_id: string;
+}
+/**
+ * What `dialog.handle` gives the handler: the dialog, named by the ID its
+ * answer passes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DialogHandleParams".
+ */
+export interface DialogHandleParams {
+  dialog: Dialog1;
+  /**
+   * The dialog, which an answer names.
+   */
+  dialog_id: string;
+  /**
+   * The id of the `page.on_dialog` call whose handler is asked.
+   */
+  id: number | string;
+  /**
+   * The page that opened it.
+   */
+  page_id: string;
+}
+/**
+ * The dialog.
+ */
+export interface Dialog1 {
+  /**
+   * A prompt's default value; empty for any other kind.
+   */
+  default_value: string;
+  /**
+   * Its message.
+   */
+  message: string;
+  /**
+   * Its kind.
+   */
+  type: "alert" | "confirm" | "prompt" | "beforeunload";
+}
+/**
+ * What the handler replies to `dialog.handle` once it ended; a failure
+ * reply says it failed.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DialogHandled".
+ */
+export interface DialogHandled {}
+/**
+ * What `page.on_dialog` answers when its page closes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DialogsEnded".
+ */
+export interface DialogsEnded {}
 /**
  * What `browser_cache.download_progress` reports.
  *
@@ -2563,6 +2694,31 @@ export interface PageBodyRead {
   size: number;
 }
 /**
+ * What `page.close` takes: the page, and whether its `beforeunload`
+ * handlers run.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageCloseParams".
+ */
+export interface PageCloseParams {
+  /**
+   * The page.
+   */
+  page_id: string;
+  /**
+   * Runs the page's `beforeunload` handlers first, whose dialog goes to
+   * the page's dialog handlers; false when absent.
+   */
+  run_before_unload?: boolean | null;
+}
+/**
+ * What `page.close` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageClosed".
+ */
+export interface PageClosed {}
+/**
  * What `page.download` reports: a navigation of a page that the browser
  * turned into a download.
  *
@@ -2743,6 +2899,19 @@ export interface PageFormats {
   url: string;
 }
 /**
+ * What `page.on_dialog` takes: the page whose dialogs its handler
+ * answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageOnDialogParams".
+ */
+export interface PageOnDialogParams {
+  /**
+   * The page.
+   */
+  page_id: string;
+}
+/**
  * What `page.on` answers when its page goes, closed or with its Run.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2770,7 +2939,8 @@ export interface PageOnParams {
     | "load"
     | "dom_content_loaded"
     | "crash"
-    | "close";
+    | "close"
+    | "popup";
   /**
    * The page.
    */
@@ -2804,6 +2974,33 @@ export interface PageParams {
    * The page.
    */
   page_id: string;
+}
+/**
+ * What `page.popup` reports: the page that opened a popup, and the
+ * popup, a page of the same Session.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PagePopup".
+ */
+export interface PagePopup {
+  /**
+   * The opener.
+   */
+  page_id: string;
+  popup: PageOpened1;
+}
+/**
+ * The popup.
+ */
+export interface PageOpened1 {
+  /**
+   * The page.
+   */
+  page_id: string;
+  /**
+   * Its Session: the Run's default Session for `run.new_page`.
+   */
+  session_id: string;
 }
 /**
  * A request of a page, ADR 0085's `Request`: one per hop of a redirect
@@ -4185,6 +4382,30 @@ export interface SeedBatch {
  */
 export interface SessionClosed {}
 /**
+ * What `session.on` answers when its Session goes, closed or with its
+ * Run.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionOnEnded".
+ */
+export interface SessionOnEnded {}
+/**
+ * What `session.on` takes: the Session and the event listened to.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionOnParams".
+ */
+export interface SessionOnParams {
+  /**
+   * The event.
+   */
+  event: "page";
+  /**
+   * The Session.
+   */
+  session_id: string;
+}
+/**
  * What `run.new_session` answers: the Session it opened.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -4195,6 +4416,19 @@ export interface SessionOpened {
    * The Session.
    */
   session_id: string;
+}
+/**
+ * What `session.pages` answers: the Session's open pages, in the order
+ * they opened.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionPages".
+ */
+export interface SessionPages {
+  /**
+   * The pages.
+   */
+  pages: PageId[];
 }
 /**
  * What `session.new_page` and `session.close` take: the Session.

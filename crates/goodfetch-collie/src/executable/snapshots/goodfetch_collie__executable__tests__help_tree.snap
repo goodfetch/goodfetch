@@ -163,6 +163,7 @@ Options:
       --project <PROJECT>  Reads this project configuration instead of the `goodfetch.toml` found from the working folder upward
       --json               Prints the result as JSON
       --daemon             Asks the Daemon of the major, starting it if none runs, instead of resolving in this process
+      --attached           Resolves in this process, as it does unless `--daemon` is given
       --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help               Print help
 

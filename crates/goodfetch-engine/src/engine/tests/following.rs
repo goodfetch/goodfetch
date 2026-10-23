@@ -168,3 +168,30 @@ fn the_last_progress_value_says_how_the_run_ended() {
         })
     );
 }
+
+/// A value read from committed state once the Run ended comes after every
+/// value a reader read while the engine worked it: positions only go up.
+///
+/// Covers: story:3-161, operation:run.progress
+#[test]
+fn a_value_read_after_the_run_ended_comes_after_those_read_while_it_ran() {
+    let (live, ended) = attached(&engine(Product::Collie), |mut client| async move {
+        client.send(&[hello("collie", "0.1")]).await;
+        client.next().await.unwrap();
+        call(&mut client, 1, "run.start", json!({ "run_id": "read" })).await;
+        set_messages(&mut client, 2, "read", &["Page 1", "Page 2"]).await;
+        let live = call(&mut client, 4, "run.progress", json!({ "run_id": "read" })).await;
+        call(&mut client, 5, "run.finish", json!({ "run_id": "read" })).await;
+        let ended = call(&mut client, 6, "run.progress", json!({ "run_id": "read" })).await;
+        (live["result"].clone(), ended["result"].clone())
+    });
+
+    assert_eq!(
+        (
+            ended["position"].as_u64() > live["position"].as_u64(),
+            &ended["lifecycle"],
+            &ended["last"],
+        ),
+        (true, &json!("finished"), &json!(true))
+    );
+}

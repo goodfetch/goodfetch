@@ -254,7 +254,8 @@ pub(super) fn committed(
     let epoch = u64::try_from(epoch).unwrap_or_default();
     Ok(Some(RunProgress {
         run_id: serde_json::from_value(Value::String(run_id)).map_err(decode)?,
-        position: epoch_floor(epoch),
+        // Past every value of its epoch a live reader read.
+        position: epoch_floor(epoch.saturating_add(1)).saturating_sub(1),
         at,
         lifecycle: serde_json::from_value(Value::String(lifecycle)).map_err(decode)?,
         writer,

@@ -171,5 +171,10 @@
       }
     }
   ],
-  "ignorePatterns": ["rnd/**", "**/generated/**", "ci/proofs/**"]
+  "ignorePatterns": [
+    "rnd/**",
+    "**/generated/**",
+    "ci/proofs/**",
+    "crates/goodfetch-clean-up-rules/stand-ins/**"
+  ]
 }

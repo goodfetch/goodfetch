@@ -8,6 +8,10 @@
     clippy::disallowed_methods,
     reason = "the tests read the Daemon's log files in their own Goodfetch home"
 )]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use goodfetch_test_support::{RuntimeFile, SnapshotValues, TestEnv, cli, snapshot_settings};
 use serde_json::{Value, json};

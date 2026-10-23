@@ -114,6 +114,17 @@ expression: "serde_json::to_string_pretty(&output).unwrap()"
       ],
       "value": 30000,
       "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "timeout.wait",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": 30000,
+      "weakens": false
     }
   ]
 }

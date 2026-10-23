@@ -392,6 +392,39 @@
           "governor": {
             "additionalProperties": false,
             "properties": {
+              "browser": {
+                "additionalProperties": false,
+                "properties": {
+                  "contexts_per_process": {
+                    "description": "How many of a Run's Sessions share one browser process, each in a browser context of its own: 8. The Run's next Session past it gets a process of its own; Sessions of different Runs never share one.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "memory_cap": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The memory, in bytes, of a browser and its processes past which it is recycled; unset by default, when the cap is twice what the browser used once it had opened its first page."
+                  },
+                  "recycle_idle": {
+                    "description": "How long a browser may hold no open page before it closes, each of its Sessions keeping its cookies and storage for the browser that replaces it: 5 minutes.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "recycle_pages": {
+                    "description": "How many pages a browser opens before it is recycled: 100. Recycled, it opens no new page, closes once its pages are done and is replaced, each of its Sessions keeping its cookies and storage.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "browser_page": {
                 "additionalProperties": false,
                 "properties": {
@@ -1282,6 +1315,11 @@
               },
               "secret": {
                 "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "wait": {
+                "description": "How long a wait for an application state, such as `page.wait_for_request_finished`, may take before it fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,
                 "type": "integer"
               }

@@ -426,6 +426,23 @@ export type NothingDone =
       reason: "nothing_pending";
     };
 /**
+ * A page's event a program listens to, by its words (ADR 0099): each
+ * SDK joins them as Playwright spells the event, such as `pageerror`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageEventName".
+ */
+export type PageEventName =
+  | "console"
+  | "page_error"
+  | "request"
+  | "request_finished"
+  | "request_failed"
+  | "response"
+  | "web_socket"
+  | "load"
+  | "dom_content_loaded";
+/**
  * A page of a Run, named by the engine when it opens it.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -793,6 +810,30 @@ export interface AxisReason {
   message: string;
 }
 /**
+ * A page body as a handle: its ID, the file that holds it and its size.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "BodyHandle".
+ */
+export interface BodyHandle {
+  /**
+   * Its ID, the lowercase hex SHA-256 of its bytes.
+   */
+  body: string;
+  /**
+   * The file that holds it, which a Client on the same machine reads.
+   */
+  path: string;
+  /**
+   * The Run whose folder holds it.
+   */
+  run_id: string;
+  /**
+   * Its size in bytes.
+   */
+  size: number;
+}
+/**
  * What `$/cancel` names: the call to stop.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1140,6 +1181,67 @@ export interface ConsoleKeyRotated {
    * How many sign-ins it ended: every one.
    */
   signed_out: number;
+}
+/**
+ * Where a console message was written: its script's URL and position, as
+ * the browser counts them from 0.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ConsoleLocation".
+ */
+export interface ConsoleLocation {
+  /**
+   * The column, from 0.
+   */
+  column_number: number;
+  /**
+   * The line, from 0.
+   */
+  line_number: number;
+  /**
+   * The script's URL; empty for a script the page evaluated.
+   */
+  url: string;
+}
+/**
+ * What `page.console` reports: a message the page wrote to its console.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ConsoleMessage".
+ */
+export interface ConsoleMessage {
+  location: ConsoleLocation1;
+  /**
+   * The page.
+   */
+  page_id: string;
+  /**
+   * Its text: each argument, a primitive as its value and any other as
+   * the browser describes it, joined by spaces.
+   */
+  text: string;
+  /**
+   * Its type as Playwright names it, such as `log`, `warning` or
+   * `error`.
+   */
+  type: string;
+}
+/**
+ * Where it was written.
+ */
+export interface ConsoleLocation1 {
+  /**
+   * The column, from 0.
+   */
+  column_number: number;
+  /**
+   * The line, from 0.
+   */
+  line_number: number;
+  /**
+   * The script's URL; empty for a script the page evaluated.
+   */
+  url: string;
 }
 /**
  * What `console.rotate_key` takes: nothing.
@@ -2213,11 +2315,20 @@ export interface PageResponse {
    */
   encoding?: string | null;
   /**
+   * Whether a site's service worker supplied it, from its own cache or
+   * through its own fetch (ADR 0121).
+   */
+  from_service_worker: boolean;
+  /**
    * Its headers, their names lower-cased, as the browser received them.
    */
   headers: {
     [k: string]: string;
   };
+  /**
+   * The browser's ID for its request, which `response.body` takes.
+   */
+  request_id: string;
   /**
    * Its HTTP status.
    */
@@ -2361,6 +2472,137 @@ export interface PageDownload {
   url: string;
 }
 /**
+ * What `page.response` reports, and `page.wait_for_request_finished`
+ * answers: a request and the response it got.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageExchange".
+ */
+export interface PageExchange {
+  request: PageRequest;
+  response: PageResponse1;
+}
+/**
+ * The request.
+ */
+export interface PageRequest {
+  /**
+   * Why it failed, for `page.request_failed`; none otherwise.
+   */
+  failure?: RequestFailure | null;
+  /**
+   * Its headers as the browser sent them.
+   */
+  headers: {
+    [k: string]: string;
+  };
+  /**
+   * Whether it loads the document of the page's main frame.
+   */
+  is_navigation_request: boolean;
+  /**
+   * Its method, such as `GET`.
+   */
+  method: string;
+  /**
+   * The page that sent it.
+   */
+  page_id: string;
+  /**
+   * Its body, in Base64 (RFC 4648, with padding), when it has one.
+   */
+  post_data?: string | null;
+  /**
+   * The URLs of the hops a redirect led from before it, the first first;
+   * empty when no redirect led to it.
+   */
+  redirect_chain: string[];
+  /**
+   * The browser's ID for it, which `response.body` takes.
+   */
+  request_id: string;
+  /**
+   * The browser's name for what it loads, such as `Document` or
+   * `Fetch`.
+   */
+  resource_type: string;
+  /**
+   * Its URL.
+   */
+  url: string;
+}
+/**
+ * Why a request failed, as Playwright's `request.failure()` gives it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RequestFailure".
+ */
+export interface RequestFailure {
+  /**
+   * The Error code the engine failed it with, with its details, when the
+   * engine did, such as `egress_refused`.
+   */
+  error?: ErrorData | null;
+  /**
+   * The browser's network error, such as `net::ERR_FAILED` for a request
+   * a route aborted or `net::ERR_BLOCKED_BY_CLIENT` for one the engine
+   * blocked.
+   */
+  error_text: string;
+}
+/**
+ * The response to a request of a page, such as a navigation's document.
+ */
+export interface PageResponse1 {
+  /**
+   * For a navigation's document, the encoding the browser decoded it
+   * with, as `document.characterSet` names it, such as `Shift_JIS` (ADR
+   * 0119); none for another response, and for a navigation that answered
+   * at `commit`, before its document was decoded.
+   */
+  encoding?: string | null;
+  /**
+   * Whether a site's service worker supplied it, from its own cache or
+   * through its own fetch (ADR 0121).
+   */
+  from_service_worker: boolean;
+  /**
+   * Its headers, their names lower-cased, as the browser received them.
+   */
+  headers: {
+    [k: string]: string;
+  };
+  /**
+   * The browser's ID for its request, which `response.body` takes.
+   */
+  request_id: string;
+  /**
+   * Its HTTP status.
+   */
+  status: number;
+  /**
+   * Its status text.
+   */
+  status_text: string;
+  /**
+   * Its final URL.
+   */
+  url: string;
+}
+/**
+ * What `page.load` and `page.dom_content_loaded` report: the page whose
+ * main frame's document fired the event.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageFired".
+ */
+export interface PageFired {
+  /**
+   * The page.
+   */
+  page_id: string;
+}
+/**
  * What `page.formats` answers: the formats the request asked for, and
  * none it did not, with the document's URL, its base URL and whether it
  * has main content. Text is as the document holds it, never repaired.
@@ -2386,6 +2628,38 @@ export interface PageFormats {
    * The document's URL, after redirects.
    */
   url: string;
+}
+/**
+ * What `page.on` answers when its page goes, closed or with its Run.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageOnEnded".
+ */
+export interface PageOnEnded {}
+/**
+ * What `page.on` takes: the page and the event listened to.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageOnParams".
+ */
+export interface PageOnParams {
+  /**
+   * The event.
+   */
+  event:
+    | "console"
+    | "page_error"
+    | "request"
+    | "request_finished"
+    | "request_failed"
+    | "response"
+    | "web_socket"
+    | "load"
+    | "dom_content_loaded";
+  /**
+   * The page.
+   */
+  page_id: string;
 }
 /**
  * What `run.new_page` and `session.new_page` answer: the page, and the
@@ -2417,6 +2691,59 @@ export interface PageParams {
   page_id: string;
 }
 /**
+ * A request of a page, ADR 0085's `Request`: one per hop of a redirect
+ * chain, each hop under the same `request_id`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageRequest".
+ */
+export interface PageRequest1 {
+  /**
+   * Why it failed, for `page.request_failed`; none otherwise.
+   */
+  failure?: RequestFailure | null;
+  /**
+   * Its headers as the browser sent them.
+   */
+  headers: {
+    [k: string]: string;
+  };
+  /**
+   * Whether it loads the document of the page's main frame.
+   */
+  is_navigation_request: boolean;
+  /**
+   * Its method, such as `GET`.
+   */
+  method: string;
+  /**
+   * The page that sent it.
+   */
+  page_id: string;
+  /**
+   * Its body, in Base64 (RFC 4648, with padding), when it has one.
+   */
+  post_data?: string | null;
+  /**
+   * The URLs of the hops a redirect led from before it, the first first;
+   * empty when no redirect led to it.
+   */
+  redirect_chain: string[];
+  /**
+   * The browser's ID for it, which `response.body` takes.
+   */
+  request_id: string;
+  /**
+   * The browser's name for what it loads, such as `Document` or
+   * `Fetch`.
+   */
+  resource_type: string;
+  /**
+   * Its URL.
+   */
+  url: string;
+}
+/**
  * What `page.route` takes: the page, and the URLs whose requests its
  * handler answers.
  *
@@ -2446,6 +2773,27 @@ export interface PageRouteParams {
          */
         pattern: string;
       };
+}
+/**
+ * What `page.web_socket` reports: a WebSocket the page opened, whose
+ * frames and close follow as `web_socket.*` events.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageWebSocket".
+ */
+export interface PageWebSocket {
+  /**
+   * The page.
+   */
+  page_id: string;
+  /**
+   * Its URL.
+   */
+  url: string;
+  /**
+   * The browser's ID for the socket, which its events name.
+   */
+  web_socket_id: string;
 }
 /**
  * What a Run did with its Plan file (ADR 0091).
@@ -2598,37 +2946,21 @@ export interface RecordingReport {
   written_by?: string | null;
 }
 /**
- * What `page.request_failed` reports: a request of the run that failed
- * while no call waited for it, such as one the egress policy refused.
+ * What `response.body` takes: the page and the request whose response's
+ * body it reads.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "RequestFailed".
+ * via the `definition` "ResponseBodyParams".
  */
-export interface RequestFailed {
-  failure: ErrorData1;
+export interface ResponseBodyParams {
   /**
-   * Its method, such as `GET`.
+   * The page.
    */
-  method: string;
+  page_id: string;
   /**
-   * The request's URL, as the run gave it.
+   * The request, by the browser's ID.
    */
-  url: string;
-}
-/**
- * Why it failed: the Error code a call waiting for it would have
- * raised, with its details, such as `egress_refused`.
- */
-export interface ErrorData1 {
-  /**
-   * The Error code, or the name of the protocol failure.
-   */
-  code: string;
-  /**
-   * Whether the same call may succeed when made again.
-   */
-  retryable: boolean;
-  [k: string]: unknown;
+  request_id: string;
 }
 /**
  * What `events.resync` gives: the current state, from which the stream
@@ -4024,4 +4356,88 @@ export interface UsageSetParams {
    * The Usage kind it caps.
    */
   usage_kind: string;
+}
+/**
+ * What `page.wait_for_request_finished` takes: the page, and the URLs of
+ * the requests it waits for; any request when none is given.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WaitForRequestFinishedParams".
+ */
+export interface WaitForRequestFinishedParams {
+  /**
+   * The page.
+   */
+  page_id: string;
+  /**
+   * The URLs it waits for.
+   */
+  url?: UrlMatcher | null;
+}
+/**
+ * What `page.page_error` reports, `WebError`: an exception the page did
+ * not catch (ADR 0085), never a `PageError`, ADR 0079's group.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WebError".
+ */
+export interface WebError {
+  /**
+   * Its message.
+   */
+  message: string;
+  /**
+   * Its name, such as `TypeError`; `Error` for a thrown value that is no
+   * error.
+   */
+  name: string;
+  /**
+   * The page.
+   */
+  page_id: string;
+  /**
+   * Its stack as the browser renders it, when it has one.
+   */
+  stack?: string | null;
+}
+/**
+ * What `web_socket.close` reports: a page's WebSocket closed.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WebSocketClosed".
+ */
+export interface WebSocketClosed {
+  /**
+   * The page.
+   */
+  page_id: string;
+  /**
+   * The socket.
+   */
+  web_socket_id: string;
+}
+/**
+ * What `web_socket.frame_sent` and `web_socket.frame_received` report: one
+ * message frame of a page's WebSocket.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WebSocketFrame".
+ */
+export interface WebSocketFrame {
+  /**
+   * Whether it is a binary frame.
+   */
+  binary: boolean;
+  /**
+   * The page.
+   */
+  page_id: string;
+  /**
+   * Its payload: its text, or for a binary frame its bytes in Base64.
+   */
+  payload: string;
+  /**
+   * The socket.
+   */
+  web_socket_id: string;
 }

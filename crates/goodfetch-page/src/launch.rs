@@ -2,8 +2,9 @@
 //! 0115): its build prepared in the Browser cache from the call that
 //! launches it, so a missing build raises its code there and nowhere
 //! earlier, held under a shared lock until the process exits; the process
-//! started over its debugging pipe, never a debugging port; and its end:
-//! when the Run stops, the browser is asked to close, then killed if it
+//! started over its debugging pipe, never a debugging port, on a profile of
+//! its own in the Run's folder; and its end: when the Run stops, or the
+//! browser pool closes it, the browser is asked to close, then killed if it
 //! does not, its profile removed and its build released.
 
 mod arguments;
@@ -40,11 +41,13 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::settings::NETWORK_RESOLVE;
 use tokio::process::{Child, Command};
 use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
 /// How long a closing browser has to exit before it is killed.
 const CLOSE_DEADLINE: Duration = Duration::from_secs(5);
 
-/// The folder of the Run's browser profiles, in its folder.
+/// The folder of the Run's browser profiles, in its folder: one per
+/// browser, by its number in the Run's browser pool.
 const PROFILES: &str = "browser-profiles";
 
 /// The folder of a Chromium profile's default user, in its data directory.
@@ -62,6 +65,8 @@ pub(crate) struct Launched {
     /// Whether it runs headless, so its pages need the identity it shows
     /// with a window.
     pub(crate) headless: bool,
+    /// Its process's ID, by which its memory is read.
+    pub(crate) process: Option<u32>,
 }
 
 /// The executable of Chrome for Testing's build for `platform`, in the
@@ -193,8 +198,10 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
     }
 }
 
-/// Launches the Run's browser from the Browser cache of `home`, under the
-/// Run's settings; its tasks are the Run's, so the Run's stop closes it.
+/// Launches a browser of the Run from the Browser cache of `home`, under
+/// the Run's settings, on the profile numbered `number` in the Run's
+/// folder; its tasks are the Run's, and `stopping`, cancelled when the Run
+/// stops, closes it.
 ///
 /// # Errors
 ///
@@ -206,9 +213,15 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 ///
 /// Dropping the future before the browser started leaves no process; after,
 /// the Run's stop closes it.
-pub(crate) async fn launch(run: &Run, home: &Home, pins: &Pins) -> Result<Launched, CallError> {
+pub(crate) async fn launch(
+    run: &Run,
+    home: &Home,
+    pins: &Pins,
+    number: u64,
+    stopping: CancellationToken,
+) -> Result<Launched, CallError> {
     let (executable, held, kind) = executable(run, home, pins).await?;
-    let profile = run.folder().join(PROFILES).join("default");
+    let profile = run.folder().join(PROFILES).join(number.to_string());
     let created = profile.join(DEFAULT_PROFILE);
     run.owner()
         .blocking(
@@ -253,9 +266,10 @@ pub(crate) async fn launch(run: &Run, home: &Home, pins: &Pins) -> Result<Launch
         .stderr(Stdio::null());
     let (connection, driver, child) =
         start(command).map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
+    let process = child.child.id();
     let (exits, exit) = watch::channel(None);
     run.spawn(supervise(
-        run.clone(),
+        (run.clone(), stopping),
         child,
         (connection.clone(), driver),
         exits,
@@ -268,6 +282,7 @@ pub(crate) async fn launch(run: &Run, home: &Home, pins: &Pins) -> Result<Launch
         exit,
         executable,
         headless,
+        process,
     })
 }
 
@@ -336,10 +351,10 @@ fn start(_command: Command) -> std::io::Result<(Connection, Driving, Process)> {
     ))
 }
 
-/// Runs the browser's connection, waits for its process to exit or for the
-/// Run to stop, closes it then, and releases its build and profile.
+/// Runs the browser's connection, waits for its process to exit or for
+/// `stopping`, closes it then, and releases its build and profile.
 async fn supervise(
-    run: Run,
+    (run, stopping): (Run, CancellationToken),
     process: Process,
     (connection, driver): (Connection, Driving),
     exits: watch::Sender<Option<BrowserExit>>,
@@ -351,7 +366,6 @@ async fn supervise(
         mut child,
         _group: group,
     } = process;
-    let stopping = run.cancellation().clone();
     let (_, status) = tokio::join!(driver, async {
         let status = tokio::select! {
             status = child.wait() => status,
@@ -372,7 +386,7 @@ async fn supervise(
         status
     });
     let exit = status.ok().map(exit_of);
-    tracing::info!(?exit, "the Run's browser exited");
+    tracing::info!(?exit, "a browser of the Run exited");
     exits.send_replace(Some(exit.unwrap_or(BrowserExit {
         code: None,
         signal: None,

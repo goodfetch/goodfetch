@@ -14,6 +14,7 @@
 //! its Session keeps its timers (ADR 0085's question), and a headless
 //! browser's pages show the identity it shows with a window (`identity`).
 
+mod carry;
 mod identity;
 
 mod navigation;
@@ -36,8 +37,10 @@ use goodfetch_protocol::page::{
 };
 use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
+use tokio_util::sync::CancellationToken;
 
-pub(crate) use self::navigation::Arrived;
+pub(crate) use self::carry::{Carried, Origins};
+pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
 use crate::errors::{
     Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects, truncated,
@@ -113,6 +116,8 @@ pub(crate) struct Browser {
     executable: String,
     /// The identity a headless browser's pages show; `None` with a window.
     identity: Option<Identity>,
+    /// Its process's ID.
+    process: Option<u32>,
 }
 
 impl Browser {
@@ -179,23 +184,49 @@ impl<B: Connect> Connect for Arc<B> {
     }
 }
 
-/// The browser the engine launches for a Run, on the first Session that
-/// needs it.
+/// A browser the engine launches for a Run, numbered in the Run's browser
+/// pool, on the first Session that needs it; it closes when the Run stops
+/// or the pool closes it.
 pub(crate) struct LocalBrowser {
     run: Run,
     home: Home,
     pins: Pins,
+    number: u64,
+    /// The Run trace's CDP log, which every browser of the Run shares.
+    log: Arc<OnceCell<CommandLog>>,
+    stopping: CancellationToken,
     launched: OnceCell<Browser>,
 }
 
 impl LocalBrowser {
-    pub(crate) fn new(run: Run, home: Home, pins: Pins) -> Self {
+    pub(crate) fn new(
+        run: Run,
+        home: Home,
+        pins: Pins,
+        number: u64,
+        log: Arc<OnceCell<CommandLog>>,
+    ) -> Self {
+        let stopping = run.cancellation().child_token();
         Self {
             run,
             home,
             pins,
+            number,
+            log,
+            stopping,
             launched: OnceCell::new(),
         }
+    }
+
+    /// Closes the browser, if it was launched: asked to close, then killed
+    /// if it does not.
+    pub(crate) fn close(&self) {
+        self.stopping.cancel();
+    }
+
+    /// Its process's ID, once launched.
+    pub(crate) fn process(&self) -> Option<u32> {
+        self.launched.get().and_then(|browser| browser.process)
     }
 }
 
@@ -203,24 +234,37 @@ impl Connect for LocalBrowser {
     async fn connect(&self) -> Result<Browser, CallError> {
         self.launched
             .get_or_try_init(|| async {
-                let launched = launch(&self.run, &self.home, &self.pins).await?;
-                let log =
-                    CommandLog::start(self.run.owner(), self.run.folder()).map_err(|error| {
-                        CallError::new(
-                            &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
-                            format!("the Run trace's CDP log cannot start: {error}"),
-                            &goodfetch_protocol::page::BrowserLaunchFailedDetails {
-                                executable: launched.executable.display().to_string(),
-                                exit: None,
-                            },
-                        )
-                    })?;
+                let launched = launch(
+                    &self.run,
+                    &self.home,
+                    &self.pins,
+                    self.number,
+                    self.stopping.clone(),
+                )
+                .await?;
+                let log = self
+                    .log
+                    .get_or_try_init(|| async {
+                        CommandLog::start(self.run.owner(), self.run.folder()).map_err(|error| {
+                            CallError::new(
+                                &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
+                                format!("the Run trace's CDP log cannot start: {error}"),
+                                &goodfetch_protocol::page::BrowserLaunchFailedDetails {
+                                    executable: launched.executable.display().to_string(),
+                                    exit: None,
+                                },
+                            )
+                        })
+                    })
+                    .await?
+                    .clone();
                 let mut browser = Browser {
                     connection: launched.connection,
                     log,
                     exit: launched.exit,
                     executable: launched.executable.display().to_string(),
                     identity: None,
+                    process: launched.process,
                 };
                 // The first answer says the browser is up.
                 let version = browser

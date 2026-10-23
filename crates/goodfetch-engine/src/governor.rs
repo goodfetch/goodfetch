@@ -47,7 +47,7 @@ mod system;
 
 pub use shares::{Permit, RunShare};
 pub use storage::{Filesystem, Held, StorageSample};
-pub use system::System;
+pub use system::{System, footprint_of};
 
 #[cfg(test)]
 pub(crate) use storage::DiskView;

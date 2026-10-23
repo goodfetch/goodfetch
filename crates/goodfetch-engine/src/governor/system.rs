@@ -107,6 +107,29 @@ impl System {
     }
 }
 
+/// The memory of the process `process` and every descendant, in bytes,
+/// as the governor counts the engine's: PSS on Linux, the platform's own
+/// footprint elsewhere; nothing for a process that is gone. Blocking.
+pub fn footprint_of(process: u32) -> u64 {
+    #[cfg(target_os = "linux")]
+    {
+        linux::Proc(Path::new("/proc")).footprint_from(&process.to_string())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos::footprint_from(process)
+    }
+    #[cfg(windows)]
+    {
+        windows::footprint_from(process)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    {
+        let _ = process;
+        0
+    }
+}
+
 /// What a platform found, before the allowance is chosen.
 struct Found {
     cgroup: Option<u64>,

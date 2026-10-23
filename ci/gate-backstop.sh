@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # `just gate-backstop [ref]`: the incremental gate's backstop (ADR 0135),
-# daily from the gate host's cron, on `main`'s head by default. In the
-# gate's own worktree (ci/gate-worktree.sh), once the gate that holds it has
-# ended, it runs `just pre-merge all` in full (`GOODFETCH_GATE_FULL=1`),
-# then compares that run with each incremental run on the same tree, the
-# gated head of the merge (`xtask gate compare`): a result that run reused
-# and the full run found red is a selection miss, a defect of the gate's
-# selection to fix. A red step run per member only makes the reused crates
-# suspects, since the members the incremental run reran may hold the red,
-# so each suspect crate's tests rerun alone and a red confirms the miss.
-# Last, the quarantined tests run as the test-health job runs them, 50 times
-# each of the 10 oldest (ADR 0064), which no gate runs; their result blocks
-# nothing and is reported.
+# daily from the gate host's cron, on `main`'s head by default. In a gate
+# worktree of its own (ci/gate-worktree.sh's `gate-backstop`), so it never
+# holds `just merge`'s, it runs `just pre-merge all` in full
+# (`GOODFETCH_GATE_FULL=1`), then compares that run with each incremental
+# run on the same tree, the gated head of the merge, in `just merge`'s
+# records (`xtask gate compare`): a result that run reused and the full run
+# found red is a selection miss, a defect of the gate's selection to fix. A
+# red step run per member only makes the reused crates suspects, since the
+# members the incremental run reran may hold the red, so each suspect
+# crate's tests rerun alone and a red confirms the miss. Last, the
+# quarantined tests run as the test-health job runs them, 50 times each of
+# the 10 oldest (ADR 0064), which no gate runs; their result blocks nothing
+# and is reported.
 #
 # Each run appends one line to `<log>/results.txt`, `<UTC day> <commit>
 # gate=<pass|fail> misses=<n> suspects=<n> unchecked=<n>
@@ -31,12 +32,14 @@ echo "== $(date -u +%FT%TZ) the incremental gate's backstop on $ref"
 git fetch --quiet origin
 commit=$(git rev-parse --verify "$ref^{commit}")
 
+gate_worktree_name="gate-backstop"
 # shellcheck source=ci/gate-worktree.sh
 source "$(dirname "$0")/gate-worktree.sh"
-# A merge's gate holds the worktree for an hour at most: wait up to six.
-gate_worktree_lock 21600
+gate_worktree_lock
 trap 'rm -rf "$lock"' EXIT
 gate_worktree_checkout "$commit"
+# The incremental runs it compares with: `just merge`'s, read only.
+merged_runs="$root/.claude/worktrees/merge-gate/target/gate-runs"
 cd "$worktree"
 just fetch
 
@@ -45,7 +48,7 @@ GOODFETCH_GATE_FULL=1 just pre-merge all || gate=fail
 echo "== the full run on $commit: $gate"
 
 misses=0 suspects=0 unchecked=0
-compared=$(just _gate-compare "$commit") || {
+compared=$(just _gate-compare "$commit" "$merged_runs") || {
   echo "error: the full run on $commit could not be compared" >&2
   compared=""
   gate=fail

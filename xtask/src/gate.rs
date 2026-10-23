@@ -141,8 +141,13 @@ pub(crate) enum Command {
     /// Prints each result an incremental run on the full run's tree reused
     /// and the full run on `full` found red.
     Compare {
+        /// The folder of the full run's record.
         #[arg(long)]
         records: std::path::PathBuf,
+        /// The folder of the incremental runs to compare it with, as the
+        /// backstop reads `just merge`'s; `records` by default.
+        #[arg(long)]
+        runs: Option<std::path::PathBuf>,
         #[arg(long)]
         key: std::path::PathBuf,
         /// The head of the full run (`GOODFETCH_GATE_FULL=1`).
@@ -220,10 +225,18 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 &head,
             );
         }
-        Command::Compare { records, key, full } => {
+        Command::Compare {
+            records,
+            runs,
+            key,
+            full,
+        } => {
+            let records = environment.path(&records);
+            let runs = runs.map_or_else(|| records.clone(), |runs| environment.path(&runs));
             return verdict::compare(
                 root,
-                &environment.path(&records),
+                &records,
+                &runs,
                 &Key::load(&environment.path(&key))?,
                 &full,
             );

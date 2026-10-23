@@ -1075,11 +1075,11 @@ audit-live:
     ci/proofs/live.sh
 
 # The incremental gate's backstop (ADR 0135), daily from the gate host's
-# cron on `main`'s head: in the gate's worktree, once the gate that holds it
-# has ended, `just pre-merge all` in full (`GOODFETCH_GATE_FULL=1`), then
-# each result an incremental run on the same tree reused and the full run
-# found red, a selection miss to fix, and the quarantined tests, which block
-# nothing (ci/gate-backstop.sh). Its log and results go to ~/gate-backstop/
+# cron on `main`'s head: in a gate worktree of its own, `just pre-merge all`
+# in full (`GOODFETCH_GATE_FULL=1`), then each result an incremental run of
+# `just merge` on the same tree reused and the full run found red, a
+# selection miss to fix, and the quarantined tests, which block nothing
+# (ci/gate-backstop.sh). Its log and results go to ~/gate-backstop/
 # (GOODFETCH_GATE_BACKSTOP_LOG). Run from the main checkout.
 gate-backstop ref="origin/main":
     ci/gate-backstop.sh {{ ref }}
@@ -1303,11 +1303,11 @@ _gate-verify head:
     cargo run --quiet --locked -p xtask -- gate verify --records target/gate-runs \
       --key "{{ gate_key }}" --head {{ head }}
 
-# The backstop's comparison (ADR 0135): each result an incremental run on
-# the full run's tree reused and the full run on `full` found red.
-_gate-compare full:
+# The backstop's comparison (ADR 0135): each result an incremental run in
+# `runs` on the full run's tree reused and the full run on `full` found red.
+_gate-compare full runs="target/gate-runs":
     cargo run --quiet --locked -p xtask -- gate compare --records target/gate-runs \
-      --key "{{ gate_key }}" --full {{ full }}
+      --runs "{{ runs }}" --key "{{ gate_key }}" --full {{ full }}
 
 # Starts and checks the real OS services the tests use (ci/os-services.sh),
 # which `just pre-merge` runs first on a Linux host.

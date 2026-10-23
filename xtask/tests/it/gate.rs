@@ -696,12 +696,16 @@ fn a_record_the_gate_did_not_sign_is_not_reused() {
     );
 }
 
-fn compare(workspace: &Workspace, records: &Path, full: &str) -> Outcome {
+/// Compares the full run on `full`, recorded in `records`, with the runs in
+/// `runs`.
+fn compare(workspace: &Workspace, records: &Path, runs: &Path, full: &str) -> Outcome {
     workspace.xtask(&[
         "gate",
         "compare",
         "--records",
         &records.to_string_lossy(),
+        "--runs",
+        &runs.to_string_lossy(),
         "--key",
         &key(records).to_string_lossy(),
         "--full",
@@ -709,20 +713,22 @@ fn compare(workspace: &Workspace, records: &Path, full: &str) -> Outcome {
     ])
 }
 
-/// The backstop (ADR 0135): a full run on a commit whose tree an
-/// incremental run gated finds each result that run reused and the full run
-/// found red, a selection miss; a red step run per member is only a
-/// suspect, since the members the incremental run reran may hold the red.
+/// The backstop (ADR 0135): a full run, in its own worktree's records, on a
+/// commit whose tree an incremental run of `just merge` gated finds each
+/// result that run reused and the full run found red, a selection miss; a
+/// red step run per member is only a suspect, since the members the
+/// incremental run reran may hold the red.
 #[test]
 fn a_full_run_finds_each_reused_result_it_finds_red() {
     let (workspace, _folder, records) = gated_repository(&[]);
     let (first, second) = green_runs(&workspace, &records);
     // The merge of the gated head: a commit with its tree.
     workspace.git(&["commit", "--quiet", "--allow-empty", "--message", "Merge"]);
-    let full = plan_with(&workspace, &records, "CI=", &["--full"]);
-    record_plan(&workspace, &records, &full, &["perf", "pre-merge"], &[]);
+    let backstop = records.with_file_name("backstop-runs");
+    let full = plan_with(&workspace, &backstop, "CI=", &["--full"]);
+    record_plan(&workspace, &backstop, &full, &["perf", "pre-merge"], &[]);
 
-    let compared = compare(&workspace, &records, &full.head);
+    let compared = compare(&workspace, &backstop, &records, &full.head);
 
     assert_eq!(compared.code, 0, "{}", compared.stderr);
     let lines: BTreeSet<&str> = compared.stdout.lines().collect();
@@ -749,7 +755,7 @@ fn only_a_full_run_is_compared() {
     let (workspace, _folder, records) = gated_repository(&[]);
     let (_, second) = green_runs(&workspace, &records);
 
-    let compared = compare(&workspace, &records, &second);
+    let compared = compare(&workspace, &records, &records, &second);
 
     assert_eq!(compared.code, 1, "{}", compared.stdout);
     assert!(

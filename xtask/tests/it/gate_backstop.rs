@@ -131,6 +131,20 @@ fn each_reused_result_the_full_run_finds_red_is_a_miss_that_fails_the_backstop()
         "{:?}",
         run.calls
     );
+    // In a worktree of its own, never `just merge`'s, whose records it
+    // reads.
+    let worktrees = workspace.path().join(".claude/worktrees");
+    assert!(worktrees.join("gate-backstop/.git").exists());
+    assert!(!worktrees.join("merge-gate").exists());
+    let merged_runs = worktrees.join("merge-gate/target/gate-runs");
+    assert!(
+        run.calls
+            .iter()
+            .any(|call| call.starts_with("_gate-compare ")
+                && call.ends_with(&format!(" {}|", merged_runs.display()))),
+        "{:?}",
+        run.calls
+    );
     for rerun in [
         "test pre-merge goodfetch-engine|",
         "test pre-merge goodfetch-frontier|",

@@ -170,13 +170,19 @@ fn is_ancestor(root: &Path, ancestor: &str, head: &str) -> bool {
         .is_ok_and(|output| output.status.success())
 }
 
-/// The backstop's comparison: for the full run on `full`, each result that
-/// another signed run on the same tree reused from an earlier head and the
-/// full run found red, as `miss\t<unit>\t<run>\t<origin>` lines, or
+/// The backstop's comparison: for the full run on `full`, whose record is
+/// in `records`, each result that another signed run in `others` on the same
+/// tree reused from an earlier head and the full run found red, as `miss\t<unit>\t<run>\t<origin>` lines, or
 /// `suspect` lines for a step run per member, whose red the members that
 /// run reran may hold; `unchecked` lines for a reused result the full run
 /// has no result for, as when it stopped at a red step.
-pub(super) fn compare(root: &Path, records: &Path, key: &Key, full: &str) -> Result<ExitCode> {
+pub(super) fn compare(
+    root: &Path,
+    records: &Path,
+    others: &Path,
+    key: &Key,
+    full: &str,
+) -> Result<ExitCode> {
     let full = commit(root, full)?;
     let record = runs::read(records, &full, key)?;
     if let Some((unit, outcome)) = record
@@ -194,7 +200,7 @@ pub(super) fn compare(root: &Path, records: &Path, key: &Key, full: &str) -> Res
         root,
         &["rev-parse", "--verify", &format!("{full}^{{tree}}")],
     )?;
-    for head in runs::heads(records)? {
+    for head in runs::heads(others)? {
         if head == full {
             continue;
         }
@@ -206,7 +212,7 @@ pub(super) fn compare(root: &Path, records: &Path, key: &Key, full: &str) -> Res
         if !same_tree {
             continue;
         }
-        let run = match runs::read(records, &head, key) {
+        let run = match runs::read(others, &head, key) {
             Ok(run) => run,
             Err(error) => {
                 output::error(&format!(

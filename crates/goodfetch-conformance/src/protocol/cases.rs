@@ -5,6 +5,7 @@
 //! cases `routes`'s and a Run's Session cases `sessions`'.
 
 mod clean_up;
+mod consent;
 mod delivery;
 mod fetch_edge;
 mod formats;
@@ -73,6 +74,8 @@ pub(crate) enum Case {
     NeverActionable,
     /// A Clean-up case.
     CleanUp(clean_up::Case),
+    /// A Consent prompt case.
+    Consent(consent::Case),
     /// A route case.
     Route(routes::Case),
     /// A Session case.
@@ -162,13 +165,16 @@ impl Site {
 
 /// The Proving ground's host names that belong to no task and that a case
 /// reaches, which `resolve` maps too: the fetch edge's (ADR 0118), and the
-/// scope family's site and off-site host the route cases load, and the
-/// Clean-up pages' host (ADR 0047).
-const NAMED_HOSTS: [&str; 4] = [
+/// scope family's site and off-site host the route cases load, the
+/// Clean-up pages' host (ADR 0047), and the consent pages' two hosts (ADR
+/// 0048).
+const NAMED_HOSTS: [&str; 6] = [
     "fetch-edge.test",
     "scope.test",
     "elsewhere.test",
     clean_up::HOST,
+    consent::HOST,
+    consent::FRAME_HOST,
 ];
 
 /// The host name of an `http` URL.
@@ -256,7 +262,8 @@ impl Case {
                     .map(Self::FetchEdge)
                     .or_else(|| routes::Case::from_id(id).map(Self::Route))
                     .or_else(|| sessions::Case::from_id(id).map(Self::Session))
-                    .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp));
+                    .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp))
+                    .or_else(|| consent::Case::from_id(id).map(Self::Consent));
             }
         })
     }
@@ -355,6 +362,12 @@ impl Case {
             Self::Route(case) => case.run(connection, site, checks),
             Self::Session(case) => case.run(connection, site, checks),
             Self::CleanUp(case) => case.run(connection, target, site, checks),
+            Self::Consent(case) => case.run(
+                connection,
+                target.environment.get("GOODFETCH_HOME").map(String::as_str),
+                site,
+                checks,
+            ),
         }
     }
 }

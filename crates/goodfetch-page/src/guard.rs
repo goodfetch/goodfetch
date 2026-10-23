@@ -10,7 +10,8 @@
 //! re-render that replaces its element changes nothing. At the deadline the
 //! last observation decides: still ambiguous raises `target_not_unique`
 //! with every match, anything else `deadline_exceeded` naming the step it
-//! waited for.
+//! waited for. The same check and arm serve the Consent prompt runner's
+//! clicks on the elements it hands the guard ([`Element`]), in any frame.
 
 mod check;
 mod keys;
@@ -18,7 +19,9 @@ mod target;
 
 use std::time::Duration;
 
+use goodfetch_cdp::SessionId as TargetSession;
 use goodfetch_cdp::generated::input::DispatchKeyEventParams;
+use goodfetch_cdp::generated::runtime::ExecutionContextId;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails, Surface};
@@ -27,7 +30,7 @@ use goodfetch_protocol::page::{TARGET_NOT_UNIQUE, TargetMatch, TargetNotUniqueDe
 use goodfetch_protocol::settings::SettingLimit;
 use serde::Deserialize;
 
-use self::check::{CHECK, Seen};
+use self::check::{CHECK, Seen, Target};
 use crate::driver::{PageDriver, Turn, Unanswered};
 
 /// The disarm, which says where the gesture landed.
@@ -134,10 +137,14 @@ pub(crate) async fn act(
             return Err(at_deadline(&request, last, elapsed));
         }
         let argument = check::argument(
-            request.selector,
+            Target::Selector(request.selector),
             request.action.kind(),
             remaining.min(SLICE),
         );
+        // Held from the check that arms the listener to the disarm, and let
+        // go of when the target is not ready, so the Consent prompt
+        // runner's clicks come between two checks.
+        let gesture = page.gesture().await;
         let seen = match turn.call(CHECK, argument).await {
             Ok(value) => Seen::read(&value).map_err(|error| unreadable(&value, &error))?,
             Err(Unanswered::WorldGone) => continue,
@@ -178,6 +185,79 @@ pub(crate) async fn act(
             }
             waiting @ Seen::Waiting { .. } => last = waiting,
         }
+        drop(gesture);
+    }
+}
+
+/// An element another engine script handed the guard, by its handle in the
+/// registry of guard targets of the world whose context is `context` on
+/// `session`: the Consent prompt runner's click targets, in any frame.
+pub(crate) struct Element<'a> {
+    /// The session of the frame's target.
+    pub(crate) session: &'a TargetSession,
+    /// The context of the guard's world in the frame's document.
+    pub(crate) context: ExecutionContextId,
+    /// Its handle.
+    pub(crate) handle: u64,
+}
+
+/// What one check of an [`Element`] saw.
+pub(crate) enum Readiness {
+    /// It is unique, visible, enabled, stable and receives the event at
+    /// (`x`, `y`) of its frame's viewport, the listener armed there.
+    Ready {
+        /// The point's distance from the frame viewport's left.
+        x: f64,
+        /// Its distance from the frame viewport's top.
+        y: f64,
+    },
+    /// It is not yet.
+    Waiting,
+    /// Its document or the element went away, or the check could not run.
+    Gone,
+}
+
+/// Checks `element` for a click, waiting in the page for at most `slice`;
+/// a ready element has the guard's listener armed. The caller holds the
+/// page's [`PageDriver::gesture`] from this check to [`landed_on`].
+pub(crate) async fn check_element(
+    page: &PageDriver,
+    element: &Element<'_>,
+    slice: Duration,
+) -> Readiness {
+    let argument = check::argument(Target::Handle(element.handle), "pointer", slice);
+    let Ok(value) = page
+        .call_in(element.session, element.context, CHECK, argument)
+        .await
+    else {
+        return Readiness::Gone;
+    };
+    match Seen::read(&value) {
+        Ok(Seen::Ready {
+            x: Some(x),
+            y: Some(y),
+        }) => Readiness::Ready { x, y },
+        Ok(Seen::Waiting { .. }) => Readiness::Waiting,
+        _ => Readiness::Gone,
+    }
+}
+
+/// Whether the click just sent at a ready [`Element`] landed on it: the
+/// guard's listener disarmed; a document gone with the click means it
+/// landed, since nothing was left to cancel it.
+pub(crate) async fn landed_on(page: &PageDriver, element: &Element<'_>) -> bool {
+    match page
+        .call_in(
+            element.session,
+            element.context,
+            DISARM,
+            serde_json::Value::Null,
+        )
+        .await
+    {
+        Ok(value) => matches!(Landed::deserialize(&value), Ok(Landed::Landed)),
+        Err(Unanswered::WorldGone) => true,
+        Err(Unanswered::Failed(_)) => false,
     }
 }
 

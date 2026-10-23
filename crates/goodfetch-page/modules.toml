@@ -1,12 +1,13 @@
 # Which of goodfetch-page's top-level modules may import which (ADR 0126).
 [modules]
+consent = ["driver", "guard"]
 driver = ["errors", "launch", "trace"]
 errors = []
 guard = ["driver"]
 interception = ["driver", "url_pattern"]
 launch = []
 pages = ["driver", "guard", "interception", "sessions"]
-sessions = ["driver", "interception"]
+sessions = ["consent", "driver", "interception"]
 robots_txt = []
 trace = []
 url_pattern = []
@@ -30,6 +31,12 @@ steps = []
 arguments = []
 pipe = []
 preferences = []
+
+# Which of `consent`'s own modules may import which.
+[submodules.consent]
+frames = []
+log = ["messages"]
+messages = []
 
 # Which of `guard`'s own modules may import which.
 [submodules.guard]

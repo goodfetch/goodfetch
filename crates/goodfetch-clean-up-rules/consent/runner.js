@@ -26,9 +26,10 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
   const world = globalThis;
   const KEY = Symbol.for("goodfetch.consent");
   if (world[KEY]) return;
-  // The elements the engine's guard clicks, by handle, in this world alone.
+  // The elements the engine's guard clicks, by handle: the world's registry
+  // of guard targets, which no page sees.
   const elements = new Map();
-  world[Symbol.for("goodfetch.consent.elements")] = elements;
+  world[Symbol.for("goodfetch.guard.targets")] = elements;
   const AutoConsent = autoconsent.default;
   const top = window.top === window;
   // A rule that names a snippet the table drops, or none it classes, never

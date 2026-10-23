@@ -66,7 +66,8 @@ impl Step {
 }
 
 /// A Run's page on the Proving ground's task `task`, its engine's
-/// `hello` naming `surface`, its Run's `timeout.action` `action_timeout`.
+/// `hello` naming `surface`, its Run's `timeout.action` `action_timeout`
+/// and `consent.handling` `consent_handling`.
 struct OnTask<'env> {
     engine: Attached<'env>,
     page: Value,
@@ -81,6 +82,7 @@ impl<'env> OnTask<'env> {
         task: &str,
         surface: &str,
         action_timeout: u64,
+        consent_handling: bool,
     ) -> Self {
         let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
             command.env(BROWSERS_PATH_VARIABLE, cache);
@@ -112,6 +114,7 @@ impl<'env> OnTask<'env> {
                 "settings": {
                     "network": { "resolve": resolve },
                     "timeout": { "action": action_timeout },
+                    "consent": { "handling": consent_handling },
                 },
             }),
         );
@@ -226,7 +229,15 @@ fn verified_by_the_oracle(task: &str, steps: &[Step]) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut page = OnTask::open(&env, &cache, &proving_ground, task, "sdk_python", 10_000);
+    let mut page = OnTask::open(
+        &env,
+        &cache,
+        &proving_ground,
+        task,
+        "sdk_python",
+        10_000,
+        true,
+    );
 
     let answers: Vec<Value> = steps.iter().map(|step| page.act(*step)).collect();
     let verdict = outcome(&proving_ground, task, "success");
@@ -279,6 +290,7 @@ fn a_target_still_ambiguous_at_the_deadline_raises_target_not_unique_listing_eve
         "actionability/9",
         surface,
         1_000,
+        true,
     );
 
     let clicked = page.act(Step::Click("#target"));
@@ -337,7 +349,15 @@ fn a_target_never_actionable_raises_deadline_exceeded_naming_the_step(
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut page = OnTask::open(&env, &cache, &proving_ground, task, "sdk_python", 1_000);
+    let mut page = OnTask::open(
+        &env,
+        &cache,
+        &proving_ground,
+        task,
+        "sdk_python",
+        1_000,
+        true,
+    );
 
     let clicked = page.act(Step::Click(selector));
     let verdict = outcome(&proving_ground, task, "failure");
@@ -386,7 +406,8 @@ fn traced_counts(env: &TestEnv) -> BTreeMap<String, usize> {
 /// A click on a target with no animation or transition running checks and
 /// arms in one round trip into the guard's world, sends its three pointer
 /// events and disarms: no stability wait, no second check (ADR 0019's
-/// speed target).
+/// speed target). The Consent prompt runner is off, so the trace holds the
+/// guard's commands alone.
 /// Covers: story:5-2, operation:locator.click
 #[test]
 fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
@@ -400,6 +421,7 @@ fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
         "actionability/1",
         "sdk_python",
         10_000,
+        false,
     );
 
     let clicked = page.act(Step::Click("#target"));

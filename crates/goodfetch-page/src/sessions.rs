@@ -45,6 +45,7 @@ use goodfetch_protocol::settings::{
 use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
 
+use crate::consent::Consent;
 use crate::driver::{LocalBrowser, PageDriver, SessionDriver};
 use crate::interception::{Interception, SESSION_KEYS};
 
@@ -76,6 +77,8 @@ pub(crate) struct Sessions {
     state: Arc<Mutex<State>>,
     pins: Vec<PinnedArtifact>,
     interception: Interception,
+    /// The Consent prompt runner every page starts.
+    consent: Consent,
 }
 
 #[derive(Default)]
@@ -176,6 +179,7 @@ impl Sessions {
             state: Arc::new(Mutex::new(State::default())),
             pins,
             interception,
+            consent: Consent::default(),
         }
     }
 
@@ -287,6 +291,7 @@ impl Sessions {
         self.interception
             .start(&page, session, &driver, &run, &open.settings)
             .await?;
+        self.consent.start(&page, &driver, &run).await?;
         let mut state = self.state.lock().await;
         if !state.sessions.contains_key(session) {
             drop(state);

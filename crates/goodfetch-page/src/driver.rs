@@ -388,6 +388,7 @@ impl<B: Connect> SessionDriver<B> {
             navigation_timeout,
             started: Arc::new(watch::Sender::new(0)),
             turn: Arc::new(Mutex::new(None)),
+            gesture: Arc::new(Mutex::new(())),
         })
     }
 }
@@ -417,6 +418,11 @@ pub(crate) struct PageDriver {
     /// command to its last, and waiters take it in arrival order. It keeps
     /// the guard's world in the current document, once one was made.
     turn: Arc<Mutex<Option<runtime::ExecutionContextId>>>,
+    /// The page's pointer, held from a check that arms the guard's listener
+    /// to the disarm after the input it sent, by a locator action and by the
+    /// Consent prompt runner alike, so their gestures never interleave; a
+    /// locator action waiting for its target lets go of it between checks.
+    gesture: Arc<Mutex<()>>,
 }
 
 /// A gesture's turn on its page: its commands, sent while no other
@@ -459,37 +465,7 @@ impl Turn<'_> {
     /// Moves the pointer to (`x`, `y`) in the page's viewport and clicks
     /// there with its left button: input the page receives as trusted.
     pub(crate) async fn click(&mut self, x: f64, y: f64) -> Result<(), CallError> {
-        for (kind, button, buttons) in [
-            (input::DispatchMouseEventType::MouseMoved, None, None),
-            (
-                input::DispatchMouseEventType::MousePressed,
-                Some(input::MouseButton::Left),
-                Some(1),
-            ),
-            (
-                input::DispatchMouseEventType::MouseReleased,
-                Some(input::MouseButton::Left),
-                Some(0),
-            ),
-        ] {
-            let params = input::DispatchMouseEventParams {
-                r#type: kind,
-                x,
-                y,
-                modifiers: None,
-                timestamp: None,
-                button,
-                buttons,
-                click_count: button.map(|_| 1),
-                force: None,
-                tangential_pressure: None,
-                tilt_x: None,
-                tilt_y: None,
-                twist: None,
-                delta_x: None,
-                delta_y: None,
-                pointer_type: None,
-            };
+        for params in pointer_click(x, y) {
             self.page
                 .browser
                 .send(Some(&self.page.session), &params, &self.call)
@@ -569,6 +545,42 @@ impl Turn<'_> {
     }
 }
 
+/// The mouse events of a left click at (`x`, `y`) in the page's viewport:
+/// the pointer moves there, presses and releases.
+fn pointer_click(x: f64, y: f64) -> [input::DispatchMouseEventParams; 3] {
+    [
+        (input::DispatchMouseEventType::MouseMoved, None, None),
+        (
+            input::DispatchMouseEventType::MousePressed,
+            Some(input::MouseButton::Left),
+            Some(1),
+        ),
+        (
+            input::DispatchMouseEventType::MouseReleased,
+            Some(input::MouseButton::Left),
+            Some(0),
+        ),
+    ]
+    .map(|(kind, button, buttons)| input::DispatchMouseEventParams {
+        r#type: kind,
+        x,
+        y,
+        modifiers: None,
+        timestamp: None,
+        button,
+        buttons,
+        click_count: button.map(|_| 1),
+        force: None,
+        tangential_pressure: None,
+        tilt_x: None,
+        tilt_y: None,
+        twist: None,
+        delta_x: None,
+        delta_y: None,
+        pointer_type: None,
+    })
+}
+
 /// Where a navigation goes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Destination<'a> {
@@ -613,6 +625,78 @@ impl PageDriver {
     /// The events of the page's target, from when this answers.
     pub(crate) async fn events(&self) -> Subscription {
         self.browser.connection.subscribe(Some(&self.session)).await
+    }
+
+    /// The page's own session.
+    pub(crate) fn session(&self) -> &TargetSession {
+        &self.session
+    }
+
+    /// The events of `session`, the page's or one of its frames' targets,
+    /// from when this answers.
+    pub(crate) async fn events_on(&self, session: &TargetSession) -> Subscription {
+        self.browser.connection.subscribe(Some(session)).await
+    }
+
+    /// Sends `params` on `session`, the page's or one of its frames'
+    /// targets, recorded in the Run trace, answering the failure itself.
+    pub(crate) async fn command_on<C: Command>(
+        &self,
+        session: &TargetSession,
+        params: &C,
+    ) -> Result<C::Returns, Failure> {
+        self.browser.try_send(Some(session), params).await
+    }
+
+    /// Calls `function`, a JavaScript function's source, with `argument` in
+    /// the world whose context is `context` on `session`, and answers its
+    /// value, never through `Runtime.enable`.
+    pub(crate) async fn call_in(
+        &self,
+        session: &TargetSession,
+        context: runtime::ExecutionContextId,
+        function: &str,
+        argument: serde_json::Value,
+    ) -> Result<serde_json::Value, Unanswered> {
+        match self
+            .browser
+            .try_send(Some(session), &world::call(function, argument, context))
+            .await
+        {
+            Ok(called) => match called.exception_details {
+                Some(thrown) => Err(Unanswered::Failed(CallError::protocol(
+                    ProtocolFailure::InternalError,
+                    format!("an engine script threw in the page: {}", thrown.text),
+                ))),
+                None => Ok(called.result.value.unwrap_or(serde_json::Value::Null)),
+            },
+            Err(Failure::Refused {
+                refusal: Refusal::ContextGone,
+                ..
+            }) => Err(Unanswered::WorldGone),
+            Err(failure) => Err(Unanswered::Failed(CallError::protocol(
+                ProtocolFailure::InternalError,
+                format!("an engine script's call failed: {failure}"),
+            ))),
+        }
+    }
+
+    /// The page's pointer, held for one gesture.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future gives up the place in the order.
+    pub(crate) async fn gesture(&self) -> MutexGuard<'_, ()> {
+        self.gesture.lock().await
+    }
+
+    /// Clicks at (`x`, `y`) in the page's viewport with the left button, as
+    /// trusted input, wherever in the page's frames that point lies.
+    pub(crate) async fn press(&self, x: f64, y: f64) -> Result<(), Failure> {
+        for params in pointer_click(x, y) {
+            self.browser.try_send(Some(&self.session), &params).await?;
+        }
+        Ok(())
     }
 
     /// Sends `params` on the page's target, recorded in the Run trace, as

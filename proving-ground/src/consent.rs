@@ -16,7 +16,8 @@
 //!
 //! - `/vendor/<vendor>`: a vendor's prompt over an article; `onetrust`,
 //!   `cookiebot` (refused through its own API, `Cookiebot.withdraw()`,
-//!   reported as the answer `withdraw`), `didomi`, `usercentrics`,
+//!   reported as the answer `withdraw`, then closed by its `hide()`,
+//!   reported to `/consent/closed`), `didomi`, `usercentrics`,
 //!   `sourcepoint` (its message in `consent-frame.test`'s
 //!   `/index.html?message_id=1`), `quantcast`, `trustarc`, `google`,
 //!   `axeptio`, `tiktok` and `moove` (its settings saved, reported as the
@@ -160,7 +161,7 @@ fn vendor(vendor: &str) -> Option<String> {
             "<script>\
 window.Cookiebot = { hasResponse: false, declined: false, dialog: { visible: true },\
  withdraw() { this.hasResponse = true; this.declined = true; window.consentBeacon('/consent/answered', { answer: 'withdraw', world: 'main' }); },\
- hide() { this.dialog.visible = false; document.getElementById('CybotCookiebotDialog')?.remove(); } };\
+ hide() { this.dialog.visible = false; document.getElementById('CybotCookiebotDialog')?.remove(); window.consentBeacon('/consent/closed', {}); } };\
 </script>"
                 .to_owned(),
             format!(

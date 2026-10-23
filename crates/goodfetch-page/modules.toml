@@ -20,6 +20,7 @@ url_pattern = []
 carry = ["world"]
 identity = []
 navigation = []
+service_workers = []
 world = []
 
 # Which of `interception`'s own modules may import which.

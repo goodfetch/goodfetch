@@ -2370,7 +2370,8 @@ export interface NewSessionParams {
    * The Session's own settings, nested by key: `filter_lists.ads`,
    * `.trackers`, `.annoyances`, `.first_party_scripts`,
    * `browser.block_resources` and `live_view.hiding` choose its pages'
-   * Clean-up rules over the Run's. `session.source` is refused here with `setting_not_applicable`,
+   * Clean-up rules over the Run's, and `browser.service_workers` whether
+   * a site's service workers run in them. `session.source` is refused here with `setting_not_applicable`,
    * as the call's own `source` sets it, and so is any other key, which
    * only the Run sets.
    */
@@ -3102,9 +3103,11 @@ export interface RouteHandleParams {
    */
   id: number | string;
   /**
-   * The page that sent the request.
+   * The page that sent the request; none for a request a site's service
+   * worker sent itself, which belongs to no page and reaches only
+   * Session routes (ADR 0121).
    */
-  page_id: string;
+  page_id?: PageId | null;
   request: RouteRequest;
   /**
    * The intercepted request, which an answer names.
@@ -4366,7 +4369,7 @@ export interface UsageSetParams {
  */
 export interface WaitForRequestFinishedParams {
   /**
-   * The page.
+   * A page of a Run, named by the engine when it opens it.
    */
   page_id: string;
   /**
@@ -4392,7 +4395,7 @@ export interface WebError {
    */
   name: string;
   /**
-   * The page.
+   * A page of a Run, named by the engine when it opens it.
    */
   page_id: string;
   /**
@@ -4408,7 +4411,7 @@ export interface WebError {
  */
 export interface WebSocketClosed {
   /**
-   * The page.
+   * A page of a Run, named by the engine when it opens it.
    */
   page_id: string;
   /**
@@ -4429,7 +4432,7 @@ export interface WebSocketFrame {
    */
   binary: boolean;
   /**
-   * The page.
+   * A page of a Run, named by the engine when it opens it.
    */
   page_id: string;
   /**

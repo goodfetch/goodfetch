@@ -4691,6 +4691,17 @@
       ]
     },
     {
+      "id": "setting:browser.service_workers",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:browser_cache.max_unused_age",
       "kind": "setting",
       "area": 3,

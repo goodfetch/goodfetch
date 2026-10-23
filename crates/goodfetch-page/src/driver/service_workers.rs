@@ -1,0 +1,329 @@
+//! A browser's service workers on Chromium (ADR 0121): the browser
+//! attaches the engine to each one before it runs (`Target.setAutoAttach`
+//! with `waitForDebuggerOnStart`), so no request leaves a worker before the
+//! interception covers it. Each browser context says, once, what becomes of
+//! its workers: under `allow` a worker of a site is handed to its Session's
+//! interception, then let run; under `block` the fetch of every worker's
+//! script is failed, so `register()` rejects as on a network failure, with
+//! `register` the browser's own function and no worker ever running. The
+//! pinned builds have no per-context switch that makes `register()` reject,
+//! so this is spec #577's floor, and never a bypass of service workers.
+//! Chromium fetches a worker's script outside every target's interception,
+//! so that fetch is failed by the browser's own interception, which pauses
+//! only the kind of request a worker's script is and knows it by the
+//! `Service-Worker: script` header and the worker it loads.
+//!
+//! Any other worker (a browser extension's, or one of a context no Session
+//! named) is let run untouched.
+#![expect(
+    clippy::disallowed_types,
+    reason = "each context's choice is set once and read by the browser's one event reader, each lock held for one map operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
+)]
+
+use std::collections::BTreeMap;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
+
+use goodfetch_cdp::generated::{browser, fetch, network, runtime, target};
+use goodfetch_cdp::{SessionId as TargetSession, Subscription};
+use goodfetch_engine::CallError;
+use goodfetch_engine::runs::Run;
+use tokio::sync::{OnceCell, watch};
+use tokio_util::sync::CancellationToken;
+
+use super::{Browser, PageDriver};
+use crate::proxy::SessionProxy;
+
+/// The target type of a service worker.
+const SERVICE_WORKER: &str = "service_worker";
+
+/// The header the browser's fetch of a worker's script carries.
+const SCRIPT_HEADER: &str = "service-worker";
+
+/// What one service worker's Session does once the browser attached the
+/// engine to it, before it runs: given the worker's driver and the token
+/// cancelled once the worker's target goes, it answers whether the
+/// interception now holds the worker's requests. A worker it does not hold
+/// never runs: the domain policy fails closed (ADR 0014).
+pub(crate) type OnServiceWorker = Arc<
+    dyn Fn(PageDriver, CancellationToken) -> Pin<Box<dyn Future<Output = bool> + Send>>
+        + Send
+        + Sync,
+>;
+
+/// What becomes of a browser context's service workers.
+#[derive(Clone)]
+pub(crate) enum ServiceWorkers {
+    /// They run, each first handed to its Session's interception.
+    Allow(OnServiceWorker),
+    /// None runs: the fetch of each one's script fails.
+    Block,
+}
+
+/// A browser's service workers: each context's choice, and the targets of
+/// the workers it attached to.
+#[derive(Default)]
+pub(super) struct ServiceWorkerChoices {
+    contexts: Mutex<BTreeMap<browser::BrowserContextID, ServiceWorkers>>,
+    /// Each attached worker's token, by its session, cancelled once it goes.
+    attached: Mutex<BTreeMap<TargetSession, CancellationToken>>,
+    /// The browser's own interception of workers' scripts, once a context
+    /// blocks its workers.
+    scripts: OnceCell<()>,
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+impl ServiceWorkerChoices {
+    /// The choice of the context `context`, if one was made.
+    fn of(&self, context: Option<&browser::BrowserContextID>) -> Option<ServiceWorkers> {
+        lock(&self.contexts).get(context?).cloned()
+    }
+}
+
+impl PageDriver {
+    /// The driver of a service worker of the browser context `context`,
+    /// which the browser attached on `session` and whose target is
+    /// `worker`: only its Session's interception sends commands on it, and
+    /// no navigation, gesture or document is its. Its Session's proxy is
+    /// the one [`Self::with_proxy`] gives it.
+    fn service_worker(
+        browser: Browser,
+        session: TargetSession,
+        context: browser::BrowserContextID,
+        worker: target::TargetID,
+    ) -> Self {
+        Self {
+            browser,
+            session,
+            proxy: None,
+            context,
+            frame: worker,
+            navigation_timeout: Duration::ZERO,
+            started: Arc::new(watch::Sender::new(0)),
+            turn: Arc::new(tokio::sync::Mutex::new(None)),
+        }
+    }
+
+    /// Its Session's proxy, shared, if it has one.
+    pub(crate) fn proxy_handle(&self) -> Option<Arc<SessionProxy>> {
+        self.proxy.clone()
+    }
+
+    /// This driver with its Session's `proxy`, whose challenges it answers:
+    /// a service worker's requests reach the proxy of the context its pages
+    /// are in.
+    pub(crate) fn with_proxy(self, proxy: Option<Arc<SessionProxy>>) -> Self {
+        Self { proxy, ..self }
+    }
+
+    /// Chooses, once for the page's browser context, what becomes of the
+    /// service workers of its sites (ADR 0121); a later choice for the same
+    /// context changes nothing. `block` turns on the browser's own
+    /// interception of workers' scripts first.
+    ///
+    /// # Errors
+    ///
+    /// The code of opening a page when the browser refuses that
+    /// interception.
+    pub(crate) async fn service_workers(&self, choice: ServiceWorkers) -> Result<(), CallError> {
+        let browser = &self.browser;
+        if matches!(choice, ServiceWorkers::Block) {
+            browser
+                .service_workers
+                .scripts
+                .get_or_try_init(|| async {
+                    browser
+                        .send(
+                            None,
+                            &fetch::EnableParams {
+                                patterns: Some(vec![fetch::RequestPattern {
+                                    url_pattern: Some("*".to_owned()),
+                                    // The kind the browser gives a worker's
+                                    // script, so no page's document, script
+                                    // or call pauses here.
+                                    resource_type: Some(network::ResourceType::Other),
+                                    request_stage: Some(fetch::RequestStage::Request),
+                                }]),
+                                handle_auth_requests: None,
+                            },
+                            &browser.opening(),
+                        )
+                        .await
+                        .map(drop)
+                })
+                .await?;
+        }
+        lock(&browser.service_workers.contexts)
+            .entry(self.context.clone())
+            .or_insert(choice);
+        Ok(())
+    }
+}
+
+/// Starts following `browser`'s service workers for `run`: its browser
+/// events are read from now, then the browser attaches the engine to each
+/// worker before it runs.
+///
+/// # Errors
+///
+/// The code of opening a page when the browser refuses to attach.
+pub(super) async fn start(browser: &Browser, run: &Run) -> Result<(), CallError> {
+    let events = browser.connection.subscribe(None).await;
+    run.spawn(follow(events, browser.clone(), run.clone()));
+    browser
+        .send(
+            None,
+            &target::SetAutoAttachParams {
+                auto_attach: true,
+                wait_for_debugger_on_start: true,
+                flatten: Some(true),
+                filter: Some(vec![
+                    target::FilterEntry {
+                        exclude: Some(false),
+                        r#type: Some(SERVICE_WORKER.to_owned()),
+                    },
+                    target::FilterEntry {
+                        exclude: Some(true),
+                        r#type: None,
+                    },
+                ]),
+            },
+            &browser.opening(),
+        )
+        .await
+        .map(drop)
+}
+
+/// Reads the browser's own events until its connection ends: each worker
+/// attached is handed on as its context chose, each one gone is let go,
+/// and each script fetch the browser's interception paused is failed or
+/// sent on.
+async fn follow(mut events: Subscription, browser: Browser, run: Run) {
+    while let Some(event) = events.next().await {
+        if let Some(attached) = event.read::<target::AttachedToTargetEvent>() {
+            if attached.target_info.r#type == SERVICE_WORKER {
+                let (browser, task) = (browser.clone(), run.clone());
+                task.spawn(attach(browser, attached, run.clone()));
+            }
+        } else if let Some(detached) = event.read::<target::DetachedFromTargetEvent>() {
+            if let Some(gone) =
+                lock(&browser.service_workers.attached).remove(&TargetSession(detached.session_id))
+            {
+                gone.cancel();
+            }
+        } else if let Some(paused) = event.read::<fetch::RequestPausedEvent>() {
+            run.spawn(script_fetch(browser.clone(), paused));
+        }
+    }
+}
+
+/// The worker `attached` waits for the engine: under `allow` its Session's
+/// interception takes it first; then it runs.
+async fn attach(browser: Browser, attached: target::AttachedToTargetEvent, run: Run) {
+    let session = TargetSession(attached.session_id);
+    let info = attached.target_info;
+    let of_a_site = info.url.starts_with("http://") || info.url.starts_with("https://");
+    let choice = browser
+        .service_workers
+        .of(info.browser_context_id.as_ref())
+        .filter(|_| of_a_site);
+    if let (Some(ServiceWorkers::Allow(handle)), Some(context)) =
+        (choice, info.browser_context_id.clone())
+    {
+        let gone = run.cancellation().child_token();
+        lock(&browser.service_workers.attached).insert(session.clone(), gone.clone());
+        let driver = PageDriver::service_worker(
+            browser.clone(),
+            session.clone(),
+            context,
+            info.target_id.clone(),
+        );
+        if !handle(driver, gone).await {
+            let closed = browser
+                .try_send(
+                    None,
+                    &target::CloseTargetParams {
+                        target_id: info.target_id,
+                    },
+                )
+                .await;
+            if let Err(failure) = closed {
+                tracing::debug!(%failure, "a service worker the interception could not hold went first");
+            }
+            return;
+        }
+    }
+    if attached.waiting_for_debugger
+        && let Err(failure) = browser
+            .try_send(Some(&session), &runtime::RunIfWaitingForDebuggerParams {})
+            .await
+    {
+        tracing::debug!(%failure, "a service worker went before it was let run");
+    }
+}
+
+/// A request the browser's own interception paused: the fetch of a
+/// worker's script in a context that blocks its workers fails, as a network
+/// failure does; any other goes on.
+async fn script_fetch(browser: Browser, paused: fetch::RequestPausedEvent) {
+    let script = paused.request.headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case(SCRIPT_HEADER) && value.as_str() == Some("script")
+    });
+    let blocked = script && blocks(&browser, &paused.frame_id).await;
+    let answered = if blocked {
+        browser
+            .try_send(
+                None,
+                &fetch::FailRequestParams {
+                    request_id: paused.request_id,
+                    error_reason: network::ErrorReason::Failed,
+                },
+            )
+            .await
+            .map(drop)
+    } else {
+        browser
+            .try_send(
+                None,
+                &fetch::ContinueRequestParams {
+                    request_id: paused.request_id,
+                    url: None,
+                    method: None,
+                    post_data: None,
+                    headers: None,
+                    intercept_response: None,
+                },
+            )
+            .await
+            .map(drop)
+    };
+    if let Err(failure) = answered {
+        tracing::debug!(%failure, "a request went before the browser's interception answered it");
+    }
+}
+
+/// Whether the worker whose target is `worker`, which a script fetch names
+/// as its frame, is of a context that blocks its workers.
+async fn blocks(browser: &Browser, worker: &str) -> bool {
+    let Ok(found) = browser
+        .try_send(
+            None,
+            &target::GetTargetInfoParams {
+                target_id: Some(worker.to_owned()),
+            },
+        )
+        .await
+    else {
+        return false;
+    };
+    matches!(
+        browser
+            .service_workers
+            .of(found.target_info.browser_context_id.as_ref()),
+        Some(ServiceWorkers::Block)
+    )
+}

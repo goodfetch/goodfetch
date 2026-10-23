@@ -175,6 +175,7 @@
     "rnd/**",
     "**/generated/**",
     "ci/proofs/**",
-    "crates/goodfetch-clean-up-rules/stand-ins/**"
+    "crates/goodfetch-clean-up-rules/stand-ins/**",
+    "crates/goodfetch-clean-up-rules/consent/autoconsent/**"
   ]
 }

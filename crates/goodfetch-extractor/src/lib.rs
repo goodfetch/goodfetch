@@ -11,4 +11,4 @@ mod formats;
 mod main_content;
 mod markdown;
 
-pub use formats::{Context, Document, formats, fuzz_formats};
+pub use formats::{Context, Document, formats, fuzz_formats, main_content_length};

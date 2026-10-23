@@ -186,13 +186,18 @@ fn every_never_block_entry_loads_over_every_list_and_block_resources() {
 }
 
 /// Without the never-block list, the Filter lists block challenge and
-/// anti-bot requests: the entries are what keeps them loading (ADR 0047).
-/// Covers: story:5-95
+/// anti-bot requests, and Consent prompts' scripts: the entries are what
+/// keeps them loading, so the Consent prompt runner always sees the prompt
+/// (ADRs 0047 and 0048).
+/// Covers: story:5-95, story:5-100
 #[rstest]
 #[case::datadome("https://js.datadome.co/tags.js")]
 #[case::akamai_sensor("https://shop.example/akam/13/pixel_5f3c")]
 #[case::perimeterx("https://client.perimeterx.net/PXabcdef/main.min.js")]
 #[case::threatmetrix("https://h.online-metrix.net/fp/tags.js?org_id=1")]
+#[case::didomis_prompt("https://sdk.privacy-center.org/loader/sdk-didomi.js")]
+#[case::sourcepoints_message("https://cdn.example/unified/sourcepoint.js")]
+#[case::a_sites_own_prompt_host("https://cmp.lemonde.fr/js/lemonde.min.js")]
 fn the_lists_alone_block_what_the_never_block_list_keeps(#[case] url: &str) {
     let lists_alone = judge(
         &request(url, ResourceKind::Script),

@@ -2,10 +2,11 @@
 # one network rule in Adblock Plus syntax whose requests load whatever every
 # Filter list (the user's own included) and `browser.block_resources` say:
 # challenge and CAPTCHA providers, anti-bot sensors and the endpoints they
-# report to, anti-fraud and payment scripts. An entry is scoped to what the
-# challenge or the payment needs, so a vendor's analytics stay blocked
-# (Stripe's `r.stripe.com` telemetry is no entry; its `m.stripe.com` fraud
-# signals are). `example` is a request the entry must keep loading, which the
+# report to, anti-fraud and payment scripts, and Consent prompts' scripts and
+# messages, which Consent prompt rules need to see (ADR 0048). An entry is
+# scoped to what the challenge, the payment or the prompt needs, so a
+# vendor's analytics stay blocked (Stripe's `r.stripe.com` telemetry is no
+# entry; its `m.stripe.com` fraud signals are). `example` is a request the entry must keep loading, which the
 # crate's tests check against the embedded Filter lists.
 #
 # Sources: each vendor's own documentation of the hosts and paths its script
@@ -253,3 +254,206 @@ vendor = "Klarna"
 kind = "payment"
 rule = "||x.klarnacdn.net^"
 example = "https://x.klarnacdn.net/kp/lib/v1/api.js"
+
+# Consent prompts' scripts and messages, which Consent prompt rules need to
+# see (ADR 0048): the consent-vendor entries of EasyPrivacy and EasyList,
+# kept loading over them, as written there. A vendor's telemetry stays
+# blocked (EasyPrivacy's `||privacy-analytics-proxy.cookiebot.com^`).
+
+[[entry]]
+vendor = "Sourcepoint's message script"
+kind = "consent"
+rule = "/cmp/messaging.js"
+example = "https://www.example.com/cmp/messaging.js"
+
+[[entry]]
+vendor = "A Consent prompt's loader (`cmp3.js`)"
+kind = "consent"
+rule = "/cmp3.js"
+example = "https://www.example.com/js/cmp3.js"
+
+[[entry]]
+vendor = "A Consent prompt's loader (`slot_cmp.js`)"
+kind = "consent"
+rule = "/slot_cmp.js"
+example = "https://www.example.com/js/slot_cmp.js"
+
+[[entry]]
+vendor = "Sourcepoint's loader"
+kind = "consent"
+rule = "/sourcepoint.js"
+example = "https://cdn.example/unified/sourcepoint.js"
+
+[[entry]]
+vendor = "Sourcepoint's message host (`a02342.`)"
+kind = "consent"
+rule = "://a02342."
+example = "https://a02342.example.com/mms/v2/get_site_data"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cb-mms.carbuyer.co.uk`"
+kind = "consent"
+rule = "||cb-mms.carbuyer.co.uk^"
+example = "https://cb-mms.carbuyer.co.uk/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.courrierinternational.com`"
+kind = "consent"
+rule = "||cmp.courrierinternational.com^"
+example = "https://cmp.courrierinternational.com/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.finn.no`"
+kind = "consent"
+rule = "||cmp.finn.no^"
+example = "https://cmp.finn.no/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.huffingtonpost.fr`"
+kind = "consent"
+rule = "||cmp.huffingtonpost.fr^"
+example = "https://cmp.huffingtonpost.fr/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.lavie.fr`"
+kind = "consent"
+rule = "||cmp.lavie.fr^"
+example = "https://cmp.lavie.fr/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.lemonde.fr`"
+kind = "consent"
+rule = "||cmp.lemonde.fr^"
+example = "https://cmp.lemonde.fr/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.lepoint.fr`"
+kind = "consent"
+rule = "||cmp.lepoint.fr^"
+example = "https://cmp.lepoint.fr/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.netzwelt.de`"
+kind = "consent"
+rule = "||cmp.netzwelt.de^"
+example = "https://cmp.netzwelt.de/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.nouvelobs.com`"
+kind = "consent"
+rule = "||cmp.nouvelobs.com^"
+example = "https://cmp.nouvelobs.com/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.tek.no`"
+kind = "consent"
+rule = "||cmp.tek.no^"
+example = "https://cmp.tek.no/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.telerama.fr`"
+kind = "consent"
+rule = "||cmp.telerama.fr^"
+example = "https://cmp.telerama.fr/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `d.sourcepoint.capitalfm.com`"
+kind = "consent"
+rule = "||d.sourcepoint.capitalfm.com^"
+example = "https://d.sourcepoint.capitalfm.com/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `fuse.forbes.com`"
+kind = "consent"
+rule = "||fuse.forbes.com^"
+example = "https://fuse.forbes.com/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `sourcepoint-mms.aetv.com`"
+kind = "consent"
+rule = "||sourcepoint-mms.aetv.com^"
+example = "https://sourcepoint-mms.aetv.com/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `sourcepoint-mms.history.com`"
+kind = "consent"
+rule = "||sourcepoint-mms.history.com^"
+example = "https://sourcepoint-mms.history.com/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `sourcepoint-mms.mylifetime.com`"
+kind = "consent"
+rule = "||sourcepoint-mms.mylifetime.com^"
+example = "https://sourcepoint-mms.mylifetime.com/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's endpoint on `trustarc.mgr.consensu.org`"
+kind = "consent"
+rule = "||trustarc.mgr.consensu.org/get?"
+example = "https://trustarc.mgr.consensu.org/get?notice=1"
+
+[[entry]]
+vendor = "A Consent prompt's host, `vg247-uk.vg247.com`"
+kind = "consent"
+rule = "||vg247-uk.vg247.com^"
+example = "https://vg247-uk.vg247.com/cmp.js"
+
+[[entry]]
+vendor = "Didomi's SDK"
+kind = "consent"
+rule = "-didomi.js"
+example = "https://sdk.privacy-center.org/loader/sdk-didomi.js"
+
+[[entry]]
+vendor = "Quantcast Choice"
+kind = "consent"
+rule = "/Quantcast/cmp_v2.js"
+example = "https://www.example.com/Quantcast/cmp_v2.js"
+
+[[entry]]
+vendor = "A Consent prompt's endpoint on `consent.ghostery.com`"
+kind = "consent"
+rule = "||consent.ghostery.com/v1.js"
+example = "https://consent.ghostery.com/v1.js"
+
+[[entry]]
+vendor = "A Consent prompt's endpoint on `consent.trustarc.com`"
+kind = "consent"
+rule = "||consent.trustarc.com/bannermsg?"
+example = "https://consent.trustarc.com/bannermsg?notice=1"
+
+[[entry]]
+vendor = "A Consent prompt's endpoint on `consent.trustarc.com`"
+kind = "consent"
+rule = "||consent.trustarc.com/noticemsg?"
+example = "https://consent.trustarc.com/noticemsg?notice=1"
+
+[[entry]]
+vendor = "A Consent prompt's endpoint on `otg.mblycdn.com`"
+kind = "consent"
+rule = "||otg.mblycdn.com/bundles/cmp.js"
+example = "https://otg.mblycdn.com/bundles/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's endpoint on `tra.scds.pmdstatic.net`"
+kind = "consent"
+rule = "||tra.scds.pmdstatic.net/sourcepoint/"
+example = "https://tra.scds.pmdstatic.net/sourcepoint/"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.dreamlab.pl`"
+kind = "consent"
+rule = "||cmp.dreamlab.pl^"
+example = "https://cmp.dreamlab.pl/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `tags.cmp.tail.digital`"
+kind = "consent"
+rule = "||tags.cmp.tail.digital^"
+example = "https://tags.cmp.tail.digital/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's loader (`velvet_stack_cmp.js`)"
+kind = "consent"
+rule = "/velvet_stack_cmp.js"
+example = "https://www.example.com/js/velvet_stack_cmp.js"

@@ -1633,8 +1633,10 @@ version = "0.0.0"
 dependencies = [
  "adblock",
  "data-encoding",
+ "dom_query",
  "rstest",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "toml 1.1.8+spec-1.1.0",
  "zstd",
@@ -1888,6 +1890,7 @@ dependencies = [
  "regex-syntax",
  "rstest",
  "rusqlite",
+ "secrecy",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

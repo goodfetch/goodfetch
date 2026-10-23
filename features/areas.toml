@@ -556,6 +556,13 @@ number = 5
 kind = "setting"
 prefix = "browser."
 
+# Live hiding (#715): ADR 0083 names ADR 0047's `live_hiding`
+# `live_view.hiding`.
+[[area]]
+number = 5
+kind = "setting"
+prefix = "live_view.hiding"
+
 # Area 5, Site access (specs #576 to #579): a Run's pages, their navigations
 # and the Error codes of their browsers (#695, #698).
 [[area]]
@@ -567,6 +574,17 @@ prefix = "run.new_page"
 number = 5
 kind = "operation"
 prefix = "page.goto"
+
+# A Session's proxy (#708): `proxy.*` and its two Error codes.
+[[area]]
+number = 5
+kind = "setting"
+prefix = "proxy."
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "proxy_"
 
 # A Run's own Sessions (#697): `run.new_session`, `session.new_page` and
 # `session.close`.

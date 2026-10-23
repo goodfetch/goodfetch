@@ -86,6 +86,9 @@ pub struct Opening {
     pub settings: Map<String, Value>,
     /// Where the run layer's values came from.
     pub origin: Option<RunOrigin>,
+    /// Whether a Client acting for a model gave the run layer's values, so
+    /// that a key no model sets is refused (ADR 0092).
+    pub acting_for_model: bool,
 }
 
 impl Settings {
@@ -186,6 +189,9 @@ impl Settings {
         let mut run = Values::read(SettingsLayer::Run, &opening.settings, engine)?;
         if let Some(origin) = opening.origin {
             run = run.from_origin(origin);
+        }
+        if opening.acting_for_model {
+            run = run.from_model();
         }
         let layers = Layers {
             host: self.host_defaults().await,

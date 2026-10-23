@@ -1,7 +1,7 @@
 //! The never-block list (ADR 0047): Goodfetch's own entries for challenge
 //! and CAPTCHA providers, anti-bot sensors, anti-fraud and payment scripts,
-//! whose requests load over every Filter list and over
-//! `browser.block_resources`. Read from `rules/never-block.toml` at build
+//! and Consent prompts' scripts and messages, whose requests load over every
+//! Filter list and over `browser.block_resources`. Read from `rules/never-block.toml` at build
 //! time and compiled into a small `adblock` engine of its own when first
 //! used, so no exception or `$important` rule of any Filter list reaches it.
 
@@ -20,6 +20,9 @@ pub enum Kind {
     AntiFraud,
     /// A payment script.
     Payment,
+    /// A Consent prompt's script or message, which Consent prompt rules
+    /// need to see (ADR 0048).
+    Consent,
 }
 
 /// One entry of the never-block list.

@@ -5,9 +5,10 @@
 //! lists.
 //!
 //! The proxies are `open`, `refusing_tunnels` (it refuses `CONNECT`),
-//! `down` (an address where nothing listens), and one authenticated proxy
-//! per proxy kind (`datacenter`, `isp`, `residential`, `mobile`) with its
-//! own pool of exits.
+//! `down` (an address where nothing listens), `socks5` (a SOCKS5 proxy
+//! behind the authenticated proxies' credentials), and one authenticated
+//! proxy per proxy kind (`datacenter`, `isp`, `residential`, `mobile`) with
+//! its own pool of exits.
 #![expect(
     clippy::disallowed_types,
     reason = "the network fixtures open their own sockets, outside the engine's transport (ADR 0060)"
@@ -68,6 +69,7 @@ impl NetworkFixtures {
                 Proxy::single("refusing_tunnels", Access::RefusingTunnels),
             )
             .await?,
+            ForwardProxy::bind(host, Proxy::single("socks5", Access::Socks5)).await?,
         ];
         for kind in KINDS {
             proxies.push(ForwardProxy::bind(host, Proxy::of_kind(kind, EXITS_PER_KIND)).await?);

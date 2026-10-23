@@ -4,11 +4,13 @@
 // milliseconds pass, and answers what it saw last. A ready pointer target gets
 // the interception listener armed on the window, which cancels every event of
 // the gesture that reaches another element; a ready text target gets the
-// focus, and for `fill` its text selected. CDP sends this one function, so its
-// helpers live inside it.
+// focus, and for `fill` its text selected. The target is a CSS selector's one
+// match, or the element another engine script handed the guard by `handle` in
+// the world's registry (the Consent prompt runner's clicks). CDP sends this one
+// function, so its helpers live inside it.
 /* eslint-disable unicorn/consistent-function-scoping -- CDP sends the function alone */
 // eslint-disable-next-line no-unused-vars -- `Runtime.callFunctionOn` calls it
-async function check({ selector, action, events, slice }) {
+async function check({ selector, handle, action, events, slice }) {
   const world = globalThis;
   // The arm's key, in the guard's world's own registry, which no page sees.
   const ARM = Symbol.for("goodfetch.guard.arm");
@@ -63,6 +65,10 @@ async function check({ selector, action, events, slice }) {
   };
   // CSS, inside open shadow roots too, as Playwright's CSS engine matches.
   const query = () => {
+    if (handle !== undefined) {
+      const element = world[Symbol.for("goodfetch.guard.targets")]?.get(handle);
+      return element?.isConnected ? [element] : [];
+    }
     const found = [];
     const visit = (root) => {
       found.push(...root.querySelectorAll(selector));

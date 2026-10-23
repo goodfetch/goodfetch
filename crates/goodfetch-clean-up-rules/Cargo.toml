@@ -1,6 +1,6 @@
 [package]
 name = "goodfetch-clean-up-rules"
-description = "The Clean-up rules a Session's interception matches each request against: the embedded Filter lists, the never-block list and the redirect stand-ins (spec #577; ADRs 0047 and 0057)."
+description = "The Clean-up rules a Session's interception matches each request against: the embedded Filter lists, the never-block list and the redirect stand-ins, and the Consent prompt runner's bundle (spec #577; ADRs 0047, 0048 and 0057)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 adblock.workspace = true
 data-encoding.workspace = true
+dom_query.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 zstd.workspace = true
 
@@ -20,6 +22,7 @@ zstd.workspace = true
 # anything.
 adblock.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 toml.workspace = true
 zstd.workspace = true
 
@@ -28,3 +31,8 @@ rstest.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-shear]
+# The build script's `build/consent.rs`, a module it reaches by path, reads
+# autoconsent's rules with `serde_json`, which cargo-shear does not follow.
+ignored = ["serde_json"]

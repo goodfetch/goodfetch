@@ -106,6 +106,7 @@ async fn start(
             recipe: None,
             settings: params.settings,
             origin: Some(RunOrigin::Settings),
+            acting_for_model: context.surface().acts_for_model(),
         })
         .await
         .map_err(|error| settings_error(&error, context.identity()))?;

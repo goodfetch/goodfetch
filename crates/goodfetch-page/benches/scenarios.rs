@@ -91,7 +91,7 @@ pub(crate) fn check_and_arm(count: usize) -> usize {
                 for _ in 0..count {
                     let command = world::call(
                         check::CHECK,
-                        check::argument("#target", "pointer", SLICE),
+                        check::argument(check::Target::Selector("#target"), "pointer", SLICE),
                         1,
                     );
                     let returned = connection

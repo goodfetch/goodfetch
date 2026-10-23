@@ -42,7 +42,7 @@ CREATE TABLE outcomes (
         ) STRICT;
 CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL) STRICT;
 INSERT INTO "page_sessions" VALUES(1,1,0,'{}',6178731391398722387);
-INSERT INTO "page_sessions" VALUES(2,0,1,'{"filter_lists.ads":false}',-2937466112876520115);
+INSERT INTO "page_sessions" VALUES(2,0,1,'{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}',-2937466112876520115);
 CREATE TABLE pool_sessions (
             position INTEGER NOT NULL PRIMARY KEY,
             proxy_tier TEXT NOT NULL,

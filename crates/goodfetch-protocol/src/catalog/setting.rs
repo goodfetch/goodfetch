@@ -250,6 +250,11 @@ pub enum Authority {
     /// Every layer but a Recipe, which may only expose it, as
     /// `session.source` (ADR 0056).
     NotByRecipe,
+    /// As [`Authority::NotByRecipe`], and never a Client acting for a model,
+    /// whose value is `setting_locked`, as `proxy.server` and the proxy's
+    /// credentials, which send a Secret reference's value to a destination
+    /// they also name (ADR 0092).
+    NotByRecipeOrModel,
     /// No layer: an honesty guarantee that stays at its built-in value
     /// whatever the layer (ADR 0028).
     Fixed,
@@ -266,6 +271,7 @@ impl Authority {
             Self::OperatorPolicy => "operator_policy",
             Self::Machine => "machine",
             Self::NotByRecipe => "not_by_recipe",
+            Self::NotByRecipeOrModel => "not_by_recipe_or_model",
             Self::Fixed => "fixed",
         }
     }

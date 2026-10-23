@@ -10,7 +10,9 @@
 //! never a tool's report. The connection record beside them lists every
 //! connection the Proving ground's listeners accepted and every relay its
 //! forward proxies carried out, each entry with the time step it came at,
-//! which `PUT /time-step` sets.
+//! which `PUT /time-step` sets; and `GET /network-fixtures` serves the
+//! addresses of the network fixtures `serve` reported, for a harness that
+//! knows only the Proving ground's address.
 //!
 //! Bytes are counted twice over, both as they cross the wire:
 //!
@@ -55,6 +57,8 @@ pub(crate) struct Observations {
     time_step: Mutex<u64>,
     state: Mutex<State>,
     record: ConnectionRecord,
+    /// What `serve` reported of its network fixtures, once bound.
+    network_fixtures: Mutex<Option<serde_json::Value>>,
 }
 
 #[derive(Default)]
@@ -433,7 +437,19 @@ impl Observations {
             time_step: Mutex::new(0),
             state: Mutex::default(),
             record: ConnectionRecord::default(),
+            network_fixtures: Mutex::new(None),
         }
+    }
+
+    /// Keeps what `serve` reports of its network fixtures, which
+    /// `GET /network-fixtures` serves.
+    pub(crate) fn set_network_fixtures(&self, fixtures: serde_json::Value) {
+        *self.network_fixtures.lock() = Some(fixtures);
+    }
+
+    /// What `serve` reported of its network fixtures, once they are bound.
+    pub(crate) fn network_fixtures(&self) -> Option<serde_json::Value> {
+        self.network_fixtures.lock().clone()
     }
 
     /// The host names observed, each with its task, if any.

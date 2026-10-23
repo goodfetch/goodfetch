@@ -12,7 +12,10 @@
 //! 2. Page routes, later first, then Session routes; `fulfill` and `abort`
 //!    end here.
 //! 3. The egress check and the domain policy, on what the last route sends
-//!    on.
+//!    on: each hop of a redirect, a refresh or a script is a request of its
+//!    own and is judged again; a hop the browser sends no request for (a
+//!    redirect's `Location` or a scheduled navigation to a scheme other
+//!    than HTTP's) is refused as it shows ([`hops`]).
 //! 4. The never-block list, the Filter lists and `browser.block_resources`.
 //! 5. The Response cache and a replaying Run's Response recording.
 //! 6. The page's navigation gate, then its lease check.
@@ -52,6 +55,7 @@
 
 mod answers;
 mod clean_up;
+mod hops;
 mod navigations;
 mod pipeline;
 mod routes;
@@ -65,7 +69,7 @@ use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
 use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
-use goodfetch_engine::egress::Policy;
+use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{RunSettings, Values};
@@ -149,6 +153,9 @@ pub(super) struct PageState {
     engine_requests: EngineRequests,
     /// Its Session's pending navigations.
     pending: Arc<Pending>,
+    /// Who asked for the navigation call going on, while it may load a
+    /// `file:` URL.
+    files: Mutex<Option<Navigator>>,
 }
 
 /// Steps 3 to 8 of a page's pipeline, as its Session chose them, for a
@@ -189,6 +196,7 @@ impl EngineRequests {
             overrides,
             kind: ResourceKind::Xhr,
             source_url: url,
+            egress: RequestKind::Page,
         };
         match steps::send_on(&request, &self.policy, &self.blocking, true) {
             Ok(steps::Sent::Continue(command)) => Ok(command),
@@ -334,6 +342,7 @@ impl Interception {
                 session,
                 pending,
                 failure: Mutex::new(None),
+                files: Mutex::new(None),
                 cosmetic: clean_up.cosmetic.clone(),
                 engine_requests: EngineRequests {
                     policy: policy.clone(),
@@ -345,7 +354,7 @@ impl Interception {
         };
         let events = driver.events().await;
         let observing = observer.map(Observing::of);
-        let patterns = patterns(driver.value().gate().is_some(), observing.is_some());
+        let patterns = patterns(observing.is_some());
         driver
             .opening_command(&fetch::EnableParams {
                 patterns: Some(patterns),
@@ -436,7 +445,7 @@ impl Interception {
                 let events = worker.events().await;
                 let enabled = worker
                     .opening_command(&fetch::EnableParams {
-                        patterns: Some(patterns(false, observing.is_some())),
+                        patterns: Some(patterns(observing.is_some())),
                         handle_auth_requests: worker
                             .proxy()
                             .is_some_and(SessionProxy::answers_authentication)
@@ -452,6 +461,7 @@ impl Interception {
                     session: routes,
                     pending,
                     failure: Mutex::new(None),
+                    files: Mutex::new(None),
                     cosmetic: None,
                     engine_requests: EngineRequests {
                         policy: policy.clone(),
@@ -572,6 +582,38 @@ impl Interception {
             .ok_or_else(|| closed(Scope::Page(page_id)))
     }
 
+    /// Lets the main frame of the page `page_id` load a `file:` URL, as
+    /// `navigator` asked, until the [`FilesAllowed`] answered goes: the
+    /// navigation call's hops are then judged as the call's (the `file:`
+    /// rule, spec #564).
+    pub(crate) fn allow_files(&self, page_id: &PageId, navigator: Navigator) -> FilesAllowed {
+        let state = lock(&self.shared.tables).pages.get(page_id).cloned();
+        if let Some(state) = &state {
+            *lock(&state.files) = Some(navigator);
+        }
+        FilesAllowed(state)
+    }
+
+    /// Judges whether the `javascript:` URL `url` may run in the main frame
+    /// of the page `page_id`, whose document is at `document_url`: only
+    /// where the page's domain policy allows that document's origin (ADR
+    /// 0014).
+    ///
+    /// # Errors
+    ///
+    /// `egress_refused` when the policy refuses it, and `closed` for a page
+    /// the interception does not hold.
+    pub(crate) fn judge_javascript(
+        &self,
+        page_id: &PageId,
+        url: &str,
+        document_url: &str,
+    ) -> Result<(), CallError> {
+        let requests = self.engine_requests(page_id)?;
+        egress::judge_javascript(url, document_url, &requests.policy)
+            .map_err(|refused| refused.error())
+    }
+
     /// The failure a handler left on the page `page_id` for its next call,
     /// taken.
     pub(crate) fn take_failure(&self, page_id: &PageId) -> Option<CallError> {
@@ -595,11 +637,24 @@ impl Interception {
     }
 }
 
+/// The main frame of a page loading `file:` URLs for a navigation call,
+/// until it goes.
+pub(crate) struct FilesAllowed(Option<Arc<PageState>>);
+
+impl Drop for FilesAllowed {
+    fn drop(&mut self) {
+        if let Some(state) = &self.0 {
+            *lock(&state.files) = None;
+        }
+    }
+}
+
 /// What a target's requests pause at: every request before it leaves, a
-/// document's response too under a navigation gate, which judges it before
-/// the page renders it, and every response for a response observer, which
-/// keeps the ones it matches.
-fn patterns(gated: bool, observed: bool) -> Vec<fetch::RequestPattern> {
+/// document's response too, whose redirect the egress policy judges (a
+/// `Location` to a scheme no request may use sends no request of its own)
+/// and a navigation gate judges before the page renders it, and every
+/// response for a response observer, which keeps the ones it matches.
+fn patterns(observed: bool) -> Vec<fetch::RequestPattern> {
     let stage = |resource_type, request_stage| fetch::RequestPattern {
         url_pattern: Some("*".to_owned()),
         resource_type,
@@ -608,7 +663,7 @@ fn patterns(gated: bool, observed: bool) -> Vec<fetch::RequestPattern> {
     let mut patterns = vec![stage(None, fetch::RequestStage::Request)];
     if observed {
         patterns.push(stage(None, fetch::RequestStage::Response));
-    } else if gated {
+    } else {
         patterns.push(stage(
             Some(network::ResourceType::Document),
             fetch::RequestStage::Response,

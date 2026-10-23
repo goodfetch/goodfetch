@@ -57,6 +57,9 @@ pub(crate) struct Paused<'a> {
     pub(crate) kind: ResourceKind,
     /// The URL of the document that sent it.
     pub(crate) source_url: &'a str,
+    /// How the egress policy judges it: as the page's own request, or as a
+    /// hop of a navigation a call asked for.
+    pub(crate) egress: RequestKind,
 }
 
 /// What steps 3 to 8 do with a request that goes on.
@@ -94,7 +97,7 @@ pub(crate) fn send_on(
     // Step 3: the egress check and the domain policy.
     let request = egress::Request {
         url: paused.url,
-        kind: RequestKind::Page,
+        kind: paused.egress,
     };
     if let Judgment::Refused(refused) = egress::judge(&request, policy) {
         return Err(Stopped::Refused(refused));

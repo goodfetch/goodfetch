@@ -1135,3 +1135,21 @@ fn a_default_is_the_hosts_where_it_gives_one_and_still_the_default_layers(
     let effective = resolved.get(RUN_STATE_KEY_REFERENCE.name).unwrap();
     assert_eq!((&effective.value, effective.layer), (&value, layer));
 }
+
+/// A Recipe's Run is known as one, so the rules that hold a Recipe to less
+/// than the program's own code, such as the `file:` rule, can read it.
+/// Covers: story:4-6
+#[rstest]
+#[case::a_recipes_run(Some(recipe(json!({}), &[])), true)]
+#[case::the_programs_own_run(None, false)]
+fn the_resolved_settings_say_whether_the_run_is_a_recipes(
+    #[case] recipe: Option<Recipe>,
+    #[case] expected: bool,
+) {
+    let layers = Layers {
+        recipe,
+        ..Layers::default()
+    };
+
+    assert_eq!(resolved(&layers).recipe_run(), expected);
+}

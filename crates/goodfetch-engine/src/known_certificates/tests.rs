@@ -486,4 +486,9 @@ fn the_head_sets_store_opens_and_takes_another_pin() {
             .collect::<Vec<_>>(),
         ["intranet.example"]
     );
+    let changed = KeyHash::of_public_key(b"the expired leaf's changed key");
+    let accepted = store
+        .accept("os_user", "expired.certificates.test", &changed, now())
+        .unwrap();
+    assert_eq!(accepted.pin.spki_sha256, Some(changed.to_string()));
 }

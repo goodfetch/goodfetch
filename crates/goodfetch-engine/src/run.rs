@@ -602,6 +602,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             recipe: None,
             settings: params.settings,
             origin: Some(RunOrigin::Settings),
+            acting_for_model: context.surface().acts_for_model(),
         })
         .await
         .map_err(|error| settings_error(&error, context.identity()))?;
@@ -756,6 +757,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             recipe: None,
             settings: params.settings,
             origin: Some(RunOrigin::Settings),
+            acting_for_model: context.surface().acts_for_model(),
         })
         .await
         .map_err(|error| settings_error(&error, context.identity()))?;

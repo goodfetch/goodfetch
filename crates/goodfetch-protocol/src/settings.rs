@@ -527,6 +527,18 @@ pub const NETWORK_RESOLVE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `consent.handling` (ADR 0048).
+pub const CONSENT_HANDLING: Setting = Setting {
+    name: "consent.handling",
+    description: "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `consent.domains` (ADR 0048).
 pub const CONSENT_DOMAINS: Setting = Setting {
     name: "consent.domains",
@@ -784,6 +796,7 @@ pub const ENTRIES: Entries = Entries {
     metrics: &[],
     settings: &[
         NETWORK_RESOLVE,
+        CONSENT_HANDLING,
         CONSENT_DOMAINS,
         WALL_DOMAINS,
         WALL_REFETCH_DOMAINS,

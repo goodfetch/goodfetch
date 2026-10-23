@@ -76,6 +76,31 @@ fn a_changed_input_builds_the_console_again() {
     );
 }
 
+/// The Windows cell's `target` is a junction to its Dev Drive, another
+/// volume than the checkout, as a `target` linked to Linux's `/dev/shm`, its
+/// own mount, is here: a rename from one to the other fails.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_console_build_whose_target_folder_is_on_another_volume_writes_the_build() {
+    use std::os::unix::fs::MetadataExt as _;
+    let workspace = Workspace::from_fixture("console");
+    let elsewhere = tempfile::tempdir_in("/dev/shm").unwrap();
+    std::os::unix::fs::symlink(elsewhere.path(), workspace.path().join("target")).unwrap();
+    assert_ne!(
+        std::fs::metadata(elsewhere.path()).unwrap().dev(),
+        std::fs::metadata(workspace.path()).unwrap().dev(),
+        "/dev/shm is no other volume than the workspace's here"
+    );
+
+    let outcome = workspace.xtask(&["console", "build"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        decompressed(&workspace, &format!("{BUILD}/index.html.br")),
+        b"<!doctype html><title>Goodfetch Collie</title>\n"
+    );
+}
+
 /// Every file under `folder`, by its path from it.
 fn walk(folder: &std::path::Path) -> Vec<String> {
     let mut files = Vec::new();

@@ -33,7 +33,7 @@ const TOO_MANY_REDIRECTS: &str = "net::ERR_TOO_MANY_REDIRECTS";
 const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
 
 /// The event of a target whose renderer crashed.
-const CRASHED: &str = "Inspector.targetCrashed";
+pub(super) const CRASHED: &str = "Inspector.targetCrashed";
 
 /// Which navigation is the call's.
 #[derive(Clone, Debug, PartialEq, Eq)]

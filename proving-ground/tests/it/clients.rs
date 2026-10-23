@@ -278,6 +278,85 @@ pub(crate) struct Tunnel {
     pub(crate) exchange: Option<Exchange>,
 }
 
+/// Where a SOCKS5 exchange stopped short of its tunnel: the step and the
+/// code the proxy answered it with.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Socks5Refusal {
+    /// It took none of the methods offered.
+    Method(u8),
+    /// It refused the credentials.
+    Credentials(u8),
+    /// It refused the `CONNECT`.
+    Connect(u8),
+}
+
+/// Asks the SOCKS5 proxy at `proxy` (RFC 1928), with `username` and
+/// `password` (RFC 1929), for a tunnel to the domain `host` on `port`, then
+/// writes `request` through it as it is and reads the response until the
+/// server closes it.
+pub(crate) fn socks5(
+    proxy: &str,
+    (username, password): (&str, &str),
+    (host, port): (&str, u16),
+    request: &[u8],
+) -> Result<Exchange, Socks5Refusal> {
+    let mut stream = connect(proxy);
+    let mut answer = [0; 2];
+    stream
+        .write_all(&[5, 1, 2])
+        .expect("the greeting is written");
+    stream
+        .read_exact(&mut answer)
+        .expect("the method is answered");
+    if answer != [5, 2] {
+        return Err(Socks5Refusal::Method(answer[1]));
+    }
+    let mut credentials = vec![
+        1,
+        u8::try_from(username.len()).expect("a username of at most 255 bytes"),
+    ];
+    credentials.extend_from_slice(username.as_bytes());
+    credentials.push(u8::try_from(password.len()).expect("a password of at most 255 bytes"));
+    credentials.extend_from_slice(password.as_bytes());
+    stream
+        .write_all(&credentials)
+        .expect("the credentials are written");
+    stream
+        .read_exact(&mut answer)
+        .expect("the credentials are answered");
+    if answer != [1, 0] {
+        return Err(Socks5Refusal::Credentials(answer[1]));
+    }
+    let mut connect = vec![
+        5,
+        1,
+        0,
+        3,
+        u8::try_from(host.len()).expect("a host of at most 255 bytes"),
+    ];
+    connect.extend_from_slice(host.as_bytes());
+    connect.extend_from_slice(&port.to_be_bytes());
+    stream.write_all(&connect).expect("the request is written");
+    let mut reply = [0; 10];
+    stream
+        .read_exact(&mut reply)
+        .expect("the request is answered");
+    if reply[1] != 0 {
+        return Err(Socks5Refusal::Connect(reply[1]));
+    }
+    stream.write_all(request).expect("the request is written");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .expect("the response is read");
+    Ok(Exchange {
+        response,
+        written: stream.written,
+        read: stream.read,
+        source: stream.source(),
+    })
+}
+
 /// Asks the proxy at `proxy` for a tunnel to `authority` (with
 /// `authorization` as its `Proxy-Authorization`, if any), then writes
 /// `request` over TLS to `host` through it and reads the response until the

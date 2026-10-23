@@ -20,6 +20,22 @@
 //! again on its next page. A Session's ID names its Run, so a call naming a
 //! Session of a Run this engine has not reached yet reaches it. When the
 //! Run stops, its Sessions, its pages and its browsers go with it.
+//!
+//! Each Session and each page changes state only through its table
+//! (`lifecycle`, spec #594, ADR 0128), and every call on it runs through it
+//! (`life`). Each page is followed until it ends without the engine closing
+//! its browser (ADR 0113): a target the browser destroyed is closed in the
+//! browser, and emits `close`, its Session and other pages staying; a
+//! crashed renderer, or a browser that exited non-zero or by a signal,
+//! crashes the page, which emits `crash` and counts in Usage (ADR 0040), and
+//! the browser's crash crashes its Session too; a browser that exited with
+//! status 0 quit, which ends its Session. Closing a Session ends its calls
+//! in flight with `call_cancelled` naming the program; a crashed Session's
+//! close releases what is left and leaves it `Crashed`.
+
+mod ends;
+mod life;
+mod lifecycle;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -30,28 +46,37 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::run::settings_error;
-use goodfetch_engine::run_state::RunStateTables;
+use goodfetch_engine::run_state::{RunStateError, RunStateTables};
 use goodfetch_engine::runs::{Run, RunError};
 use goodfetch_engine::settings::{SettingsError, Values};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::browser_cache::PinnedBy;
-use goodfetch_protocol::connection::CLOSED;
+use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
 use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use goodfetch_protocol::run::{Lifecycle, RUN_ENDED, RUN_NOT_FOUND, RunDetails, RunId};
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{
-    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SESSION_SOURCE, SettingLimit,
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SESSION_SOURCE, SettingLimit,
     SettingsLayer, TIMEOUT_ACTION, TIMEOUT_NAVIGATION, TIMEOUT_WAIT,
 };
 use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
 
+use self::life::{Ending, PageLife, SessionLife, page_closed, session_closed};
+pub(crate) use self::lifecycle::PageEvent;
+use self::lifecycle::{
+    Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
+};
+use crate::consent::Consent;
 use crate::driver::PageDriver;
+use crate::errors::{cancelled, invalid_transition};
+use crate::hiding::{Hiding, PageHiding};
 use crate::interception::{Interception, SESSION_KEYS};
 use crate::page_events::{self, PageEvents, Refusals};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
+use crate::proxy::SessionProxy;
 
 /// What the page crate adds to every run file: each Session the Run opened,
 /// by its position among them, whether it is the Run's default Session,
@@ -86,6 +111,9 @@ pub(crate) struct Sessions {
     state: Arc<Mutex<State>>,
     pins: Vec<PinnedArtifact>,
     interception: Interception,
+    /// The Consent prompt runner every page starts.
+    consent: Consent,
+    hiding: Hiding,
     /// Each open page's events, which calls reach as they arrive.
     events: page_events::Table,
 }
@@ -95,6 +123,9 @@ struct State {
     runs: BTreeMap<RunId, RunSessions>,
     sessions: BTreeMap<SessionId, Arc<Session>>,
     pages: BTreeMap<PageId, OpenPage>,
+    /// The crashed pages a close released, by their Run, whose later calls
+    /// raise `page_crashed` again until their Run stops.
+    crashed: BTreeMap<PageId, (RunId, PageLife)>,
     opened_pages: u64,
 }
 
@@ -110,7 +141,7 @@ struct RunSessions {
     closed: BTreeSet<u32>,
 }
 
-/// One open Session.
+/// One Session this engine holds: opening, open, or crashed.
 struct Session {
     run: Run,
     position: u32,
@@ -118,19 +149,32 @@ struct Session {
     seat: Seat,
     /// Its own settings, which its pages take over the Run's.
     settings: Values,
+    /// Where it is, through its table.
+    life: SessionLife,
 }
 
-/// One open page.
+/// What every Session this engine opens is: a fresh one a program opened,
+/// in a browser the engine launched, the only kind it opens yet.
+const FRESH: Attributes = Attributes {
+    source: Source::Launched,
+    owner: Owner::Program,
+};
+
+/// One page this engine holds: open, or crashed.
 #[derive(Clone)]
 pub(crate) struct OpenPage {
     pub(crate) run: Run,
     /// Its Session.
     pub(crate) session: SessionId,
     pub(crate) driver: PageDriver,
+    /// Where it is, through its table: each call on it runs through it.
+    pub(crate) life: PageLife,
     /// Its Run's `timeout.action` and where it was set.
     pub(crate) action_timeout: (SettingLimit, Duration),
     /// Its Run's clock.
     pub(crate) clock: Clock,
+    /// Its live hiding, when it hides anything.
+    pub(crate) hiding: Option<Arc<PageHiding>>,
     /// Its admission of the governor's `browser_page` kind, given back once
     /// the page leaves and no call holds it.
     _admission: Arc<Permit>,
@@ -151,24 +195,6 @@ fn parse_session_id(session: &SessionId) -> Option<(RunId, u32)> {
         return None;
     }
     Some((RunId::parse(run).ok()?, position.parse().ok()?))
-}
-
-/// `closed` for the Session `session`.
-fn session_closed(session: &SessionId) -> CallError {
-    CallError::new(
-        &CLOSED,
-        format!("the Session `{}` is closed, or its Run ended", session.0),
-        &json!({ "session_id": session }),
-    )
-}
-
-/// `closed` for the page `page`.
-fn page_closed(page: &PageId) -> CallError {
-    CallError::new(
-        &CLOSED,
-        format!("the page `{}` is closed, or its Run ended", page.0),
-        &json!({ "page_id": page }),
-    )
 }
 
 /// The failure of a read or write of `run`'s state.
@@ -195,6 +221,8 @@ impl Sessions {
             state: Arc::new(Mutex::new(State::default())),
             pins,
             interception,
+            consent: Consent::default(),
+            hiding: Hiding::default(),
             events,
         }
     }
@@ -210,26 +238,41 @@ impl Sessions {
         let run = live(&params.run_id, context).await?;
         let settings = own_settings(&params.settings, &run, context)?;
         opening_source(&run, params.source)?;
+        let proxy = open_proxy(&run, &settings, context).await?;
         let (position, seat) = {
             let mut state = self.state.lock().await;
             let runs = self.reach(&mut state, &run, context).await?;
             runs.last += 1;
-            (runs.last, runs.pool.seat(Placement::Shared))
+            (runs.last, runs.pool.seat(Placement::Shared, proxy))
         };
-        seat.open().await?;
+        let session = session_id(run.id(), position);
+        let life = SessionLife::new(session.clone(), FRESH, SessionState::Opening);
+        let open = Arc::new(Session {
+            run: run.clone(),
+            position,
+            seat,
+            settings: settings.clone(),
+            life: life.clone(),
+        });
+        self.state
+            .lock()
+            .await
+            .sessions
+            .insert(session.clone(), Arc::clone(&open));
+        self.interception.open_session(&session);
+        if let Err(error) = open.seat.open().await {
+            life.open_failed(error.clone())?;
+            self.state.lock().await.sessions.remove(&session);
+            self.interception.close(&[], &session);
+            return Err(error);
+        }
+        match life.apply(SessionEvent::SourceReady, None)? {
+            SessionEffect::Opened => {}
+            // A `close()` while it opened abandoned the open (S3).
+            _ => return Err(cancelled(StoppedBy::Program, ClosedValue::Session)),
+        }
         self.record(&run, position, false, &settings, context)
             .await?;
-        let session = session_id(run.id(), position);
-        self.state.lock().await.sessions.insert(
-            session.clone(),
-            Arc::new(Session {
-                run,
-                position,
-                seat,
-                settings,
-            }),
-        );
-        self.interception.open_session(&session);
         Ok(SessionOpened {
             session_id: session,
         })
@@ -260,10 +303,11 @@ impl Sessions {
                 }
                 Some(position) => position,
                 None => {
+                    let proxy = open_proxy(&run, &Values::default(), context).await?;
                     runs.last += 1;
                     runs.default = Some(runs.last);
                     let position = runs.last;
-                    let seat = runs.pool.seat(Placement::Shared);
+                    let seat = runs.pool.seat(Placement::Shared, proxy);
                     self.record(&run, position, true, &Values::default(), context)
                         .await?;
                     let session = session_id(run.id(), position);
@@ -274,6 +318,7 @@ impl Sessions {
                             position,
                             seat,
                             settings: Values::default(),
+                            life: SessionLife::new(session.clone(), FRESH, SessionState::Open),
                         }),
                     );
                     self.interception.open_session(&session);
@@ -294,6 +339,7 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
         let open = self.session(session, context).await?;
+        open.life.call().await?;
         let run = open.run.clone();
         let (navigation_timeout, action_timeout) = timeouts(&run);
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
@@ -316,9 +362,29 @@ impl Sessions {
             wait_deadline(&run),
         );
         self.events.insert(page.clone(), events);
-        self.interception
+        let clean_up = self
+            .interception
             .start(&page, session, &driver, &run, &open.settings, refusals)
             .await?;
+        let hiding = match self
+            .hiding
+            .start(&page, session, &driver, &run, &clean_up)
+            .await
+        {
+            Ok(hiding) => hiding,
+            Err(error) => {
+                self.events.close(std::slice::from_ref(&page));
+                self.interception
+                    .close(std::slice::from_ref(&page), session);
+                return Err(error);
+            }
+        };
+        if let Err(error) = self.consent.start(&page, &driver, &run).await {
+            self.events.close(std::slice::from_ref(&page));
+            self.interception
+                .close(std::slice::from_ref(&page), session);
+            return Err(error);
+        }
         let mut state = self.state.lock().await;
         if !state.sessions.contains_key(session) {
             drop(state);
@@ -327,18 +393,21 @@ impl Sessions {
             return Err(session_closed(session));
         }
         tracing::Span::current().record("page_id", page.0.as_str());
-        state.pages.insert(
-            page.clone(),
-            OpenPage {
-                clock: run.clock(),
-                run,
-                session: session.clone(),
-                driver,
-                action_timeout,
-                _admission: Arc::new(admission),
-                _in_browser: Arc::new(in_browser),
-            },
-        );
+        let browser = in_browser.browser();
+        let opened = OpenPage {
+            clock: run.clock(),
+            run,
+            session: session.clone(),
+            driver,
+            life: PageLife::new(page.clone()),
+            action_timeout,
+            hiding,
+            _admission: Arc::new(admission),
+            _in_browser: Arc::new(in_browser),
+        };
+        state.pages.insert(page.clone(), opened.clone());
+        drop(state);
+        self.watch(page.clone(), opened, open, browser);
         Ok(PageOpened {
             page_id: page,
             session_id: session.clone(),
@@ -363,11 +432,84 @@ impl Sessions {
                 };
             }
         };
+        let effect = open.life.apply(SessionEvent::Close, None)?;
+        let crashed = match effect {
+            // Already closing or closed: `close()` changes nothing (C).
+            SessionEffect::Nothing => return Ok(()),
+            SessionEffect::AbandonOpen
+            | SessionEffect::CloseChildren
+            | SessionEffect::EndAttachAndClose => false,
+            // A crashed Session releases what is left and stays `Crashed`
+            // (S22).
+            SessionEffect::Release => true,
+            SessionEffect::Serve
+            | SessionEffect::Wait
+            | SessionEffect::Opened
+            | SessionEffect::FailOpen
+            | SessionEffect::Lend
+            | SessionEffect::EndAttach
+            | SessionEffect::Quit
+            | SessionEffect::Crash
+            | SessionEffect::Suspend
+            | SessionEffect::EndAttachAndSuspend
+            | SessionEffect::Unreachable
+            | SessionEffect::Resume
+            | SessionEffect::Reopen => {
+                return Err(invalid_transition(
+                    "session",
+                    &format!("{:?}", open.life.state()),
+                    &format!("Close (effect {effect:?})"),
+                ));
+            }
+        };
+        let mut closing = Vec::new();
+        // Calls in flight on its pages end first (S7, P8); a crashed page
+        // releases what is left (P33).
+        for (page_id, page) in self.pages_of(session).await {
+            match page.life.end(&Ending::Closed(ClosedValue::Session))? {
+                PageEffect::Close => closing.push((page_id, page)),
+                effect => self.page_ended(&page_id, session, &open.run, effect).await,
+            }
+        }
+        open.seat.close().await;
+        for (page_id, page) in &closing {
+            // The context's disposal destroyed each target: the close the
+            // engine sent is confirmed (P29).
+            let effect = page.life.end(&Ending::Destroyed)?;
+            self.page_ended(page_id, session, &open.run, effect).await;
+        }
+        if crashed {
+            self.hiding.close(session).await;
+            return Ok(());
+        }
+        open.life.apply(SessionEvent::ChildrenClosed, None)?;
+        self.session_ended(&open, session)
+            .await
+            .map_err(|error| unavailable(&open.run, &error, context))
+    }
+
+    /// The pages the Session `session` holds, by ID.
+    async fn pages_of(&self, session: &SessionId) -> Vec<(PageId, OpenPage)> {
+        self.state
+            .lock()
+            .await
+            .pages
+            .iter()
+            .filter(|(_, page)| &page.session == session)
+            .map(|(page_id, page)| (page_id.clone(), page.clone()))
+            .collect()
+    }
+
+    /// The Session `session` ended: it leaves, whatever pages it still
+    /// held go, and its run state records it closed.
+    async fn session_ended(
+        &self,
+        open: &Session,
+        session: &SessionId,
+    ) -> Result<(), RunStateError> {
         let pages = {
             let mut state = self.state.lock().await;
-            if state.sessions.remove(session).is_none() {
-                return Ok(());
-            }
+            state.sessions.remove(session);
             if let Some(runs) = state.runs.get_mut(open.run.id()) {
                 runs.closed.insert(open.position);
             }
@@ -384,7 +526,7 @@ impl Sessions {
         };
         self.events.close(&pages);
         self.interception.close(&pages, session);
-        open.seat.close().await;
+        self.hiding.close(session).await;
         let position = open.position;
         open.run
             .state()
@@ -397,18 +539,19 @@ impl Sessions {
                     .map(drop)
             })
             .await
-            .map_err(|error| unavailable(&open.run, &error, context))
     }
 
-    /// The open page `page_id`, or `closed`.
+    /// The page `page_id` this engine holds; `page_crashed` again for a
+    /// crashed one a close released, else `closed`.
     pub(crate) async fn page(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
-        self.state
-            .lock()
-            .await
-            .pages
+        let state = self.state.lock().await;
+        if let Some(page) = state.pages.get(page_id) {
+            return Ok(page.clone());
+        }
+        Err(state
+            .crashed
             .get(page_id)
-            .cloned()
-            .ok_or_else(|| page_closed(page_id))
+            .map_or_else(|| page_closed(page_id), |(_, life)| life.crashed()))
     }
 
     /// The open Session `session`, reaching its Run first when this engine
@@ -502,15 +645,19 @@ impl Sessions {
                     runs.closed.insert(position);
                 } else {
                     let settings = recorded_settings(&settings, run, context)?;
+                    // A reopened Session keeps the proxy it opened with, so
+                    // its address never changes under its cookies (SA-22).
+                    let proxy = open_proxy(run, &settings, context).await?;
                     let session = session_id(run.id(), position);
                     self.interception.open_session(&session);
                     state.sessions.insert(
-                        session,
+                        session.clone(),
                         Arc::new(Session {
                             run: run.clone(),
                             position,
-                            seat: pool.seat(Placement::Shared),
+                            seat: pool.seat(Placement::Shared, proxy),
                             settings,
+                            life: SessionLife::new(session, FRESH, SessionState::Open),
                         }),
                     );
                 }
@@ -554,11 +701,13 @@ impl Sessions {
             for session in &gone {
                 state.sessions.remove(session);
             }
+            state.crashed.retain(|_, (run, _)| run != &run_id);
             drop(state);
             for session in &gone {
                 let pages = pages.remove(session).unwrap_or_default();
                 sessions.events.close(&pages);
                 sessions.interception.close(&pages, session);
+                sessions.hiding.close(session).await;
             }
         });
     }
@@ -597,11 +746,13 @@ impl Sessions {
 }
 
 /// Reads a Session's own `settings` (ADRs 0083 and 0092): the Clean-up
-/// rules' keys, which its pages take over the Run's (ADR 0047), and
-/// `setting_locked` for one the Run's layers lock. Any other key is
-/// refused with `setting_not_applicable`: `session.source`, which the
-/// call's own `source` sets, first; any other, since no other setting takes
-/// effect on one Session apart from the Run's yet, so none is ignored.
+/// rules' keys, which its pages take over the Run's (ADR 0047), and the
+/// `proxy.*` keys, its one proxy (ADR 0021; SA-22), which a Client acting
+/// for a model may not set; and `setting_locked` for one the Run's layers
+/// lock. Any other key is refused with `setting_not_applicable`:
+/// `session.source`, which the call's own `source` sets, first; any other,
+/// since no other setting takes effect on one Session apart from the Run's
+/// yet, so none is ignored.
 fn own_settings(
     settings: &Map<String, Value>,
     run: &Run,
@@ -610,8 +761,12 @@ fn own_settings(
     if settings.is_empty() {
         return Ok(Values::default());
     }
-    let values = Values::read(SettingsLayer::Run, settings, context.identity().product)
-        .map_err(|error| settings_error(&error, context.identity()))?;
+    let mut values = Values::read(SettingsLayer::Run, settings, context.identity().product)
+        .map_err(|error| settings_error(&error, context.identity()))?
+        .from_origin(RunOrigin::Settings);
+    if context.surface().acts_for_model() {
+        values = values.from_model();
+    }
     let refused = if values.get(SESSION_SOURCE.name).is_some() {
         Some((
             SESSION_SOURCE.name,
@@ -620,7 +775,7 @@ fn own_settings(
     } else {
         values
             .keys()
-            .find(|key| !SESSION_KEYS.contains(key))
+            .find(|key| !SESSION_KEYS.contains(key) && !key.starts_with(PROXY_PREFIX))
             .map(|key| (key, "set it on the Run, whose Sessions all take it"))
     };
     if let Some((key, fix)) = refused {
@@ -659,6 +814,41 @@ fn own_settings(
     }
 }
 
+/// What starts the `proxy.*` keys a Session's own `settings` may set.
+const PROXY_PREFIX: &str = "proxy.";
+
+/// The proxy a Session of `run` opens with: the one its own settings `own`
+/// name, beneath the Run's, within the Run's locks and each key's
+/// authority, or the Run's.
+async fn open_proxy(
+    run: &Run,
+    own: &Values,
+    context: &CallContext,
+) -> Result<Option<Arc<SessionProxy>>, CallError> {
+    let Some(settings) = run.settings() else {
+        return match own.keys().next() {
+            Some(key) => Err(settings_error(
+                &SettingsError::NotApplicable {
+                    key: key.to_owned(),
+                    layer: SettingsLayer::Run,
+                    fix: "start the Run with its settings".to_owned(),
+                },
+                context.identity(),
+            )),
+            None => Ok(None),
+        };
+    };
+    let resolved = if own.is_empty() {
+        settings.resolved().clone()
+    } else {
+        settings
+            .resolved()
+            .beneath(own)
+            .map_err(|error| settings_error(&error, context.identity()))?
+    };
+    Ok(SessionProxy::open(&resolved, run).await?.map(Arc::new))
+}
+
 /// The own settings `recorded`, as the run state of `run` holds them, of a
 /// Session reopened from it.
 fn recorded_settings(
@@ -669,6 +859,7 @@ fn recorded_settings(
     let nested: Map<String, Value> =
         serde_json::from_str(recorded).map_err(|error| unavailable(run, &error, context))?;
     Values::read(SettingsLayer::Run, &nested, context.identity().product)
+        .map(|values| values.from_origin(RunOrigin::Settings))
         .map_err(|error| unavailable(run, &error, context))
 }
 

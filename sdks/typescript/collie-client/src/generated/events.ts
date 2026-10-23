@@ -27,11 +27,23 @@ export interface CollieEventPayloads {
    */
   "events.resync": Resync;
   /**
+   * The page closed: the engine closed it, or its window was closed in the browser outside every Client. Published while `page.on` listens to `close`, just before that call answers.
+   *
+   * @experimental
+   */
+  "page.close": PageFired;
+  /**
    * The page wrote a message to its console, `ConsoleMessage`: its type, text and location. Published while `page.on` listens to `console`, the only time the engine reads the page's console.
    *
    * @experimental
    */
   "page.console": ConsoleMessage;
+  /**
+   * The page crashed: its renderer, or its browser's process, which exited abnormally. Its calls in flight raised `page_crashed`, and so does each later call. Published while `page.on` listens to `crash`.
+   *
+   * @experimental
+   */
+  "page.crash": PageFired;
   /**
    * The document of the page's main frame fired `DOMContentLoaded`. Published while `page.on` listens to `dom_content_loaded`.
    *
@@ -153,7 +165,9 @@ export const collieEvents: Readonly<Record<keyof CollieEventPayloads, EventMarke
   "browser_cache.download_progress": { experimental: false, deprecated: undefined },
   "engine.system_info": { experimental: true, deprecated: undefined },
   "events.resync": { experimental: true, deprecated: undefined },
+  "page.close": { experimental: true, deprecated: undefined },
   "page.console": { experimental: true, deprecated: undefined },
+  "page.crash": { experimental: true, deprecated: undefined },
   "page.dom_content_loaded": { experimental: true, deprecated: undefined },
   "page.download": { experimental: true, deprecated: undefined },
   "page.load": { experimental: true, deprecated: undefined },

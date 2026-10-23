@@ -21,7 +21,8 @@
 //! Browser host and holding to a Clean-up rules digest, started through a
 //! contribution of the writer's own since no Client sets those yet, with a
 //! warning and `nothingDone` its owners handed over, and two Sessions its
-//! program opened, its default one open and another closed, which that
+//! program opened, its default one open and another closed, with a proxy
+//! of its own, which that
 //! contribution records since no browser runs here, whose program sets a
 //! progress message, which `run.checkpoint` checkpoints and
 //! `run.pause` pauses with a Checkpoint.
@@ -212,7 +213,7 @@ fn bound() -> Contribution {
                     .write(|connection| {
                         connection
                             .execute(
-                                r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed) VALUES (1, 1, 0, '{}', 6178731391398722387), (2, 0, 1, '{"filter_lists.ads":false}', -2937466112876520115)"#,
+                                r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed) VALUES (1, 1, 0, '{}', 6178731391398722387), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115)"#,
                                 [],
                             )
                             .map(drop)

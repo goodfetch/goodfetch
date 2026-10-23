@@ -74,7 +74,8 @@ fn serve_first_prints_the_address_of_each_network_fixture() {
             "mobile",
             "open",
             "refusing_tunnels",
-            "residential"
+            "residential",
+            "socks5"
         ]
     );
     assert!(
@@ -83,6 +84,21 @@ fn serve_first_prints_the_address_of_each_network_fixture() {
             .chain([&line["dns"], &line["target"]])
             .all(|fixture| fixture.as_str().is_some_and(|text| address.is_match(text))),
         "{line}"
+    );
+}
+
+/// Covers: story:2-82
+#[test]
+fn network_fixtures_serves_the_fixtures_the_first_line_reported() {
+    let proving_ground = ProvingGround::start(311);
+    let line: Value = serde_json::from_str(proving_ground.line()).expect("the line is JSON");
+
+    let served = proving_ground.control("/network-fixtures");
+
+    assert_eq!(served.status, 200, "{}", served.body);
+    assert_eq!(
+        (&served.json()["proxies"], &served.json()["dns"]),
+        (&line["proxies"], &line["dns"])
     );
 }
 

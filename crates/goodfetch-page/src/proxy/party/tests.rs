@@ -1,0 +1,132 @@
+//! The proxy-or-site rule: a `Proxy-Status` member naming an error is the
+//! proxy's whatever the rest of the field holds, and every other response
+//! the site's, as properties; and a `CONNECT` the proxy answers, which
+//! Chromium reports as one of its network errors, against a table of its
+//! `net_error_list.h` names.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
+use proptest::prelude::*;
+use rstest::rstest;
+
+use super::{Answer, Party, party};
+
+/// An RFC 9209 proxy name or a parameter's token.
+fn token() -> impl Strategy<Value = String> {
+    "[a-z][a-z0-9_.-]{0,12}"
+}
+
+/// A quoted string that may hold the separators and escapes.
+fn quoted() -> impl Strategy<Value = String> {
+    "[ a-z;,=\"\\\\]{0,16}".prop_map(|text| {
+        let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("\"{escaped}\"")
+    })
+}
+
+/// A parameter no proxy's error is: `next-hop`, `received-status`,
+/// `details` or another, with a token, a number or a quoted string.
+fn other_parameter() -> impl Strategy<Value = String> {
+    let key = prop_oneof![
+        Just("next-hop".to_owned()),
+        Just("received-status".to_owned()),
+        Just("details".to_owned()),
+        Just("rcode".to_owned()),
+        Just("errors".to_owned()),
+        Just("an-error".to_owned()),
+    ];
+    let value = prop_oneof![
+        token(),
+        (100_u16..600).prop_map(|n| n.to_string()),
+        quoted()
+    ];
+    (key, value).prop_map(|(key, value)| format!("{key}={value}"))
+}
+
+/// A list member: a proxy's name and its parameters, with `error` among
+/// them when `error` is given.
+fn member(error: Option<String>) -> impl Strategy<Value = String> {
+    (token(), prop::collection::vec(other_parameter(), 0..3)).prop_map(
+        move |(name, mut parameters)| {
+            if let Some(error) = &error {
+                parameters.push(format!("error={error}"));
+            }
+            parameters
+                .into_iter()
+                .fold(name, |member, parameter| format!("{member}; {parameter}"))
+        },
+    )
+}
+
+/// A `Proxy-Status` field of members none of which names an error.
+fn without_an_error() -> impl Strategy<Value = String> {
+    prop::collection::vec(member(None), 1..4).prop_map(|members| members.join(", "))
+}
+
+/// A `Proxy-Status` field one of whose members names an error.
+fn with_an_error() -> impl Strategy<Value = String> {
+    (
+        prop::collection::vec(member(None), 0..3),
+        token().prop_flat_map(|error| member(Some(error))),
+        prop::collection::vec(member(None), 0..3),
+    )
+        .prop_map(|(before, erring, after)| {
+            before
+                .into_iter()
+                .chain(std::iter::once(erring))
+                .chain(after)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+}
+
+proptest! {
+    #![proptest_config(goodfetch_test_support::proptest_config())]
+
+    /// Covers: story:5-88, error:proxy_unavailable
+    #[test]
+    fn a_response_whose_proxy_status_names_an_error_comes_from_the_proxy(field in with_an_error()) {
+        prop_assert_eq!(party(Answer::Response { proxy_status: Some(&field) }), Party::Proxy);
+    }
+
+    /// Covers: story:5-88
+    #[test]
+    fn a_response_whose_proxy_status_names_no_error_is_the_sites(field in without_an_error()) {
+        prop_assert_eq!(party(Answer::Response { proxy_status: Some(&field) }), Party::Site);
+    }
+
+    /// Covers: story:5-88
+    #[test]
+    fn any_proxy_status_is_read_without_failing(field in any::<String>()) {
+        let _ = party(Answer::Response { proxy_status: Some(&field) });
+    }
+}
+
+/// Covers: story:5-88
+#[test]
+fn a_response_without_proxy_status_is_the_sites() {
+    assert_eq!(party(Answer::Response { proxy_status: None }), Party::Site);
+}
+
+/// Covers: story:5-88, error:proxy_unavailable
+#[rstest]
+#[case::connect_refused("net::ERR_TUNNEL_CONNECTION_FAILED", Party::Proxy)]
+#[case::proxy_down("net::ERR_PROXY_CONNECTION_FAILED", Party::Proxy)]
+#[case::proxy_certificate("net::ERR_PROXY_CERTIFICATE_INVALID", Party::Proxy)]
+#[case::socks_refused("net::ERR_SOCKS_CONNECTION_FAILED", Party::Proxy)]
+#[case::socks_host_unreachable("net::ERR_SOCKS_CONNECTION_HOST_UNREACHABLE", Party::Proxy)]
+#[case::proxy_auth_unsupported("net::ERR_PROXY_AUTH_UNSUPPORTED", Party::Proxy)]
+#[case::https_proxy_redirect("net::ERR_HTTPS_PROXY_TUNNEL_RESPONSE_REDIRECT", Party::Proxy)]
+#[case::no_supported_proxies("net::ERR_NO_SUPPORTED_PROXIES", Party::Proxy)]
+#[case::site_refused("net::ERR_CONNECTION_REFUSED", Party::Site)]
+#[case::name_not_resolved("net::ERR_NAME_NOT_RESOLVED", Party::Site)]
+#[case::site_certificate("net::ERR_CERT_AUTHORITY_INVALID", Party::Site)]
+#[case::aborted("net::ERR_ABORTED", Party::Site)]
+fn a_failure_comes_from_the_proxy_when_chromium_names_its_answer(
+    #[case] error: &str,
+    #[case] expected: Party,
+) {
+    assert_eq!(party(Answer::Failure { error }), expected);
+}

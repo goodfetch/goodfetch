@@ -28,14 +28,14 @@ const SEED: u64 = 703;
 const CREDITS: u32 = 10_000;
 
 /// An Attached engine and the events its subscription read so far.
-struct Exchange<'env> {
-    engine: Attached<'env>,
+pub(crate) struct Exchange<'env> {
+    pub(crate) engine: Attached<'env>,
     events: Vec<Value>,
     next_id: i64,
 }
 
 impl<'env> Exchange<'env> {
-    fn new(engine: Attached<'env>) -> Self {
+    pub(crate) fn new(engine: Attached<'env>) -> Self {
         Self {
             engine,
             events: Vec::new(),
@@ -44,7 +44,7 @@ impl<'env> Exchange<'env> {
     }
 
     /// Sends a request and returns its ID.
-    fn request(&mut self, method: &str, params: &Value) -> i64 {
+    pub(crate) fn request(&mut self, method: &str, params: &Value) -> i64 {
         let id = self.next_id;
         self.next_id += 1;
         self.engine
@@ -58,7 +58,7 @@ impl<'env> Exchange<'env> {
     }
 
     /// Takes in one message: the events of a batch, or else the message.
-    fn read(&mut self) -> Option<Value> {
+    pub(crate) fn read(&mut self) -> Option<Value> {
         let message = self.engine.next().expect("the engine answered");
         if message["method"] == json!("route.handle") {
             // The harness's route aborts every request it is asked about,
@@ -82,7 +82,7 @@ impl<'env> Exchange<'env> {
     }
 
     /// The answer to the request `id`.
-    fn answer(&mut self, id: i64) -> Value {
+    pub(crate) fn answer(&mut self, id: i64) -> Value {
         loop {
             if let Some(message) = self.read()
                 && message.get("method").is_none()
@@ -93,13 +93,13 @@ impl<'env> Exchange<'env> {
         }
     }
 
-    fn call(&mut self, method: &str, params: &Value) -> Value {
+    pub(crate) fn call(&mut self, method: &str, params: &Value) -> Value {
         let id = self.request(method, params);
         self.answer(id)
     }
 
     /// Reads until an event `name` whose data `holds` arrived.
-    fn until(&mut self, name: &str, holds: impl Fn(&Value) -> bool) {
+    pub(crate) fn until(&mut self, name: &str, holds: impl Fn(&Value) -> bool) {
         while !self
             .events
             .iter()
@@ -110,7 +110,7 @@ impl<'env> Exchange<'env> {
     }
 
     /// The data of every event `name` read so far.
-    fn data(&self, name: &str) -> Vec<Value> {
+    pub(crate) fn data(&self, name: &str) -> Vec<Value> {
         self.events
             .iter()
             .filter(|event| event["event"] == json!(name))
@@ -119,14 +119,14 @@ impl<'env> Exchange<'env> {
     }
 
     /// Subscribes to the event stream with credits for every event.
-    fn subscribe(&mut self) -> i64 {
+    pub(crate) fn subscribe(&mut self) -> i64 {
         let id = self.request("events.subscribe", &json!({}));
         self.notify("$/credit", &json!({ "id": id, "credits": CREDITS }));
         id
     }
 
     /// Listens to `event` of `page`, answering the listening call's ID.
-    fn listen(&mut self, page: &str, event: &str) -> i64 {
+    pub(crate) fn listen(&mut self, page: &str, event: &str) -> i64 {
         self.request("page.on", &json!({ "page_id": page, "event": event }))
     }
 }

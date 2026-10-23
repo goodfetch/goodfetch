@@ -24,6 +24,7 @@ use crate::browser_pages;
 use crate::catalog;
 use crate::certificates;
 use crate::clean_up;
+use crate::consent;
 use crate::crawl::{self, Families};
 use crate::encodings;
 use crate::exchange::{Reply, Request};
@@ -122,6 +123,8 @@ impl Site {
                 files::HOST,
                 languages::HOST,
                 clean_up::HOST,
+                consent::HOST,
+                consent::FRAME_HOST,
             ])
             .map(|host| (host.to_owned(), None))
             .collect();
@@ -298,6 +301,9 @@ impl Site {
         if let Some(reply) = clean_up::respond(&name, request) {
             return reply;
         }
+        if let Some(reply) = consent::respond(&name, request) {
+            return reply;
+        }
         if name == model::HOST {
             // The Fake model answers its own paths (`Self::model`).
             return Reply::not_found();
@@ -372,6 +378,10 @@ impl Site {
                 content_type: "application/json",
                 headers: Vec::new(),
                 body: self.observations.document().into(),
+            },
+            (&Method::GET, "/network-fixtures") => match self.observations.network_fixtures() {
+                Some(fixtures) => Reply::json(StatusCode::OK, &fixtures),
+                None => Reply::not_found(),
             },
             (&Method::GET, "/certificate-authority") => Reply {
                 status: StatusCode::OK,

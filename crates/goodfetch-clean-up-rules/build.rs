@@ -1,10 +1,10 @@
-//! Compiles the embedded Clean-up rules (ADRs 0047 and 0057): each Filter
-//! list under `rules/`, with Brave's unbreak list and without the
-//! consent-vendor entries held back, into one `adblock` engine serialized
-//! with `Engine::serialize` from the binary's own `adblock` version and
-//! compressed with zstd; the never-block list and the stand-ins' alias
-//! table into Rust tables. Everything it reads is in the crate, so it
-//! downloads nothing (STYLE.md).
+//! Compiles the embedded Clean-up rules (ADRs 0047, 0048 and 0057): each
+//! Filter list under `rules/`, with Brave's unbreak list, into one `adblock`
+//! engine serialized with `Engine::serialize` from the binary's own
+//! `adblock` version and compressed with zstd; the never-block list and the
+//! stand-ins' alias table into Rust tables; and the Consent prompt runner's
+//! bundle (`consent`). Everything it reads is in the crate, so it downloads
+//! nothing (STYLE.md).
 #![expect(
     clippy::disallowed_methods,
     reason = "a build script is synchronous and reads its own environment and files"
@@ -16,6 +16,9 @@ use std::path::{Path, PathBuf};
 use adblock::Engine;
 use adblock::lists::{FilterSet, ParseOptions};
 use serde::Deserialize;
+
+#[path = "build/consent.rs"]
+mod consent;
 
 /// The embedded Filter lists, each its own engine, by the file each is
 /// compiled to: `filter_lists.ads`, `.trackers` and `.annoyances` turn each
@@ -29,9 +32,6 @@ const LISTS: [(&str, &str); 3] = [
 /// Brave's unbreak list, compiled into each engine so that its exceptions
 /// apply whichever lists are on.
 const UNBREAK: &str = "rules/brave-unbreak.txt";
-
-/// The consent-vendor entries held back from every list.
-const HELD_BACK: &str = "rules/consent-held-back.txt";
 
 const NEVER_BLOCK: &str = "rules/never-block.toml";
 
@@ -48,32 +48,13 @@ fn main() {
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("invariant: Cargo sets OUT_DIR"));
     println!("cargo::rerun-if-changed=rules");
     println!("cargo::rerun-if-changed=stand-ins");
+    println!("cargo::rerun-if-changed=consent");
 
-    let held_back = read(&manifest, HELD_BACK);
-    let held_back: Vec<&str> = held_back
-        .lines()
-        .filter(|line| !line.is_empty() && !line.starts_with('!'))
-        .collect();
     let unbreak = read(&manifest, UNBREAK);
-    let mut found = vec![false; held_back.len()];
     let mut embedded = String::new();
     for (name, path) in LISTS {
-        let text = read(&manifest, path);
-        let kept: String = text
-            .lines()
-            .filter(
-                |line| match held_back.iter().position(|held| held == line) {
-                    Some(index) => {
-                        found[index] = true;
-                        false
-                    }
-                    None => true,
-                },
-            )
-            .flat_map(|line| [line, "\n"])
-            .collect();
         let mut set = FilterSet::new(false);
-        set.add_filter_list(kept, ParseOptions::default());
+        set.add_filter_list(read(&manifest, path), ParseOptions::default());
         set.add_filter_list(unbreak.clone(), ParseOptions::default());
         let serialized = Engine::new_with_filter_set(set).serialize();
         let compressed = zstd::bulk::compress(&serialized, LEVEL)
@@ -90,13 +71,6 @@ fn main() {
         )
         .expect("invariant: writing to a String cannot fail");
     }
-    for (held, found) in held_back.iter().zip(&found) {
-        if !found {
-            println!(
-                "cargo::warning=`{held}` in {HELD_BACK} is in no embedded list any more; remove it"
-            );
-        }
-    }
     write(&out, "embedded.rs", &embedded);
     write(
         &out,
@@ -108,6 +82,7 @@ fn main() {
         "stand_ins.rs",
         &stand_ins(&manifest, &read(&manifest, ALIASES)),
     );
+    consent::bundle(&manifest, &out);
 }
 
 /// `size` as a Rust literal with `_` between each group of three digits.
@@ -154,6 +129,7 @@ enum Kind {
     AntiBot,
     AntiFraud,
     Payment,
+    Consent,
 }
 
 /// The never-block list as a Rust table of `Entry` values.

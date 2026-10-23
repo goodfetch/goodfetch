@@ -15,9 +15,12 @@
 //! browser's pages show the identity it shows with a window (`identity`).
 
 mod carry;
+mod encoding;
+mod ending;
 mod identity;
 
 mod navigation;
+mod targets;
 mod world;
 
 use std::sync::Arc;
@@ -40,12 +43,15 @@ use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::carry::{Carried, Origins};
+use self::encoding::{encoding_of, encoding_read, isolated_world};
+pub(crate) use self::ending::Lost;
 pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
 use crate::errors::{
     Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects, truncated,
 };
 use crate::launch::launch;
+use crate::proxy::{Answer, Party, SessionProxy, party, proxy_error};
 use crate::trace::CommandLog;
 use identity::Identity;
 
@@ -62,50 +68,9 @@ pub(crate) const GUARD_WORLD: &str = "goodfetch-guard";
 /// page script can read, as the Proving ground's CDP probe checks.
 const GUARD_MARKER: &str = "globalThis.__goodfetch_guard__ = true;";
 
-/// The expression that reads the encoding a document was decoded with.
-const DOCUMENT_ENCODING: &str = "document.characterSet";
-
-/// The command that makes, or finds by its name, the guard's isolated
-/// world in `frame`'s document.
-fn isolated_world(frame: page::FrameId) -> page::CreateIsolatedWorldParams {
-    page::CreateIsolatedWorldParams {
-        frame_id: frame,
-        world_name: Some(GUARD_WORLD.to_owned()),
-        grant_univeral_access: None,
-        content_security_policy: None,
-    }
-}
-
-/// The command that reads the document's encoding in the world whose
-/// context is `context`, never through `Runtime.enable` (ADR 0019).
-fn encoding_read(context: runtime::ExecutionContextId) -> runtime::EvaluateParams {
-    runtime::EvaluateParams {
-        expression: DOCUMENT_ENCODING.to_owned(),
-        object_group: None,
-        include_command_line_api: None,
-        silent: Some(true),
-        context_id: Some(context),
-        return_by_value: Some(true),
-        generate_preview: None,
-        user_gesture: None,
-        await_promise: None,
-        throw_on_side_effect: None,
-        timeout: None,
-        disable_breaks: None,
-        repl_mode: None,
-        allow_unsafe_eval_blocked_by_csp: None,
-        unique_context_id: None,
-        serialization_options: None,
-    }
-}
-
-/// The encoding an [`encoding_read`] answered, when it named one.
-fn encoding_of(evaluated: runtime::EvaluateReturns) -> Option<String> {
-    evaluated
-        .result
-        .value
-        .and_then(|value| value.as_str().map(str::to_owned))
-}
+/// The header an intermediary names its own errors in (RFC 9209), as the
+/// browser gives a response's headers, lower-cased.
+const PROXY_STATUS: &str = "proxy-status";
 
 /// A browser's CDP connection as the driver uses it.
 #[derive(Clone)]
@@ -118,6 +83,8 @@ pub(crate) struct Browser {
     identity: Option<Identity>,
     /// Its process's ID.
     process: Option<u32>,
+    /// Cancelled once the engine closes it, so its exit is not a loss.
+    closing: CancellationToken,
 }
 
 impl Browser {
@@ -265,6 +232,7 @@ impl Connect for LocalBrowser {
                     executable: launched.executable.display().to_string(),
                     identity: None,
                     process: launched.process,
+                    closing: self.stopping.clone(),
                 };
                 // The first answer says the browser is up.
                 let version = browser
@@ -281,17 +249,22 @@ impl Connect for LocalBrowser {
 }
 
 /// The Session-level driver: one Session's browser context, its own
-/// cookies and storage (ADR 0037 / SA-10), in which it opens its pages,
-/// made on its first use.
+/// cookies and storage (ADR 0037 / SA-10) and its one proxy, set on the
+/// context so no page or request has another (SA-22), in which it opens its
+/// pages, made on its first use.
 pub(crate) struct SessionDriver<B> {
     browser: B,
+    proxy: Option<Arc<SessionProxy>>,
     context: OnceCell<browser::BrowserContextID>,
 }
 
 impl<B: Connect> SessionDriver<B> {
-    pub(crate) fn new(browser: B) -> Self {
+    /// The driver of a Session of `browser` whose requests go through
+    /// `proxy`, if it has one.
+    pub(crate) fn new(browser: B, proxy: Option<Arc<SessionProxy>>) -> Self {
         Self {
             browser,
+            proxy,
             context: OnceCell::new(),
         }
     }
@@ -309,10 +282,15 @@ impl<B: Connect> SessionDriver<B> {
         let opening = browser.opening();
         self.context
             .get_or_try_init(|| async {
+                let proxy = self.proxy.as_deref();
                 browser
                     .send(
                         None,
-                        &target::CreateBrowserContextParams::default(),
+                        &target::CreateBrowserContextParams {
+                            proxy_server: proxy.map(SessionProxy::browser_server),
+                            proxy_bypass_list: proxy.map(SessionProxy::browser_bypass),
+                            ..target::CreateBrowserContextParams::default()
+                        },
                         &opening,
                     )
                     .await
@@ -428,10 +406,12 @@ impl<B: Connect> SessionDriver<B> {
         Ok(PageDriver {
             browser,
             session,
+            proxy: self.proxy.clone(),
             frame,
             navigation_timeout,
             started: Arc::new(watch::Sender::new(0)),
             turn: Arc::new(Mutex::new(None)),
+            gesture: Arc::new(Mutex::new(())),
         })
     }
 }
@@ -451,6 +431,8 @@ pub(crate) struct SerializedDocument {
 pub(crate) struct PageDriver {
     browser: Browser,
     session: TargetSession,
+    /// Its Session's proxy, if it has one.
+    proxy: Option<Arc<SessionProxy>>,
     /// The page's main frame.
     frame: page::FrameId,
     navigation_timeout: Duration,
@@ -461,6 +443,9 @@ pub(crate) struct PageDriver {
     /// command to its last, and waiters take it in arrival order. It keeps
     /// the guard's world in the current document, once one was made.
     turn: Arc<Mutex<Option<runtime::ExecutionContextId>>>,
+    /// The page's pointer, held from a check that arms the guard's listener
+    /// to its disarm, so no two gestures interleave (`targets`).
+    gesture: Arc<Mutex<()>>,
 }
 
 /// A gesture's turn on its page: its commands, sent while no other
@@ -503,37 +488,7 @@ impl Turn<'_> {
     /// Moves the pointer to (`x`, `y`) in the page's viewport and clicks
     /// there with its left button: input the page receives as trusted.
     pub(crate) async fn click(&mut self, x: f64, y: f64) -> Result<(), CallError> {
-        for (kind, button, buttons) in [
-            (input::DispatchMouseEventType::MouseMoved, None, None),
-            (
-                input::DispatchMouseEventType::MousePressed,
-                Some(input::MouseButton::Left),
-                Some(1),
-            ),
-            (
-                input::DispatchMouseEventType::MouseReleased,
-                Some(input::MouseButton::Left),
-                Some(0),
-            ),
-        ] {
-            let params = input::DispatchMouseEventParams {
-                r#type: kind,
-                x,
-                y,
-                modifiers: None,
-                timestamp: None,
-                button,
-                buttons,
-                click_count: button.map(|_| 1),
-                force: None,
-                tangential_pressure: None,
-                tilt_x: None,
-                tilt_y: None,
-                twist: None,
-                delta_x: None,
-                delta_y: None,
-                pointer_type: None,
-            };
+        for params in targets::pointer_click(x, y) {
             self.page
                 .browser
                 .send(Some(&self.page.session), &params, &self.call)
@@ -654,6 +609,11 @@ impl PageDriver {
         &self.frame
     }
 
+    /// Its Session's proxy, if it has one.
+    pub(crate) fn proxy(&self) -> Option<&SessionProxy> {
+        self.proxy.as_deref()
+    }
+
     /// The events of the page's target, from when this answers.
     pub(crate) async fn events(&self) -> Subscription {
         self.browser.connection.subscribe(Some(&self.session)).await
@@ -676,6 +636,34 @@ impl PageDriver {
     /// request may be gone.
     pub(crate) async fn command<C: Command>(&self, params: &C) -> Result<C::Returns, Failure> {
         self.browser.try_send(Some(&self.session), params).await
+    }
+
+    /// Calls `function`, a JavaScript function's source, with `argument` in
+    /// the guard's isolated world of the frame `frame`'s document, made or
+    /// found by its name, outside any gesture's turn: the reads engine
+    /// scripts make of a frame, such as live hiding's (ADR 0047). A frame
+    /// gone, or a function that throws, answers none.
+    pub(crate) async fn read_in_frame(
+        &self,
+        frame: &page::FrameId,
+        function: &str,
+        argument: serde_json::Value,
+    ) -> Result<Option<serde_json::Value>, Failure> {
+        let made = self
+            .browser
+            .try_send(Some(&self.session), &isolated_world(frame.clone()))
+            .await?;
+        let called = self
+            .browser
+            .try_send(
+                Some(&self.session),
+                &world::call(function, argument, made.execution_context_id),
+            )
+            .await?;
+        if called.exception_details.is_some() {
+            return Ok(None);
+        }
+        Ok(called.result.value)
     }
 
     /// Waits for the page's turn, in arrival order, for the gesture
@@ -776,6 +764,11 @@ impl PageDriver {
         )
         .await;
         match followed {
+            Ok(Ok(Ok(Arrived::Document(Some(response)))))
+                if let Some(failed) = self.answered_by_proxy(&url, &response) =>
+            {
+                Err(failed)
+            }
             Ok(Ok(Ok(Arrived::Document(Some(response))))) if wait_until != WaitUntil::Commit => {
                 Ok(Arrived::Document(Some(PageResponse {
                     encoding: self.document_encoding(&call).await?,
@@ -783,7 +776,11 @@ impl PageDriver {
                 })))
             }
             Ok(Ok(Ok(arrived))) => Ok(arrived),
-            Ok(Ok(Err(Ended::Failed(error)))) => Err(network_error(&url, &error)),
+            Ok(Ok(Err(Ended::Failed(error)))) => Err(self
+                .proxy
+                .as_ref()
+                .and_then(|proxy| proxy.failure(&url, &error))
+                .unwrap_or_else(|| network_error(&url, &error))),
             Ok(Ok(Err(Ended::Interrupted))) => Err(interrupted(&url)),
             Ok(Ok(Err(Ended::TooManyRedirects(chain)))) => Err(too_many_redirects(&url, chain)),
             Ok(Ok(Err(Ended::Truncated { received, expected }))) => {
@@ -796,6 +793,19 @@ impl PageDriver {
                 &format!("no load event within `{}`", TIMEOUT_NAVIGATION.name),
             )),
         }
+    }
+
+    /// `proxy_unavailable` when `response`, the document's response to a
+    /// navigation to `url`, is the Session's proxy's own, never the site's
+    /// (the proxy-or-site rule).
+    fn answered_by_proxy(&self, url: &str, response: &PageResponse) -> Option<CallError> {
+        let proxy = self.proxy.as_deref()?;
+        let proxy_status = response.headers.get(PROXY_STATUS).map(String::as_str);
+        if party(Answer::Response { proxy_status }) != Party::Proxy {
+            return None;
+        }
+        let error = proxy_status.and_then(proxy_error).unwrap_or_default();
+        Some(proxy.unavailable(url, &error))
     }
 
     /// The encoding the main frame's document was decoded with, read in
@@ -931,7 +941,10 @@ impl PageDriver {
                     node_id: Some(root.node_id),
                     backend_node_id: None,
                     object_id: None,
-                    include_shadow_dom: None,
+                    // Every shadow root, open or closed, serialized as a
+                    // `<template shadowrootmode>`, so that extraction-side
+                    // removal walks them (ADR 0047).
+                    include_shadow_dom: Some(true),
                 },
                 &call,
             )

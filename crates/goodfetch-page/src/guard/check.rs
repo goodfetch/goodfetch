@@ -14,16 +14,30 @@ pub(crate) const CHECK: &str = include_str!("check.js");
 /// The events of a click the interception listener checks.
 const CLICK_EVENTS: [&str; 5] = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"];
 
-/// The check's argument: the selector, the kind of action, which decides
-/// the conditions (`pointer`, `text` or `fill`), and how long it may wait
-/// in the page before it answers.
-pub(crate) fn argument(selector: &str, kind: &str, slice: Duration) -> Value {
-    json!({
-        "selector": selector,
+/// What a check looks at.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Target<'a> {
+    /// A CSS selector's one match.
+    Selector(&'a str),
+    /// The element another engine script put in the world's registry of
+    /// guard targets under this handle.
+    Handle(u64),
+}
+
+/// The check's argument: its target, the kind of action, which decides the
+/// conditions (`pointer`, `text` or `fill`), and how long it may wait in
+/// the page before it answers.
+pub(crate) fn argument(target: Target<'_>, kind: &str, slice: Duration) -> Value {
+    let mut argument = json!({
         "action": kind,
         "events": CLICK_EVENTS,
         "slice": u64::try_from(slice.as_millis()).unwrap_or(u64::MAX),
-    })
+    });
+    match target {
+        Target::Selector(selector) => argument["selector"] = json!(selector),
+        Target::Handle(handle) => argument["handle"] = json!(handle),
+    }
+    argument
 }
 
 /// What one check saw.

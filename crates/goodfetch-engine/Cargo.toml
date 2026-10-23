@@ -125,9 +125,6 @@ prometheus.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true
 rstest.workspace = true
-# Reads the transition tables' source to show they match with no wildcard
-# (ADR 0128, src/transition/tests.rs).
-syn = { workspace = true, features = ["visit"] }
 tempfile.workspace = true
 
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.

@@ -9,14 +9,17 @@
 //! interfaces without reaching its internals (STYLE.md, reason 2); it never
 //! names a Foxhound type.
 
+mod consent;
 mod driver;
 mod errors;
 mod guard;
+mod hiding;
 mod interception;
 mod launch;
 mod page_events;
 mod pages;
 mod pool;
+mod proxy;
 pub mod robots_txt;
 mod sessions;
 mod trace;

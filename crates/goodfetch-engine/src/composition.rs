@@ -93,6 +93,14 @@ impl CallError {
         }
     }
 
+    /// Its Error code's details; none for a protocol failure.
+    pub fn details(&self) -> Option<&Map<String, Value>> {
+        match &*self.0 {
+            Failure::Code { details, .. } => Some(details),
+            Failure::Protocol { .. } => None,
+        }
+    }
+
     /// What it says, for people.
     pub fn message(&self) -> &str {
         match &*self.0 {

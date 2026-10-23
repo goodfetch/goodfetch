@@ -323,6 +323,35 @@ fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
     );
 }
 
+/// The fetch suite against Foxhound's Attached engine: a crawl request
+/// under `fetch.tier: http` is fetched over HTTP, decoded, and handed to
+/// its handler as a page `page.formats` reads, the site seeing one request.
+///
+/// Covers: story:5-128
+#[test]
+fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed());
+    let proving_ground = ProvingGround::local(copy.address());
+    let target = target(&env, Tool::Foxhound, EngineMode::Attached);
+
+    let document = run_protocol_suite(&ProtocolSuite::fetch(), &target, &proving_ground).unwrap();
+    crate::keep(&document, "fetch-foxhound-attached");
+
+    assert_eq!(
+        (outcomes(&document), case_outcomes(&document)),
+        (
+            vec![("fetch.tier.http", Outcome::Proved)],
+            vec![(
+                "a-request-fetched-over-http-hands-its-handler-the-document-on-a-page",
+                CaseOutcome::Passed
+            )]
+        ),
+        "{}",
+        serde_json::to_string_pretty(&document).unwrap()
+    );
+}
+
 /// The delivery suite against Foxhound's executable, given by path, as an
 /// Attached engine and as a Daemon: a lease that ends unanswered is
 /// cancelled and its work item delivered again, an answer in time commits

@@ -6,7 +6,7 @@ How the engineering skills should consume this repo's domain documentation when 
 
 - **`GLOSSARY.md`** at the repo root.
 - **`docs/adr/`**: read ADRs that touch the area you're about to work in.
-- **`rnd/`** is R&D material kept for inspiration only: the draft vocabulary in `rnd/GLOSSARY.md`, the ADRs proposed in `rnd/adr/`, the research, the lab and its report in `rnd/README.md`. Nothing in it is an adopted term or decision, and it sets no process.
+- **`rnd/`** is R&D material kept for inspiration only: the draft vocabulary in `rnd/GLOSSARY.md`, the ADRs proposed in `rnd/adr/`, the research, the lab and its report in `rnd/README.md`.
 
 The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) records terms and decisions as they get resolved.
 

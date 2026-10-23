@@ -17,6 +17,7 @@
 //! keeps its response's body for `response.body`.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use goodfetch_engine::browser_cache::PinnedArtifact;
 use goodfetch_engine::clock::Clock;
@@ -48,10 +49,11 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
 
 use crate::browser_fetch;
-use crate::driver::{Arrived, Destination};
+use crate::driver::{Arrived, Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events::{self, Requested};
+use crate::page_value::{HandlerPages, ProgramPages};
 use crate::sessions::{self, OpenPage, PageEvent, Sessions};
 use crate::trace;
 use crate::url_pattern::UrlPattern;
@@ -64,13 +66,29 @@ mod clean_up;
 /// `page.go_back` and `page.go_forward`, of `page.formats` and of the
 /// locator actions, and of the routes and their answers, whose browsers
 /// come from `pins`, the builds the Product version pins.
+/// Every page it opens carries an empty value and registers no response
+/// observer, as a Collie program's pages do.
 pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
+    contribution_with(pins, Arc::new(ProgramPages))
+}
+
+/// What the page crate adds to the engine, as [`contribution`], each page
+/// it opens taking its value and its response observer from `hooks` (ADR
+/// 0087): the hook through which Foxhound sets them on the pages it hands
+/// to handlers.
+pub fn contribution_with(pins: Vec<PinnedArtifact>, hooks: Arc<dyn HandlerPages>) -> Contribution {
     let interception = Interception::default();
     let events = page_events::Table::default();
     let pages = Pages {
-        sessions: Sessions::new(pins, interception.clone(), events.clone()),
+        sessions: Sessions::new(
+            pins,
+            interception.clone(),
+            events.clone(),
+            Arc::clone(&hooks),
+        ),
         interception,
         events,
+        hooks,
     };
     let contribution = with_page_handlers(
         Contribution::new("page")
@@ -493,6 +511,9 @@ struct Pages {
     interception: Interception,
     /// Each open page's events, which calls reach as they arrive.
     events: page_events::Table,
+    /// The Product's hook, which also serves the pages its fetch tiers
+    /// opened from a document.
+    hooks: Arc<dyn HandlerPages>,
 }
 
 impl Pages {
@@ -603,7 +624,10 @@ impl Pages {
             max_redirects,
             option: max_redirects_option(surface),
         };
-        let (driver, in_browser) = self.sessions.engine_page(&page.session).await?;
+        let (driver, in_browser) = self
+            .sessions
+            .engine_page(&page.session, page.driver.value())
+            .await?;
         let fetched = browser_fetch::send(&driver, &steps, &request).await;
         driver.close().await;
         drop(in_browser);
@@ -644,6 +668,21 @@ impl Pages {
     /// cosmetic rules match (ADR 0047), which Provenance records.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_FORMATS.name, run_id = tracing::field::Empty))]
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
+        if let Some(served) = self.hooks.document(&params.page_id) {
+            tracing::Span::current().record("run_id", served.run.id().as_str());
+            let document = SerializedDocument {
+                html: served.html,
+                url: served.url,
+                base_url: served.base_url,
+            };
+            let request = params.formats;
+            let (formats, _) = served
+                .run
+                .owner()
+                .blocking(move || clean_up::read(&document, request, None))
+                .await;
+            return Ok(formats);
+        }
         let page = self.open(&params.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let document = page

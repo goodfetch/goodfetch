@@ -1154,6 +1154,18 @@
           "minimum": 0,
           "type": "integer"
         },
+        "page_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PageId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page served from the fetched document, which the handler reads\nas any page, when the engine fetched it."
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
@@ -1163,6 +1175,18 @@
           "$ref": "#/$defs/ServingSession",
           "arrived_in": "0.1",
           "description": "The Session of the crawl's Session pool that serves the attempt."
+        },
+        "tier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FetchTier"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The tier that fetched the request's document, when the engine\nfetched it (`fetch.tier`); none when the handler is given the\nrequest alone."
         }
       },
       "required": [
@@ -1885,6 +1909,10 @@
       ],
       "type": "object"
     },
+    "DownloadId": {
+      "description": "A Download of a Run, named by the engine when it keeps its file:\n`<run_id>.download-<position>`.",
+      "type": "string"
+    },
     "DownloadProgress": {
       "description": "What `browser_cache.download_progress` reports.",
       "properties": {
@@ -1920,6 +1948,61 @@
         "artifact",
         "host",
         "received_bytes"
+      ],
+      "type": "object"
+    },
+    "DownloadSaveAsParams": {
+      "additionalProperties": false,
+      "description": "What `download.save_as` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "download_id": {
+          "$ref": "#/$defs/DownloadId",
+          "arrived_in": "0.1",
+          "description": "The Download."
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The program's path, absolute, which an Attached engine writes\nitself; any other engine leaves it to the SDK and sends the file's\nbytes instead.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "download_id"
+      ],
+      "type": "object"
+    },
+    "DownloadSaved": {
+      "description": "What `download.save_as` answers once the file is whole.",
+      "properties": {
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written": {
+          "arrived_in": "0.1",
+          "description": "Whether the engine wrote the program's path itself; when not, the\n`$/chunk` notifications before this answer carried every byte, and\nthe SDK writes the path.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "size",
+        "sha256",
+        "written"
       ],
       "type": "object"
     },
@@ -2214,6 +2297,36 @@
         "requests"
       ],
       "type": "object"
+    },
+    "FetchTier": {
+      "description": "A tier that fetches a crawl request's document (ADR 0020), from the\ncheapest up.",
+      "oneOf": [
+        {
+          "const": "http",
+          "description": "An HTTP request, over reqwest in `standard` and `identified`\nSessions.",
+          "type": "string"
+        },
+        {
+          "const": "discovered_api",
+          "description": "The site's own API, found from its pages.",
+          "type": "string"
+        },
+        {
+          "const": "browser_fetch",
+          "description": "A request sent from a browser page's context.",
+          "type": "string"
+        },
+        {
+          "const": "light_browser",
+          "description": "A browser that runs scripts without layout.",
+          "type": "string"
+        },
+        {
+          "const": "browser",
+          "description": "Collie's browser page.",
+          "type": "string"
+        }
+      ]
     },
     "FillParams": {
       "additionalProperties": false,
@@ -8247,6 +8360,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The site's preferences refused the navigation or the request before it left, or refused the document once its response arrived, leaving the page on a blank document: its robots.txt disallows the URL (`robots_txt`), its `Crawl-delay` asks for more than the crawl allows (`crawl_delay`), or a use signal it sends refuses the crawl's Purpose (`use_signals`). Only a crawl handler's page asks a site's preferences; a page a program opens never raises it. The details name the URL and the reason.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "site_preferences_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.",
       "exit_code": null,
       "group": "page",
@@ -9261,6 +9384,25 @@
         "$ref": "#/$defs/DaemonStopping"
       },
       "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Saves a Download's file, which the engine keeps with its Run, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "download.save_as",
+      "params": {
+        "$ref": "#/$defs/DownloadSaveAsParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/DownloadSaved"
+      },
+      "stability": "experimental"
     },
     {
       "arrived_in": "0.1",
@@ -11022,6 +11164,29 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "auto",
+      "description": "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
+      "name": "fetch.tier",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "auto",
+          "http",
+          "discovered_api",
+          "browser_fetch",
+          "light_browser",
+          "browser"
+        ]
       },
       "weakens": false
     },

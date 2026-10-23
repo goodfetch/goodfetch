@@ -1,6 +1,13 @@
 //! One page's pipeline: each request its target pauses goes through the
 //! steps the interception lists, in order, as a task of the page's Run.
-//! Steps 3 to 8 for what the last route sends on are [`steps`]'s.
+//! Steps 3 to 8 for what the last route sends on are [`steps`]'s; step 6,
+//! the page's navigation gate, waits, so it is asked here. A document's
+//! response, and every response a response observer keeps, pause too.
+//!
+//! Size: one paused request's way through the steps, each of which reads
+//! and answers the same held request on the same page; the steps' pure
+//! judgement, the routes, the answers and the pending navigations are in
+//! their own modules.
 #![expect(
     clippy::disallowed_types,
     reason = "routes are armed and answers delivered as their call arrives, before any `.await`: each lock guards one table or map for one operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -11,7 +18,7 @@ use std::sync::{Arc, Mutex};
 
 use data_encoding::BASE64;
 use goodfetch_cdp::Subscription;
-use goodfetch_cdp::generated::{fetch, network};
+use goodfetch_cdp::generated::{fetch, network, page};
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::Policy;
@@ -35,7 +42,12 @@ use super::routes::Route;
 use super::steps::{self, Blocking, Overrides, Stopped, entries};
 use super::{PageState, lock};
 use crate::driver::PageDriver;
+use crate::errors::{site_preferences_failure, site_preferences_refused};
 use crate::page_events::Refusals;
+use crate::page_value::{
+    DocumentResponse, Kept, Navigation, NavigationKind, ObservedResponse, Permit, Refusal,
+    ResponseObserver,
+};
 
 /// Whose requests a pipeline holds.
 pub(crate) enum Sender {
@@ -70,6 +82,8 @@ pub(super) struct PageContext {
     blocking: Blocking,
     /// The refusals the page's requests then carry.
     refusals: Refusals,
+    /// The response observer its Session registered, and what it keeps.
+    observing: Option<Observing>,
     run: Run,
     /// The requests a `fetch` sent on, waiting for their response to be
     /// paused, by the interception's ID.
@@ -79,6 +93,11 @@ pub(super) struct PageContext {
     document: Mutex<String>,
     /// The requests the Session's proxy credentials were given for.
     authenticated: Mutex<Authenticated>,
+    /// The permit the page's navigation gate gave the main frame's
+    /// navigation for its latest hop, and that navigation's network ID,
+    /// held until the next hop, the navigation's failure or the page's
+    /// `load` event.
+    permit: Mutex<Option<(Option<network::RequestId>, Permit)>>,
 }
 
 /// The latest requests the Session's proxy credentials were given for, so a
@@ -123,6 +142,7 @@ impl PageContext {
         policy: Policy,
         blocking: Blocking,
         refusals: Refusals,
+        observing: Option<Observing>,
         run: Run,
     ) -> Self {
         Self {
@@ -133,11 +153,34 @@ impl PageContext {
             policy,
             blocking,
             refusals,
+            observing,
             run,
             responses: Mutex::new(BTreeMap::new()),
             document: Mutex::new(String::new()),
             authenticated: Mutex::new(Authenticated::default()),
+            permit: Mutex::new(None),
         }
+    }
+}
+
+/// A response observer and what it keeps, read once when its page opened
+/// (ADR 0110).
+#[derive(Clone)]
+pub(crate) struct Observing {
+    observer: Arc<dyn ResponseObserver>,
+    kept: Kept,
+}
+
+impl Observing {
+    /// `observer`, keeping what it says it keeps now.
+    pub(crate) fn of(observer: Arc<dyn ResponseObserver>) -> Self {
+        let kept = observer.kept();
+        Self { observer, kept }
+    }
+
+    /// Whether it keeps the response to `url`.
+    fn keeps(&self, url: &str) -> bool {
+        self.kept.urls.iter().any(|pattern| pattern.matches(url))
     }
 }
 
@@ -145,6 +188,34 @@ impl PageContext {
 /// pipeline as a task of its own.
 pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>) {
     while let Some(event) = events.next().await {
+        if event.read::<page::LoadEventFiredEvent>().is_some() {
+            // The navigation's last hop ends with the page's `load`.
+            drop(lock(&context.permit).take());
+            if let Some(page_id) = context.sender.page_id() {
+                context.state.pending.ended(page_id);
+            }
+            continue;
+        }
+        if let Some(started) = event.read::<page::FrameStartedNavigatingEvent>() {
+            if let Some(page_id) = context.sender.page_id()
+                && &started.frame_id == context.driver.main_frame()
+                && started.navigation_type
+                    != page::FrameStartedNavigatingNavigationType::SameDocument
+            {
+                context.state.pending.started(page_id, &started.url);
+            }
+            continue;
+        }
+        if let Some(failed) = event.read::<network::LoadingFailedEvent>() {
+            let mut permit = lock(&context.permit);
+            if permit
+                .as_ref()
+                .is_some_and(|(network_id, _)| network_id.as_ref() == Some(&failed.request_id))
+            {
+                drop(permit.take());
+            }
+            continue;
+        }
         if let Some(required) = event.read::<fetch::AuthRequiredEvent>() {
             let context = Arc::clone(&context);
             let run = context.run.clone();
@@ -164,8 +235,9 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
         let run = context.run.clone();
         run.spawn(async move {
             if at_response {
-                // A response no `fetch` waits for goes on as it came.
-                context.continue_response(&paused.request_id).await;
+                // A response no `fetch` waits for goes on as it came, once
+                // the navigation gate judged a document's.
+                context.responded(&paused).await;
             } else {
                 context.intercept(paused).await;
             }
@@ -559,6 +631,16 @@ impl PageContext {
         };
         let command = match steps::send_on(&paused, &self.policy, &self.blocking, fetch) {
             Ok(steps::Sent::Continue(command)) => {
+                // Step 6: the page's navigation gate; its lease check is
+                // asked before the command that sends the request on.
+                let admitted = if held.navigation {
+                    self.admit(held).await
+                } else {
+                    self.admit_for_worker(held).await
+                };
+                if let Err(refusal) = admitted {
+                    return Err(self.gate_refused(held, &refusal).await);
+                }
                 self.trace_service_worker(held, None);
                 command
             }
@@ -593,6 +675,177 @@ impl PageContext {
             tracing::debug!(?failure, "a paused request went before it was sent on");
         }
         Ok(())
+    }
+
+    /// Asks the page's navigation gate to admit `held`, a hop of the main
+    /// frame's navigation, keeping its permit until the hop ends: the
+    /// permit of the hop before is released first, since its 3xx or its
+    /// refresh stub ended it. The wait counts against no deadline of the
+    /// page, and its lease check holds the lease through it. A page with no
+    /// gate admits it at once.
+    async fn admit(&self, held: &Held) -> Result<(), Refusal> {
+        if self.driver.value().gate().is_none() {
+            return Ok(());
+        }
+        let network_id = held.paused.network_id.clone();
+        let before = lock(&self.permit).take();
+        let redirect = before
+            .as_ref()
+            .is_some_and(|(id, _)| id.is_some() && *id == network_id);
+        drop(before);
+        let navigation = Navigation {
+            url: held.url().to_owned(),
+            method: held.method().to_owned(),
+            kind: if redirect {
+                NavigationKind::Redirect
+            } else {
+                NavigationKind::Document
+            },
+        };
+        if let Some(permit) = self.driver.admit(&navigation).await? {
+            *lock(&self.permit) = Some((network_id, permit));
+        }
+        Ok(())
+    }
+
+    /// Asks the navigation gate to admit `held`, a service worker's request,
+    /// when it carries a navigation pending on a page of its Session: one to
+    /// that navigation's URL, fragment removed, in `navigate` mode or any
+    /// other. Its permit is the navigation's, held until the page's `load`.
+    /// Any other request is admitted at once.
+    async fn admit_for_worker(&self, held: &Held) -> Result<(), Refusal> {
+        if !matches!(self.sender, Sender::ServiceWorker { .. })
+            || self.driver.value().gate().is_none()
+        {
+            return Ok(());
+        }
+        let Some(page) = self.state.pending.take(held.url()) else {
+            return Ok(());
+        };
+        let navigation = Navigation {
+            url: held.url().to_owned(),
+            method: held.method().to_owned(),
+            kind: NavigationKind::ServiceWorker,
+        };
+        if let Some(permit) = self.driver.admit(&navigation).await? {
+            self.state.pending.hold(&page, permit);
+        }
+        Ok(())
+    }
+
+    /// Aborts `held`, which the page's navigation gate refused, and answers
+    /// `site_preferences_refused`: a navigation call waiting on the page
+    /// raises it; with none waiting, its `page.request_failed` carries it
+    /// and the Run trace records it. Aborted, the page keeps its document.
+    async fn gate_refused(&self, held: &Held, refusal: &Refusal) -> CallError {
+        let url = held.url();
+        let waiting = self.driver.navigation_waits();
+        if matches!(self.sender, Sender::ServiceWorker { .. }) {
+            // A worker's request, which no page's event reports, is
+            // recorded refused at once.
+            self.leave_refusal(held, site_preferences_failure(url, refusal));
+        } else if let Some(network_id) = &held.paused.network_id {
+            self.refusals
+                .leave(network_id, site_preferences_failure(url, refusal), !waiting);
+        }
+        if waiting {
+            self.state.leave(site_preferences_refused(url, refusal));
+        }
+        self.fail(&held.paused.request_id, network::ErrorReason::Aborted)
+            .await;
+        site_preferences_refused(url, refusal)
+    }
+
+    /// Acts on the response paused at `paused`, which no `fetch` waits for:
+    /// a main-frame document's goes on once the page's navigation gate
+    /// judged it, and on its refusal the page is left on a blank document,
+    /// the navigation call waiting on it raising the refusal; any other
+    /// response goes on as it came.
+    async fn responded(&self, paused: &fetch::RequestPausedEvent) {
+        let document = self.sender.page_id().is_some()
+            && paused.resource_type == network::ResourceType::Document
+            && &paused.frame_id == self.driver.main_frame();
+        let status = paused
+            .response_status_code
+            .and_then(|status| u16::try_from(status).ok())
+            .unwrap_or_default();
+        let gate = self
+            .driver
+            .value()
+            .gate()
+            .filter(|_| document && !(300..400).contains(&status));
+        let observing = self.observing.as_ref().filter(|observing| {
+            paused.response_status_code.is_some() && observing.keeps(&paused.request.url)
+        });
+        if gate.is_none() && observing.is_none() {
+            self.continue_response(&paused.request_id).await;
+            return;
+        }
+        let body = self.body(&paused.request_id).await;
+        let headers: Vec<(String, String)> = paused
+            .response_headers
+            .iter()
+            .flatten()
+            .map(|header| (header.name.to_ascii_lowercase(), header.value.clone()))
+            .collect();
+        if let Some(observing) = observing {
+            let observed = ObservedResponse {
+                url: &paused.request.url,
+                status,
+                headers: &headers,
+                from_service_worker: matches!(self.sender, Sender::ServiceWorker { .. }),
+            };
+            let cut = body.len().min(observing.kept.byte_cap);
+            observing.observer.on_response(&observed, &body[..cut]);
+        }
+        let Some(gate) = gate else {
+            self.continue_response(&paused.request_id).await;
+            return;
+        };
+        let response = DocumentResponse {
+            url: &paused.request.url,
+            status,
+            headers: &headers,
+            body: &body,
+        };
+        let Err(refusal) = gate.judge_document(&response) else {
+            self.continue_response(&paused.request_id).await;
+            return;
+        };
+        let error = site_preferences_refused(&paused.request.url, &refusal);
+        if self.driver.navigation_waits() {
+            self.state.leave(error);
+        } else {
+            tracing::info!(%error, "the navigation gate refused a document no call waited on: the page is left blank");
+        }
+        self.fulfill(
+            &paused.request_id,
+            Fulfillment {
+                status: 200,
+                headers: BTreeMap::from([("content-type".to_owned(), "text/html".to_owned())]),
+                body: String::new(),
+            },
+        )
+        .await;
+    }
+
+    /// The body of the response paused at `id`, after any content coding;
+    /// empty when the browser gives none.
+    async fn body(&self, id: &fetch::RequestId) -> Vec<u8> {
+        let Ok(read) = self
+            .driver
+            .command(&fetch::GetResponseBodyParams {
+                request_id: id.clone(),
+            })
+            .await
+        else {
+            return Vec::new();
+        };
+        if read.base64_encoded {
+            BASE64.decode(read.body.as_bytes()).unwrap_or_default()
+        } else {
+            read.body.into_bytes()
+        }
     }
 
     /// Fails `held`, which step 4 blocked, as `BlockedByClient`, as a

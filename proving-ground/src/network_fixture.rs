@@ -5,7 +5,8 @@
 //! lists.
 //!
 //! The proxies are `open`, `refusing_tunnels` (it refuses `CONNECT`),
-//! `down` (an address where nothing listens), `socks5` (a SOCKS5 proxy
+//! `down` (an address where nothing listens, which no other program can
+//! take), `socks5` (a SOCKS5 proxy
 //! behind the authenticated proxies' credentials), and one authenticated
 //! proxy per proxy kind (`datacenter`, `isp`, `residential`, `mobile`) with
 //! its own pool of exits.
@@ -21,7 +22,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -46,7 +47,7 @@ const REACHED: &[u8] =
 pub(crate) struct NetworkFixtures {
     proxies: Vec<ForwardProxy>,
     /// The address where the `down` proxy would listen.
-    down: SocketAddr,
+    down: Down,
     dns: DnsServer,
     target: TcpListener,
     context: Arc<Context>,
@@ -74,11 +75,7 @@ impl NetworkFixtures {
         for kind in KINDS {
             proxies.push(ForwardProxy::bind(host, Proxy::of_kind(kind, EXITS_PER_KIND)).await?);
         }
-        let down = TcpListener::bind((host, 0))
-            .await
-            .context("binding the down proxy's address")?
-            .local_addr()
-            .context("reading the down proxy's address")?;
+        let down = Down::hold(host).await?;
         let dns = DnsServer::bind(SocketAddr::new(host, 0), Arc::clone(&zone)).await?;
         let target = TcpListener::bind((host, 0))
             .await
@@ -100,7 +97,7 @@ impl NetworkFixtures {
     /// What `serve`'s output line reports of them: `proxies` by name,
     /// `proxy_credentials`, `dns` and `target`.
     pub(crate) fn report(&self) -> Result<Map<String, Value>> {
-        let mut proxies = BTreeMap::from([("down", self.down.to_string())]);
+        let mut proxies = BTreeMap::from([("down", self.down.address.to_string())]);
         for proxy in &self.proxies {
             proxies.insert(proxy.name(), proxy.address()?.to_string());
         }
@@ -135,10 +132,63 @@ impl NetworkFixtures {
             tracker.clone(),
             stop.clone(),
         ));
+        let _held_until_stopped = self.down;
         tokio::select! {
             () = self.dns.run() => {}
             () = stop.cancelled() => {}
         }
+    }
+}
+
+/// The `down` proxy's address: a port of the site's host that one end of a
+/// connection the fixtures make to themselves holds. Nothing listens there,
+/// so the kernel refuses every connection to it, and no other program can
+/// listen on it while the fixtures run, as one could on a port bound and
+/// released (fix-queue 31). A socket bound without listening would hold the
+/// port too, but macOS drops a connection to it unanswered instead of
+/// refusing it.
+struct Down {
+    address: SocketAddr,
+    /// Both ends of the connection that holds the port.
+    _ends: (TcpStream, TcpStream),
+}
+
+impl Down {
+    /// Holds a port of `host`.
+    async fn hold(host: IpAddr) -> Result<Self> {
+        let peer = TcpListener::bind((host, 0))
+            .await
+            .context("binding the down proxy's peer")?;
+        let peer_address = peer
+            .local_addr()
+            .context("reading the down proxy's peer's address")?;
+        // A socket of its own rather than a listener's, so it never reuses
+        // addresses: no other socket can bind its port.
+        let socket = match host {
+            IpAddr::V4(_) => TcpSocket::new_v4(),
+            IpAddr::V6(_) => TcpSocket::new_v6(),
+        }
+        .context("opening the down proxy's socket")?;
+        socket
+            .bind(SocketAddr::new(host, 0))
+            .context("binding the down proxy's address")?;
+        let address = socket
+            .local_addr()
+            .context("reading the down proxy's address")?;
+        let accepted = async {
+            loop {
+                let (stream, from) = peer.accept().await?;
+                if from == address {
+                    return Ok::<_, std::io::Error>(stream);
+                }
+            }
+        };
+        let ends = tokio::try_join!(socket.connect(peer_address), accepted)
+            .context("connecting the down proxy's address to its peer")?;
+        Ok(Self {
+            address,
+            _ends: ends,
+        })
     }
 }
 

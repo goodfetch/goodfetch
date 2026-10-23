@@ -200,6 +200,9 @@ strategy = "same_hostname"
 include = ["example"]
 exclude = ["example"]
 
+[settings.fetch]
+tier = "auto"
+
 [settings.paid_fetch]
 domains = ["example"]
 max_price_per_page = "0.05 USD"

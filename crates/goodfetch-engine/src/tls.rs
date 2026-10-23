@@ -163,8 +163,10 @@ impl Trust {
         }
     }
 
-    /// The rustls configuration of a connection under this trust.
-    pub(crate) fn client_config(&self) -> rustls::ClientConfig {
+    /// The rustls configuration of a connection under this trust, offering
+    /// HTTP/1.1 alone in ALPN; a transport that speaks HTTP/2 offers it
+    /// itself (Foxhound's HTTP fetch tier).
+    pub fn client_config(&self) -> rustls::ClientConfig {
         self.config(None)
     }
 

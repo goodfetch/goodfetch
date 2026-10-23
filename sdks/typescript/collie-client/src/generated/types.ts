@@ -121,6 +121,14 @@ export type DaemonEndpoint =
  */
 export type Unready = "draining" | "run_state_not_writable" | "browsers_missing" | "governor_last_resort";
 /**
+ * A Download of a Run, named by the engine when it keeps its file:
+ * `<run_id>.download-<position>`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DownloadId".
+ */
+export type DownloadId = string;
+/**
  * One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1447,6 +1455,46 @@ export interface ArtifactId1 {
    * Its name, such as `chrome-for-testing`.
    */
   name: string;
+}
+/**
+ * What `download.save_as` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DownloadSaveAsParams".
+ */
+export interface DownloadSaveAsParams {
+  /**
+   * The Download.
+   */
+  download_id: string;
+  /**
+   * The program's path, absolute, which an Attached engine writes
+   * itself; any other engine leaves it to the SDK and sends the file's
+   * bytes instead.
+   */
+  path?: string | null;
+}
+/**
+ * What `download.save_as` answers once the file is whole.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DownloadSaved".
+ */
+export interface DownloadSaved {
+  /**
+   * The SHA-256 of its bytes, in lowercase hexadecimal.
+   */
+  sha256: string;
+  /**
+   * The file's size in bytes.
+   */
+  size: number;
+  /**
+   * Whether the engine wrote the program's path itself; when not, the
+   * `$/chunk` notifications before this answer carried every byte, and
+   * the SDK writes the path.
+   */
+  written: boolean;
 }
 /**
  * An Error code a Run's ending raises, with its message and details.

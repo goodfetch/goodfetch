@@ -111,6 +111,7 @@ use crate::known_certificates::KnownCertificates;
 use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation};
 use crate::metrics::Metrics;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
+use crate::run_files::{self, FileKind, KeepError, Kept};
 use crate::run_index;
 use crate::run_key::{self, KeyError, RunKey, StoredKey};
 use crate::run_state::install::InstallDatabase;
@@ -1335,6 +1336,68 @@ impl Run {
             run_id: self.id.clone(),
             body,
             path: file.display().to_string(),
+            size,
+        })
+    }
+
+    /// Keeps the file `source` reads for the program, as the Run's file of
+    /// `kind` named `name` (ADRs 0085 and 0116): written whole into its
+    /// folder, named by its SHA-256, then recorded in its run state, so it
+    /// outlives the page or Session that gave it, travels in its
+    /// Checkpoints and goes only with the Run. While the Run folder's
+    /// filesystem is at the `critical` storage level it fails at once,
+    /// writing nothing, so the reserve stays for the Runs' stops (ADR
+    /// 0122).
+    ///
+    /// # Errors
+    ///
+    /// `Storage` when the folder cannot take the file, `State` when its
+    /// record cannot be committed.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave a hidden temporary file beside the
+    /// kept files, or a kept file no record names, never a partial one.
+    pub async fn keep_file<R>(
+        &self,
+        kind: FileKind,
+        name: String,
+        source: R,
+    ) -> Result<Kept, KeepError>
+    where
+        R: std::io::Read + Send + 'static,
+    {
+        let critical = self
+            .shared
+            .storage
+            .borrow()
+            .of(&self.folder)
+            .is_some_and(|filesystem| filesystem.level == StorageLevel::Critical);
+        if critical {
+            return Err(KeepError::Storage {
+                reason: "storage_full",
+                os_code: None,
+                message: format!(
+                    "the filesystem of `{}` is at the critical storage level",
+                    self.folder.display()
+                ),
+            });
+        }
+        let folder = self.folder.clone();
+        let mut source = source;
+        let (sha256, size) = self
+            .owner
+            .blocking(move || run_files::store(&folder, &mut source))
+            .await
+            .map_err(|error| KeepError::io(&error, "keep the file in the Run's folder"))?;
+        let recorded = sha256.clone();
+        let position = self
+            .state
+            .write(move |connection| run_files::record(connection, kind, &name, &recorded, size))
+            .await?;
+        Ok(Kept {
+            position,
+            sha256,
             size,
         })
     }

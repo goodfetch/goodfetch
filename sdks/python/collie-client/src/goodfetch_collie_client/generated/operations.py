@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageExchange, PageFormats, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRequestParams, PageResponse, PageRouteParams, PressParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOpened, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForRequestFinishedParams
+from .models import Acted, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, DownloadSaveAsParams, DownloadSaved, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageExchange, PageFormats, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRequestParams, PageResponse, PageRouteParams, PressParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOpened, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForRequestFinishedParams
 
 
 class AsyncCaller(Protocol):
@@ -77,6 +77,13 @@ class AsyncCollieOperations:
     async def daemon_stop(self, params: DaemonParams) -> DaemonStopping:
         """Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed."""
         return DaemonStopping.model_construct(**_fields(await self._caller.call("daemon.stop", params)))
+
+    async def download_save_as(self, params: DownloadSaveAsParams) -> DownloadSaved:
+        """Saves a Download's file, which the engine keeps with its Run, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DownloadSaved.model_construct(**_fields(await self._caller.call("download.save_as", params)))
 
     async def engine_info(self, params: EngineInfoParams) -> EngineInfo:
         """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""
@@ -430,6 +437,13 @@ class CollieOperations:
     def daemon_stop(self, params: DaemonParams) -> DaemonStopping:
         """Stops the Daemon once it answered: its live Runs stop, each resumable from its own state, and its runtime file and socket are removed."""
         return DaemonStopping.model_construct(**_fields(self._caller.call("daemon.stop", params)))
+
+    def download_save_as(self, params: DownloadSaveAsParams) -> DownloadSaved:
+        """Saves a Download's file, which the engine keeps with its Run, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DownloadSaved.model_construct(**_fields(self._caller.call("download.save_as", params)))
 
     def engine_info(self, params: EngineInfoParams) -> EngineInfo:
         """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""

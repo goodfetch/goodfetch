@@ -79,9 +79,10 @@ use self::lifecycle::{
 use crate::consent::Consent;
 use crate::driver::PageDriver;
 use crate::errors::{cancelled, invalid_transition};
-use crate::hiding::{Hiding, PageHiding};
+use crate::hiding::{Hiding, PageHiding, Sheets};
 use crate::interception::{Interception, SESSION_KEYS};
 use crate::page_events::{self, PageEvents, Refusals};
+use crate::page_value::{HandlerPages, PageValue};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
 use crate::proxy::{Opening, SessionProxy};
 
@@ -123,6 +124,9 @@ pub(crate) struct Sessions {
     hiding: Hiding,
     /// Each open page's events, which calls reach as they arrive.
     events: page_events::Table,
+    /// What each page carries for the Product that hands pages to
+    /// handlers: its value and its response observer (ADR 0087).
+    hooks: Arc<dyn HandlerPages>,
 }
 
 #[derive(Default)]
@@ -220,11 +224,13 @@ fn unavailable(run: &Run, error: &impl std::fmt::Display, context: &CallContext)
 
 impl Sessions {
     /// The engine's Sessions, whose browsers come from `pins`, under
-    /// `interception`, their pages' events in `events`.
+    /// `interception`, their pages' events in `events`, each page's value
+    /// and response observer from `hooks`.
     pub(crate) fn new(
         pins: Vec<PinnedArtifact>,
         interception: Interception,
         events: page_events::Table,
+        hooks: Arc<dyn HandlerPages>,
     ) -> Self {
         Self {
             state: Arc::new(Mutex::new(State::default())),
@@ -233,6 +239,7 @@ impl Sessions {
             consent: Consent::default(),
             hiding: Hiding::default(),
             events,
+            hooks,
         }
     }
 
@@ -365,6 +372,7 @@ impl Sessions {
         let (navigation_timeout, action_timeout) = timeouts(&run);
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
         let (driver, in_browser) = open.seat.new_page(navigation_timeout).await?;
+        let driver = driver.with_value(self.hooks.value(run.id(), session), run.clock());
         let page = {
             let mut state = self.state.lock().await;
             state.opened_pages += 1;
@@ -385,11 +393,22 @@ impl Sessions {
         self.events.insert(page.clone(), events);
         let clean_up = self
             .interception
-            .start(&page, session, &driver, &run, &open.settings, refusals)
+            .start(
+                &page,
+                session,
+                &driver,
+                &run,
+                &open.settings,
+                refusals,
+                self.hooks.observer(run.id(), session),
+            )
             .await?;
+        // Live hiding and the Consent prompt runner share each document's
+        // one hiding sheet.
+        let sheets = Arc::new(Sheets::new(driver.clone()));
         let hiding = match self
             .hiding
-            .start(&page, session, &driver, &run, &clean_up)
+            .start(&page, session, &driver, &run, &clean_up, &sheets)
             .await
         {
             Ok(hiding) => hiding,
@@ -400,7 +419,7 @@ impl Sessions {
                 return Err(error);
             }
         };
-        if let Err(error) = self.consent.start(&page, &driver, &run).await {
+        if let Err(error) = self.consent.start(&page, &driver, &run, &sheets).await {
             self.events.close(std::slice::from_ref(&page));
             self.interception
                 .close(std::slice::from_ref(&page), session);
@@ -570,10 +589,12 @@ impl Sessions {
     /// or event of theirs sees it, and it holds no admission of the
     /// governor's. The browser-fetch tier sends `page.request` from one,
     /// in the Session's browser context, so its cookies are the Session's
-    /// (ADR 0020). Its caller closes it; `closed` when the Session is.
+    /// (ADR 0020). It carries `value`, the value of the page it acts for.
+    /// Its caller closes it; `closed` when the Session is.
     pub(crate) async fn engine_page(
         &self,
         session: &SessionId,
+        value: &PageValue,
     ) -> Result<(PageDriver, InBrowser), CallError> {
         let open = self
             .state
@@ -585,7 +606,11 @@ impl Sessions {
             .ok_or_else(|| session_closed(session))?;
         open.life.call().await?;
         let (navigation_timeout, _) = timeouts(&open.run);
-        open.seat.new_page(navigation_timeout).await
+        let (driver, in_browser) = open.seat.new_page(navigation_timeout).await?;
+        Ok((
+            driver.with_value(value.clone(), open.run.clock()),
+            in_browser,
+        ))
     }
 
     /// The page `page_id` this engine holds; `page_crashed` again for a

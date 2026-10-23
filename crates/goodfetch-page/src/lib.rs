@@ -5,7 +5,8 @@
 //! the composition value [`contribution`] hands to the engine (ADR 0087),
 //! and the pure functions both Products' code calls: the engine's one URL
 //! matcher ([`url_pattern`]) and robots.txt's group selection
-//! ([`robots_txt`]). Its own crate so that Foxhound's crates fill its
+//! ([`robots_txt`]), and the interfaces Foxhound fills on the pages it
+//! hands to handlers ([`page_value`]). Its own crate so that Foxhound's crates fill its
 //! interfaces without reaching its internals (STYLE.md, reason 2); it never
 //! names a Foxhound type.
 
@@ -19,6 +20,7 @@ mod hiding;
 mod interception;
 mod launch;
 mod page_events;
+pub mod page_value;
 mod pages;
 mod pool;
 mod proxy;
@@ -29,4 +31,4 @@ mod trace;
 pub mod url_pattern;
 
 pub use clean_up_versions::manifest_file;
-pub use pages::contribution;
+pub use pages::{contribution, contribution_with};

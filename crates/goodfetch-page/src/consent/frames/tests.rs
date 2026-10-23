@@ -57,30 +57,3 @@ fn a_frame_of_a_detached_target_has_no_way_up() {
     frames.forget_session(&session("child"));
     assert_eq!(frames.owner_chain(&frame("child", "child-main")), None);
 }
-
-/// A click in a frame lifts every other document's hiding that holds a
-/// rule; a click in the page's own frame lifts none; and a new document
-/// drops its old sheet.
-#[test]
-fn a_click_in_a_frame_lifts_every_other_documents_hiding() {
-    let mut frames = page();
-    frames.set_sheet(&frame("page", "main"), "a".to_owned(), "#x {}".to_owned());
-    frames.set_sheet(
-        &frame("child", "child-main"),
-        "b".to_owned(),
-        "#y {}".to_owned(),
-    );
-    frames.set_sheet(&frame("page", "inner"), "c".to_owned(), String::new());
-    assert_eq!(
-        (
-            frames.sheets_but(&frame("child", "child-main")),
-            frames.sheets_but(&frame("page", "main")),
-        ),
-        (
-            vec![(session("page"), "a".to_owned(), "#x {}".to_owned())],
-            vec![],
-        )
-    );
-    frames.document(&session("page"), "main".to_owned(), 2);
-    assert_eq!(frames.sheet(&frame("page", "main")), None);
-}

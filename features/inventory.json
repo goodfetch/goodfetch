@@ -2398,6 +2398,17 @@
       ]
     },
     {
+      "id": "operation:page.request",
+      "kind": "operation",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:page.route",
       "kind": "operation",
       "area": 5,

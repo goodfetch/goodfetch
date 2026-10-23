@@ -2519,6 +2519,68 @@
       ],
       "type": "object"
     },
+    "PageRequestParams": {
+      "additionalProperties": false,
+      "description": "What `page.request` takes: the page whose Session sends the request, and\nthe request.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Headers set over those the browser sends, each name matched without\nregard to case.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "max_redirects": {
+          "arrived_in": "0.1",
+          "description": "How many redirects it follows, from 0, which answers the 3xx itself,\nto 19, the default; past its count it raises `too_many_redirects`,\nand a count above 19 is refused with `setting_invalid`.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "Its method; `GET` when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "post_data": {
+          "arrived_in": "0.1",
+          "description": "Its body, in Base64.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "url"
+      ],
+      "type": "object"
+    },
     "PageResponse": {
       "description": "The response to a request of a page, such as a navigation's document.",
       "properties": {
@@ -7385,6 +7447,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/Navigated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.request",
+      "params": {
+        "$ref": "#/$defs/PageRequestParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/PageResponse"
       },
       "stability": "experimental"
     },

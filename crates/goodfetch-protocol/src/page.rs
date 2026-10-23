@@ -8,8 +8,9 @@
 //! codes a page's browser, its navigations, its locators and the URL
 //! patterns its calls pass fail with. Its `route` module holds the page's
 //! and the Session's routes, its `session` module a Run's own Sessions,
-//! its `events` module the page's events and its responses' bodies, and
-//! its `proxy` module a Session's proxy.
+//! its `events` module the page's events and its responses' bodies, its
+//! `request` module `page.request`, the request API on a page's Session,
+//! and its `proxy` module a Session's proxy.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -40,6 +41,7 @@ use crate::settings::SettingLimit;
 
 pub mod events;
 pub mod proxy;
+pub mod request;
 pub mod route;
 pub mod session;
 
@@ -1021,6 +1023,7 @@ pub const ENTRIES: Entries = Entries {
         PAGE_ON,
         RESPONSE_BODY,
         PAGE_WAIT_FOR_REQUEST_FINISHED,
+        request::PAGE_REQUEST,
     ],
     events: &[
         PAGE_DOWNLOAD,

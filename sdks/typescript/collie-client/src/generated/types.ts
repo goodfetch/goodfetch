@@ -2744,6 +2744,44 @@ export interface PageRequest1 {
   url: string;
 }
 /**
+ * What `page.request` takes: the page whose Session sends the request, and
+ * the request.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageRequestParams".
+ */
+export interface PageRequestParams {
+  /**
+   * Headers set over those the browser sends, each name matched without
+   * regard to case.
+   */
+  headers?: {
+    [k: string]: string;
+  } | null;
+  /**
+   * How many redirects it follows, from 0, which answers the 3xx itself,
+   * to 19, the default; past its count it raises `too_many_redirects`,
+   * and a count above 19 is refused with `setting_invalid`.
+   */
+  max_redirects?: number | null;
+  /**
+   * Its method; `GET` when absent.
+   */
+  method?: string | null;
+  /**
+   * The page.
+   */
+  page_id: string;
+  /**
+   * Its body, in Base64.
+   */
+  post_data?: string | null;
+  /**
+   * The URL.
+   */
+  url: string;
+}
+/**
  * What `page.route` takes: the page, and the URLs whose requests its
  * handler answers.
  *

@@ -5691,6 +5691,68 @@
       ],
       "type": "object"
     },
+    "PageRequestParams": {
+      "additionalProperties": false,
+      "description": "What `page.request` takes: the page whose Session sends the request, and\nthe request.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Headers set over those the browser sends, each name matched without\nregard to case.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "max_redirects": {
+          "arrived_in": "0.1",
+          "description": "How many redirects it follows, from 0, which answers the 3xx itself,\nto 19, the default; past its count it raises `too_many_redirects`,\nand a count above 19 is refused with `setting_invalid`.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "Its method; `GET` when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "post_data": {
+          "arrived_in": "0.1",
+          "description": "Its body, in Base64.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "url"
+      ],
+      "type": "object"
+    },
     "PageResponse": {
       "description": "The response to a request of a page, such as a navigation's document.",
       "properties": {

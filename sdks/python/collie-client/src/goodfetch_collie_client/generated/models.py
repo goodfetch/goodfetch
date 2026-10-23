@@ -852,6 +852,36 @@ class PageParams(BaseModel):
     """The page."""
 
 
+class PageRequestParams(BaseModel):
+    """
+    What `page.request` takes: the page whose Session sends the request, and
+    the request.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    headers: dict[str, Any] | None = None
+    """
+    Headers set over those the browser sends, each name matched without
+    regard to case.
+    """
+    max_redirects: Annotated[int | None, Field(ge=0)] = None
+    """
+    How many redirects it follows, from 0, which answers the 3xx itself,
+    to 19, the default; past its count it raises `too_many_redirects`,
+    and a count above 19 is refused with `setting_invalid`.
+    """
+    method: str | None = None
+    """Its method; `GET` when absent."""
+    page_id: PageId
+    """The page."""
+    post_data: str | None = None
+    """Its body, in Base64."""
+    url: str
+    """The URL."""
+
+
 class PageResponse(BaseModel):
     """The response to a request of a page, such as a navigation's document."""
 

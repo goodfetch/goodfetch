@@ -155,7 +155,7 @@ struct State {
     /// The bodies kept for the responses a waiter answered.
     kept: BTreeMap<String, BodyHandle>,
     waiters: Vec<Waiter>,
-    /// The WebSockets the page opened, by the browser's ID.
+    /// The sockets the page opened, by the browser's ID.
     sockets: BTreeMap<String, String>,
 }
 
@@ -295,7 +295,7 @@ impl PageEvents {
             surface,
             answer,
         });
-        let (deadline, clock) = (self.shared.wait.clone(), self.shared.clock.clone());
+        let (deadline, clock) = (self.shared.wait.clone(), self.shared.clock);
         async move {
             match deadline
                 .within(&clock, "finished request", answered)
@@ -645,7 +645,7 @@ fn error_text(error: &str) -> &str {
 /// The suffix of a network error the browser's debugging client caused.
 const INSPECTOR: &str = ".Inspector";
 
-/// The events of WebSockets, of the main frame's document and of the
+/// The events of sockets, of the main frame's document and of the
 /// `Runtime` domain.
 fn take_in_other(
     shared: &Shared,

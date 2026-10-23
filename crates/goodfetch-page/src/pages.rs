@@ -99,8 +99,8 @@ fn with_event_handlers(contribution: Contribution, table: &page_events::Table) -
                     .get(&params.page_id)
                     .map(|events| events.listen(params.event, Clock::system().wall()));
                 async move {
-                    let (listener, runtime) = listened?;
-                    listener.until_gone(runtime).await?;
+                    let (armed, runtime) = listened?;
+                    armed.until_gone(runtime).await?;
                     Ok::<PageOnEnded, CallError>(PageOnEnded {})
                 }
             },

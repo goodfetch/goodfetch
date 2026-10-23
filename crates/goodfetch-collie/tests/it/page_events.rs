@@ -10,6 +10,10 @@
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the Run trace and page body files on its own thread, never an async worker"
+)]
 
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use serde_json::{Map, Value, json};
@@ -141,10 +145,58 @@ fn page_of<'env>(
     (exchange, page.page_id.0)
 }
 
+/// The first of `requests` to `url`.
+fn with_url(requests: &[Value], url: &str) -> Value {
+    requests
+        .iter()
+        .find(|request| request["url"] == json!(url))
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// The status of the first of `responses` from `url`.
+fn status(responses: &[Value], url: &str) -> Option<Value> {
+    responses
+        .iter()
+        .find(|exchange| exchange["response"]["url"] == json!(url))
+        .map(|exchange| exchange["response"]["status"].clone())
+}
+
 fn urls(data: &[Value]) -> Vec<String> {
     data.iter()
         .filter_map(|request| request["url"].as_str().map(ToOwned::to_owned))
         .collect()
+}
+
+/// The network events and `load` and `domcontentloaded`, `request` first.
+const NETWORK_AND_LOAD: [&str; 7] = [
+    "request",
+    "request_finished",
+    "request_failed",
+    "response",
+    "web_socket",
+    "load",
+    "dom_content_loaded",
+];
+
+/// Cancels the `request` listener's call `listener`, which removes it, and
+/// reloads the page: answers the cancelled call and the `page.request`
+/// events of the reload, none once the listener is gone, while its
+/// responses still come.
+fn cancelled(
+    exchange: &mut Exchange<'_>,
+    listener: i64,
+    page: &str,
+    url: &str,
+) -> (Value, Vec<Value>) {
+    exchange.notify("$/cancel", &json!({ "id": listener }));
+    let cancelled = exchange.answer(listener);
+    exchange.events.clear();
+    exchange.call("page.reload", &json!({ "page_id": page }));
+    exchange.until("page.response", |exchange| {
+        exchange["response"]["url"] == json!(url)
+    });
+    (cancelled, exchange.data("page.request"))
 }
 
 /// The network events of the page events page each carry ADR 0085's data:
@@ -164,16 +216,7 @@ fn a_pages_network_and_load_events_carry_their_data_and_a_cancelled_listener_no_
     let missing = proving_ground.url("access.test", "/page-events/missing");
 
     exchange.subscribe();
-    let listening = [
-        "request",
-        "request_finished",
-        "request_failed",
-        "response",
-        "web_socket",
-        "load",
-        "dom_content_loaded",
-    ]
-    .map(|event| (event, exchange.listen(&page, event)));
+    let listening = NETWORK_AND_LOAD.map(|event| exchange.listen(&page, event));
     let went = exchange.call("page.goto", &json!({ "page_id": page, "url": url }));
     exchange.until("web_socket.close", |_| true);
     let requests = exchange.data("page.request");
@@ -188,36 +231,12 @@ fn a_pages_network_and_load_events_carry_their_data_and_a_cancelled_listener_no_
         exchange.data("page.load"),
     );
 
-    // Cancelling the `request` listener removes it: a reload's requests
-    // are no `page.request` events, while its responses still are.
-    let (_, request_listener) = listening[0];
-    exchange.notify("$/cancel", &json!({ "id": request_listener }));
-    let cancelled = exchange.answer(request_listener);
-    exchange.events.clear();
-    exchange.call("page.reload", &json!({ "page_id": page }));
-    exchange.until("page.response", |exchange| {
-        exchange["response"]["url"] == json!(url)
-    });
-    let after_cancel = exchange.data("page.request");
+    let (cancelled, after_cancel) = cancelled(&mut exchange, listening[0], &page, &url);
     let _ = exchange.call("run.finish", &json!({ "run_id": "events" }));
     let _ = exchange.engine.finish();
 
-    let document = requests
-        .iter()
-        .find(|request| request["url"] == json!(url))
-        .cloned()
-        .unwrap_or_default();
-    let fetched = requests
-        .iter()
-        .find(|request| request["url"] == json!(data))
-        .cloned()
-        .unwrap_or_default();
-    let status_of = |wanted: &str| {
-        responses
-            .iter()
-            .find(|exchange| exchange["response"]["url"] == json!(wanted))
-            .map(|exchange| exchange["response"]["status"].clone())
-    };
+    let (document, fetched) = (with_url(&requests, &url), with_url(&requests, &data));
+    let status_of = |wanted: &str| status(&responses, wanted);
     assert_eq!(went["result"]["response"]["status"], json!(200), "{went}");
     assert_eq!(
         (

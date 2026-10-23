@@ -292,8 +292,22 @@ pub(crate) fn exclusions(root: &Path) -> Result<Vec<(&'static str, String)>> {
 /// The pattern that matches exactly `tests` of Playwright, which matches a
 /// pattern against the project, the file and the titles joined by spaces.
 pub(crate) fn playwright_pattern(tests: &[&TestId]) -> String {
-    let paths = alternation(tests.iter().map(|test| test.0.replace(" › ", " ")));
-    format!("(?:^| )(?:{paths})(?: |$)")
+    let (before, after) = PLAYWRIGHT_AROUND;
+    let paths = tests
+        .iter()
+        .map(|test| playwright_alternative(test))
+        .collect::<Vec<_>>()
+        .join("|");
+    format!("{before}{paths}{after}")
+}
+
+/// What a Playwright pattern of tests puts before and after their
+/// alternatives, joined by `|`, so that each matches a whole path.
+pub(crate) const PLAYWRIGHT_AROUND: (&str, &str) = ("(?:^| )(?:", ")(?: |$)");
+
+/// A Playwright test's alternative in such a pattern: its path, literal.
+pub(crate) fn playwright_alternative(test: &TestId) -> String {
+    alternation(std::iter::once(test.0.replace(" › ", " ")))
 }
 
 /// The texts as a JavaScript regular expression's alternatives, each literal.

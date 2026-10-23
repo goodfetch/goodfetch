@@ -519,15 +519,14 @@ pub fn main(start: &Start) -> ExitCode {
     if !launched {
         age_notice(start.release_date, &home, engine.identity());
     }
-    let entropy = match entropy {
-        Ok(entropy) => entropy,
-        Err(error) => {
-            tracing::error!(%error, "the engine has no seed for its random choices");
-            return ExitCode::FAILURE;
-        }
+    let Ok(entropy) = entropy.inspect_err(|error| {
+        tracing::error!(%error, "the engine has no seed for its random choices");
+    }) else {
+        return ExitCode::FAILURE;
     };
     let dependencies = Dependencies {
         environment: environment.clone(),
+        keychain: goodfetch_engine::secrets::Keychain::os(),
         home,
         clock,
         entropy,

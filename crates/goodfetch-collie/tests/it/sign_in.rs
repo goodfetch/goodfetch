@@ -189,7 +189,7 @@ fn reason(rule: Rule) -> Option<&'static str> {
         Rule::HelloNotFirst => "hello_not_first",
         Rule::CsrfTokenMissing => "csrf_token_missing",
         Rule::SignInRateExceeded => "sign_in_rate_exceeded",
-        Rule::ProbesAnswerStatusOnly => return None,
+        Rule::ProbesAnswerStatusOnly | Rule::TokenForAnotherFile => return None,
     })
 }
 

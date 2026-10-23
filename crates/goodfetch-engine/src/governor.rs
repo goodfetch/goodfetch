@@ -352,6 +352,7 @@ impl Sampler {
                 },
             );
             self.shares.set_targets(decision.admits);
+            self.shares.sampled(decision.level);
             if decision.level == GovernorLevel::Critical {
                 for process in self.shares.browsers().shed_at_critical() {
                     tracing::info!(process, "memory is critical: the governor sheds a browser");

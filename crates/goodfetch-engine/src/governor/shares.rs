@@ -13,8 +13,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use goodfetch_protocol::governor::WorkKind;
-use tokio::sync::Notify;
+use goodfetch_protocol::governor::{GovernorLevel, WorkKind};
+use tokio::sync::{Notify, watch};
 
 use super::browsers::{Browsers, GovernedBrowser};
 use super::ladder::Weight;
@@ -25,6 +25,8 @@ use super::ladder::Weight;
 pub(crate) struct Shares {
     state: Arc<Mutex<State>>,
     browsers: Browsers,
+    /// The level of each sample, sent at every sample.
+    level: Arc<watch::Sender<GovernorLevel>>,
 }
 
 #[derive(Debug)]
@@ -109,6 +111,7 @@ impl Shares {
                 next_run: 0,
             })),
             browsers: Browsers::default(),
+            level: Arc::new(watch::Sender::new(GovernorLevel::Normal)),
         }
     }
 
@@ -154,6 +157,11 @@ impl Shares {
     /// The browsers the Runs' pools launched.
     pub(crate) fn browsers(&self) -> &Browsers {
         &self.browsers
+    }
+
+    /// A sample found the governor at `level`.
+    pub(crate) fn sampled(&self, level: GovernorLevel) {
+        self.level.send_replace(level);
     }
 }
 
@@ -320,6 +328,13 @@ impl RunShare {
     /// at critical (ADR 0040).
     pub fn browser(&self, process: u32) -> GovernedBrowser {
         self.shares.browsers.join(self.run, process)
+    }
+
+    /// The level the governor found at each sample, which changes at every
+    /// sample, even to the same level: at critical the Run's pages past
+    /// their cap end (ADR 0040).
+    pub fn samples(&self) -> watch::Receiver<GovernorLevel> {
+        self.shares.level.subscribe()
     }
 
     /// What the last resort weighs of the Run: its browsers' memory at the

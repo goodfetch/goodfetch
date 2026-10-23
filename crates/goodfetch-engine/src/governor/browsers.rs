@@ -173,14 +173,17 @@ impl GovernedBrowser {
     }
 
     /// Answers once the governor shed it: the pool closes it when it holds
-    /// no open page, and recycles it otherwise.
+    /// no open page, and recycles it otherwise. The future holds no borrow
+    /// of the browser, so a task may wait on it while the pool keeps it.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses nothing: a later call answers at once.
-    pub async fn shed(&self) {
+    pub fn shed(&self) -> impl Future<Output = ()> + Send + 'static {
         let mut shed = self.shed.clone();
-        let _ = shed.wait_for(|shed| *shed).await;
+        async move {
+            let _ = shed.wait_for(|shed| *shed).await;
+        }
     }
 }
 

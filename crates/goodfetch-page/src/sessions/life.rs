@@ -351,6 +351,23 @@ impl SessionLife {
         *self.shared.state.borrow()
     }
 
+    /// Waits until the Session closes or crashes.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future gives up the wait.
+    pub(crate) async fn ended(&self) {
+        let mut state = self.shared.state.subscribe();
+        let _ = state
+            .wait_for(|state| {
+                matches!(
+                    state,
+                    SessionState::Closing | SessionState::Closed | SessionState::Crashed
+                )
+            })
+            .await;
+    }
+
     /// Waits until the Session's table serves a program call on it.
     ///
     /// # Cancel safety

@@ -312,6 +312,28 @@ impl PageEvents {
         }
     }
 
+    /// Publishes `event` with `data`, an event of the page the engine
+    /// itself sees, such as `page.popup`, when a call listens to `name`.
+    pub(crate) async fn publish(
+        &self,
+        name: PageEventName,
+        event: &'static Event,
+        data: &impl serde::Serialize,
+    ) {
+        let listening = lock(&self.shared.state).listening.contains_key(&name);
+        if listening {
+            self.shared
+                .events
+                .publish(event, Some(&self.shared.page_id.0), data)
+                .await;
+        }
+    }
+
+    /// The engine's event stream the page publishes on.
+    pub(crate) fn stream(&self) -> &Events {
+        &self.shared.events
+    }
+
     /// The page went: every listener's and waiter's call answers.
     pub(crate) fn close(&self) {
         lock(&self.shared.state).waiters.clear();

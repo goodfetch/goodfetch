@@ -2,7 +2,9 @@
 //! (ADR 0007), over the engine's Sessions and their pages (`sessions`, ADRs
 //! 0085 and 0092): `run.new_page` opens a page in the Run's default
 //! Session, `run.new_session` a Session of the Run's own, `session.new_page`
-//! a page in it and `session.close` closes it. A locator action reaches its
+//! a page in it and `session.close` closes it; `session.pages` lists a
+//! Session's pages, its popups among them, `session.on` announces each one
+//! as it opens, and `page.close` closes one. A locator action reaches its
 //! page's driver through the guard, under the Run's `timeout.action`. A
 //! navigation the browser turns into a download answers no response and
 //! publishes `page.download` on the engine's event stream. Every page is
@@ -14,7 +16,10 @@
 //! them, and `response.body` and `page.wait_for_request_finished` read its
 //! responses' bodies (`page_events`). `page.request` sends a request from
 //! the page's Session through the browser-fetch tier (`browser_fetch`) and
-//! keeps its response's body for `response.body`.
+//! keeps its response's body for `response.body`. `page.on_dialog` arms a
+//! dialog handler and `dialog.*` answer the dialogs it is asked about
+//! (`dialogs`); a failure a dialog handler left is raised by the action the
+//! dialog blocked, or else by the page's next call.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -25,6 +30,10 @@ use goodfetch_engine::events::Events;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::page::dialog::{
+    DIALOG_ACCEPT, DIALOG_DISMISS, DialogAcceptParams, DialogAnswered, DialogDismissParams,
+    PAGE_ON_DIALOG, PageOnDialogParams,
+};
 use goodfetch_protocol::page::events::{
     PAGE_ON, PAGE_WAIT_FOR_REQUEST_FINISHED, PageOnEnded, PageOnParams, RESPONSE_BODY,
     ResponseBodyParams, WaitForRequestFinishedParams,
@@ -40,6 +49,9 @@ use goodfetch_protocol::page::session::{
     NewSessionParams, RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE, SessionClosed,
     SessionParams,
 };
+use goodfetch_protocol::page::tabs::{
+    self, PageCloseParams, PageClosed, SESSION_ON, SESSION_PAGES, SessionEventName, SessionOnParams,
+};
 use goodfetch_protocol::page::{
     Acted, ClickParams, FillParams, FormatsParams, GotoParams, LOCATOR_CLICK, LOCATOR_FILL,
     LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_DOWNLOAD, PAGE_FORMATS, PAGE_GO_BACK,
@@ -49,6 +61,7 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
 
 use crate::browser_fetch;
+use crate::dialogs::{self, Dialogs};
 use crate::driver::{Arrived, Destination};
 use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
@@ -79,10 +92,18 @@ pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
 pub fn contribution_with(pins: Vec<PinnedArtifact>, hooks: Arc<dyn HandlerPages>) -> Contribution {
     let interception = Interception::default();
     let events = page_events::Table::default();
+    let dialogs = Dialogs::default();
     let pages = Pages {
-        sessions: Sessions::new(pins, interception.clone(), events.clone(), hooks),
+        sessions: Sessions::new(
+            pins,
+            interception.clone(),
+            events.clone(),
+            dialogs.clone(),
+            hooks,
+        ),
         interception,
         events,
+        dialogs,
     };
     let contribution = with_page_handlers(
         Contribution::new("page").with_run_state_tables(sessions::TABLES),
@@ -92,6 +113,7 @@ pub fn contribution_with(pins: Vec<PinnedArtifact>, hooks: Arc<dyn HandlerPages>
     let contribution = with_locator_handlers(contribution, &pages);
     let contribution = with_event_handlers(contribution, &pages.events);
     let contribution = with_route_handlers(contribution, &pages.interception);
+    let contribution = with_dialog_handlers(contribution, &pages.dialogs);
     with_request_handler(contribution, &pages)
 }
 
@@ -193,11 +215,44 @@ fn pattern_of(matcher: &UrlMatcher) -> Result<UrlPattern, CallError> {
     })
 }
 
-/// Adds the handlers of `run.new_session`, `session.new_page` and
-/// `session.close`.
+/// Adds the handlers of `run.new_session`, `session.new_page`,
+/// `session.close`, `session.pages`, `session.on` and `page.close`.
 fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Contribution {
     let (opening, paging, closing) = (sessions.clone(), sessions.clone(), sessions.clone());
+    let (listing, listening, closing_page) = (sessions.clone(), sessions.clone(), sessions.clone());
     contribution
+        .with_handler(Handler::new(
+            &SESSION_PAGES,
+            move |params: SessionParams, context: CallContext| {
+                let sessions = listing.clone();
+                async move { sessions.pages(&params.session_id, &context).await }
+            },
+        ))
+        .with_handler(Handler::new(
+            &SESSION_ON,
+            move |params: SessionOnParams, context: CallContext| {
+                let sessions = listening.clone();
+                async move {
+                    match params.event {
+                        SessionEventName::Page => {
+                            sessions.listen_to_pages(&params.session_id, &context).await
+                        }
+                    }
+                }
+            },
+        ))
+        .with_handler(Handler::new(
+            &tabs::PAGE_CLOSE,
+            move |params: PageCloseParams, _context: CallContext| {
+                let sessions = closing_page.clone();
+                async move {
+                    sessions
+                        .close_page(&params.page_id, params.run_before_unload.unwrap_or(false))
+                        .await?;
+                    Ok::<PageClosed, CallError>(PageClosed {})
+                }
+            },
+        ))
         .with_handler(Handler::new(
             &RUN_NEW_SESSION,
             move |params: NewSessionParams, context: CallContext| {
@@ -309,6 +364,44 @@ fn with_route_handlers(contribution: Contribution, interception: &Interception) 
                             "the pipeline answered a fetch with no response",
                         )),
                     }
+                }
+            },
+        ))
+}
+
+/// Adds the handlers of `page.on_dialog`, arming its handler when its call
+/// arrives, and of the answers to its dialogs, each delivered when its call
+/// arrives.
+fn with_dialog_handlers(contribution: Contribution, dialogs: &Dialogs) -> Contribution {
+    let (arming, accepting, dismissing) = (dialogs.clone(), dialogs.clone(), dialogs.clone());
+    contribution
+        .with_handler(Handler::new(
+            &PAGE_ON_DIALOG,
+            move |params: PageOnDialogParams, context: CallContext| {
+                let armed = arming.arm(&params.page_id, context.client(), context.id());
+                async move { armed?.ended().await }
+            },
+        ))
+        .with_handler(Handler::new(
+            &DIALOG_ACCEPT,
+            move |params: DialogAcceptParams, _context: CallContext| {
+                let replied = accepting.answer(
+                    &params.dialog_id,
+                    dialogs::Answer::Accept(params.prompt_text),
+                );
+                async move {
+                    replied?.await?;
+                    Ok::<DialogAnswered, CallError>(DialogAnswered {})
+                }
+            },
+        ))
+        .with_handler(Handler::new(
+            &DIALOG_DISMISS,
+            move |params: DialogDismissParams, _context: CallContext| {
+                let replied = dismissing.answer(&params.dialog_id, dialogs::Answer::Dismiss);
+                async move {
+                    replied?.await?;
+                    Ok::<DialogAnswered, CallError>(DialogAnswered {})
                 }
             },
         ))
@@ -503,6 +596,8 @@ struct Pages {
     interception: Interception,
     /// Each open page's events, which calls reach as they arrive.
     events: page_events::Table,
+    /// Each open page's dialogs and their handlers.
+    dialogs: Dialogs,
 }
 
 impl Pages {
@@ -533,7 +628,7 @@ impl Pages {
         // A failure the interception left while the navigation ran, such
         // as a route's handler failing on its document, is the
         // navigation's.
-        if let Some(failure) = self.interception.take_failure(page_id) {
+        if let Some(failure) = self.left_failure(page_id) {
             return Err(failure);
         }
         match navigated? {
@@ -580,12 +675,19 @@ impl Pages {
             surface: context.surface(),
             hiding: page.hiding.as_deref(),
         };
-        page.life
+        let acted = page
+            .life
             .call(
                 PageEvent::Gesture,
                 guard::act(&page.driver, request, &page.clock),
             )
-            .await?;
+            .await;
+        // A dialog handler that failed on a dialog the action opened fails
+        // the action, which the dialog blocked.
+        if let Some(failure) = self.dialogs.take_failure(&locator.page_id) {
+            return Err(failure);
+        }
+        acted?;
         Ok(Acted {})
     }
 
@@ -641,14 +743,22 @@ impl Pages {
         Ok(fetched.response)
     }
 
-    /// The open page `page_id`, or `closed`; a failure a route's handler
-    /// left on it is raised here, by the page's next call.
+    /// The open page `page_id`, or `closed`; a failure a route's or a
+    /// dialog handler left on it is raised here, by the page's next call.
     async fn open(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
         let page = self.sessions.page(page_id).await?;
-        match self.interception.take_failure(page_id) {
+        match self.left_failure(page_id) {
             Some(failure) => Err(failure),
             None => Ok(page),
         }
+    }
+
+    /// The failure a route's handler, or else a dialog handler, left on the
+    /// page `page_id` for the call it blocked or its next call.
+    fn left_failure(&self, page_id: &PageId) -> Option<CallError> {
+        self.interception
+            .take_failure(page_id)
+            .or_else(|| self.dialogs.take_failure(page_id))
     }
 
     /// The formats the request names, read from one serialization of the

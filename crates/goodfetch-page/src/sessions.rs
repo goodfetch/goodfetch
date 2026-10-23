@@ -41,6 +41,7 @@
 mod ends;
 mod life;
 mod lifecycle;
+mod tabs;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -77,11 +78,12 @@ use self::lifecycle::{
     Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
 };
 use crate::consent::Consent;
+use crate::dialogs::Dialogs;
 use crate::driver::PageDriver;
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
 use crate::interception::{Interception, SESSION_KEYS};
-use crate::page_events::{self, PageEvents, Refusals};
+use crate::page_events;
 use crate::page_value::{HandlerPages, PageValue};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
 use crate::proxy::{Opening, SessionProxy};
@@ -124,6 +126,8 @@ pub(crate) struct Sessions {
     hiding: Hiding,
     /// Each open page's events, which calls reach as they arrive.
     events: page_events::Table,
+    /// Each open page's dialogs and their handlers.
+    dialogs: Dialogs,
     /// What each page carries for the Product that hands pages to
     /// handlers: its value and its response observer (ADR 0087).
     hooks: Arc<dyn HandlerPages>,
@@ -164,6 +168,8 @@ struct Session {
     life: SessionLife,
     /// Its one proxy, if it has one.
     proxy: Option<Arc<SessionProxy>>,
+    /// How many calls listen to its `page` event.
+    page_listeners: std::sync::atomic::AtomicUsize,
 }
 
 /// What every Session this engine opens is: a fresh one a program opened,
@@ -192,7 +198,7 @@ pub(crate) struct OpenPage {
     /// the page leaves and no call holds it.
     _admission: Arc<Permit>,
     /// Its place among its browser's open pages, left at the same moment.
-    _in_browser: Arc<InBrowser>,
+    in_browser: Arc<InBrowser>,
 }
 
 /// The ID of the Session at `position` of the Run `run`.
@@ -224,12 +230,13 @@ fn unavailable(run: &Run, error: &impl std::fmt::Display, context: &CallContext)
 
 impl Sessions {
     /// The engine's Sessions, whose browsers come from `pins`, under
-    /// `interception`, their pages' events in `events`, each page's value
-    /// and response observer from `hooks`.
+    /// `interception`, their pages' events in `events` and their dialogs in
+    /// `dialogs`, each page's value and response observer from `hooks`.
     pub(crate) fn new(
         pins: Vec<PinnedArtifact>,
         interception: Interception,
         events: page_events::Table,
+        dialogs: Dialogs,
         hooks: Arc<dyn HandlerPages>,
     ) -> Self {
         Self {
@@ -239,6 +246,7 @@ impl Sessions {
             consent: Consent::default(),
             hiding: Hiding::default(),
             events,
+            dialogs,
             hooks,
         }
     }
@@ -276,6 +284,7 @@ impl Sessions {
             settings: settings.clone(),
             life: life.clone(),
             proxy,
+            page_listeners: std::sync::atomic::AtomicUsize::new(0),
         });
         self.state
             .lock()
@@ -344,6 +353,7 @@ impl Sessions {
                             settings: Values::default(),
                             life: SessionLife::new(session.clone(), FRESH, SessionState::Open),
                             proxy,
+                            page_listeners: std::sync::atomic::AtomicUsize::new(0),
                         }),
                     );
                     self.interception.open_session(&session);
@@ -369,82 +379,21 @@ impl Sessions {
         if let Some(proxy) = &open.proxy {
             proxy.warn_if_outlived(&run, session).await;
         }
-        let (navigation_timeout, action_timeout) = timeouts(&run);
+        let (navigation_timeout, _) = timeouts(&run);
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
         let (driver, in_browser) = open.seat.new_page(navigation_timeout).await?;
         let driver = driver.with_value(self.hooks.value(run.id(), session), run.clock());
-        let page = {
-            let mut state = self.state.lock().await;
-            state.opened_pages += 1;
-            PageId(format!("page-{}", state.opened_pages))
-        };
-        // The page's events are read from before its requests pause, so
-        // every request of the page is followed.
-        let refusals = Refusals::default();
-        let events = PageEvents::start(
-            page.clone(),
-            driver.clone(),
-            &run,
-            context.events().clone(),
-            refusals.clone(),
-            driver.events().await,
-            wait_deadline(&run),
-        );
-        self.events.insert(page.clone(), events);
-        let clean_up = self
-            .interception
-            .start(
-                &page,
-                session,
-                &driver,
-                &run,
-                &open.settings,
-                refusals,
-                self.hooks.observer(run.id(), session),
-            )
+        let page = self
+            .adopt(tabs::Adopting {
+                observer: self.hooks.observer(run.id(), session),
+                open,
+                driver,
+                in_browser,
+                admission,
+                events: context.events().clone(),
+            })
             .await?;
-        let hiding = match self
-            .hiding
-            .start(&page, session, &driver, &run, &clean_up)
-            .await
-        {
-            Ok(hiding) => hiding,
-            Err(error) => {
-                self.events.close(std::slice::from_ref(&page));
-                self.interception
-                    .close(std::slice::from_ref(&page), session);
-                return Err(error);
-            }
-        };
-        if let Err(error) = self.consent.start(&page, &driver, &run).await {
-            self.events.close(std::slice::from_ref(&page));
-            self.interception
-                .close(std::slice::from_ref(&page), session);
-            return Err(error);
-        }
-        let mut state = self.state.lock().await;
-        if !state.sessions.contains_key(session) {
-            drop(state);
-            self.events.close(std::slice::from_ref(&page));
-            self.interception.close(&[page], session);
-            return Err(session_closed(session));
-        }
         tracing::Span::current().record("page_id", page.0.as_str());
-        let browser = in_browser.browser();
-        let opened = OpenPage {
-            clock: run.clock(),
-            run,
-            session: session.clone(),
-            driver,
-            life: PageLife::new(page.clone()),
-            action_timeout,
-            hiding,
-            _admission: Arc::new(admission),
-            _in_browser: Arc::new(in_browser),
-        };
-        state.pages.insert(page.clone(), opened.clone());
-        drop(state);
-        self.watch(page.clone(), opened, open, browser);
         Ok(PageOpened {
             page_id: page,
             session_id: session.clone(),
@@ -565,6 +514,7 @@ impl Sessions {
             pages
         };
         self.events.close(&pages);
+        self.dialogs.close(&pages);
         self.interception.close(&pages, session);
         self.hiding.close(session).await;
         let position = open.position;
@@ -728,6 +678,7 @@ impl Sessions {
                             settings,
                             life: SessionLife::new(session, FRESH, SessionState::Open),
                             proxy,
+                            page_listeners: std::sync::atomic::AtomicUsize::new(0),
                         }),
                     );
                 }
@@ -776,6 +727,7 @@ impl Sessions {
             for session in &gone {
                 let pages = pages.remove(session).unwrap_or_default();
                 sessions.events.close(&pages);
+                sessions.dialogs.close(&pages);
                 sessions.interception.close(&pages, session);
                 sessions.hiding.close(session).await;
             }

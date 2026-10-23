@@ -17,5 +17,6 @@ extend-exclude = ["rnd/", "crates/goodfetch-cdp/protocol.json", "crates/goodfetc
 # phrases and the "café" its pages spell decomposed, percent-encoded and
 # as an HTML entity; and CDP's own misspelt `grantUniveralAccess`, as its
 # bindings name it; and the consent pages' German buttons and Cookiebot's
-# own element IDs (`…LevelOptinAllowAll`).
-extend-ignore-re = ["ThreatMetrix", "online-metrix", "\\bmis-", "\\bPNGs\\b", "look-alikes", "\\bnd-(router|neighbor)-", "\\bndJson", "\\bcaf(\\\\u|%C3)", "\\bCaf&eacute;", "für alle", "ses raisons", "\\bgrant_univeral_access\\b", "Alle (akzeptieren|ablehnen)", "LevelOptin"]
+# own element IDs (`…LevelOptinAllowAll`). And the Console's Lingui catalog keys its messages by a
+# six-character hash of each, such as `"ypes-A": "Model calls"`, no word.
+extend-ignore-re = ["(?m)^  \"[A-Za-z0-9_-]{6}\": \"", "ThreatMetrix", "online-metrix", "\\bmis-", "\\bPNGs\\b", "look-alikes", "\\bnd-(router|neighbor)-", "\\bndJson", "\\bcaf(\\\\u|%C3)", "\\bCaf&eacute;", "für alle", "ses raisons", "\\bgrant_univeral_access\\b", "Alle (akzeptieren|ablehnen)", "LevelOptin"]

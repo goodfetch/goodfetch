@@ -155,8 +155,10 @@ impl Navigation {
             if received.frame_id.as_ref() == Some(&self.frame)
                 && received.r#type == ResourceType::Document
             {
-                self.responses
-                    .insert(received.loader_id, response_of(&received.response));
+                self.responses.insert(
+                    received.loader_id,
+                    response_of(&received.request_id, &received.response),
+                );
             }
         } else if let Some(data) = event.read::<network::DataReceivedEvent>() {
             if let Some(loader) = self.requests.get(&data.request_id) {
@@ -309,9 +311,10 @@ pub(super) fn refused(
     }
 }
 
-/// A CDP response as the protocol's, its header names lower-cased; its
-/// encoding is read from its document once decoded.
-fn response_of(response: &network::Response) -> PageResponse {
+/// The CDP response to the request `request_id` as the protocol's, its
+/// header names lower-cased; a document's encoding is read from it once
+/// decoded.
+pub(crate) fn response_of(request_id: &RequestId, response: &network::Response) -> PageResponse {
     let headers: BTreeMap<String, String> = response
         .headers
         .iter()
@@ -328,5 +331,7 @@ fn response_of(response: &network::Response) -> PageResponse {
         status_text: response.status_text.clone(),
         headers,
         encoding: None,
+        request_id: request_id.clone(),
+        from_service_worker: response.from_service_worker == Some(true),
     }
 }

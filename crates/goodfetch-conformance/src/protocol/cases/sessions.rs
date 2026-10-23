@@ -24,6 +24,8 @@ pub(crate) enum Case {
     Closed,
     Source,
     Ended,
+    /// One of a Session's proxy cases.
+    Proxy(super::proxies::Case),
 }
 
 impl Case {
@@ -36,7 +38,7 @@ impl Case {
                 Self::Source
             }
             "new-work-on-a-finished-run-raises-run-ended" => Self::Ended,
-            _ => return None,
+            _ => return super::proxies::Case::from_id(id).map(Self::Proxy),
         })
     }
 
@@ -52,6 +54,7 @@ impl Case {
             Self::Closed => closed(connection, site, checks),
             Self::Source => source(connection, site, checks),
             Self::Ended => ended(connection, checks),
+            Self::Proxy(case) => case.run(connection, site, checks),
         }
     }
 }

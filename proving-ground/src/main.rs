@@ -163,6 +163,9 @@ async fn serve(
     let reached = network.proxy_address().unwrap_or(upstream);
     let fixtures = NetworkFixtures::bind(reached.ip(), seed, server.observations()).await?;
     let mut line = fixtures.report()?;
+    server
+        .observations()
+        .set_network_fixtures(Value::Object(line.clone()));
     line.insert("address".to_owned(), reached.to_string().into());
     line.insert("version".to_owned(), version::VERSION.into());
     line.insert("seed".to_owned(), seed.into());

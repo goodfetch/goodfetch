@@ -2,16 +2,19 @@
 //! against what `goodfetch-protocol` says the protocol is: its JSON-RPC
 //! failures, its Error codes and its operations' types. A crawl's delivery
 //! cases are `delivery`'s, a page's formats cases `formats`'s, its route
-//! cases `routes`'s and a Run's Session cases `sessions`'.
+//! cases `routes`'s, a Run's Session cases `sessions`', their proxy cases
+//! `proxies`' and its events and bodies cases `events`'s.
 
 mod clean_up;
 mod consent;
 mod delivery;
+mod events;
 mod fetch_edge;
 mod formats;
 mod guard;
 mod launch;
 mod navigation;
+mod proxies;
 mod routes;
 mod sessions;
 
@@ -78,8 +81,10 @@ pub(crate) enum Case {
     Consent(consent::Case),
     /// A route case.
     Route(routes::Case),
-    /// A Session case.
+    /// A Session case, its proxy cases among them.
     Session(sessions::Case),
+    /// A page events or bodies case.
+    Events(events::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -93,6 +98,9 @@ pub(crate) struct Site {
     access_origin: Option<String>,
     port: String,
     resolve: Value,
+    /// Each forward proxy's address, by name, when the Proving ground
+    /// serves them.
+    proxies: BTreeMap<String, String>,
     proving_ground: ProvingGround,
 }
 
@@ -146,8 +154,20 @@ impl Site {
             access_origin,
             port,
             resolve: Value::Object(resolve),
+            proxies: proving_ground
+                .network_fixtures()
+                .ok()
+                .flatten()
+                .map(|fixtures| fixtures.proxies)
+                .unwrap_or_default(),
             proving_ground: proving_ground.clone(),
         }
+    }
+
+    /// The address of the Proving ground's forward proxy `name`, such as
+    /// `open`, if it serves one.
+    fn proxy(&self, name: &str) -> Option<&str> {
+        self.proxies.get(name).map(String::as_str)
     }
 
     /// The start URL of the task `id`, such as `statuses/1`.
@@ -263,6 +283,7 @@ impl Case {
                     .or_else(|| routes::Case::from_id(id).map(Self::Route))
                     .or_else(|| sessions::Case::from_id(id).map(Self::Session))
                     .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp))
+                    .or_else(|| events::Case::from_id(id).map(Self::Events))
                     .or_else(|| consent::Case::from_id(id).map(Self::Consent));
             }
         })
@@ -362,6 +383,7 @@ impl Case {
             Self::Route(case) => case.run(connection, site, checks),
             Self::Session(case) => case.run(connection, site, checks),
             Self::CleanUp(case) => case.run(connection, target, site, checks),
+            Self::Events(case) => case.run(connection, site, checks),
             Self::Consent(case) => case.run(
                 connection,
                 target.environment.get("GOODFETCH_HOME").map(String::as_str),

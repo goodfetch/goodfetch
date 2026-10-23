@@ -2,6 +2,11 @@
 //! command the engine sends a browser, its method only, never its params,
 //! in `trace/cdp-commands.jsonl` of the Run's folder. A blocking actor of
 //! the Run's owner appends the lines, a group at a time.
+//!
+//! Beside it, the Provenance log of the Run's pages (ADR 0047): one JSON
+//! line per entry, in `trace/provenance.jsonl`, each naming its `action`
+//! and its page, such as the live hiding a page ran under, a rule the guard
+//! lifted, or what extraction-side removal took from a document.
 #![expect(
     clippy::disallowed_methods,
     reason = "the log's actor writes its file on the tasks module's dedicated thread, never on an async worker"
@@ -11,11 +16,46 @@ use std::fs::OpenOptions;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
+use goodfetch_engine::runs::Run;
 use goodfetch_engine::tasks::TaskOwner;
 use tokio::sync::mpsc;
 
 /// The log's file in the Run's folder.
 pub(crate) const FILE: &str = "trace/cdp-commands.jsonl";
+
+/// The Provenance log's file in the Run's folder.
+pub(crate) const PROVENANCE: &str = "trace/provenance.jsonl";
+
+/// Records `entry`, one Provenance entry of a page of `run`, as a line of
+/// the Run trace's Provenance log, appended through the Run's blocking
+/// policy; a line that cannot be written is logged and lost.
+///
+/// # Cancel safety
+///
+/// Dropping the future never stops a line being written once it began.
+pub(crate) async fn provenance(run: &Run, entry: &serde_json::Value) {
+    let file = run.folder().join(PROVENANCE);
+    let mut line = entry.to_string().into_bytes();
+    line.push(b'\n');
+    let written = run
+        .owner()
+        .blocking(move || append_line(&file, &line))
+        .await;
+    if let Err(error) = written {
+        tracing::warn!(%error, "a Provenance entry of the Run trace cannot be written");
+    }
+}
+
+fn append_line(file: &Path, line: &[u8]) -> io::Result<()> {
+    if let Some(folder) = file.parent() {
+        std::fs::create_dir_all(folder)?;
+    }
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file)?
+        .write_all(line)
+}
 
 /// How many methods wait for the writer before a sender waits.
 const QUEUE: usize = 1024;

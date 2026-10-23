@@ -7,11 +7,13 @@
 //! interception listener are one round trip into the guard's isolated
 //! world, and stability is waited for only while an animation or a
 //! transition runs. The locator is resolved again at every check, so a
-//! re-render that replaces its element changes nothing. At the deadline the
-//! last observation decides: still ambiguous raises `target_not_unique`
-//! with every match, anything else `deadline_exceeded` naming the step it
-//! waited for. The same check and arm serve the Consent prompt runner's
-//! clicks on the elements it hands the guard ([`Element`]), in any frame.
+//! re-render that replaces its element changes nothing. A target live
+//! hiding hid has its rule lifted for the Session, and is looked at again
+//! at once (ADR 0047). At the deadline the last observation decides: still
+//! ambiguous raises `target_not_unique` with every match, anything else
+//! `deadline_exceeded` naming the step it waited for. The same check and
+//! arm serve the Consent prompt runner's clicks on the elements it hands
+//! the guard ([`Element`]), in any frame.
 
 mod check;
 mod keys;
@@ -32,6 +34,7 @@ use serde::Deserialize;
 
 use self::check::{CHECK, Seen, Target};
 use crate::driver::{PageDriver, Turn, Unanswered};
+use crate::hiding::PageHiding;
 
 /// The disarm, which says where the gesture landed.
 const DISARM: &str = include_str!("guard/disarm.js");
@@ -94,6 +97,8 @@ pub(crate) struct Request<'a> {
     pub(crate) window: Window,
     /// The Client's surface, in whose language its errors show targets.
     pub(crate) surface: Surface,
+    /// The page's live hiding, when it hides anything.
+    pub(crate) hiding: Option<&'a PageHiding>,
 }
 
 /// Where a gesture landed.
@@ -182,6 +187,16 @@ pub(crate) async fn act(
                         request.selector
                     ),
                 ));
+            }
+            Seen::Waiting { ref step, .. } if step == "visible" && request.hiding.is_some() => {
+                let hiding = request.hiding.expect("invariant: matched as some");
+                match hiding
+                    .lift(&mut turn, request.selector, request.operation)
+                    .await
+                {
+                    Ok(_) | Err(Unanswered::WorldGone) => last = seen,
+                    Err(Unanswered::Failed(error)) => return Err(error),
+                }
             }
             waiting @ Seen::Waiting { .. } => last = waiting,
         }

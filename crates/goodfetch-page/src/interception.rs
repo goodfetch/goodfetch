@@ -18,7 +18,10 @@
 //! 6. The page's navigation gate, then its lease check.
 //! 7. The engine's own additions, last, so no route reads them: the
 //!    Session's cookies, Secret placeholders, the Session's credentials.
-//! 8. The network.
+//! 8. The network, through the Session's proxy if it has one: an HTTP or
+//!    HTTPS proxy's 407 is answered with the Session's credentials once per
+//!    request, and a second 407, or one with no credentials to give, fails
+//!    the page's navigation with `proxy_auth_failed` (ADR 0053).
 //!
 //! A route therefore sees exactly what the interception sees, and adding
 //! one changes neither caching nor which requests are intercepted. Routes
@@ -43,10 +46,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use goodfetch_cdp::generated::fetch;
+use goodfetch_clean_up_rules::matching::Choices;
+use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::Policy;
-use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{RunSettings, Values};
 use goodfetch_protocol::jsonrpc::RequestId;
@@ -64,6 +68,8 @@ use self::pipeline::PageContext;
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
 use crate::driver::PageDriver;
+use crate::page_events::Refusals;
+use crate::proxy::SessionProxy;
 use crate::url_pattern::UrlPattern;
 
 /// Whose requests a route answers.
@@ -106,6 +112,28 @@ pub(super) struct PageState {
     routes: Arc<RouteTable>,
     session: Arc<RouteTable>,
     failure: Mutex<Option<CallError>>,
+    /// The cosmetic rules its Session's Filter lists hold, when any is on.
+    cosmetic: Option<Cosmetic>,
+}
+
+/// The cosmetic rules a page's Session holds (ADR 0047): the embedded
+/// Filter lists, shared, and which of them its settings turn on; live
+/// hiding and extraction-side removal read them.
+#[derive(Clone)]
+pub(crate) struct Cosmetic {
+    /// The embedded Filter lists.
+    pub(crate) lists: Arc<FilterLists>,
+    /// What the Session's settings choose of them.
+    pub(crate) choices: Choices,
+}
+
+/// What a page's Session chose of the Clean-up rules beside its requests'
+/// blocking: its cosmetic rules, and its `live_view.hiding`.
+pub(crate) struct PageCleanUp {
+    /// Its cosmetic rules, when any Filter list is on.
+    pub(crate) cosmetic: Option<Cosmetic>,
+    /// Its `live_view.hiding`: `auto`, `off` or `always`.
+    pub(crate) live_hiding: String,
 }
 
 impl PageState {
@@ -135,7 +163,10 @@ impl Interception {
     /// Puts the page `page_id` of the Session `session`, which `driver`
     /// drives for `run`, under the interception: every request of its
     /// target is paused and passes the pipeline from now on, its Clean-up
-    /// rules chosen by `own`, the Session's own settings, over the Run's.
+    /// rules chosen by `own`, the Session's own settings, over the Run's,
+    /// each refusal left in `refusals` for the request's failure to carry.
+    /// It answers what the Session chose of the Clean-up rules beside its
+    /// requests' blocking.
     ///
     /// # Errors
     ///
@@ -153,7 +184,8 @@ impl Interception {
         driver: &PageDriver,
         run: &Run,
         own: &Values,
-    ) -> Result<(), CallError> {
+        refusals: Refusals,
+    ) -> Result<PageCleanUp, CallError> {
         let policy = match run.settings() {
             Some(settings) => Policy::of(settings.resolved()),
             None => Policy::new(&["*"], &[] as &[&str]),
@@ -177,6 +209,13 @@ impl Interception {
         let blocked = (!choices.block_resources.is_empty())
             .then(|| clean_up::effective(resolved, own, BROWSER_BLOCK_RESOURCES.name).to_string());
         let blocking = self.shared.clean_up.blocking(choices, run.owner()).await;
+        let clean_up = PageCleanUp {
+            cosmetic: blocking.lists.as_ref().map(|lists| Cosmetic {
+                lists: Arc::clone(lists),
+                choices: blocking.choices.clone(),
+            }),
+            live_hiding: clean_up::live_hiding(resolved, own),
+        };
         if let Some(blocked) = blocked {
             self.warn_of_blocked_resources(session, run, &blocked).await;
         }
@@ -187,6 +226,7 @@ impl Interception {
                 routes: Arc::default(),
                 session,
                 failure: Mutex::new(None),
+                cosmetic: clean_up.cosmetic.clone(),
             });
             tables.pages.insert(page_id.clone(), Arc::clone(&state));
             state
@@ -199,7 +239,12 @@ impl Interception {
                     resource_type: None,
                     request_stage: Some(fetch::RequestStage::Request),
                 }]),
-                handle_auth_requests: None,
+                // An HTTP or HTTPS proxy's 407 reaches the engine, which
+                // answers it with the Session's credentials (SA-22).
+                handle_auth_requests: driver
+                    .proxy()
+                    .is_some_and(SessionProxy::answers_authentication)
+                    .then_some(true),
             })
             .await?;
         let context = Arc::new(PageContext::new(
@@ -209,11 +254,18 @@ impl Interception {
             self.shared.answers.clone(),
             policy,
             blocking,
-            RequestLog::new(run.owner().child(), run.folder()),
+            refusals,
             run.clone(),
         ));
         run.spawn(pipeline::dispatch(events, context));
-        Ok(())
+        Ok(clean_up)
+    }
+
+    /// The cosmetic rules of the page `page_id`'s Session, when any of its
+    /// Filter lists is on.
+    pub(crate) fn cosmetic(&self, page_id: &PageId) -> Option<Cosmetic> {
+        let state = lock(&self.shared.tables).pages.get(page_id).cloned()?;
+        state.cosmetic.clone()
     }
 
     /// Warns `run`, once for the Session `session`, that its

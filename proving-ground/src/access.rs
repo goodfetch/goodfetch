@@ -22,6 +22,7 @@ use crate::exchange::{Reply, Request};
 use crate::generator;
 use crate::observation::{self, Observations, Recorded, Report};
 use crate::oracle::{self, Answer, Finding};
+use crate::push::Push;
 use crate::task::{self, Entry, Expected, Kind, Record, Task};
 use versions::BuildAge;
 
@@ -51,6 +52,12 @@ const CDP_PROBE: &str = "/cdp-probe";
 const VERSION: &str = "/version";
 const IDENTITY: &str = "/identity";
 const TIMER: &str = "/timer";
+const PAGE_EVENTS: &str = "/page-events";
+/// The JSON body the page events page requests, also at the path a
+/// program may abort.
+const PAGE_EVENTS_DATA: [&str; 2] = ["/page-events/data.json", "/page-events/aborted"];
+/// The WebSocket the page events page opens.
+const PAGE_EVENTS_SOCKET: &str = "/page-events/socket";
 
 /// The client hints the identity page asks for, beyond those a browser
 /// sends unasked, so the requests its script makes carry every one.
@@ -63,6 +70,7 @@ const BOT_PROBE_SCRIPT: &str = include_str!("../pages/access/bot-probe.js");
 const CDP_PROBE_SCRIPT: &str = include_str!("../pages/access/cdp-probe.js");
 const IDENTITY_SCRIPT: &str = include_str!("../pages/access/identity.js");
 const TIMER_SCRIPT: &str = include_str!("../pages/access/timer.js");
+const PAGE_EVENTS_SCRIPT: &str = include_str!("../pages/access/page-events.js");
 
 /// The generator places of the family's values: the family's own first, then
 /// 0 and the value's.
@@ -146,6 +154,21 @@ pub(crate) fn respond(
             Reply::html(page(seed, "timer", &reporting(TIMER_SCRIPT))),
             None,
         ),
+        Method::GET if path == PAGE_EVENTS => (
+            Reply::html(page(
+                seed,
+                "page-events",
+                &format!("<script>\n{PAGE_EVENTS_SCRIPT}</script>\n"),
+            )),
+            None,
+        ),
+        Method::GET if PAGE_EVENTS_DATA.contains(&path) => (
+            Reply::json(
+                StatusCode::OK,
+                &serde_json::json!({ "page_events": code(seed, "page-events") }),
+            ),
+            None,
+        ),
         Method::GET => (corpus::page(path).unwrap_or_else(Reply::not_found), None),
         Method::POST if path == "/reports" => match Report::parse(request.body) {
             Some(report) => (Reply::no_content(), Some(Recorded::Report(report))),
@@ -156,6 +179,15 @@ pub(crate) fn respond(
         },
         _ => (Reply::not_found(), None),
     })
+}
+
+/// The connection a request to `name` and `path` asks the server to hold
+/// open: the page events page's WebSocket.
+pub(crate) fn push(name: &str, method: &Method, path: &str) -> Option<Push> {
+    (*method == Method::GET
+        && path == PAGE_EVENTS_SOCKET
+        && (name == LOCAL_HOST || task::serves(name, HOST, TASKS)))
+    .then_some(Push::Socket)
 }
 
 /// A page of the family: its Record, and `more` after it.

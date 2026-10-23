@@ -556,6 +556,13 @@ number = 5
 kind = "setting"
 prefix = "browser."
 
+# Live hiding (#715): ADR 0083 names ADR 0047's `live_hiding`
+# `live_view.hiding`.
+[[area]]
+number = 5
+kind = "setting"
+prefix = "live_view.hiding"
+
 # Area 5, Site access (specs #576 to #579): a Run's pages, their navigations
 # and the Error codes of their browsers (#695, #698).
 [[area]]
@@ -567,6 +574,17 @@ prefix = "run.new_page"
 number = 5
 kind = "operation"
 prefix = "page.goto"
+
+# A Session's proxy (#708): `proxy.*` and its two Error codes.
+[[area]]
+number = 5
+kind = "setting"
+prefix = "proxy."
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "proxy_"
 
 # A Run's own Sessions (#697): `run.new_session`, `session.new_page` and
 # `session.close`.
@@ -659,6 +677,27 @@ prefix = "page_handler_failed"
 number = 5
 kind = "error"
 prefix = "route_already_handled"
+
+# A page's events, its listener and its responses' bodies (#703).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.on"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.wait_for_request_finished"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "response."
+
+[[area]]
+number = 5
+kind = "event"
+prefix = "web_socket."
 
 # A navigation's redirect loops, cut documents and downloads (#699).
 [[area]]
@@ -843,6 +882,11 @@ prefix = "events."
 number = 11
 kind = "command"
 prefix = "page."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "response."
 
 [[area]]
 number = 11

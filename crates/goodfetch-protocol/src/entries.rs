@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 36] = [
+pub const MODULES: [&Entries; 37] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &console::ENTRIES,
@@ -25,6 +25,7 @@ pub const MODULES: [&Entries; 36] = [
     &engine::ENTRIES,
     &events::ENTRIES,
     &page::ENTRIES,
+    &page::proxy::ENTRIES,
     &executables::ENTRIES,
     &run::ENTRIES,
     &checkpoint::ENTRIES,
@@ -86,7 +87,7 @@ mod tests {
     use crate::catalog::Product;
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 52] = [
+    const COLLIE: [&str; 55] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -116,6 +117,9 @@ mod tests {
         "route.fulfill",
         "route.abort",
         "route.fetch",
+        "page.on",
+        "response.body",
+        "page.wait_for_request_finished",
         "run.start",
         "run.finish",
         "run.stop",

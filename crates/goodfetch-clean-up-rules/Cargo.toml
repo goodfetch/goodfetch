@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 adblock.workspace = true
 data-encoding.workspace = true
+dom_query.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 zstd.workspace = true
 

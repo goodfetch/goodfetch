@@ -11,6 +11,8 @@ mod attached;
 mod audit;
 #[cfg(unix)]
 mod background_traffic;
+#[cfg(unix)]
+mod browser_pool;
 mod browsers;
 mod certs;
 #[cfg(target_os = "macos")]
@@ -32,6 +34,7 @@ mod human_output;
 mod invalid_calls;
 mod journeys;
 mod lasting_sign_ins;
+#[cfg(unix)]
 mod launch;
 mod layout;
 #[cfg(target_os = "linux")]
@@ -40,8 +43,10 @@ mod locator;
 mod log;
 mod ops;
 mod page;
+mod page_events;
 mod parent_death;
 mod private_endpoint;
+mod proxy;
 mod run;
 mod secrets;
 mod service_manager;

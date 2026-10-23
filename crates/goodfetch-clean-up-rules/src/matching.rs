@@ -69,7 +69,7 @@ pub struct Request<'a> {
 }
 
 /// One of the embedded Filter lists.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum List {
     /// EasyList (`filter_lists.ads`).
@@ -78,6 +78,18 @@ pub enum List {
     Trackers,
     /// Fanboy Annoyance (`filter_lists.annoyances`).
     Annoyances,
+}
+
+impl List {
+    /// Its name, the last part of the `filter_lists.*` setting that turns
+    /// it on, as Provenance names it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Ads => "ads",
+            Self::Trackers => "trackers",
+            Self::Annoyances => "annoyances",
+        }
+    }
 }
 
 /// What a Session's settings choose (ADRs 0047 and 0117): which Filter

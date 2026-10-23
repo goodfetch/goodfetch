@@ -23,6 +23,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::commands::{start, store_body};
+use crate::console::policy;
 use crate::daemon::StopsTheDaemon;
 use crate::lasting_sign_ins::audit_entries;
 use crate::sign_in::{agent, console_url, origin, runtime_file, sign_in};
@@ -425,4 +426,69 @@ fn a_content_address_another_program_holds_leaves_the_console_without_it() {
     assert_eq!(asked.status, 503);
     assert_eq!(page.status, 200);
     drop(held);
+}
+
+/// A `console.content_public_url` that is no bare `http` or `https` origin
+/// (a wildcard, a path, a user, a second directive) leaves the Console
+/// serving without a content origin: its policy frames nothing, instead of
+/// framing more than one origin or carrying the text as a directive.
+///
+/// Covers: story:12-127, setting:console.content_public_url
+#[rstest]
+#[case::a_wildcard("https://*.example.test")]
+#[case::another_directive("https://content.example.test; script-src *")]
+#[case::a_path("https://content.example.test/files")]
+#[case::a_query("https://content.example.test?x=1")]
+#[case::a_user("https://user@content.example.test")]
+#[case::a_scheme_of_no_origin("ftp://content.example.test")]
+#[case::a_space("https://content.example.test https://other.example.test")]
+#[case::an_empty_port("https://content.example.test:")]
+fn a_public_url_that_is_no_origin_leaves_the_console_without_a_content_origin(#[case] url: &str) {
+    let env = TestEnv::new();
+    env.user_configuration(&format!(
+        "console.address = \"127.0.0.1:0\"\nconsole.content_public_url = \"{url}\"\n"
+    ));
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let signed = Signed::started(&env);
+
+    let asked = signed.get(&format!("/content-address/first/{}", signed.body));
+    let page = signed.get("/");
+
+    assert_eq!(asked.status, 503, "{asked:?}");
+    assert_eq!(page.status, 200);
+    assert_eq!(
+        page.header("content-security-policy"),
+        Some(policy(None).as_str())
+    );
+}
+
+/// A `console.content_public_url` that is a bare origin, with or without a
+/// port or a closing slash, is the one origin the Console's policy frames.
+///
+/// Covers: story:12-127, setting:console.content_public_url
+#[rstest]
+#[case::with_a_port(
+    "https://content.example.test:8443",
+    "https://content.example.test:8443"
+)]
+#[case::with_a_closing_slash("https://content.example.test/", "https://content.example.test")]
+#[case::on_http("http://content.example.test", "http://content.example.test")]
+#[case::an_ipv6_address("http://[::1]:8443/", "http://[::1]:8443")]
+fn a_public_url_that_is_an_origin_is_the_one_origin_the_console_frames(
+    #[case] url: &str,
+    #[case] framed: &str,
+) {
+    let env = TestEnv::new();
+    env.user_configuration(&format!(
+        "console.address = \"127.0.0.1:0\"\nconsole.content_public_url = \"{url}\"\n"
+    ));
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let signed = Signed::started(&env);
+
+    let page = signed.get("/");
+
+    assert_eq!(
+        page.header("content-security-policy"),
+        Some(policy(Some(framed)).as_str())
+    );
 }

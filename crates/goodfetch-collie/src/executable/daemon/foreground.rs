@@ -506,6 +506,10 @@ impl Signals {
     }
 
     #[cfg(not(unix))]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "listening for Unix signals can fail, for Ctrl-C never: one signature serves both"
+    )]
     fn listen() -> std::io::Result<Self> {
         Ok(Self {})
     }

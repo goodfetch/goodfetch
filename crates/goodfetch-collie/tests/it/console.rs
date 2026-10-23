@@ -34,12 +34,15 @@ const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 /// This commit's Product version.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The production Content Security Policy every answer carries (ADR 0031),
-/// which lets the Console frame its content origin `content` and show its
-/// images, and nothing else's.
-fn policy(content: &str) -> String {
+/// The production Content Security Policy every answer carries (ADR 0031):
+/// with a content origin `content`, it lets the Console frame that origin,
+/// and nothing else's, and loosens no other directive: the content origin's
+/// files, images included, show in its `sandbox` frames. With none, it has
+/// no `frame-src`.
+pub(crate) fn policy(content: Option<&str>) -> String {
+    let frames = content.map_or_else(String::new, |content| format!("frame-src {content}; "));
     format!(
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' {content}; font-src 'self'; connect-src 'self'; manifest-src 'self'; frame-src {content}; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'; report-uri /csp-report"
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; {frames}base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'; report-uri /csp-report"
     )
 }
 
@@ -218,7 +221,7 @@ fn every_console_answer_carries_the_production_headers(
     assert_eq!(response.status().as_u16(), status);
     assert_eq!(
         header("content-security-policy"),
-        Some(policy(&content)),
+        Some(policy(Some(&content))),
         "the Console's policy names its content origin"
     );
     assert_eq!(header("referrer-policy").as_deref(), Some("no-referrer"));

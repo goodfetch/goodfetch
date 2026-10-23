@@ -66,8 +66,7 @@ impl Step {
 }
 
 /// A Run's page on the Proving ground's task `task`, its engine's
-/// `hello` naming `surface`, its Run's `timeout.action` `action_timeout`
-/// and `consent.handling` `consent_handling`.
+/// `hello` naming `surface`, its Run's `timeout.action` `action_timeout`.
 struct OnTask<'env> {
     engine: Attached<'env>,
     page: Value,
@@ -82,7 +81,27 @@ impl<'env> OnTask<'env> {
         task: &str,
         surface: &str,
         action_timeout: u64,
-        consent_handling: bool,
+    ) -> Self {
+        Self::open_with(
+            env,
+            cache,
+            proving_ground,
+            task,
+            surface,
+            action_timeout,
+            &Map::new(),
+        )
+    }
+
+    /// [`Self::open`], the Run's settings holding `settings` too.
+    fn open_with(
+        env: &'env TestEnv,
+        cache: &Path,
+        proving_ground: &ProvingGround,
+        task: &str,
+        surface: &str,
+        action_timeout: u64,
+        settings: &Map<String, Value>,
     ) -> Self {
         let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
             command.env(BROWSERS_PATH_VARIABLE, cache);
@@ -105,18 +124,14 @@ impl<'env> OnTask<'env> {
             .iter()
             .map(|(host, address)| (host.clone(), json!([address])))
             .collect();
+        let mut run_settings = settings.clone();
+        run_settings.insert("network".to_owned(), json!({ "resolve": resolve }));
+        run_settings.insert("timeout".to_owned(), json!({ "action": action_timeout }));
         let started = call(
             &mut engine,
             1,
             "run.start",
-            &json!({
-                "run_id": "locators",
-                "settings": {
-                    "network": { "resolve": resolve },
-                    "timeout": { "action": action_timeout },
-                    "consent": { "handling": consent_handling },
-                },
-            }),
+            &json!({ "run_id": "locators", "settings": run_settings }),
         );
         assert!(started.get("result").is_some(), "{started}");
         let opened = call(
@@ -229,15 +244,7 @@ fn verified_by_the_oracle(task: &str, steps: &[Step]) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut page = OnTask::open(
-        &env,
-        &cache,
-        &proving_ground,
-        task,
-        "sdk_python",
-        10_000,
-        true,
-    );
+    let mut page = OnTask::open(&env, &cache, &proving_ground, task, "sdk_python", 10_000);
 
     let answers: Vec<Value> = steps.iter().map(|step| page.act(*step)).collect();
     let verdict = outcome(&proving_ground, task, "success");
@@ -290,7 +297,6 @@ fn a_target_still_ambiguous_at_the_deadline_raises_target_not_unique_listing_eve
         "actionability/9",
         surface,
         1_000,
-        true,
     );
 
     let clicked = page.act(Step::Click("#target"));
@@ -349,15 +355,7 @@ fn a_target_never_actionable_raises_deadline_exceeded_naming_the_step(
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut page = OnTask::open(
-        &env,
-        &cache,
-        &proving_ground,
-        task,
-        "sdk_python",
-        1_000,
-        true,
-    );
+    let mut page = OnTask::open(&env, &cache, &proving_ground, task, "sdk_python", 1_000);
 
     let clicked = page.act(Step::Click(selector));
     let verdict = outcome(&proving_ground, task, "failure");
@@ -406,22 +404,26 @@ fn traced_counts(env: &TestEnv) -> BTreeMap<String, usize> {
 /// A click on a target with no animation or transition running checks and
 /// arms in one round trip into the guard's world, sends its three pointer
 /// events and disarms: no stability wait, no second check (ADR 0019's
-/// speed target). The Consent prompt runner is off, so the trace holds the
-/// guard's commands alone.
+/// speed target). Live hiding and the Consent prompt runner are off, so
+/// that the Run trace holds the guard's commands alone: their reads of
+/// each document are no action's.
 /// Covers: story:5-2, operation:locator.click
 #[test]
 fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut page = OnTask::open(
+    let mut settings = Map::new();
+    settings.insert("live_view".to_owned(), json!({ "hiding": "off" }));
+    settings.insert("consent".to_owned(), json!({ "handling": false }));
+    let mut page = OnTask::open_with(
         &env,
         &cache,
         &proving_ground,
         "actionability/1",
         "sdk_python",
         10_000,
-        false,
+        &settings,
     );
 
     let clicked = page.act(Step::Click("#target"));

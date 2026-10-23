@@ -32,7 +32,12 @@ pub(super) fn host() -> GovernorLevel {
 /// The physical footprint of the engine and every descendant, in bytes; a
 /// process that ended meanwhile counts nothing.
 pub(super) fn footprint() -> u64 {
-    let mut found = vec![std::process::id()];
+    footprint_from(std::process::id())
+}
+
+/// The physical footprint of `root` and every descendant, in bytes.
+pub(super) fn footprint_from(root: u32) -> u64 {
+    let mut found = vec![root];
     let mut total = 0;
     while let Some(process) = found.pop() {
         let Ok(pid) = c_int::try_from(process) else {

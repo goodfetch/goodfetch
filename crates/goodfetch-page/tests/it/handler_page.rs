@@ -295,6 +295,12 @@ pub(crate) fn with_handler_page(
         .build()
         .expect("invariant: the runtime starts");
     runtime.block_on(async {
+        // The dispatch records go into the test's exercise record (ADR 0072).
+        let clock = Clock::system();
+        let _subscriber =
+            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
+                clock.wall()
+            }));
         let (network, dialer) = transport::in_memory();
         let dependencies = dependencies(env.home(), &cache);
         let program = async {

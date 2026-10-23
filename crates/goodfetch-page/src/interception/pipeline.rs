@@ -733,7 +733,11 @@ impl PageContext {
     async fn gate_refused(&self, held: &Held, refusal: &Refusal) -> CallError {
         let url = held.url();
         let waiting = self.driver.navigation_waits();
-        if let Some(network_id) = &held.paused.network_id {
+        if matches!(self.sender, Sender::ServiceWorker { .. }) {
+            // A worker's request, which no page's event reports, is
+            // recorded refused at once.
+            self.leave_refusal(held, site_preferences_failure(url, refusal));
+        } else if let Some(network_id) = &held.paused.network_id {
             self.refusals
                 .leave(network_id, site_preferences_failure(url, refusal), !waiting);
         }

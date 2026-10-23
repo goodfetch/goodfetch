@@ -100,7 +100,7 @@ denied_domains = ["example"]
 extra = ["example"]
 
 [settings.session]
-source = "example"
+source = { kind = "saved_identity", name = "example" }
 
 [settings.session.pool]
 max_size = 4

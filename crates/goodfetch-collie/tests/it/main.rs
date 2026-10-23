@@ -44,6 +44,7 @@ mod private_endpoint;
 mod run;
 mod secrets;
 mod service_manager;
+mod sessions;
 mod settings_flags;
 mod sign_in;
 mod upgrade_files;

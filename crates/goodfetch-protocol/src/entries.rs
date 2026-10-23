@@ -85,7 +85,7 @@ mod tests {
     use crate::catalog::Product;
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 47] = [
+    const COLLIE: [&str; 50] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -94,6 +94,9 @@ mod tests {
         "engine.info",
         "events.subscribe",
         "run.new_page",
+        "run.new_session",
+        "session.new_page",
+        "session.close",
         "page.goto",
         "page.reload",
         "page.go_back",

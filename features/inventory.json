@@ -484,6 +484,17 @@
       ]
     },
     {
+      "id": "command:run.new-session",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:run.pause",
       "kind": "command",
       "area": 11,
@@ -551,6 +562,28 @@
     },
     {
       "id": "command:sample.echo",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:session.close",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:session.new-page",
       "kind": "command",
       "area": 11,
       "milestone": null,
@@ -693,6 +726,17 @@
     },
     {
       "id": "error:call_cancelled",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:capability_unavailable",
       "kind": "error",
       "area": 3,
       "milestone": null,
@@ -1095,6 +1139,17 @@
     },
     {
       "id": "error:run_conflict",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:run_ended",
       "kind": "error",
       "area": 3,
       "milestone": null,
@@ -2252,6 +2307,17 @@
       ]
     },
     {
+      "id": "operation:run.new_session",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:run.outcomes",
       "kind": "operation",
       "area": 3,
@@ -2351,6 +2417,28 @@
       "id": "operation:sample.echo",
       "kind": "operation",
       "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:session.close",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:session.new_page",
+      "kind": "operation",
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [

@@ -19,7 +19,9 @@
 //! `run.abort` stops; and a Run bound to a
 //! Browser host and holding to a Clean-up rules digest, started through a
 //! contribution of the writer's own since no Client sets those yet, with a
-//! warning and `nothingDone` its owners handed over, whose program sets a
+//! warning and `nothingDone` its owners handed over, and two Sessions its
+//! program opened, its default one open and another closed, which that
+//! contribution records since no browser runs here, whose program sets a
 //! progress message, which `run.checkpoint` checkpoints and
 //! `run.pause` pauses with a Checkpoint.
 //! It writes each Run's file, as SQL text, into the folder given as the
@@ -174,6 +176,17 @@ fn bound() -> Contribution {
                 run.nothing_done(NothingDone::NothingPending)
                     .await
                     .expect("`nothingDone` is kept");
+                run.state()
+                    .write(|connection| {
+                        connection
+                            .execute(
+                                "INSERT INTO page_sessions (position, is_default, closed) VALUES (1, 1, 0), (2, 0, 1)",
+                                [],
+                            )
+                            .map(drop)
+                    })
+                    .await
+                    .expect("the Sessions are kept");
             }
             Ok::<Value, CallError>(json!({ "run_id": "paused" }))
         },

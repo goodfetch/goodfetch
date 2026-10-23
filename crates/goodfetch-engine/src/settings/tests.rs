@@ -503,7 +503,7 @@ fn a_recipe_never_sets_session_source() {
     let layers = only(
         SettingsLayer::Recipe,
         "session.source",
-        &json!("profile:work"),
+        &json!({ "kind": "saved_identity", "name": "work" }),
     );
 
     let refused = refusal(&layers);
@@ -521,7 +521,7 @@ fn a_recipe_exposes_session_source_for_its_users_to_set() {
         )),
         run: values(
             SettingsLayer::Run,
-            json!({ "session": { "source": "profile:work" } }),
+            json!({ "session": { "source": { "kind": "saved_identity", "name": "work" } } }),
         ),
         ..Layers::default()
     };
@@ -533,7 +533,7 @@ fn a_recipe_exposes_session_source_for_its_users_to_set() {
             effective.value("session.source"),
             effective.get("session.source").unwrap().locked_by
         ),
-        (&json!("profile:work"), None)
+        (&json!({ "kind": "saved_identity", "name": "work" }), None)
     );
 }
 

@@ -93,19 +93,24 @@ impl Succession for ThePick {
 }
 
 /// A Client's Connection: each call's reply.
-struct Talk(Client);
+pub(super) struct Talk(Client);
 
 impl Talk {
-    async fn ok(&mut self, id: i64, method: &str, params: Value) -> Value {
+    pub(super) async fn ok(&mut self, id: i64, method: &str, params: Value) -> Value {
         let reply = call(&mut self.0, id, method, params).await;
         assert!(reply.get("result").is_some(), "{method}: {reply}");
         reply["result"].clone()
+    }
+
+    /// The reply to `method`, a result or an error.
+    pub(super) async fn reply(&mut self, id: i64, method: &str, params: Value) -> Value {
+        call(&mut self.0, id, method, params).await
     }
 }
 
 /// Runs the engine as an Attached engine in `env`, in the per-run layout,
 /// while `talk` talks to it.
-fn per_run<F, Fut, T>(env: &TestEnv, talk: F) -> T
+pub(super) fn per_run<F, Fut, T>(env: &TestEnv, talk: F) -> T
 where
     F: FnOnce(Talk) -> Fut,
     Fut: Future<Output = T>,
@@ -119,7 +124,7 @@ where
 
 /// Runs the engine as a Daemon in `env`, in the per-install layout, while
 /// `talk` talks to it; the Daemon then stops idle.
-fn per_install<F, Fut, T>(env: &TestEnv, talk: F) -> T
+pub(super) fn per_install<F, Fut, T>(env: &TestEnv, talk: F) -> T
 where
     F: FnOnce(Talk) -> Fut,
     Fut: Future<Output = T>,
@@ -196,7 +201,7 @@ where
     })
 }
 
-fn install_file(env: &TestEnv) -> PathBuf {
+pub(super) fn install_file(env: &TestEnv) -> PathBuf {
     env.home().join("1").join(INSTALL_FILE)
 }
 

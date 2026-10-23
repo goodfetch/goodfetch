@@ -396,7 +396,7 @@ fn add_seeds_answers_each_seed_in_order_under_the_credits_it_grants() {
     let next_credit = next_for_stream(&mut engine, &mut unanswered);
     send_seeds(&mut engine, &vec![seed("https://shop.test/x"); 257], false);
     let refused = next_for_stream(&mut engine, &mut unanswered);
-    engine.kill();
+    let exited = engine.finish();
 
     let Came::Answers(answers) = answers else {
         panic!("no answers came: {answers:?}");
@@ -424,8 +424,8 @@ fn add_seeds_answers_each_seed_in_order_under_the_credits_it_grants() {
         .map(|id| id.parse().unwrap())
         .collect();
     assert_eq!(
-        (first_credit, &kinds, next_credit),
-        (Came::Credit(256), &expected, Came::Credit(256))
+        (first_credit, &kinds, next_credit, exited),
+        (Came::Credit(256), &expected, Came::Credit(256), true)
     );
     assert_eq!(ids, (2..=255).collect::<Vec<u64>>());
     let Came::Reply(refused) = refused else {
@@ -522,12 +522,13 @@ fn a_million_seeds_stream_through_add_seeds_with_the_engines_memory_bounded_by_i
     }
     let reply = next_for_stream(&mut engine, &mut unanswered);
     highest = highest.max(resident_bytes(&env, engine.pid()));
-    engine.kill();
+    let exited = engine.finish();
 
     assert_eq!(
-        (out_of_order, reply),
+        (out_of_order, exited, reply),
         (
             0,
+            true,
             Came::Reply(
                 json!({ "jsonrpc": "2.0", "id": STREAM, "result": { "added": count, "not_added": 0 } })
             )

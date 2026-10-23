@@ -9,6 +9,7 @@
 //! interfaces without reaching its internals (STYLE.md, reason 2); it never
 //! names a Foxhound type.
 
+mod browser_fetch;
 mod consent;
 mod driver;
 mod errors;
@@ -20,6 +21,7 @@ mod page_events;
 mod pages;
 mod pool;
 mod proxy;
+mod proxy_provider;
 pub mod robots_txt;
 mod sessions;
 mod trace;

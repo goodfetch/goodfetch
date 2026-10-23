@@ -13,6 +13,7 @@
 //! executable taken by path, and so does each generated refusal case's
 //! fabricated `hello` (ADR 0066).
 
+mod canaries;
 mod case_list;
 mod host;
 mod protocol;

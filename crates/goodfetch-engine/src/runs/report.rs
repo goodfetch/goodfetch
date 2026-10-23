@@ -8,10 +8,11 @@
 
 use std::sync::Arc;
 
+use goodfetch_protocol::page::proxy::ProxyKind;
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
-    NothingDone, PointInTime, RunId, RunReport, RunUsage, RunWarning, StopReason, UsageAmount,
-    Verdict,
+    NothingDone, PointInTime, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
+    UsageAmount, Verdict,
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
 use goodfetch_protocol::usage::{
@@ -225,6 +226,7 @@ pub(super) fn usage(
     let mut usage = RunUsage {
         limits,
         uncapped: connection.query_row("SELECT uncapped FROM run", [], |row| row.get(0))?,
+        proxy_bytes_by_kind: proxy_bytes_by_kind(connection)?,
         ..RunUsage::default()
     };
     let mut statement = connection.prepare(
@@ -246,6 +248,10 @@ pub(super) fn usage(
             (MODEL_TOKENS, None) => usage.model.tokens = amount,
             (BROWSER_TIME, None) => usage.browser_time = amount,
             (PROXY_BYTES, None) => usage.proxy_bytes = amount,
+            (PROXY_BYTES, Some(currency)) => usage.proxy_price.push(UsageAmount {
+                currency: Some(currency),
+                amount,
+            }),
             (REQUESTS, None) => usage.requests = amount,
             (PAID_SOLVES, currency) => usage.paid_solves.push(UsageAmount { currency, amount }),
             (PAID_FETCH, currency) => usage.paid_fetches.push(UsageAmount { currency, amount }),
@@ -257,6 +263,54 @@ pub(super) fn usage(
         }
     }
     Ok(usage)
+}
+
+/// What the Run sent and received through each proxy kind, cheapest kind
+/// first, then any kind this engine does not name.
+fn proxy_bytes_by_kind(connection: &Connection) -> rusqlite::Result<Vec<ProxyKindBytes>> {
+    let mut statement =
+        connection.prepare("SELECT part, amount FROM usage_parts WHERE usage_kind = ?1")?;
+    let mut kinds = statement
+        .query_map([PROXY_BYTES], |row| {
+            let amount: i64 = row.get(1)?;
+            Ok(ProxyKindBytes {
+                kind: row.get(0)?,
+                bytes: u64::try_from(amount).unwrap_or(0),
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let order = |kind: &str| {
+        ProxyKind::ALL
+            .iter()
+            .position(|known| known.as_str() == kind)
+    };
+    kinds.sort_by(|one, other| {
+        (order(&one.kind).is_none(), order(&one.kind), &one.kind).cmp(&(
+            order(&other.kind).is_none(),
+            order(&other.kind),
+            &other.kind,
+        ))
+    });
+    Ok(kinds)
+}
+
+/// Adds `delta` to what the Run used of `part` of `usage_kind`.
+///
+/// # Errors
+///
+/// When its run state cannot be written.
+pub(super) fn count_part(
+    connection: &Connection,
+    usage_kind: &str,
+    part: &str,
+    delta: i64,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        "INSERT INTO usage_parts (usage_kind, part, amount) VALUES (?1, ?2, MAX(?3, 0))
+         ON CONFLICT (usage_kind, part) DO UPDATE SET amount = MAX(amount + ?3, 0)",
+        (usage_kind, part, delta),
+    )?;
+    Ok(())
 }
 
 /// Adds `delta` to what the Run used of `usage_kind` in `currency`.

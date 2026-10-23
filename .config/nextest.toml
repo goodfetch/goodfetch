@@ -72,6 +72,7 @@ and not (
     | test(/^proxy::(a_failing_proxy_raises_a_proxy_error|two_sessions_of_one_run_reach_the_site|a_host_proxy_bypass_names_is_reached|the_credentials_of_a_socks5_proxy_reach_it)/)
   ))
   | (binary_id(goodfetch-conformance::it) & test(=page::the_page_suite_is_proved_against_collies_attached_engine))
+  | (binary_id(goodfetch-conformance::it) & test(/^protocol::the_reset_gate_is_proved_against_collie_in_either_layout/))
 )
 """
 

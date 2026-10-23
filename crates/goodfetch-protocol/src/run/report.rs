@@ -183,6 +183,16 @@ pub struct RunUsage {
     /// The bytes it sent and received through a proxy.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub proxy_bytes: u64,
+    /// The bytes it sent and received through a Proxy provider's proxies,
+    /// by proxy kind (ADR 0021), cheapest kind first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub proxy_bytes_by_kind: Vec<ProxyKindBytes>,
+    /// The price of those bytes, by currency, at each provider's configured
+    /// price (ADR 0101).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub proxy_price: Vec<UsageAmount>,
     /// The requests it sent.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub requests: u64,
@@ -219,6 +229,17 @@ pub struct ModelUsage {
     /// The tokens, input and output.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub tokens: u64,
+}
+
+/// The bytes a Run sent and received through proxies of one proxy kind.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProxyKindBytes {
+    /// The proxy kind, such as `residential`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub kind: String,
+    /// The bytes.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub bytes: u64,
 }
 
 /// An amount of a Usage kind counted in a currency, or as a count.

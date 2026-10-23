@@ -19,6 +19,9 @@
 //!   (or, over HTTP/1.1, the connection's close).
 //! - `ipv6.fetch-edge.test` serves the pages on IPv4; the Proving ground's
 //!   IPv6 loopback address on its port drops every connection attempt.
+//! - `/text/shift-jis` and `/json/bom` are the bodies `page.request`'s
+//!   decoding cases read (ADR 0119): text in `Shift_JIS`, labelled so, and
+//!   JSON after a UTF-8 BOM.
 
 use std::fmt::Write as _;
 
@@ -85,6 +88,17 @@ pub(super) fn answer(host: &str, request: &Request, earlier: u64) -> Answer {
     match path {
         "/robots.txt" => Answer::Page(Page::text(200, ROBOTS)),
         "/close-delimited" => Answer::Page(page(path).framed(Framing::Close)),
+        // 日本語 in Shift_JIS, for `page.request`'s decoding cases (ADR 0119).
+        "/text/shift-jis" => Answer::Page(Page::new(
+            200,
+            "text/plain; charset=Shift_JIS",
+            [0x93, 0xFA, 0x96, 0x7B, 0x8C, 0xEA],
+        )),
+        "/json/bom" => Answer::Page(Page::new(
+            200,
+            "application/json",
+            &b"\xEF\xBB\xBF{\"bom\":true}"[..],
+        )),
         "/refused" if first => Answer::Refuse(Refusal::Reset(ErrorCode::RefusedStream)),
         "/refused/always" => Answer::Refuse(Refusal::Reset(ErrorCode::RefusedStream)),
         "/http1-required" if request.protocol == Protocol::Http2 => {
@@ -196,7 +210,8 @@ fn refresh(rest: &str) -> Option<Page> {
 /// `/retry-after/<status>/<form>`: on its first request, the status with a
 /// `Retry-After` of 2 s, in seconds or as an HTTP-date in one of RFC 9110's
 /// three formats (§5.6.7) against a `Date` an hour behind; a page after.
-/// `/retry-after/503/long` always asks for an hour.
+/// `/retry-after/503/long` and `/retry-after/429/long` always answer their
+/// status and ask for an hour.
 fn retry_after(rest: &str, first: bool, path: &str) -> Answer {
     let Some((status, form)) = rest.split_once('/') else {
         return not_found();

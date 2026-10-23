@@ -237,8 +237,8 @@ async fn deliver(
         let wake = (free && !starved)
             .then(|| admission.ready_at(run.clock().now()))
             .flatten();
-        let room = room(stop.is_some(), free, starved, servers);
-        show(run, &admission, &resolved, room, servers, policy);
+        let waits = [stop.is_some(), free, starved];
+        show(run, &admission, &resolved, servers, waits);
         tokio::select! {
             biased;
             () = run.cancellation().cancelled() => {
@@ -260,8 +260,8 @@ async fn deliver(
             }
             Some(ended) = attempts.join_next() => {
                 if let Ok(attempt) = ended {
-                    fetching.in_flight.lock().await.ended(run, &attempt.leased.crawl_request.id);
-                    settled(run, settings, &mut admission, &mut pool, servers, attempt).await;
+                    let pool = (&mut pool, &fetching.in_flight);
+                    settled(run, settings, &mut admission, pool, servers, attempt).await;
                 }
             }
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
@@ -271,37 +271,21 @@ async fn deliver(
     }
 }
 
-/// Whether the due requests no domain holds may go: none while the Run
-/// stops or no Connection serves it, else as the serving Connections'
-/// room (`free`) and the governor (`starved`) say.
-fn room(stopping: bool, free: bool, starved: bool, servers: &mut [Serving]) -> Room {
-    if stopping || !servers.iter_mut().any(Serving::serves) {
-        Room::None
-    } else if !free {
-        Room::Full
-    } else if starved {
-        Room::Starved
-    } else {
-        Room::Free
-    }
-}
-
-/// Sets the crawl's live parts of its Run's progress (ADR 0102): why its
-/// due requests wait, its handlers running against `policy`'s concurrency,
-/// and that it is not idle.
+/// Sets the crawl's live parts of its Run's progress (ADR 0102) as its
+/// `servers` stand, given whether it stops, whether a serving Connection
+/// has room and whether the governor starves it.
 fn show(
     run: &Run,
     admission: &Admission,
     resolved: &Resolved,
-    room: Room,
-    servers: &[Serving],
-    policy: CrawlPolicy,
+    servers: &mut [Serving],
+    [stopping, free, starved]: [bool; 3],
 ) {
-    let now = run.clock().now();
-    progress::show_waits(run, &admission.queued(now), resolved, now, room);
+    let serving = servers.iter_mut().any(Serving::serves);
     let handlers = servers.iter().map(|server| server.in_flight).sum();
-    progress::show_concurrency(run, handlers, policy.handler_concurrency);
-    progress::show_idle(run, false);
+    let room = progress::room(stopping || !serving, free, starved);
+    let concurrency = CrawlPolicy::of(resolved).handler_concurrency;
+    progress::show(run, admission, resolved, room, (handlers, concurrency));
 }
 
 /// The ending of a crawl whose state or admission failed with `error`:
@@ -631,17 +615,22 @@ async fn when_idle(run: &Run, admission: &mut Admission) -> Result<Idle, RunStat
     })
 }
 
-/// Settles an attempt that ended under the Run's policy now, frees its
-/// place on its Connection, returns its domain's turn, puts a retried work
-/// item back in its queue and journals what the queues changed.
+/// Settles an attempt that ended under the Run's policy now, takes it out
+/// of the requests in flight its progress shows, frees its place on its
+/// Connection, returns its domain's turn, puts a retried work item back in
+/// its queue and journals what the queues changed.
 async fn settled(
     run: &Run,
     settings: &RunSettings,
     admission: &mut Admission,
-    pool: &mut SessionPool,
+    (pool, in_flight): (&mut SessionPool, &SharedInFlight),
     servers: &mut [Serving],
     attempt: Attempt,
 ) {
+    in_flight
+        .lock()
+        .await
+        .ended(run, &attempt.leased.crawl_request.id);
     let server = &mut servers[attempt.server];
     server.in_flight -= 1;
     if let Answer::ClientGone = attempt.answer {

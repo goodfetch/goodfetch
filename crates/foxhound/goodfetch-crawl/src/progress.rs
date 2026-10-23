@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use goodfetch_engine::admission::{Held, Queued};
+use goodfetch_engine::admission::{Admission, Held, Queued};
 use goodfetch_engine::runs::{ProgressPart, Run};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::foxhound::crawl::CRAWL_HANDLER_CONCURRENCY;
@@ -54,6 +54,38 @@ pub(crate) enum Room {
     Starved,
     /// Nothing goes: the Run stops, or no Connection serves it.
     None,
+}
+
+/// Whether the due requests no domain holds may go: none while the Run
+/// stops or no Connection serves it (`held`), else as the serving
+/// Connections' room (`free`) and the governor (`starved`) say.
+pub(crate) fn room(held: bool, free: bool, starved: bool) -> Room {
+    if held {
+        Room::None
+    } else if !free {
+        Room::Full
+    } else if starved {
+        Room::Starved
+    } else {
+        Room::Free
+    }
+}
+
+/// Sets the crawl's live parts of its Run's progress: why its due requests
+/// wait, under `resolved`, with `room` for those no domain holds; its
+/// handlers running against `crawl.handler.concurrency`; and that it is
+/// not idle.
+pub(crate) fn show(
+    run: &Run,
+    admission: &Admission,
+    resolved: &Resolved,
+    room: Room,
+    (handlers, handler_concurrency): (usize, usize),
+) {
+    let now = run.clock().now();
+    show_waits(run, &admission.queued(now), resolved, now, room);
+    show_concurrency(run, handlers, handler_concurrency);
+    show_idle(run, false);
 }
 
 /// Sets the crawl's `waiting` from what its admission queues at `now`

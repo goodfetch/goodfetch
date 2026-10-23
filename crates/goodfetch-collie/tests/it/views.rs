@@ -5,8 +5,8 @@
 //! progress is the live one, not the last value of committed state, and
 //! the report arrives at the Run's end without ending it.
 #![expect(
-    clippy::disallowed_methods,
-    reason = "the tests start processes and read the Daemon's runtime file themselves"
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
 use goodfetch_test_support::{RuntimeFile, TestEnv};

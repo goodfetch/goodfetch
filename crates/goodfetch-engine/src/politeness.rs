@@ -25,6 +25,10 @@
 //! family (ADR 0066): its major never changes and newer minors only add. A
 //! Run with `politeness.sharing = run` takes its Permits from a file of its
 //! own in memory, under the same rules.
+//!
+//! Size: one file's protocol, its Permits, waiters, wakes and reclaim, each
+//! in one transaction, kept whole so the rules that guard the count in
+//! flight under a key change together.
 
 use std::fmt;
 use std::path::{Path, PathBuf};

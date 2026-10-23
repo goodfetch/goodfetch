@@ -31,6 +31,11 @@
 //! its reply that it ended. A handler that fails leaves its failure on its
 //! page, which the call waiting on the request, or else the next call on
 //! the page, raises ([`Interception::take_failure`]).
+//!
+//! A request the engine sends itself from a page's Session, as
+//! `page.request` does through the browser-fetch tier, passes steps 3 to 8
+//! as the page's Session chose them ([`Interception::sender`]), never a
+//! route.
 #![expect(
     clippy::disallowed_types,
     reason = "routes are armed and answers delivered as their call arrives, before any `.await`: each lock guards one table or map for one operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"

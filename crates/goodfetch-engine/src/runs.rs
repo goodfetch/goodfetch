@@ -68,7 +68,7 @@ use goodfetch_protocol::run::{
     Tags,
 };
 use goodfetch_protocol::secrets::{RUN_STATE_KEY_REFERENCE, TIMEOUT_SECRET};
-use goodfetch_protocol::settings::WeakenedSetting;
+use goodfetch_protocol::settings::{SettingsLayer, WeakenedSetting};
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
 use serde_json::Value;
@@ -109,7 +109,7 @@ use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
     self, Durability, RunState, RunStateError, RunStateOptions, RunStateTables,
 };
-use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets};
+use crate::secrets::{Carried, Keychain, Purpose, RunSecrets, SecretError, Secrets};
 use crate::settings::{Resolved, RunSettings, Settings};
 use crate::tasks::TaskOwner;
 use crate::trace::Link;
@@ -134,6 +134,8 @@ pub(crate) struct RunsSetup {
     /// The engine's environment map, which `env:` Secret references
     /// resolve in.
     pub(crate) environment: BTreeMap<OsString, OsString>,
+    /// The OS keychain, which `keychain:` Secret references resolve in.
+    pub(crate) keychain: Keychain,
     /// The Goodfetch home.
     pub(crate) home: Home,
     /// The engine's Product version, which names its per-major folder.
@@ -1307,7 +1309,11 @@ impl Runs {
                 .then(|| major_name(&setup.version)),
         };
         let secrets = Secrets::new(
-            std::mem::take(&mut setup.environment),
+            Carried {
+                environment: std::mem::take(&mut setup.environment),
+                keychain: setup.keychain.clone(),
+                home: setup.home.clone(),
+            },
             Arc::new(AuditLog::of(&setup.home, setup.ledger_vfs.clone())),
             Arc::clone(&readers),
             setup.clock,
@@ -1421,11 +1427,16 @@ impl Runs {
         let secrets = self
             .secrets
             .for_run(secret_timeout(start.settings.as_ref()));
+        // Only a reference a layer set resolves here: the default's item,
+        // in the OS keychain or the encrypted local file, is the engine's
+        // own, made when run state first wraps a data key with it (#617).
         if let Some((reference, layer)) = start.settings.as_ref().and_then(|settings| {
             let resolved = settings.resolved();
+            let layer = resolved.get(RUN_STATE_KEY_REFERENCE.name)?.layer;
+            (layer != SettingsLayer::Default).then_some(())?;
             Some((
                 resolved.secret_reference(RUN_STATE_KEY_REFERENCE.name)?,
-                resolved.get(RUN_STATE_KEY_REFERENCE.name)?.layer,
+                layer,
             ))
         }) {
             // The key-encryption key is used as the Run starts, to wrap its

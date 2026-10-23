@@ -123,20 +123,27 @@ pub struct SecretDomainNotAllowedDetails {
     pub domains: Vec<String>,
 }
 
-fn null() -> Value {
-    Value::Null
-}
-
 fn thirty_seconds() -> Value {
     json!(30_000)
+}
+
+/// `run_state.key_reference`'s default where the host has an OS keychain.
+pub const KEY_REFERENCE_IN_KEYCHAIN: &str = "keychain:goodfetch/run-state-key";
+
+/// `run_state.key_reference`'s default where the host has no OS keychain:
+/// the encrypted local file.
+pub const KEY_REFERENCE_IN_FILE: &str = "secretfile:run-state-key";
+
+fn in_keychain() -> Value {
+    json!(KEY_REFERENCE_IN_KEYCHAIN)
 }
 
 /// `run_state.key_reference` (ADR 0015).
 pub const RUN_STATE_KEY_REFERENCE: Setting = Setting {
     name: "run_state.key_reference",
-    description: "The Secret reference of the key-encryption key that wraps each Run's data key, resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration; none by default.",
+    description: "The Secret reference of the key-encryption key that wraps each Run's data key. One set in a layer is resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration. By default the OS keychain's `keychain:goodfetch/run-state-key`, or, on a host with no OS keychain, the encrypted local file's `secretfile:run-state-key`, which `config explain` shows as the default it chose. The encrypted local file, `secrets/<name>.age` in Goodfetch home encrypted with age to the X25519 identity in `secrets/identity.txt`, a file only its owner may read, protects copies and backups of the home, not the value from another process of the same user.",
     kind: ValueKind::SecretReference,
-    default: null,
+    default: in_keychain,
     clearable: true,
     authority: Authority::Configuration,
     weakens: None,

@@ -28,8 +28,8 @@ use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::{Value, json};
 
 use super::{
-    ConfigProblem, ProviderFailure, Purpose, Resolving, RunSecrets, SecretError, SecretProvider,
-    Secrets,
+    Carried, ConfigProblem, Keychain, ProviderFailure, Purpose, Resolving, RunSecrets, SecretError,
+    SecretProvider, Secrets,
 };
 use crate::audit::AuditLog;
 use crate::clock::Clock;
@@ -71,13 +71,26 @@ impl SecretProvider for Hanging {
     }
 }
 
+mod files;
+mod keychain;
+mod translations;
+
 fn driver(env: &TestEnv, variables: &[(&str, &str)]) -> Secrets {
+    driver_with(env, variables, Keychain::absent())
+}
+
+/// The driver over `variables` and `keychain`, with the test's home.
+fn driver_with(env: &TestEnv, variables: &[(&str, &str)], keychain: Keychain) -> Secrets {
     let environment: BTreeMap<OsString, OsString> = variables
         .iter()
         .map(|(name, value)| (OsString::from(name), OsString::from(value)))
         .collect();
     Secrets::new(
-        environment,
+        Carried {
+            environment,
+            keychain,
+            home: Home::new(env.home().to_path_buf()),
+        },
         Arc::new(AuditLog::of(&Home::new(env.home().to_path_buf()), None)),
         Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
         Clock::paused(env.start_time()),
@@ -167,7 +180,7 @@ fn a_set_variable_resolves_through_env_and_is_held_for_the_run() {
 #[rstest]
 #[case::an_unset_variable("env:SHOP_KEY", &[], SecretFailure::Missing)]
 #[case::an_empty_variable("env:SHOP_KEY", &[("SHOP_KEY", "")], SecretFailure::Missing)]
-#[case::a_provider_this_engine_lacks("keychain:goodfetch/portal", &[], SecretFailure::NotConfigured)]
+#[case::a_provider_this_engine_lacks("op://shop/portal/password", &[], SecretFailure::NotConfigured)]
 fn a_reference_that_gives_no_value_is_unavailable_naming_its_placeholder_and_failure(
     #[case] text: &str,
     #[case] variables: &[(&str, &str)],

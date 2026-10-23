@@ -10,9 +10,16 @@
 //!
 //! A provider fills only two primitives, [`SecretProvider::resolve`] and
 //! [`SecretProvider::check_config`]. This module carries the providers
-//! every engine needs: the environment's here, `env:NAME`.
+//! every engine needs (ADR 0015, spec #564): the environment's,
+//! `env:NAME`; the OS keychain's, `keychain:service/account`; and the
+//! encrypted local file's, `secretfile:name`, where no keychain exists,
+//! which is also where `run_state.key_reference`'s default falls back to
+//! ([`host_defaults`]). Each is a translation point (ADR 0127): what its
+//! party answers becomes a [`ProviderFailure`] there and nowhere else.
 
 mod environment;
+mod keychain;
+mod secretfile;
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -24,14 +31,18 @@ use std::time::Duration;
 use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
-use goodfetch_protocol::secrets::SecretFailure;
+use goodfetch_protocol::secrets::{KEY_REFERENCE_IN_FILE, RUN_STATE_KEY_REFERENCE, SecretFailure};
 use goodfetch_protocol::settings::SettingsLayer;
 use jiff::Timestamp;
 use secrecy::SecretString;
 use serde_json::json;
 
+pub use keychain::Keychain;
+
 use crate::audit::{AuditError, AuditLog, Origin};
 use crate::clock::Clock;
+use crate::home::Home;
+use crate::settings::HostDefaults;
 use crate::tasks::TaskOwner;
 
 /// A provider's answer to one reference, which the driver bounds by
@@ -57,13 +68,26 @@ pub trait SecretProvider: Send + Sync {
 
 /// How a provider failed to give a value, which the driver turns into
 /// [`SecretFailure`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ProviderFailure {
-    /// It holds no value for the reference, such as an unset variable.
+    /// It holds no value for the reference, such as an unset variable:
+    /// `missing`.
     Missing,
-    /// It failed in a way its translation point does not know (ADR 0127).
-    Unrecognized,
+    /// It cannot answer as this host or its setup stands, such as on a host
+    /// with no OS keychain or with an identity file other users may read:
+    /// `not_configured`, with what makes it answer.
+    NotConfigured(ConfigProblem),
+    /// It refused in a way its translation point knows, such as a locked
+    /// keychain or a file encrypted to another identity: `provider_failed`,
+    /// with what makes it answer.
+    Refused {
+        /// What makes it answer, never a value.
+        fix: String,
+    },
+    /// It failed in a way its translation point does not know (ADR 0127),
+    /// logged at `warn` without its text: `provider_failed`.
+    Unrecognized(PartyText),
     /// The caller's resolver is missing, threw or gave no answer.
     ResolverFailed,
 }
@@ -73,6 +97,53 @@ pub enum ProviderFailure {
 pub struct ConfigProblem {
     /// What makes it answer, never a value.
     pub fix: String,
+}
+
+/// A party's own text about a failure its translation point does not know
+/// (ADR 0127): kept for diagnosis, read by no code, and redacted wherever
+/// it is formatted, since a party may echo what it was given, a value
+/// included.
+#[derive(Clone, PartialEq, Eq)]
+pub struct PartyText(String);
+
+impl PartyText {
+    pub(crate) fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+}
+
+impl std::fmt::Debug for PartyText {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "PartyText(<{} bytes, redacted>)", self.0.len())
+    }
+}
+
+/// The providers every engine carries beside the ones a Product adds: the
+/// environment map `env:` reads, the OS keychain `keychain:` reads, and the
+/// Goodfetch home whose encrypted local files `secretfile:` reads.
+#[derive(Clone, Debug)]
+pub struct Carried {
+    /// The engine's environment map (ADR 0083).
+    pub environment: BTreeMap<OsString, OsString>,
+    /// The OS keychain, or none.
+    pub keychain: Keychain,
+    /// The Goodfetch home.
+    pub home: Home,
+}
+
+/// The defaults this host gives in place of the catalog's: the encrypted
+/// local file's `run_state.key_reference` where `keychain` is absent. It
+/// opens the OS keychain if no one has.
+///
+/// # Cancel safety
+///
+/// Dropping the future leaves the keychain to open on the next call.
+pub async fn host_defaults(keychain: &Keychain) -> HostDefaults {
+    if keychain.available().await {
+        HostDefaults::default()
+    } else {
+        HostDefaults::default().with(&RUN_STATE_KEY_REFERENCE, json!(KEY_REFERENCE_IN_FILE))
+    }
 }
 
 /// What a value is resolved for: the name it is used under, where it goes
@@ -168,11 +239,11 @@ impl std::fmt::Debug for Secrets {
 }
 
 impl Secrets {
-    /// The driver with the providers every engine carries: `env:` reads
-    /// `environment`, the engine's environment map (ADR 0083). Each
-    /// resolution is recorded in `audit`, whose writes block under `owner`.
+    /// The driver with the providers every engine carries, over `carried`.
+    /// Each resolution is recorded in `audit`; the providers' reads and the
+    /// Audit log's writes block under `owner`.
     pub fn new(
-        environment: BTreeMap<OsString, OsString>,
+        carried: Carried,
         audit: Arc<AuditLog>,
         owner: Arc<TaskOwner>,
         clock: Clock,
@@ -180,7 +251,21 @@ impl Secrets {
         let mut providers = BTreeMap::new();
         providers.insert(
             Provider::Environment,
-            Implementation(Arc::new(environment::Environment::new(environment))),
+            Implementation(Arc::new(environment::Environment::new(carried.environment))),
+        );
+        providers.insert(
+            Provider::Keychain,
+            Implementation(Arc::new(keychain::KeychainProvider::new(
+                carried.keychain,
+                Arc::clone(&owner),
+            ))),
+        );
+        providers.insert(
+            Provider::SecretFile,
+            Implementation(Arc::new(secretfile::SecretFiles::new(
+                carried.home.secret_files(),
+                Arc::clone(&owner),
+            ))),
         );
         Self(Arc::new(Shared {
             providers,
@@ -309,7 +394,11 @@ impl RunSecrets {
                     SecretFailure::Missing,
                     format!("Store a value where `{reference}` points, then try again."),
                 ),
-                ProviderFailure::Unrecognized => (
+                ProviderFailure::NotConfigured(problem) => {
+                    (SecretFailure::NotConfigured, problem.fix)
+                }
+                ProviderFailure::Refused { fix } => (SecretFailure::ProviderFailed, fix),
+                ProviderFailure::Unrecognized(_) => (
                     SecretFailure::ProviderFailed,
                     format!("The `{scheme}` provider failed; its logs say why."),
                 ),

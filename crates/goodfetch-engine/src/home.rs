@@ -33,6 +33,10 @@ const ACCOUNTS_STORE: &str = "accounts-store.sqlite";
 /// The Console key, outside the per-major folders (ADR 0098).
 const CONSOLE_KEY: &str = "console-key";
 
+/// The encrypted local files' folder, outside the per-major folders
+/// (spec #564).
+const SECRET_FILES: &str = "secrets";
+
 /// One user's Goodfetch data folder, and the copy of the Browser cache
 /// `GOODFETCH_BROWSERS_PATH` names in place of its own, if any.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,6 +127,13 @@ impl Home {
     /// major shares (ADR 0098).
     pub fn console_key(&self) -> PathBuf {
         self.root.join(CONSOLE_KEY)
+    }
+
+    /// The folder of the encrypted local files `secretfile:` reads, and of
+    /// the identity they are encrypted to, outside the per-major folders,
+    /// which every major and both Products share (spec #564).
+    pub fn secret_files(&self) -> PathBuf {
+        self.root.join(SECRET_FILES)
     }
 }
 

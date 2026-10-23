@@ -48,6 +48,9 @@ const PAGE_CASES: &str = include_str!("../../../conformance/page/cases.toml");
 /// The delivery suite's case list, embedded the same way.
 const DELIVERY_CASES: &str = include_str!("../../../conformance/delivery/cases.toml");
 
+/// The fetch suite's case list, embedded the same way.
+const FETCH_CASES: &str = include_str!("../../../conformance/fetch/cases.toml");
+
 /// The reset gate's case list, embedded the same way.
 const RESET_CASES: &str = include_str!("../../../conformance/reset/cases.toml");
 
@@ -84,6 +87,12 @@ impl ProtocolSuite {
     /// leases, on Foxhound's executable.
     pub fn delivery() -> Self {
         Self::read(DELIVERY_CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/fetch/cases.toml`: the tier that fetches a crawl
+    /// request's document, on Foxhound's executable.
+    pub fn fetch() -> Self {
+        Self::read(FETCH_CASES).expect("invariant: the embedded case list is valid")
     }
 
     /// `conformance/reset/cases.toml`: ADR 0001's reset gate, a discarded

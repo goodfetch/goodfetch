@@ -1,0 +1,6 @@
+# Which of goodfetch-fetch-tier's top-level modules may import which (ADR 0126).
+[modules]
+decoding = []
+driver = ["decoding"]
+tiers = ["driver", "transports"]
+transports = ["driver"]

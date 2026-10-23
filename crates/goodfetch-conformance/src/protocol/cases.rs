@@ -11,6 +11,7 @@ mod consent;
 mod delivery;
 mod events;
 mod fetch_edge;
+mod fetch_tiers;
 mod formats;
 mod guard;
 mod launch;
@@ -95,6 +96,8 @@ pub(crate) enum Case {
     ServiceWorker(service_workers::Case),
     /// A `page.request` case.
     PageRequest(page_request::Case),
+    /// A fetch tier case, Foxhound's.
+    FetchTier(fetch_tiers::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -297,7 +300,8 @@ impl Case {
                     .or_else(|| consent::Case::from_id(id).map(Self::Consent))
                     .or_else(|| reset::Case::from_id(id).map(Self::Reset))
                     .or_else(|| service_workers::Case::from_id(id).map(Self::ServiceWorker))
-                    .or_else(|| page_request::Case::from_id(id).map(Self::PageRequest));
+                    .or_else(|| page_request::Case::from_id(id).map(Self::PageRequest))
+                    .or_else(|| fetch_tiers::Case::from_id(id).map(Self::FetchTier));
             }
         })
     }
@@ -406,6 +410,7 @@ impl Case {
                 checks,
             ),
             Self::ServiceWorker(case) => case.run(connection, target, site, checks),
+            Self::FetchTier(case) => case.run(connection, site, checks),
         }
     }
 }

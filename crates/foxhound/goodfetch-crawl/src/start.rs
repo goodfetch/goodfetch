@@ -4,7 +4,9 @@
 //! bounds recorded and each seed admitted by the Frontier as its first work items,
 //! and each seed's answer kept, in the transaction that records the Run, and hands the Run
 //! to its delivery on the starting Connection's Client. A start whose
-//! every seed was refused still starts, and its Run finishes at once. A
+//! every seed was refused still starts, and its Run finishes at once; one
+//! whose `fetch.tier` forces a tier this engine does not build is refused
+//! with `capability_unavailable` (spec #579). A
 //! Run ID that names a crawl of the same seeds returns it as it is; one of
 //! other seeds, or of a Run that is no crawl, fails with `run_conflict`.
 
@@ -15,6 +17,7 @@ use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_err
 use goodfetch_engine::runs::{EndedBy, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
+use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_frontier::{Bounds, Scope};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::crawl::{CRAWL_SERVE, CRAWL_START, CrawlStartParams, Seed};
@@ -34,9 +37,12 @@ use crate::work_items;
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
 /// a handler's enqueue, the seeds added to a running crawl, the reads of
 /// its outcomes, the work items', Records' and outcomes' tables of every
-/// run file, and the driver a resumed crawl starts again with.
-pub fn contribution() -> Contribution {
+/// run file, and the driver a resumed crawl starts again with. Its crawl
+/// requests are fetched on the tiers of `tiers` (spec #579), the value
+/// Foxhound's composition also hands Collie's pages.
+pub fn contribution(tiers: FetchTiers) -> Contribution {
     let crawls = Crawls::default();
+    let starting = tiers.clone();
     let serving = crawls.clone();
     let enqueuing = crawls.clone();
     let resuming = crawls.clone();
@@ -44,7 +50,7 @@ pub fn contribution() -> Contribution {
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
     Contribution::new("goodfetch-crawl")
         .with_handler(Handler::new(&CRAWL_START, move |params, context| {
-            start(params, context, crawls.clone())
+            start(params, context, crawls.clone(), starting.clone())
         }))
         .with_handler(Handler::new(&CRAWL_SERVE, move |params, context| {
             serve(params, context, serving.clone())
@@ -59,7 +65,13 @@ pub fn contribution() -> Contribution {
         .with_driver(
             RunKind::Crawl,
             Arc::new(move |run, client, settings| {
-                Box::pin(delivery::resume(run, client, settings, resuming.clone()))
+                Box::pin(delivery::resume(
+                    run,
+                    client,
+                    settings,
+                    resuming.clone(),
+                    tiers.clone(),
+                ))
             }),
         )
 }
@@ -95,6 +107,7 @@ async fn start(
     params: CrawlStartParams,
     context: CallContext,
     crawls: Crawls,
+    tiers: FetchTiers,
 ) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
     let (settings, _) = context
@@ -110,6 +123,7 @@ async fn start(
         })
         .await
         .map_err(|error| settings_error(&error, context.identity()))?;
+    FetchTiers::check(settings.resolved())?;
     let scope = Scope::of_settings(settings.resolved()).map_err(CallError::from)?;
     let bounds = Bounds::of_settings(settings.resolved());
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
@@ -157,6 +171,7 @@ async fn start(
                 opened,
                 crawls,
                 settings,
+                tiers,
             ));
             started
         }

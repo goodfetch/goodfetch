@@ -41,6 +41,7 @@ mod locator;
 mod log;
 mod ops;
 mod page;
+mod page_events;
 mod parent_death;
 mod private_endpoint;
 mod run;

@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702 and #713;
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703 and #713;
 # spec #580, ticket #783): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "9"
+version = "10"
 
 [[capability]]
 name = "sessions.default"
@@ -234,3 +234,29 @@ name = "clean_up.block_resources"
 [[capability.case]]
 id = "block-resources-blocks-its-kinds-before-every-navigation-and-warns-once"
 covers = ["story:5-96", "setting:browser.block_resources", "error:setting_invalid"]
+
+[[capability]]
+name = "events"
+
+[[capability.case]]
+id = "a-pages-network-and-load-events-carry-their-data-and-a-cancelled-listener-no-longer-fires"
+covers = ["story:5-48", "operation:page.on", "event:page.request", "event:page.request_finished", "event:page.request_failed", "event:page.response", "event:page.web_socket", "event:web_socket.frame_sent", "event:web_socket.frame_received", "event:web_socket.close", "event:page.load", "event:page.dom_content_loaded"]
+
+[[capability.case]]
+id = "console-messages-and-uncaught-exceptions-carry-their-data-from-when-a-listener-is-armed"
+covers = ["story:5-48", "operation:page.on", "event:page.console", "event:page.page_error"]
+
+[[capability.case]]
+id = "a-blocked-an-aborted-and-a-failed-request-each-fail-as-playwright-reports-them"
+covers = ["story:5-48", "operation:page.on", "event:page.request_failed", "error:egress_refused"]
+
+[[capability.case]]
+id = "a-slow-reader-holds-the-page-events-stream-one-event-per-credit"
+covers = ["story:5-48", "operation:page.on", "operation:events.subscribe", "event:page.request"]
+
+[[capability]]
+name = "bodies"
+
+[[capability.case]]
+id = "a-kept-body-reads-whole-a-dropped-one-is-unavailable-and-a-cut-one-is-truncated"
+covers = ["story:5-46", "operation:response.body", "operation:page.wait_for_request_finished", "error:body_unavailable", "error:response_truncated"]

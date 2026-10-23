@@ -1,6 +1,6 @@
 # Which of the Proving ground's top-level modules may import which (ADR 0126).
 [modules]
-access = ["exchange", "generator", "observation", "oracle", "task"]
+access = ["exchange", "generator", "observation", "oracle", "push", "task"]
 adversarial = ["exchange", "generator", "observation", "task"]
 agent = ["generator", "model", "task"]
 authority = ["certificates", "raw_site"]

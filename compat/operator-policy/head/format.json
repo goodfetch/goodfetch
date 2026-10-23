@@ -644,6 +644,11 @@
                 "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "wait": {
+                "description": "How long a wait for an application state, such as `page.wait_for_request_finished`, may take before it fails with `deadline_exceeded`: 30 s.",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "type": "object"
@@ -1949,6 +1954,11 @@
               },
               "secret": {
                 "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "wait": {
+                "description": "How long a wait for an application state, such as `page.wait_for_request_finished`, may take before it fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,
                 "type": "integer"
               }
@@ -3349,6 +3359,11 @@
               },
               "secret": {
                 "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "wait": {
+                "description": "How long a wait for an application state, such as `page.wait_for_request_finished`, may take before it fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,
                 "type": "integer"
               }

@@ -388,6 +388,41 @@
         }
       ]
     },
+    "BodyHandle": {
+      "description": "A page body as a handle: its ID, the file that holds it and its size.",
+      "properties": {
+        "body": {
+          "arrived_in": "0.1",
+          "description": "Its ID, the lowercase hex SHA-256 of its bytes.",
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The file that holds it, which a Client on the same machine reads.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose folder holds it."
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "Its size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_id",
+        "body",
+        "path",
+        "size"
+      ],
+      "type": "object"
+    },
     "BrowserName": {
       "description": "A browser family, as ADR 0056 names them.",
       "oneOf": [
@@ -778,6 +813,68 @@
       },
       "required": [
         "signed_out"
+      ],
+      "type": "object"
+    },
+    "ConsoleLocation": {
+      "description": "Where a console message was written: its script's URL and position, as\nthe browser counts them from 0.",
+      "properties": {
+        "column_number": {
+          "arrived_in": "0.1",
+          "description": "The column, from 0.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "line_number": {
+          "arrived_in": "0.1",
+          "description": "The line, from 0.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The script's URL; empty for a script the page evaluated.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "line_number",
+        "column_number"
+      ],
+      "type": "object"
+    },
+    "ConsoleMessage": {
+      "description": "What `page.console` reports: a message the page wrote to its console.",
+      "properties": {
+        "location": {
+          "$ref": "#/$defs/ConsoleLocation",
+          "arrived_in": "0.1",
+          "description": "Where it was written."
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "Its text: each argument, a primitive as its value and any other as\nthe browser describes it, joined by spaces.",
+          "type": "string"
+        },
+        "type": {
+          "arrived_in": "0.1",
+          "description": "Its type as Playwright names it, such as `log`, `warning` or\n`error`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "type",
+        "text",
+        "location"
       ],
       "type": "object"
     },
@@ -3298,6 +3395,90 @@
       ],
       "type": "object"
     },
+    "PageEventName": {
+      "description": "A page's event a program listens to, by its words (ADR 0099): each\nSDK joins them as Playwright spells the event, such as `pageerror`.",
+      "oneOf": [
+        {
+          "const": "console",
+          "description": "`page.console`.",
+          "type": "string"
+        },
+        {
+          "const": "page_error",
+          "description": "`page.page_error`.",
+          "type": "string"
+        },
+        {
+          "const": "request",
+          "description": "`page.request`.",
+          "type": "string"
+        },
+        {
+          "const": "request_finished",
+          "description": "`page.request_finished`.",
+          "type": "string"
+        },
+        {
+          "const": "request_failed",
+          "description": "`page.request_failed`.",
+          "type": "string"
+        },
+        {
+          "const": "response",
+          "description": "`page.response`.",
+          "type": "string"
+        },
+        {
+          "const": "web_socket",
+          "description": "`page.web_socket`, with each socket's `web_socket.*` events.",
+          "type": "string"
+        },
+        {
+          "const": "load",
+          "description": "`page.load`.",
+          "type": "string"
+        },
+        {
+          "const": "dom_content_loaded",
+          "description": "`page.dom_content_loaded`.",
+          "type": "string"
+        }
+      ]
+    },
+    "PageExchange": {
+      "description": "What `page.response` reports, and `page.wait_for_request_finished`\nanswers: a request and the response it got.",
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/PageRequest",
+          "arrived_in": "0.1",
+          "description": "The request."
+        },
+        "response": {
+          "$ref": "#/$defs/PageResponse",
+          "arrived_in": "0.1",
+          "description": "Its response, whose body `response.body` reads."
+        }
+      },
+      "required": [
+        "request",
+        "response"
+      ],
+      "type": "object"
+    },
+    "PageFired": {
+      "description": "What `page.load` and `page.dom_content_loaded` report: the page whose\nmain frame's document fired the event.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id"
+      ],
+      "type": "object"
+    },
     "PageFormats": {
       "description": "What `page.formats` answers: the formats the request asked for, and\nnone it did not, with the document's URL, its base URL and whether it\nhas main content. Text is as the document holds it, never repaired.",
       "properties": {
@@ -3332,6 +3513,35 @@
     "PageId": {
       "description": "A page of a Run, named by the engine when it opens it.",
       "type": "string"
+    },
+    "PageOnEnded": {
+      "description": "What `page.on` answers when its page goes, closed or with its Run.",
+      "type": "object"
+    },
+    "PageOnParams": {
+      "additionalProperties": false,
+      "description": "What `page.on` takes: the page and the event listened to.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "event": {
+          "$ref": "#/$defs/PageEventName",
+          "arrived_in": "0.1",
+          "description": "The event."
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id",
+        "event"
+      ],
+      "type": "object"
     },
     "PageOpened": {
       "description": "What `run.new_page` and `session.new_page` answer: the page, and the\nSession it belongs to, which `page.session()` returns.",
@@ -3372,6 +3582,88 @@
       ],
       "type": "object"
     },
+    "PageRequest": {
+      "description": "A request of a page, ADR 0085's `Request`: one per hop of a redirect\nchain, each hop under the same `request_id`.",
+      "properties": {
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RequestFailure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Why it failed, for `page.request_failed`; none otherwise."
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Its headers as the browser sent them.",
+          "type": "object"
+        },
+        "is_navigation_request": {
+          "arrived_in": "0.1",
+          "description": "Whether it loads the document of the page's main frame.",
+          "type": "boolean"
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "Its method, such as `GET`.",
+          "type": "string"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page that sent it."
+        },
+        "post_data": {
+          "arrived_in": "0.1",
+          "description": "Its body, in Base64 (RFC 4648, with padding), when it has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "redirect_chain": {
+          "arrived_in": "0.1",
+          "description": "The URLs of the hops a redirect led from before it, the first first;\nempty when no redirect led to it.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "request_id": {
+          "arrived_in": "0.1",
+          "description": "The browser's ID for it, which `response.body` takes.",
+          "type": "string"
+        },
+        "resource_type": {
+          "arrived_in": "0.1",
+          "description": "The browser's name for what it loads, such as `Document` or\n`Fetch`.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "request_id",
+        "url",
+        "method",
+        "headers",
+        "resource_type",
+        "is_navigation_request",
+        "redirect_chain"
+      ],
+      "type": "object"
+    },
     "PageResponse": {
       "description": "The response to a request of a page, such as a navigation's document.",
       "properties": {
@@ -3383,6 +3675,11 @@
             "null"
           ]
         },
+        "from_service_worker": {
+          "arrived_in": "0.1",
+          "description": "Whether a site's service worker supplied it, from its own cache or\nthrough its own fetch (ADR 0121).",
+          "type": "boolean"
+        },
         "headers": {
           "additionalProperties": {
             "type": "string"
@@ -3390,6 +3687,11 @@
           "arrived_in": "0.1",
           "description": "Its headers, their names lower-cased, as the browser received them.",
           "type": "object"
+        },
+        "request_id": {
+          "arrived_in": "0.1",
+          "description": "The browser's ID for its request, which `response.body` takes.",
+          "type": "string"
         },
         "status": {
           "arrived_in": "0.1",
@@ -3414,7 +3716,9 @@
         "url",
         "status",
         "status_text",
-        "headers"
+        "headers",
+        "request_id",
+        "from_service_worker"
       ],
       "type": "object"
     },
@@ -3439,6 +3743,32 @@
       },
       "required": [
         "page_id",
+        "url"
+      ],
+      "type": "object"
+    },
+    "PageWebSocket": {
+      "description": "What `page.web_socket` reports: a WebSocket the page opened, whose\nframes and close follow as `web_socket.*` events.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its URL.",
+          "type": "string"
+        },
+        "web_socket_id": {
+          "arrived_in": "0.1",
+          "description": "The browser's ID for the socket, which its events name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "web_socket_id",
         "url"
       ],
       "type": "object"
@@ -3930,29 +4260,29 @@
       ],
       "type": "object"
     },
-    "RequestFailed": {
-      "description": "What `page.request_failed` reports: a request of the run that failed\nwhile no call waited for it, such as one the egress policy refused.",
+    "RequestFailure": {
+      "description": "Why a request failed, as Playwright's `request.failure()` gives it.",
       "properties": {
-        "failure": {
-          "$ref": "#/$defs/ErrorData",
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorData"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "arrived_in": "0.1",
-          "description": "Why it failed: the Error code a call waiting for it would have\nraised, with its details, such as `egress_refused`."
+          "description": "The Error code the engine failed it with, with its details, when the\nengine did, such as `egress_refused`."
         },
-        "method": {
+        "error_text": {
           "arrived_in": "0.1",
-          "description": "Its method, such as `GET`.",
-          "type": "string"
-        },
-        "url": {
-          "arrived_in": "0.1",
-          "description": "The request's URL, as the run gave it.",
+          "description": "The browser's network error, such as `net::ERR_FAILED` for a request\na route aborted or `net::ERR_BLOCKED_BY_CLIENT` for one the engine\nblocked.",
           "type": "string"
         }
       },
       "required": [
-        "url",
-        "method",
-        "failure"
+        "error_text"
       ],
       "type": "object"
     },
@@ -3984,6 +4314,31 @@
           "type": "string"
         }
       ]
+    },
+    "ResponseBodyParams": {
+      "additionalProperties": false,
+      "description": "What `response.body` takes: the page and the request whose response's\nbody it reads.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "request_id": {
+          "arrived_in": "0.1",
+          "description": "The request, by the browser's ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "request_id"
+      ],
+      "type": "object"
     },
     "Resync": {
       "description": "What `events.resync` gives: the current state, from which the stream\ncontinues.",
@@ -6869,6 +7224,37 @@
         }
       ]
     },
+    "WaitForRequestFinishedParams": {
+      "additionalProperties": false,
+      "description": "What `page.wait_for_request_finished` takes: the page, and the URLs of\nthe requests it waits for; any request when none is given.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "url": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UrlMatcher"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The URLs it waits for."
+        }
+      },
+      "required": [
+        "page_id"
+      ],
+      "type": "object"
+    },
     "WaitUntil": {
       "description": "When a navigation answers, by the state its document reached\n(Playwright's `waitUntil`).",
       "oneOf": [
@@ -6925,6 +7311,92 @@
         "layer"
       ],
       "type": "object"
+    },
+    "WebError": {
+      "description": "What `page.page_error` reports, `WebError`: an exception the page did\nnot catch (ADR 0085), never a `PageError`, ADR 0079's group.",
+      "properties": {
+        "message": {
+          "arrived_in": "0.1",
+          "description": "Its message.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, such as `TypeError`; `Error` for a thrown value that is no\nerror.",
+          "type": "string"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "stack": {
+          "arrived_in": "0.1",
+          "description": "Its stack as the browser renders it, when it has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "page_id",
+        "name",
+        "message"
+      ],
+      "type": "object"
+    },
+    "WebSocketClosed": {
+      "description": "What `web_socket.close` reports: a page's WebSocket closed.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "web_socket_id": {
+          "arrived_in": "0.1",
+          "description": "The socket.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "web_socket_id"
+      ],
+      "type": "object"
+    },
+    "WebSocketFrame": {
+      "description": "What `web_socket.frame_sent` and `web_socket.frame_received` report: one\nmessage frame of a page's WebSocket.",
+      "properties": {
+        "binary": {
+          "arrived_in": "0.1",
+          "description": "Whether it is a binary frame.",
+          "type": "boolean"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "Its payload: its text, or for a binary frame its bytes in Base64.",
+          "type": "string"
+        },
+        "web_socket_id": {
+          "arrived_in": "0.1",
+          "description": "The socket.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "web_socket_id",
+        "payload",
+        "binary"
+      ],
+      "type": "object"
     }
   },
   "error_codes": [
@@ -6975,6 +7447,16 @@
       "group": "program",
       "json_rpc_class": -32001,
       "name": "body_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say \"Request content was evicted from inspector cache\". A retry finds the body gone all the same.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "body_unavailable",
       "product": "collie",
       "retryable": false
     },
@@ -7704,6 +8186,30 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
+      "description": "The page wrote a message to its console, `ConsoleMessage`: its type, text and location. Published while `page.on` listens to `console`, the only time the engine reads the page's console.",
+      "name": "page.console",
+      "payload": {
+        "$ref": "#/$defs/ConsoleMessage"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "The document of the page's main frame fired `DOMContentLoaded`. Published while `page.on` listens to `dom_content_loaded`.",
+      "name": "page.dom_content_loaded",
+      "payload": {
+        "$ref": "#/$defs/PageFired"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
       "description": "A navigation of the page reached a file the browser downloads instead of showing, such as a PDF: the navigation answers no response and the page keeps its document. Names the page, the file's URL and the name the browser suggests.",
       "name": "page.download",
       "payload": {
@@ -7716,10 +8222,82 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "A request of the run failed while no call waited for it, such as one the egress policy refused with `egress_refused`: the Run trace records it, so a refusal is never a timeout. Names the request's URL and method, and the failure's Error code with its details.",
+      "description": "The document of the page's main frame fired `load`. Published while `page.on` listens to `load`.",
+      "name": "page.load",
+      "payload": {
+        "$ref": "#/$defs/PageFired"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "An exception the page did not catch, `WebError`: its name, message and stack. Published while `page.on` listens to `page_error`.",
+      "name": "page.page_error",
+      "payload": {
+        "$ref": "#/$defs/WebError"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "The page sent a request, `Request`, once per hop of a redirect chain: its URL, method, headers, body, resource type, navigation flag and the hops before it. Published while `page.on` listens to `request`; a service worker's own requests are never a page's.",
+      "name": "page.request",
+      "payload": {
+        "$ref": "#/$defs/PageRequest"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A request of the page failed, `Request` with its `failure`, as Playwright reports one: the browser's network error, such as `net::ERR_FAILED` for one a route aborted or `net::ERR_NAME_NOT_RESOLVED`, and the Error code when the engine blocked it, such as `egress_refused`, so a refusal is never a timeout. A response whose body broke off fails too. Published while `page.on` listens to `request_failed`; the Run trace records each request the engine refused that no call waited on.",
       "name": "page.request_failed",
       "payload": {
-        "$ref": "#/$defs/RequestFailed"
+        "$ref": "#/$defs/PageRequest"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A request of the page got its whole response, its body included. Published while `page.on` listens to `request_finished`.",
+      "name": "page.request_finished",
+      "payload": {
+        "$ref": "#/$defs/PageRequest"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A request of the page got its response's head: the request and its response, whose body `response.body` reads, and which says whether a site's service worker supplied it. Published while `page.on` listens to `response`.",
+      "name": "page.response",
+      "payload": {
+        "$ref": "#/$defs/PageExchange"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "The page opened a WebSocket, whose frames and close follow as `web_socket.frame_sent`, `web_socket.frame_received` and `web_socket.close`. Published, with those, while `page.on` listens to `web_socket`.",
+      "name": "page.web_socket",
+      "payload": {
+        "$ref": "#/$defs/PageWebSocket"
       },
       "product": "collie",
       "stability": "experimental"
@@ -7816,6 +8394,42 @@
       "name": "sample.echoed",
       "payload": {
         "$ref": "#/$defs/SampleEchoed"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A page's WebSocket closed.",
+      "name": "web_socket.close",
+      "payload": {
+        "$ref": "#/$defs/WebSocketClosed"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A page's WebSocket received a message frame: its text, or a binary frame's bytes in Base64.",
+      "name": "web_socket.frame_received",
+      "payload": {
+        "$ref": "#/$defs/WebSocketFrame"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A page's WebSocket sent a message frame: its text, or a binary frame's bytes in Base64.",
+      "name": "web_socket.frame_sent",
+      "payload": {
+        "$ref": "#/$defs/WebSocketFrame"
       },
       "product": "collie",
       "stability": "experimental"
@@ -8714,6 +9328,39 @@
     {
       "arrived_in": "0.1",
       "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the page on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call, as closing its `Subscription` does, removes the listener, and once no call listens the event is no longer published; it answers when the page closes or its Run ends. The page's console and uncaught exceptions are read only while a call listens to `console` or `page_error`.",
+      "events": [
+        "page.console",
+        "page.page_error",
+        "page.request",
+        "page.request_finished",
+        "page.request_failed",
+        "page.response",
+        "page.web_socket",
+        "web_socket.frame_sent",
+        "web_socket.frame_received",
+        "web_socket.close",
+        "page.load",
+        "page.dom_content_loaded",
+        "page.download"
+      ],
+      "kind": "event",
+      "name": "page.on",
+      "params": {
+        "$ref": "#/$defs/PageOnParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageOnEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
       "class": "effect",
       "deprecated": null,
       "description": "Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.",
@@ -8746,6 +9393,44 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/RouteEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "events": [],
+      "kind": "waiter",
+      "name": "page.wait_for_request_finished",
+      "params": {
+        "$ref": "#/$defs/WaitForRequestFinishedParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageExchange"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser. A body the browser no longer holds raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "response.body",
+      "params": {
+        "$ref": "#/$defs/ResponseBodyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/BodyHandle"
       },
       "stability": "experimental"
     },
@@ -11545,6 +12230,25 @@
       "default": 30000,
       "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
       "name": "timeout.secret",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a wait for an application state, such as `page.wait_for_request_finished`, may take before it fails with `deadline_exceeded`: 30 s.",
+      "name": "timeout.wait",
       "product": "collie",
       "products": [
         "collie",

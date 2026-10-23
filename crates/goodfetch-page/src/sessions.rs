@@ -43,13 +43,14 @@ use goodfetch_protocol::run::{Lifecycle, RUN_ENDED, RUN_NOT_FOUND, RunDetails, R
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SESSION_SOURCE, SettingLimit,
-    SettingsLayer, TIMEOUT_ACTION, TIMEOUT_NAVIGATION,
+    SettingsLayer, TIMEOUT_ACTION, TIMEOUT_NAVIGATION, TIMEOUT_WAIT,
 };
 use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
 
 use crate::driver::PageDriver;
 use crate::interception::{Interception, SESSION_KEYS};
+use crate::page_events::{self, PageEvents, Refusals};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
 
 /// What the page crate adds to every run file: each Session the Run opened,
@@ -70,6 +71,10 @@ const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 /// setting's default.
 const ACTION_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// An app-state wait's deadline when the Run's settings name none: 30 s,
+/// the setting's default.
+const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// What separates a Session's Run ID from its position in its ID; a
 /// position is digits alone, so the last one splits the ID.
 const SESSION_MARK: &str = ".session-";
@@ -81,6 +86,8 @@ pub(crate) struct Sessions {
     state: Arc<Mutex<State>>,
     pins: Vec<PinnedArtifact>,
     interception: Interception,
+    /// Each open page's events, which calls reach as they arrive.
+    events: page_events::Table,
 }
 
 #[derive(Default)]
@@ -178,12 +185,17 @@ fn unavailable(run: &Run, error: &impl std::fmt::Display, context: &CallContext)
 
 impl Sessions {
     /// The engine's Sessions, whose browsers come from `pins`, under
-    /// `interception`.
-    pub(crate) fn new(pins: Vec<PinnedArtifact>, interception: Interception) -> Self {
+    /// `interception`, their pages' events in `events`.
+    pub(crate) fn new(
+        pins: Vec<PinnedArtifact>,
+        interception: Interception,
+        events: page_events::Table,
+    ) -> Self {
         Self {
             state: Arc::new(Mutex::new(State::default())),
             pins,
             interception,
+            events,
         }
     }
 
@@ -291,12 +303,26 @@ impl Sessions {
             state.opened_pages += 1;
             PageId(format!("page-{}", state.opened_pages))
         };
+        // The page's events are read from before its requests pause, so
+        // every request of the page is followed.
+        let refusals = Refusals::default();
+        let events = PageEvents::start(
+            page.clone(),
+            driver.clone(),
+            &run,
+            context.events().clone(),
+            refusals.clone(),
+            driver.events().await,
+            wait_deadline(&run),
+        );
+        self.events.insert(page.clone(), events);
         self.interception
-            .start(&page, session, &driver, &run, &open.settings)
+            .start(&page, session, &driver, &run, &open.settings, refusals)
             .await?;
         let mut state = self.state.lock().await;
         if !state.sessions.contains_key(session) {
             drop(state);
+            self.events.close(std::slice::from_ref(&page));
             self.interception.close(&[page], session);
             return Err(session_closed(session));
         }
@@ -356,6 +382,7 @@ impl Sessions {
             }
             pages
         };
+        self.events.close(&pages);
         self.interception.close(&pages, session);
         open.seat.close().await;
         let position = open.position;
@@ -530,6 +557,7 @@ impl Sessions {
             drop(state);
             for session in &gone {
                 let pages = pages.remove(session).unwrap_or_default();
+                sessions.events.close(&pages);
                 sessions.interception.close(&pages, session);
             }
         });
@@ -726,6 +754,19 @@ async fn finished(run_id: &RunId, context: &CallContext) -> bool {
         })
         .await
         .is_ok_and(|lifecycle| lifecycle == Lifecycle::Finished.as_str())
+}
+
+/// The Run's `timeout.wait`, an app-state wait's deadline.
+fn wait_deadline(run: &Run) -> Deadline {
+    run.settings()
+        .and_then(|settings| Deadline::of(settings.resolved(), &TIMEOUT_WAIT))
+        .unwrap_or_else(|| {
+            Deadline::given(
+                &TIMEOUT_WAIT,
+                u64::try_from(WAIT_TIMEOUT.as_millis()).unwrap_or(u64::MAX),
+                SettingsLayer::Default,
+            )
+        })
 }
 
 /// The Run's `timeout.navigation`, and its `timeout.action` with where it

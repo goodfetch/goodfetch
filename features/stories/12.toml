@@ -70,9 +70,25 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 127
+title = "As a user, I want scraped HTML, screenshots and DOM snapshots served from a separate origin in sandboxed frames with no cookies, so that a hostile page can never act as the Console (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 128
 title = "As a user, I want the Console under a strict Content Security Policy (its own scripts only, no inline code or `eval`, Trusted Types, no third-party or telemetry call), `frame-ancestors 'none'` except the embed endpoint for granted origins, `Referrer-Policy: no-referrer`, COOP and CORP, so that the Console is hard to attack and calls nowhere (ADRs 0031, 0043)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
+status = "active"
+
+[[story]]
+id = 129
+title = "As a security reviewer, I want every Console route's headers checked in CI and the Proving ground's pages that try to escape the content origin run against it, so that the protections hold (ADRs 0031, 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
 status = "active"

@@ -61,13 +61,39 @@ impl Authorities {
         }
     }
 
-    fn admits_host(&self, host: &str) -> bool {
+    /// These names and `name`, as `host:port`, or `host` for a default
+    /// port.
+    #[must_use]
+    pub(crate) fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.names.push(name.into());
+        self
+    }
+
+    /// Only `name`, as `host:port`, or `host` for a default port.
+    pub(crate) fn only(name: impl Into<String>) -> Self {
+        Self {
+            names: vec![name.into()],
+        }
+    }
+
+    /// The origins of these names over `http`, as a CSP source list does.
+    pub(crate) fn origins(&self) -> Vec<String> {
+        self.names
+            .iter()
+            .map(|name| format!("http://{name}"))
+            .collect()
+    }
+
+    /// Whether `host`, a request's `Host`, is one of these names.
+    pub(crate) fn admits_host(&self, host: &str) -> bool {
         self.names
             .iter()
             .any(|name| name.eq_ignore_ascii_case(host))
     }
 
-    fn admits_origin(&self, origin: &str) -> bool {
+    /// Whether `origin`, a request's `Origin`, is one of these names over
+    /// `http`.
+    pub(crate) fn admits_origin(&self, origin: &str) -> bool {
         origin
             .strip_prefix("http://")
             .is_some_and(|authority| self.admits_host(authority))

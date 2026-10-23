@@ -567,11 +567,16 @@ snapshots *arguments:
     fi
     exit "$status"
 
-# `--test <runner>=<test ID>`, repeatable, or `--quarantined <n>`, the
-# quarantine list's n oldest entries. The diagnostic runs (20) and the daily
-# test-health job (50) call it; quarantined tests run too, as they must there.
-# Every runner runs even when another failed; the exit code is the last
-# failure's.
+# `--test <runner>=<test ID>`, repeatable, `--tests-file <file>` (one
+# `<runner>=<test ID>` a line, as the stress run hands its selection), or
+# `--quarantined <n>`, the quarantine list's n oldest entries. The diagnostic
+# runs (20) and the daily test-health job (50) call it; quarantined tests run
+# too, as they must there. A runner whose arguments would pass the operating
+# system's limits runs in batches, each with the same counts and its part of
+# the tests (`xtask repeat`); a batch's JUnit file then goes to
+# `target/junit/<runner>.<batch>.xml` (nextest's `nextest-ci.<batch>.xml`), so
+# none overwrites another. Every runner and batch runs even when another
+# failed; the exit code is the last failure's.
 # Runs chosen tests `count` times each, whatever each run's result (ADR 0064).
 [positional-arguments]
 repeat count *selection:
@@ -592,31 +597,38 @@ repeat count *selection:
     mapfile -t vitest_order < <(ci/order-arguments.sh vitest)
     mapfile -t playwright_order < <(ci/order-arguments.sh playwright)
     mapfile -t pytest_order < <(ci/order-arguments.sh pytest)
-    nextest=() vitest=() playwright=() pytest=()
+    # `<runner>\t<batch>\t<argument>` lines, each runner's batches from 1.
     arguments=$(cargo run --quiet -p xtask -- repeat --count "{{ count }}" "$@")
-    while IFS=$'\t' read -r runner argument; do
-      case "$runner" in
-        nextest) nextest+=("$argument") ;;
-        vitest) vitest+=("$argument") ;;
-        playwright) playwright+=("$argument") ;;
-        pytest) pytest+=("$argument") ;;
-      esac
-    done <<< "$arguments"
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     status=0
-    if [[ ${#nextest[@]} -gt 0 ]]; then
-      cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${nextest[@]}" || status=$?
-    fi
-    if [[ ${#vitest[@]} -gt 0 ]]; then
-      pnpm exec vitest run "${vitest_order[@]}" "${vitest[@]}" || status=$?
-    fi
-    if [[ ${#playwright[@]} -gt 0 ]]; then
-      pnpm exec playwright test "${playwright_order[@]}" "${playwright[@]}" || status=$?
-    fi
-    if [[ ${#pytest[@]} -gt 0 ]]; then
-      uv run pytest "${pytest_order[@]}" "${pytest[@]}" || status=$?
-    fi
+    for runner in nextest vitest playwright pytest; do
+      batches=$(awk -F'\t' -v runner="$runner" '$1 == runner && $2 > last { last = $2 } END { print last + 0 }' <<< "$arguments")
+      for (( batch = 1; batch <= batches; batch++ )); do
+        selected=()
+        while IFS=$'\t' read -r line_runner line_batch argument; do
+          if [[ "$line_runner" == "$runner" && "$line_batch" == "$batch" ]]; then selected+=("$argument"); fi
+        done <<< "$arguments"
+        case "$runner" in
+          nextest)
+            cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${selected[@]}" || status=$?
+            report=target/nextest/ci/junit.xml name=nextest-ci ;;
+          vitest)
+            pnpm exec vitest run "${vitest_order[@]}" "${selected[@]}" || status=$?
+            report=target/junit/vitest.xml name=vitest ;;
+          playwright)
+            pnpm exec playwright test "${playwright_order[@]}" "${selected[@]}" || status=$?
+            report=target/junit/playwright.xml name=playwright ;;
+          pytest)
+            uv run pytest "${pytest_order[@]}" "${selected[@]}" || status=$?
+            report=target/junit/pytest.xml name=pytest ;;
+        esac
+        if (( batches > 1 )) && [[ -f "$report" ]]; then
+          mkdir -p target/junit
+          mv "$report" "target/junit/$name.$batch.xml"
+        fi
+      done
+    done
     exit "$status"
 
 # The stress run before merge (ADR 0064): each test the change since `base`
@@ -660,15 +672,17 @@ stress base="" since="" *within:
     earlier=$(mktemp -d)
     find target/junit -maxdepth 1 -name '*.xml' -exec mv {} "$earlier/" \;
     status=0
+    # Each count's tests go to `just repeat` in a file: a change's new and
+    # changed tests can pass what one command line holds.
+    tests=$(mktemp)
     for count in 20 200; do
-      tests=()
       while IFS=$'\t' read -r runs runner test; do
-        if [[ "$runs" == "$count" ]]; then tests+=(--test "$runner=$test"); fi
-      done <<< "$selection"
-      echo "Stress run: $(( ${#tests[@]} / 2 )) test(s), $count times each"
-      [[ ${#tests[@]} -gt 0 ]] || continue
+        if [[ "$runs" == "$count" ]]; then printf '%s=%s\n' "$runner" "$test"; fi
+      done <<< "$selection" > "$tests"
+      echo "Stress run: $(wc -l < "$tests" | tr -d ' ') test(s), $count times each"
+      [[ -s "$tests" ]] || continue
       rm -f target/nextest/*/junit.xml
-      {{ just_executable() }} repeat "$count" "${tests[@]}" || status=$?
+      {{ just_executable() }} repeat "$count" --tests-file "$tests" || status=$?
       folder="target/junit/repeat-$count"
       mkdir -p "$folder"
       find target/junit -maxdepth 1 -name '*.xml' -exec mv {} "$folder/" \;
@@ -679,6 +693,7 @@ stress base="" since="" *within:
     done
     find "$earlier" -name '*.xml' -exec mv {} target/junit/ \;
     rmdir "$earlier"
+    rm -f "$tests"
     exit "$status"
 
 # Runs one suite's tests over what `xtask affected` selects (ADR 0061): the

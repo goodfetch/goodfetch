@@ -41,6 +41,7 @@ CREATE TABLE outcomes (
             attempts INTEGER NOT NULL,
             outcome TEXT NOT NULL
         ) STRICT;
+CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL) STRICT;
 CREATE TABLE pool_sessions (
             position INTEGER NOT NULL PRIMARY KEY,
             proxy_tier TEXT NOT NULL,

@@ -84,7 +84,7 @@ runs:
     - name: Install just, cargo-nextest, cargo-insta and uv
       uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2.87.23
       with:
-        tool: just@1.46.0,cargo-nextest@0.9.146,cargo-insta@1.49.0,uv@0.9.28
+        tool: just@1.46.0,cargo-nextest@0.9.149,cargo-insta@1.49.0,uv@0.9.28
 
     # The scan of the job's outputs before they upload (ci/leaks.sh, ADR 0067).
     - name: Install gitleaks

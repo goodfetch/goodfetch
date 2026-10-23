@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, PageBodyParams, PageBodyRead, PageExchange, PageFormats, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRouteParams, PressParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForRequestFinishedParams
+from .models import Acted, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageExchange, PageFormats, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRouteParams, PressParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOpened, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForRequestFinishedParams
 
 
 class AsyncCaller(Protocol):
@@ -278,6 +278,13 @@ class AsyncCollieOperations:
         """
         return PageOpened.model_construct(**_fields(await self._caller.call("run.new_page", params)))
 
+    async def run_new_session(self, params: NewSessionParams) -> SessionOpened:
+        """Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return SessionOpened.model_construct(**_fields(await self._caller.call("run.new_session", params)))
+
     async def run_pause(self, params: RunParams) -> RunReport:
         """Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint.
 
@@ -329,6 +336,20 @@ class AsyncCollieOperations:
         Deprecated since 0.1: A sample entry, which the real catalog replaces.
         """
         return SampleEchoResult.model_construct(**_fields(await self._caller.call("sample.echo", params)))
+
+    async def session_close(self, params: SessionParams) -> SessionClosed:
+        """Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return SessionClosed.model_construct(**_fields(await self._caller.call("session.close", params)))
+
+    async def session_new_page(self, params: SessionParams) -> PageOpened:
+        """Opens a page in the Session, with its cookies and storage. Once the Session is closed, it raises `closed`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageOpened.model_construct(**_fields(await self._caller.call("session.new_page", params)))
 
     async def session_route(self, params: SessionRouteParams) -> RouteEnded:
         """Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes.
@@ -596,6 +617,13 @@ class CollieOperations:
         """
         return PageOpened.model_construct(**_fields(self._caller.call("run.new_page", params)))
 
+    def run_new_session(self, params: NewSessionParams) -> SessionOpened:
+        """Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return SessionOpened.model_construct(**_fields(self._caller.call("run.new_session", params)))
+
     def run_pause(self, params: RunParams) -> RunReport:
         """Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint.
 
@@ -647,6 +675,20 @@ class CollieOperations:
         Deprecated since 0.1: A sample entry, which the real catalog replaces.
         """
         return SampleEchoResult.model_construct(**_fields(self._caller.call("sample.echo", params)))
+
+    def session_close(self, params: SessionParams) -> SessionClosed:
+        """Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return SessionClosed.model_construct(**_fields(self._caller.call("session.close", params)))
+
+    def session_new_page(self, params: SessionParams) -> PageOpened:
+        """Opens a page in the Session, with its cookies and storage. Once the Session is closed, it raises `closed`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageOpened.model_construct(**_fields(self._caller.call("session.new_page", params)))
 
     def session_route(self, params: SessionRouteParams) -> RouteEnded:
         """Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes.

@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::time::Duration;
 
-use goodfetch_protocol::catalog::{Authority, Product, ValueKind};
+use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{
     ExplainedSetting, Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsExplanation,
@@ -112,9 +112,35 @@ impl Recipe {
     }
 }
 
+/// The defaults an engine chose for its host in place of the catalog's,
+/// such as the encrypted local file's `run_state.key_reference` on a host
+/// with no OS keychain; still the default layer's, as `config explain`
+/// shows them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HostDefaults(BTreeMap<&'static str, Value>);
+
+impl HostDefaults {
+    /// The same, with `value` in place of `setting`'s catalog default.
+    #[must_use]
+    pub fn with(mut self, setting: &Setting, value: Value) -> Self {
+        self.0.insert(setting.name, value);
+        self
+    }
+
+    /// The default of `setting` on this host.
+    fn of(&self, setting: &Setting) -> Value {
+        self.0
+            .get(setting.name)
+            .cloned()
+            .unwrap_or_else(|| (setting.default)())
+    }
+}
+
 /// Every layer a Run's settings resolve through.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Layers {
+    /// The defaults this host gives in place of the catalog's.
+    pub host: HostDefaults,
     /// The Operator policy.
     pub operator_policy: Policy,
     /// User configuration.
@@ -415,7 +441,7 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
     let setting = key.setting;
     let name = setting.name;
     let policy = &layers.operator_policy;
-    let default = (setting.default)();
+    let default = layers.host.of(setting);
     let mut state = State {
         effective: Effective {
             value: default.clone(),

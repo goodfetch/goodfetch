@@ -1,32 +1,26 @@
 //! The page API's operations, the formats of a page's document among them
-//! (ADR 0007), and the engine's pages (ADRs 0085 and 0092): each live Run's
-//! default Session, opened by its first `run.new_page` and shared by every
-//! later one, and each open page by its ID. A Run's pages and Session leave
-//! with it: when it stops, its browser closes and its entries go. A locator
-//! action reaches its page's driver through the guard, under the Run's
-//! `timeout.action`. A navigation the browser turns into a download answers
-//! no response and publishes `page.download` on the engine's event stream.
-//! Every page is under the interception from its opening: `page.route`
-//! and `session.route` arm their routes there, `route.*` answer the
-//! requests those routes hold, and a failure a route's handler left on a
-//! page is raised by the navigation waiting on its request, or else by the
-//! page's next call. A page's events are published while `page.on` listens to
+//! (ADR 0007), over the engine's Sessions and their pages (`sessions`, ADRs
+//! 0085 and 0092): `run.new_page` opens a page in the Run's default
+//! Session, `run.new_session` a Session of the Run's own, `session.new_page`
+//! a page in it and `session.close` closes it. A locator action reaches its
+//! page's driver through the guard, under the Run's `timeout.action`. A
+//! navigation the browser turns into a download answers no response and
+//! publishes `page.download` on the engine's event stream. Every page is
+//! under the interception from its opening: `page.route` and
+//! `session.route` arm their routes there, `route.*` answer the requests
+//! those routes hold, and a failure a route's handler left on a page is
+//! raised by the navigation waiting on its request, or else by the page's
+//! next call. A page's events are published while `page.on` listens to
 //! them, and `response.body` and `page.wait_for_request_finished` read its
 //! responses' bodies (`page_events`).
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::time::Duration;
 
-use goodfetch_engine::browser_cache::{PinnedArtifact, Pins};
+use goodfetch_engine::browser_cache::PinnedArtifact;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::events::Events;
-use goodfetch_engine::runs::{Run, RunError};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_extractor::{Context, Document};
-use goodfetch_protocol::browser_cache::PinnedBy;
-use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::events::{
     PAGE_ON, PAGE_WAIT_FOR_REQUEST_FINISHED, PageOnEnded, PageOnParams, RESPONSE_BODY,
@@ -38,49 +32,43 @@ use goodfetch_protocol::page::route::{
     ROUTE_FULFILL, RouteAbortParams, RouteAnswered, RouteFetched, RouteFulfillParams,
     RouteOverridesParams, SESSION_ROUTE, SessionRouteParams,
 };
+use goodfetch_protocol::page::session::{
+    NewSessionParams, RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE, SessionClosed,
+    SessionParams,
+};
 use goodfetch_protocol::page::{
     Acted, ClickParams, FillParams, FormatsParams, GotoParams, LOCATOR_CLICK, LOCATOR_FILL,
     LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_DOWNLOAD, PAGE_FORMATS, PAGE_GO_BACK,
-    PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageDownload, PageFormats, PageId, PageOpened,
-    PageParams, PressParams, RUN_NEW_PAGE, SessionId, WaitUntil,
+    PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageDownload, PageFormats, PageId, PageParams,
+    PressParams, RUN_NEW_PAGE, WaitUntil,
 };
-use goodfetch_protocol::run::{RUN_NOT_FOUND, RunDetails, RunId};
-use goodfetch_protocol::settings::{
-    SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_NAVIGATION, TIMEOUT_WAIT,
-};
-use serde_json::json;
-use tokio::sync::Mutex;
 
-use crate::driver::{Arrived, Destination, LocalBrowser, PageDriver, SessionDriver};
+use crate::driver::{Arrived, Destination};
 use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
-use crate::page_events::{self, PageEvents, Refusals};
+use crate::page_events;
+use crate::sessions::{self, OpenPage, Sessions};
 use crate::url_pattern::UrlPattern;
 
-/// A navigation's deadline when the Run's settings name none: 30 s.
-const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// The guard's window when the Run's settings name none: 30 s, the
-/// setting's default.
-const ACTION_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// An app-state wait's deadline when the Run's settings name none: 30 s,
-/// the setting's default.
-const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// What the page crate adds to the engine (ADR 0087): the handlers of
-/// `run.new_page`, of the navigations `page.goto`, `page.reload`,
+/// What the page crate adds to the engine (ADR 0087): its run state's
+/// Sessions table and the handlers of `run.new_page`, of the Sessions'
+/// operations, of the navigations `page.goto`, `page.reload`,
 /// `page.go_back` and `page.go_forward`, of `page.formats` and of the
 /// locator actions, and of the routes and their answers, whose browsers
 /// come from `pins`, the builds the Product version pins.
 pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
+    let interception = Interception::default();
+    let events = page_events::Table::default();
     let pages = Pages {
-        state: Arc::new(Mutex::new(State::default())),
-        pins,
-        interception: Interception::default(),
-        events: page_events::Table::default(),
+        sessions: Sessions::new(pins, interception.clone(), events.clone()),
+        interception,
+        events,
     };
-    let contribution = with_page_handlers(Contribution::new("page"), &pages);
+    let contribution = with_page_handlers(
+        Contribution::new("page").with_run_state_tables(sessions::TABLES),
+        &pages,
+    );
+    let contribution = with_session_handlers(contribution, &pages.sessions);
     let contribution = with_locator_handlers(contribution, &pages);
     let contribution = with_event_handlers(contribution, &pages.events);
     with_route_handlers(contribution, &pages.interception)
@@ -131,6 +119,37 @@ fn pattern_of(matcher: &UrlMatcher) -> Result<UrlPattern, CallError> {
         UrlMatcher::Glob { pattern } => UrlPattern::glob(pattern)?,
         UrlMatcher::Regex { pattern } => UrlPattern::regex(pattern)?,
     })
+}
+
+/// Adds the handlers of `run.new_session`, `session.new_page` and
+/// `session.close`.
+fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Contribution {
+    let (opening, paging, closing) = (sessions.clone(), sessions.clone(), sessions.clone());
+    contribution
+        .with_handler(Handler::new(
+            &RUN_NEW_SESSION,
+            move |params: NewSessionParams, context: CallContext| {
+                let sessions = opening.clone();
+                async move { sessions.new_session(params, &context).await }
+            },
+        ))
+        .with_handler(Handler::new(
+            &SESSION_NEW_PAGE,
+            move |params: SessionParams, context: CallContext| {
+                let sessions = paging.clone();
+                async move { sessions.new_page(&params.session_id, &context).await }
+            },
+        ))
+        .with_handler(Handler::new(
+            &SESSION_CLOSE,
+            move |params: SessionParams, context: CallContext| {
+                let sessions = closing.clone();
+                async move {
+                    sessions.close(&params.session_id, &context).await?;
+                    Ok::<SessionClosed, CallError>(SessionClosed {})
+                }
+            },
+        ))
 }
 
 /// Adds the handlers of `page.route` and `session.route`, each arming its
@@ -274,7 +293,12 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
             &RUN_NEW_PAGE,
             move |params: NewPageParams, context: CallContext| {
                 let pages = opening.clone();
-                async move { pages.new_page(params, context).await }
+                async move {
+                    pages
+                        .sessions
+                        .new_default_page(&params.run_id, &context)
+                        .await
+                }
             },
         ))
         .with_handler(Handler::new(
@@ -403,167 +427,13 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
 /// The engine's pages, which every call of every Connection shares.
 #[derive(Clone)]
 struct Pages {
-    state: Arc<Mutex<State>>,
-    pins: Vec<PinnedArtifact>,
+    sessions: Sessions,
     interception: Interception,
     /// Each open page's events, which calls reach as they arrive.
     events: page_events::Table,
 }
 
-#[derive(Default)]
-struct State {
-    runs: BTreeMap<RunId, Arc<RunPages>>,
-    pages: BTreeMap<PageId, OpenPage>,
-    opened_sessions: u64,
-    opened_pages: u64,
-}
-
-/// A live Run's default Session.
-struct RunPages {
-    session: SessionId,
-    driver: SessionDriver<LocalBrowser>,
-}
-
-#[derive(Clone)]
-struct OpenPage {
-    run: Run,
-    driver: PageDriver,
-    /// Its Run's `timeout.action` and where it was set.
-    action_timeout: (SettingLimit, Duration),
-    /// Its Run's clock.
-    clock: Clock,
-}
-
 impl Pages {
-    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(run_id = %params.run_id, page_id = tracing::field::Empty, session_id = tracing::field::Empty))]
-    async fn new_page(
-        &self,
-        params: NewPageParams,
-        context: CallContext,
-    ) -> Result<PageOpened, CallError> {
-        let run = context
-            .runs()
-            .live(params.run_id.clone())
-            .await
-            .map_err(|error| run_error(&error, &params.run_id))?;
-        let navigation_timeout = run
-            .settings()
-            .and_then(|settings| settings.resolved().duration(TIMEOUT_NAVIGATION.name))
-            .unwrap_or(NAVIGATION_TIMEOUT);
-        let action_timeout = run
-            .settings()
-            .and_then(|settings| Deadline::of(settings.resolved(), &TIMEOUT_ACTION))
-            .map_or_else(
-                || {
-                    let limit = SettingLimit {
-                        key: TIMEOUT_ACTION.name.to_owned(),
-                        value: json!(ACTION_TIMEOUT.as_millis()),
-                        layer: SettingsLayer::Default,
-                    };
-                    (limit, ACTION_TIMEOUT)
-                },
-                |deadline| (deadline.limit().clone(), deadline.duration()),
-            );
-        let run_pages = self.default_session(&run, &context).await;
-        let driver = run_pages.driver.new_page(navigation_timeout).await?;
-        let page = {
-            let mut state = self.state.lock().await;
-            state.opened_pages += 1;
-            PageId(format!("page-{}", state.opened_pages))
-        };
-        // The page's events are read from before its requests pause, so
-        // every request of the page is followed.
-        let wait = run
-            .settings()
-            .and_then(|settings| Deadline::of(settings.resolved(), &TIMEOUT_WAIT))
-            .unwrap_or_else(|| {
-                Deadline::given(
-                    &TIMEOUT_WAIT,
-                    u64::try_from(WAIT_TIMEOUT.as_millis()).unwrap_or(u64::MAX),
-                    SettingsLayer::Default,
-                )
-            });
-        let refusals = Refusals::default();
-        let events = PageEvents::start(
-            page.clone(),
-            driver.clone(),
-            &run,
-            context.events().clone(),
-            refusals.clone(),
-            driver.events().await,
-            wait,
-        );
-        self.events.insert(page.clone(), events);
-        self.interception
-            .start(&page, &run_pages.session, &driver, &run, refusals)
-            .await?;
-        let mut state = self.state.lock().await;
-        let span = tracing::Span::current();
-        span.record("page_id", page.0.as_str());
-        span.record("session_id", run_pages.session.0.as_str());
-        state.pages.insert(
-            page.clone(),
-            OpenPage {
-                run: run.clone(),
-                driver,
-                action_timeout,
-                clock: run.clock(),
-            },
-        );
-        Ok(PageOpened {
-            page_id: page,
-            session_id: run_pages.session.clone(),
-        })
-    }
-
-    /// The Run's default Session, opened now when it has none; its entries
-    /// leave when the Run stops.
-    async fn default_session(&self, run: &Run, context: &CallContext) -> Arc<RunPages> {
-        let mut state = self.state.lock().await;
-        if let Some(existing) = state.runs.get(run.id()) {
-            return Arc::clone(existing);
-        }
-        state.opened_sessions += 1;
-        let opened = Arc::new(RunPages {
-            session: SessionId(format!("session-{}", state.opened_sessions)),
-            driver: SessionDriver::new(LocalBrowser::new(
-                run.clone(),
-                context.runs().home().clone(),
-                Pins {
-                    pinned_by: PinnedBy {
-                        product: context.identity().product,
-                        product_version: context.identity().product_version.clone(),
-                    },
-                    artifacts: self.pins.clone(),
-                },
-            )),
-        });
-        state.runs.insert(run.id().clone(), Arc::clone(&opened));
-        drop(state);
-        self.interception.open_session(&opened.session);
-        let pages = self.clone();
-        let stopping = run.cancellation().clone();
-        let run_id = run.id().clone();
-        run.spawn(async move {
-            stopping.cancelled().await;
-            let mut state = pages.state.lock().await;
-            let session = state.runs.remove(&run_id).map(|run| run.session.clone());
-            let gone: Vec<PageId> = state
-                .pages
-                .iter()
-                .filter(|(_, page)| page.run.id() == &run_id)
-                .map(|(page_id, _)| page_id.clone())
-                .collect();
-            state.pages.retain(|_, page| page.run.id() != &run_id);
-            drop(state);
-            pages.events.close(&gone);
-            if let Some(session) = session {
-                pages.interception.close(&gone, &session);
-            }
-        });
-        opened
-    }
-
     /// Navigates the page `page_id` to `destination`, answering once its
     /// document reached the state `wait_until` names; a download it turns
     /// into is published on `events`.
@@ -638,20 +508,7 @@ impl Pages {
     /// The open page `page_id`, or `closed`; a failure a route's handler
     /// left on it is raised here, by the page's next call.
     async fn open(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
-        let page = self
-            .state
-            .lock()
-            .await
-            .pages
-            .get(page_id)
-            .cloned()
-            .ok_or_else(|| {
-                CallError::new(
-                    &CLOSED,
-                    format!("the page `{}` is closed, or its Run ended", page_id.0),
-                    &json!({ "page_id": page_id }),
-                )
-            })?;
+        let page = self.sessions.page(page_id).await?;
         match self.interception.take_failure(page_id) {
             Some(failure) => Err(failure),
             None => Ok(page),
@@ -682,15 +539,4 @@ impl Pages {
             })
             .await)
     }
-}
-
-fn run_error(error: &RunError, run_id: &RunId) -> CallError {
-    CallError::new(
-        &RUN_NOT_FOUND,
-        format!("No live Run has the Run ID `{run_id}`: {error}"),
-        &RunDetails {
-            run_id: run_id.clone(),
-            path: None,
-        },
-    )
 }

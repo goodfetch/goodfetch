@@ -7,8 +7,8 @@
 //! element a locator matches, through the guard (ADR 0019); and the Error
 //! codes a page's browser, its navigations, its locators and the URL
 //! patterns its calls pass fail with. Its `route` module holds the page's
-//! and the Session's routes, its `events` module the page's events and its
-//! responses' bodies.
+//! and the Session's routes, its `session` module a Run's own Sessions, and
+//! its `events` module the page's events and its responses' bodies.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -39,6 +39,7 @@ use crate::settings::SettingLimit;
 
 pub mod events;
 pub mod route;
+pub mod session;
 
 use self::events::{
     BODY_UNAVAILABLE, PAGE_CONSOLE, PAGE_DOM_CONTENT_LOADED, PAGE_LOAD, PAGE_ON, PAGE_PAGE_ERROR,
@@ -50,6 +51,7 @@ use self::route::{
     PAGE_HANDLER_FAILED, PAGE_ROUTE, ROUTE_ABORT, ROUTE_ALREADY_HANDLED, ROUTE_CONTINUE,
     ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL, ROUTE_HANDLE, SESSION_ROUTE,
 };
+use self::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -174,14 +176,14 @@ pub struct NewPageParams {
     pub run_id: RunId,
 }
 
-/// What `run.new_page` answers: the page, and the Session it belongs to,
-/// which `page.session()` returns.
+/// What `run.new_page` and `session.new_page` answer: the page, and the
+/// Session it belongs to, which `page.session()` returns.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PageOpened {
     /// The page.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub page_id: PageId,
-    /// Its Session: the Run's default Session.
+    /// Its Session: the Run's default Session for `run.new_page`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub session_id: SessionId,
 }
@@ -955,6 +957,9 @@ pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[
         RUN_NEW_PAGE,
+        RUN_NEW_SESSION,
+        SESSION_NEW_PAGE,
+        SESSION_CLOSE,
         PAGE_GOTO,
         PAGE_RELOAD,
         PAGE_GO_BACK,

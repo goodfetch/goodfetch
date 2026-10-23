@@ -2,7 +2,8 @@
 //! against what `goodfetch-protocol` says the protocol is: its JSON-RPC
 //! failures, its Error codes and its operations' types. A crawl's delivery
 //! cases are `delivery`'s, a page's formats cases `formats`'s, its route
-//! cases `routes`'s and its events and bodies cases `events`'s.
+//! cases `routes`'s, a Run's Session cases `sessions`' and its events and
+//! bodies cases `events`'s.
 
 mod delivery;
 mod events;
@@ -12,6 +13,7 @@ mod guard;
 mod launch;
 mod navigation;
 mod routes;
+mod sessions;
 
 use std::collections::BTreeMap;
 
@@ -72,6 +74,8 @@ pub(crate) enum Case {
     NeverActionable,
     /// A route case.
     Route(routes::Case),
+    /// A Session case.
+    Session(sessions::Case),
     /// A page events or bodies case.
     Events(events::Case),
 }
@@ -246,6 +250,7 @@ impl Case {
                 return fetch_edge::Case::from_id(id)
                     .map(Self::FetchEdge)
                     .or_else(|| routes::Case::from_id(id).map(Self::Route))
+                    .or_else(|| sessions::Case::from_id(id).map(Self::Session))
                     .or_else(|| events::Case::from_id(id).map(Self::Events));
             }
         })
@@ -359,6 +364,7 @@ impl Case {
             Self::StillAmbiguous => guard::still_ambiguous(connection, site, checks),
             Self::NeverActionable => guard::never_actionable(connection, site, checks),
             Self::Route(case) => case.run(connection, site, checks),
+            Self::Session(case) => case.run(connection, site, checks),
             Self::Events(case) => case.run(connection, site, checks),
         }
     }

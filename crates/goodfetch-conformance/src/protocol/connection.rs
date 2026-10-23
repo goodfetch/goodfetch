@@ -2,7 +2,7 @@
 //! answer to each read past the notifications that come meanwhile, and every
 //! message exchanged recorded as a case's evidence, `{"from": "client" |
 //! "engine", "message": …}`, or `"raw"` for a line that is no JSON, as the
-//! Scripted engine records them (ADR 0069).
+//! Scripted engine records them (ADR 0069), a Daemon's token redacted.
 
 use std::fmt;
 use std::time::Duration;
@@ -13,6 +13,31 @@ use serde_json::{Value, json};
 use super::target::{
     BROWSER_DEADLINE, DEADLINE, EngineTarget, Next, START_DEADLINE, StartError, Started,
 };
+
+/// What a kept message holds in place of the Daemon's token: the evidence
+/// lands in a result document a Release cell uploads, whose secret scan
+/// refuses the token (ADR 0067).
+const REDACTED: &str = "[redacted]";
+
+/// `message` with each string that holds `token` holding [`REDACTED`] there.
+fn redacted(message: &Value, token: &str) -> Value {
+    if token.is_empty() {
+        return message.clone();
+    }
+    match message {
+        Value::String(text) if text.contains(token) => Value::String(text.replace(token, REDACTED)),
+        Value::Array(items) => {
+            Value::Array(items.iter().map(|item| redacted(item, token)).collect())
+        }
+        Value::Object(fields) => Value::Object(
+            fields
+                .iter()
+                .map(|(name, value)| (name.clone(), redacted(value, token)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
 
 /// Why the Connection gave no more answers.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,8 +106,12 @@ impl Connection {
 
     fn send(&mut self, message: &Value) -> Result<(), Gone> {
         let line = serde_json::to_vec(message).expect("invariant: a JSON value serializes");
+        let kept = match &self.started.token {
+            Some(token) => redacted(message, token),
+            None => message.clone(),
+        };
         self.exchanged
-            .push(json!({ "from": "client", "message": message }));
+            .push(json!({ "from": "client", "message": kept }));
         self.started
             .write_line(&line)
             .map_err(|error| Gone::Failed(error.to_string()))
@@ -128,12 +157,19 @@ impl Connection {
                 Next::Failed(error) => return Err(Gone::Failed(error.to_string())),
             };
             let Ok(message) = serde_json::from_str::<Value>(&line) else {
-                self.exchanged
-                    .push(json!({ "from": "engine", "raw": line }));
+                let raw = match &self.started.token {
+                    Some(token) => line.replace(token.as_str(), REDACTED),
+                    None => line,
+                };
+                self.exchanged.push(json!({ "from": "engine", "raw": raw }));
                 continue;
             };
+            let kept = match &self.started.token {
+                Some(token) => redacted(&message, token),
+                None => message.clone(),
+            };
             self.exchanged
-                .push(json!({ "from": "engine", "message": message }));
+                .push(json!({ "from": "engine", "message": kept }));
             return Ok(message);
         }
     }

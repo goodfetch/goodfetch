@@ -1,6 +1,13 @@
 //! One page's pipeline: each request its target pauses goes through the
 //! steps the interception lists, in order, as a task of the page's Run.
-//! Steps 3 to 8 for what the last route sends on are [`steps`]'s.
+//! Steps 3 to 8 for what the last route sends on are [`steps`]'s; step 6,
+//! the page's navigation gate, waits, so it is asked here. A document's
+//! response, and every response a response observer keeps, pause too.
+//!
+//! Size: one paused request's way through the steps, each of which reads
+//! and answers the same held request on the same page; the steps' pure
+//! judgement, the routes, the answers and the pending navigations are in
+//! their own modules.
 #![expect(
     clippy::disallowed_types,
     reason = "routes are armed and answers delivered as their call arrives, before any `.await`: each lock guards one table or map for one operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"

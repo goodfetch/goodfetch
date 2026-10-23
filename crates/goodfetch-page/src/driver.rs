@@ -14,7 +14,15 @@
 //! its Session keeps its timers (ADR 0085's question), and a headless
 //! browser's pages show the identity it shows with a window (`identity`).
 //! Each browser attaches the engine to its service workers before they run
-//! (`service_workers`; ADR 0121).
+//! (`service_workers`; ADR 0121). A page carries what Foxhound sets on it
+//! (`page_value`): its lease check is asked before each command it sends,
+//! and its waits for its navigation gate's permits count against none of
+//! its deadlines (`permit_waits`).
+//!
+//! Size: one page's driver, whose commands, navigations and turns all read
+//! the page's one connection and state; its navigation tracking, worlds,
+//! targets, service workers, encoding reads, endings and permit waits are
+//! in their own modules.
 
 mod carry;
 mod encoding;

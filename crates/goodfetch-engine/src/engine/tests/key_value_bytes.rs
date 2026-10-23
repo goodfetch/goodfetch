@@ -289,10 +289,12 @@ fn a_5_mib_value_reads_back_byte_for_byte_after_a_resume_on_another_machine() {
 
 /// What replaces or removes a key's large bytes.
 #[rstest]
-#[case::delete("delete", json!({}))]
-#[case::set_json("set", json!({ "value": "done" }))]
-#[case::set_other_bytes("set_bytes", json!({ "content": "AAE=", "content_type": "text/plain" }))]
 /// Covers: story:6-30, operation:key_value_store.delete
+#[case::delete("delete", json!({}))]
+/// Covers: story:6-30, operation:key_value_store.set
+#[case::set_json("set", json!({ "value": "done" }))]
+/// Covers: story:6-30, operation:key_value_store.set_bytes
+#[case::set_other_bytes("set_bytes", json!({ "content": "AAE=", "content_type": "text/plain" }))]
 fn deleting_or_replacing_the_key_removes_its_file(#[case] verb: &str, #[case] params: Value) {
     let env = TestEnv::new();
     let stored = content(2 * MIB);

@@ -61,6 +61,16 @@ fn backstop_repository() -> Workspace {
 /// Runs the repository's `ci/gate-backstop.sh` in the workspace, with the
 /// stand-in first on `PATH` and the logs in the workspace.
 fn backstop(workspace: &Workspace, stand_in: &Path) -> Run {
+    // Any disk serves the stand-in's steps.
+    backstop_with_env(
+        workspace,
+        stand_in,
+        &[("GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB", "0")],
+    )
+}
+
+/// Runs the backstop as [`backstop`] does, with these variables added.
+fn backstop_with_env(workspace: &Workspace, stand_in: &Path, variables: &[(&str, &str)]) -> Run {
     workspace.write(
         "runner-temp/goodfetch-os-services/env",
         b"DBUS_SESSION_BUS_ADDRESS=unix:path=/stand-in/bus\n",
@@ -75,6 +85,7 @@ fn backstop(workspace: &Workspace, stand_in: &Path) -> Run {
         .env("GOODFETCH_GATE_BACKSTOP_LOG", &logs)
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .envs(variables.iter().copied())
         .output()
         .unwrap();
     let read = |path: PathBuf| std::fs::read_to_string(path).unwrap_or_default();
@@ -213,4 +224,31 @@ fn a_red_full_run_fails_the_backstop() {
 
     assert_eq!(run.code, Some(1), "{}", run.log);
     assert!(run.results.contains(" gate=fail "), "{}", run.results);
+}
+
+/// A backstop whose build could take the disk below what the host keeps
+/// free does not start: it is listed as skipped, with the space it found,
+/// and fails, so a missed day shows.
+#[test]
+fn a_backstop_without_the_disk_its_build_needs_is_skipped() {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+
+    let run = backstop_with_env(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB", "100000000")],
+    );
+
+    assert_eq!(run.code, Some(1), "{}", run.log);
+    assert!(
+        run.calls.iter().all(|call| !call.starts_with("pre-merge")),
+        "{:?}",
+        run.calls
+    );
+    assert!(
+        run.results.contains(" gate=skipped (free disk "),
+        "{}",
+        run.results
+    );
 }

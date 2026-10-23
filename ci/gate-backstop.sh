@@ -16,7 +16,7 @@
 #
 # Each run appends one line to `<log>/results.txt`, `<UTC day> <commit>
 # gate=<pass|fail> misses=<n> suspects=<n> unchecked=<n>
-# quarantined=<pass|fail>`, and each miss, suspect or unchecked result to
+# quarantined=<pass|fail>`, or `gate=skipped (…)` when the disk lacks room, and each miss, suspect or unchecked result to
 # `<log>/misses.txt`; the run's own log is `<log>/<day>.log`, with `<log>`
 # GOODFETCH_GATE_BACKSTOP_LOG or ~/gate-backstop. It fails when the full run
 # fails or finds a miss. It keeps to bash 3.2, which stock macOS runs.
@@ -35,6 +35,18 @@ commit=$(git rev-parse --verify "$ref^{commit}")
 gate_worktree_name="gate-backstop"
 # shellcheck source=ci/gate-worktree.sh
 source "$(dirname "$0")/gate-worktree.sh"
+# The host keeps 60 GB free: the backstop starts only with room for its
+# build on top, about 25 GB for its worktree's first, 5 GB for a later one
+# (GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB sets the floor itself). A skipped day
+# is listed and fails.
+if [[ -d "$worktree/target" ]]; then needed=65; else needed=85; fi
+needed=${GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB:-$needed}
+free=$(df -Pk "$root" | awk 'NR == 2 { print int($4 / 1048576) }')
+if ((free < needed)); then
+  echo "== skipped: $free GB free, the backstop needs $needed GB"
+  echo "$day $commit gate=skipped (free disk $free GB < $needed GB)" >>"$logs/results.txt"
+  exit 1
+fi
 gate_worktree_lock
 trap 'rm -rf "$lock"' EXIT
 gate_worktree_checkout "$commit"

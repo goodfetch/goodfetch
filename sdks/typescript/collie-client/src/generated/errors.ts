@@ -532,6 +532,15 @@ export class RunInUseError extends RefusedError {
 }
 
 /**
+ * A resumed Run's data key does not open under the key-encryption key `run_state.key_reference` names, such as a Checkpoint moved to a machine whose own key is another: the key that wrapped it never travels with the Checkpoint. The details name the Run, the setting, the reference resolved and the reference that wrapped the key, never a value. Name the key that wrapped it, in project configuration or configuration, and resume again.
+ */
+export class RunKeyMismatchError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_key_mismatch", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * No Run has this Run ID: the Run index does not list it.
  */
 export class RunNotFoundError extends ProgramError {
@@ -731,6 +740,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   run_ended: RunEndedError,
   run_id_invalid: RunIdInvalidError,
   run_in_use: RunInUseError,
+  run_key_mismatch: RunKeyMismatchError,
   run_not_found: RunNotFoundError,
   run_not_owned: RunNotOwnedError,
   run_state_unavailable: RunStateUnavailableError,

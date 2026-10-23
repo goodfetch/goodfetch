@@ -84,7 +84,13 @@ CREATE TABLE run (
         nothing_done TEXT,
         report TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('aborted','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run","origin":"settings"}]',3,NULL,NULL,0,NULL,NULL,'{"run_id":"aborted","lifecycle":"stopped","stop_reason":{"kind":"abort","by":"client"},"verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: aborted by its Client."}],"started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":0,"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":995,"set_by":"client"}]},"weakened":[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run","origin":"settings"}],"policy_version":"sha256:0227dc879fda140d"}');
+INSERT INTO "run" VALUES('aborted','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run","origin":"settings"}]',4,NULL,NULL,0,NULL,NULL,'{"run_id":"aborted","lifecycle":"stopped","stop_reason":{"kind":"abort","by":"client"},"verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: aborted by its Client."}],"started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":0,"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":995,"set_by":"client"}]},"weakened":[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run","origin":"settings"}],"policy_version":"sha256:0227dc879fda140d"}');
+CREATE TABLE run_key (
+    id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+    wrapped BLOB NOT NULL,
+    key_reference TEXT NOT NULL
+) STRICT;
+INSERT INTO "run_key" VALUES(1,X'0100254A6F94B9DE03284D7297BCE1062B50759ABFE4092E53789DC2E70C31567BA0C5EA0F34597EA3C8ED12375C81A6CBF0153A5F84A9CEF3183D6287ACD1F61B40658AAFD4F91E43','secretfile:run-state-key');
 CREATE TABLE scope (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             strategy TEXT NOT NULL,

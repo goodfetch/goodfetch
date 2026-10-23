@@ -166,7 +166,7 @@ pub(super) struct Talk {
 impl Talk {
     /// Opens the Connection with `hello` and subscribes to every event,
     /// granting credits enough for any test.
-    async fn open(mut client: Client) -> Self {
+    pub(super) async fn open(mut client: Client) -> Self {
         client.send(&[hello("collie", "0.1")]).await;
         let opened = client.next().await.unwrap();
         assert!(opened.get("result").is_some(), "{opened}");

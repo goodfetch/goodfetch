@@ -7922,6 +7922,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A resumed Run's data key does not open under the key-encryption key `run_state.key_reference` names, such as a Checkpoint moved to a machine whose own key is another: the key that wrapped it never travels with the Checkpoint. The details name the Run, the setting, the reference resolved and the reference that wrapped the key, never a value. Name the key that wrapped it, in project configuration or configuration, and resume again.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "run_key_mismatch",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "No Run has this Run ID: the Run index does not list it.",
       "exit_code": null,
       "group": "program",
@@ -11529,7 +11539,7 @@
       "authority": "configuration",
       "clearable": true,
       "default": "keychain:goodfetch/run-state-key",
-      "description": "The Secret reference of the key-encryption key that wraps each Run's data key. One set in a layer is resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration. By default the OS keychain's `keychain:goodfetch/run-state-key`, or, on a host with no OS keychain, the encrypted local file's `secretfile:run-state-key`, which `config explain` shows as the default it chose. The encrypted local file, `secrets/<name>.age` in Goodfetch home encrypted with age to the X25519 identity in `secrets/identity.txt`, a file only its owner may read, protects copies and backups of the home, not the value from another process of the same user.",
+      "description": "The Secret reference of the key-encryption key that wraps each Run's data key. One set in a layer is resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration. By default the OS keychain's `keychain:goodfetch/run-state-key`, or, on a host with no OS keychain, the encrypted local file's `secretfile:run-state-key`, which `config explain` shows as the default it chose; the engine makes the default's item, a random 256-bit key, where it is missing when a Run first seals a field. A Run's data key is stored only wrapped by this key, so a resume, such as of a Checkpoint moved to another machine, unwraps it with the key this setting names for the resume, which a Client may send in `run.resume`'s project configuration: one that gives no value fails the resume with `secret_unavailable`, one that does not open the data key with `run_key_mismatch`. The encrypted local file, `secrets/<name>.age` in Goodfetch home encrypted with age to the X25519 identity in `secrets/identity.txt`, a file only its owner may read, protects copies and backups of the home, not the value from another process of the same user.",
       "name": "run_state.key_reference",
       "product": "collie",
       "products": [

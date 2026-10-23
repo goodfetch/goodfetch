@@ -24,6 +24,7 @@ mod secretfile;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -32,7 +33,8 @@ use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
 use goodfetch_protocol::secrets::{
-    KEY_REFERENCE_IN_FILE, RUN_STATE_KEY_REFERENCE, SecretFailure, SecretInputRefusedReason,
+    KEY_REFERENCE_IN_FILE, KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure,
+    SecretInputRefusedReason,
 };
 use goodfetch_protocol::settings::SettingsLayer;
 use jiff::Timestamp;
@@ -243,6 +245,12 @@ struct Shared {
     audit: Arc<AuditLog>,
     owner: Arc<TaskOwner>,
     clock: Clock,
+    /// The OS keychain and the encrypted local files' folder, where the
+    /// engine makes its own key-encryption key.
+    keychain: Keychain,
+    secret_files: PathBuf,
+    /// Held while the engine makes its key-encryption key, so it makes one.
+    making: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl std::fmt::Debug for Secrets {
@@ -264,6 +272,8 @@ impl Secrets {
         owner: Arc<TaskOwner>,
         clock: Clock,
     ) -> Self {
+        let keychain = carried.keychain.clone();
+        let secret_files = carried.home.secret_files();
         let mut providers = BTreeMap::new();
         providers.insert(
             Provider::Environment,
@@ -279,7 +289,7 @@ impl Secrets {
         providers.insert(
             Provider::SecretFile,
             Implementation(Arc::new(secretfile::SecretFiles::new(
-                carried.home.secret_files(),
+                secret_files.clone(),
                 Arc::clone(&owner),
             ))),
         );
@@ -288,7 +298,81 @@ impl Secrets {
             audit,
             owner,
             clock,
+            keychain,
+            secret_files,
+            making: Arc::default(),
         }))
+    }
+
+    /// Makes the item `reference` names hold a new random key-encryption
+    /// key, unless it holds a value already: only for the items the engine
+    /// owns, `run_state.key_reference`'s defaults ([`is_engine_key`]), in
+    /// the OS keychain or the encrypted local file, whose identity it makes
+    /// too. The key is 32 bytes from the OS generator, in Base64.
+    ///
+    /// # Errors
+    ///
+    /// `Unavailable` naming `run_state.key_reference` when the provider
+    /// refuses the write, `not_configured` for a reference the engine does
+    /// not own.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the item made or not.
+    pub(crate) async fn make_key(&self, reference: &SecretReference) -> Result<(), SecretError> {
+        let unavailable = |failure: ProviderFailure| {
+            let (failure, fix) = failure_of(failure, reference);
+            SecretError::Unavailable {
+                placeholder: RUN_STATE_KEY_REFERENCE.name.to_owned(),
+                reference: reference.clone(),
+                failure,
+                fix,
+            }
+        };
+        if !is_engine_key(reference) {
+            return Err(unavailable(ProviderFailure::NotConfigured(ConfigProblem {
+                fix: format!(
+                    "The engine makes only its own key-encryption key; store one where `{reference}` points."
+                ),
+            })));
+        }
+        let _making = self.0.making.lock().await;
+        let mut bytes = secrecy::zeroize::Zeroizing::new([0_u8; 32]);
+        getrandom::fill(bytes.as_mut_slice()).map_err(|_| {
+            unavailable(ProviderFailure::Refused {
+                fix: "The OS generator gave no random bytes for the key-encryption key; try again."
+                    .to_owned(),
+            })
+        })?;
+        let key = SecretString::from(data_encoding::BASE64.encode(bytes.as_slice()));
+        if reference.provider() == Provider::Keychain {
+            let (service, account) = reference
+                .rest()
+                .split_once('/')
+                .expect("invariant: a `keychain:` reference parses as service/account");
+            match self
+                .0
+                .keychain
+                .read(service.to_owned(), account.to_owned(), &self.0.owner)
+                .await
+            {
+                Ok(_) => Ok(()),
+                Err(ProviderFailure::Missing) => self
+                    .0
+                    .keychain
+                    .store(service, account, &key, &self.0.owner)
+                    .await
+                    .map_err(unavailable),
+                Err(failure) => Err(unavailable(failure)),
+            }
+        } else {
+            let (folder, name) = (self.0.secret_files.clone(), reference.rest().to_owned());
+            self.0
+                .owner
+                .blocking(move || secretfile::make(&folder, &name, &key))
+                .await
+                .map_err(unavailable)
+        }
     }
 
     /// The same driver with `implementation` answering `provider`'s
@@ -462,24 +546,7 @@ impl RunSecrets {
             }
         };
         let value = answer.map_err(|failure| {
-            let (failure, fix) = match failure {
-                ProviderFailure::Missing => (
-                    SecretFailure::Missing,
-                    format!("Store a value where `{reference}` points, then try again."),
-                ),
-                ProviderFailure::NotConfigured(problem) => {
-                    (SecretFailure::NotConfigured, problem.fix)
-                }
-                ProviderFailure::Refused { fix } => (SecretFailure::ProviderFailed, fix),
-                ProviderFailure::Unrecognized(_) => (
-                    SecretFailure::ProviderFailed,
-                    format!("The `{scheme}` provider failed; its logs say why."),
-                ),
-                ProviderFailure::ResolverFailed => (
-                    SecretFailure::ResolverFailed,
-                    "Answer the reference from the program's `resolveSecret`.".to_owned(),
-                ),
-            };
+            let (failure, fix) = failure_of(failure, reference);
             unavailable(failure, fix)
         })?;
         self.record(reference, purpose).await?;
@@ -504,6 +571,22 @@ impl RunSecrets {
             .iter()
             .map(|held| (held.placeholder.clone(), held.value.clone()))
             .collect()
+    }
+
+    /// The value last resolved for `placeholder`, if any.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn held_for(&self, placeholder: &str) -> Option<SecretString> {
+        self.0
+            .held
+            .lock()
+            .await
+            .iter()
+            .rev()
+            .find(|held| held.placeholder == placeholder)
+            .map(|held| held.value.clone())
     }
 
     /// Records the use of `reference` for `purpose` in the Audit log.
@@ -539,6 +622,34 @@ impl RunSecrets {
                 source,
             })
     }
+}
+
+/// What a provider's failure on `reference` leads to: its variant and fix.
+fn failure_of(failure: ProviderFailure, reference: &SecretReference) -> (SecretFailure, String) {
+    let scheme = reference.provider().as_str();
+    match failure {
+        ProviderFailure::Missing => (
+            SecretFailure::Missing,
+            format!("Store a value where `{reference}` points, then try again."),
+        ),
+        ProviderFailure::NotConfigured(problem) => (SecretFailure::NotConfigured, problem.fix),
+        ProviderFailure::Refused { fix } => (SecretFailure::ProviderFailed, fix),
+        ProviderFailure::Unrecognized(_) => (
+            SecretFailure::ProviderFailed,
+            format!("The `{scheme}` provider failed; its logs say why."),
+        ),
+        ProviderFailure::ResolverFailed => (
+            SecretFailure::ResolverFailed,
+            "Answer the reference from the program's `resolveSecret`.".to_owned(),
+        ),
+    }
+}
+
+/// Whether `reference` names the item of the engine's own key-encryption
+/// key: one of `run_state.key_reference`'s defaults, which the engine makes
+/// where run state first wraps a data key with it.
+pub fn is_engine_key(reference: &SecretReference) -> bool {
+    [KEY_REFERENCE_IN_KEYCHAIN, KEY_REFERENCE_IN_FILE].contains(&reference.as_str())
 }
 
 /// A refusal's reason as the wire names it.

@@ -128,7 +128,7 @@ impl HostDefaults {
     }
 
     /// The default of `setting` on this host.
-    fn of(&self, setting: &Setting) -> Value {
+    pub fn of(&self, setting: &Setting) -> Value {
         self.0
             .get(setting.name)
             .cloned()

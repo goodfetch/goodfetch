@@ -25,7 +25,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
-use goodfetch_protocol::page::{SessionId, SitePreference};
+use goodfetch_engine::runs::Run;
+use goodfetch_protocol::page::{PageId, SessionId, SitePreference};
 use goodfetch_protocol::run::RunId;
 
 use crate::url_pattern::UrlPattern;
@@ -217,6 +218,33 @@ pub trait ResponseObserver: Debug + Send + Sync {
     fn on_response(&self, response: &ObservedResponse<'_>, body: &[u8]);
 }
 
+/// A document a Product's fetch tier fetched without the browser, served
+/// to a handler as a page (spec #579; ADR 0093): `page.formats` reads it,
+/// and every other call on it answers `closed` until the tier that serves
+/// or escalates it is built (#767).
+#[derive(Clone)]
+pub struct ServedDocument {
+    /// The Run it was fetched for, on whose blocking owner it is read.
+    pub run: Run,
+    /// Its URL, after redirects.
+    pub url: String,
+    /// Its base URL.
+    pub base_url: String,
+    /// Its HTML, decoded.
+    pub html: String,
+}
+
+impl Debug for ServedDocument {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ServedDocument")
+            .field("run", self.run.id())
+            .field("url", &self.url)
+            .field("base_url", &self.base_url)
+            .finish_non_exhaustive()
+    }
+}
+
 /// The hook through which a Product sets what the pages it hands to
 /// handlers carry, asked as each page of the Session `session` of the Run
 /// `run` opens; every page of one Session takes the same.
@@ -226,6 +254,13 @@ pub trait HandlerPages: Send + Sync {
 
     /// The page's response observer, when one is registered.
     fn observer(&self, run: &RunId, session: &SessionId) -> Option<Arc<dyn ResponseObserver>>;
+
+    /// The document the page `page_id` serves, when a fetch tier opened it
+    /// from a document rather than in a browser; none by default.
+    fn document(&self, page_id: &PageId) -> Option<ServedDocument> {
+        let _ = page_id;
+        None
+    }
 }
 
 /// The hook of an engine that hands no pages to handlers, Collie's: every

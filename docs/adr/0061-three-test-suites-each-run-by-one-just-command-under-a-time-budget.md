@@ -116,6 +116,8 @@ A budget is the median (p50) of a job's last 20 runs in its own tier, on GitHub-
   - or move a test to a later suite, with the reason in its pull request.
 
   > Agent decision, accepted by the owner on 2026-10-21 ([#334](https://github.com/goodfetch/goodfetch/issues/334)): the results store exists, so `xtask budgets` reads it rather than the GitHub Actions API. The Release suite holds no secret, so the check runs in the store's ingest that follows each manual-dispatch Release run rather than in the run itself. A median is taken over the last 20 successful runs, or the fewer there are; a suite's "all green" or group time is measured on first attempts only. A tier missing from TESTING.md's table is reported and fails nothing.
+  >
+  > Superseded in part by ADR 0135's amendment of 2026-10-22: the check is the `budgets` job at the end of each manual-dispatch Release run, which holds the store's token, the Actions secret `TEST_RESULTS_TOKEN` (agent note of 2026-10-23, pending owner review).
 
   If the pull-request tier runs a stress run of new and changed tests ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/goodfetch/goodfetch/issues/280) decides it), that run counts against the Pre-merge budget. It is sharded to fit, and its run count is never lowered to meet a budget.
 - **Performance budgets of the product** (instruction counts, allocations, startup, overhead) are not these budgets. [Performance regression testing](https://github.com/goodfetch/goodfetch/issues/284) decides them.

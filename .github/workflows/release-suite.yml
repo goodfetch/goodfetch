@@ -763,7 +763,10 @@ jobs:
   # TESTING.md's table, opening or updating one needs-triage issue per
   # breached suite or job. It never fails a run, so its step is no test step.
   # While ADR 0135 keeps the ingest off, the store holds only the runs
-  # ingested before.
+  # ingested before. It needs the Actions secret TEST_RESULTS_TOKEN, a token
+  # that reads the `<owner>/test-results` repository (TESTING.md, the results
+  # store; ADR 0135's amendment of 2026-10-22), which the owner adds; without
+  # it the job fails on its first step, naming the secret.
   budgets:
     name: budgets
     needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, caches]
@@ -775,6 +778,14 @@ jobs:
       # The breach issues.
       issues: write
     steps:
+      - name: Require the results store's token
+        env:
+          TEST_RESULTS_TOKEN: ${{ secrets.TEST_RESULTS_TOKEN }}
+        run: |
+          if [[ -z "$TEST_RESULTS_TOKEN" ]]; then
+            echo "::error::The budgets job reads the results store, $GITHUB_REPOSITORY_OWNER/test-results, with the Actions secret TEST_RESULTS_TOKEN, which this repository does not have: the owner adds it (ADR 0135)."
+            exit 1
+          fi
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

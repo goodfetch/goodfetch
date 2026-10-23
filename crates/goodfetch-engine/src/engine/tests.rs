@@ -26,6 +26,7 @@ mod progress;
 mod refusals;
 mod report;
 mod run;
+mod run_files;
 mod run_key;
 mod settings;
 mod storage;

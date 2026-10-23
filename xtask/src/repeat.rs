@@ -214,26 +214,12 @@ pub(crate) fn arguments(
             .map(|(_, test)| test)
             .collect()
     };
-    let mut nextest_fixed = vec!["--no-fail-fast".to_owned()];
-    if let Some(power_cut) = of(Runner::Nextest)
-        .into_iter()
-        .find(|test| test.nextest_name().starts_with("lazyfs::"))
-    {
-        if !lazyfs {
-            bail!(
-                "`{}` is a LazyFS power cut, which runs only where GOODFETCH_LAZYFS names a LazyFS build (`just lazyfs-test` on Linux); repeat it there rather than drop it",
-                power_cut.as_str()
-            );
-        }
-        nextest_fixed.push("--ignore-default-filter".to_owned());
-    }
-    nextest_fixed.push(format!("--stress-count={count}"));
     let (playwright_before, playwright_after) = quarantine::PLAYWRIGHT_AROUND;
     let playwright_before = format!("--grep={playwright_before}");
     let runners: [(&'static str, Vec<String>, Vec<String>, Selecting<'_>); 4] = [
         (
             "nextest",
-            nextest_fixed,
+            nextest_fixed(&of(Runner::Nextest), count, lazyfs)?,
             of(Runner::Nextest)
                 .iter()
                 .map(|test| {
@@ -306,6 +292,28 @@ pub(crate) fn arguments(
         }
     }
     Ok(arguments)
+}
+
+/// nextest's arguments besides its filtersets for `tests`: with
+/// `--ignore-default-filter` when they hold a LazyFS power cut (`lazyfs::`),
+/// which the profiles' default filter leaves out (ADR 0060), and a failure
+/// instead when the host has no LazyFS build (`lazyfs`).
+fn nextest_fixed(tests: &[&TestId], count: NonZeroU32, lazyfs: bool) -> Result<Vec<String>> {
+    let mut fixed = vec!["--no-fail-fast".to_owned()];
+    if let Some(power_cut) = tests
+        .iter()
+        .find(|test| test.nextest_name().starts_with("lazyfs::"))
+    {
+        if !lazyfs {
+            bail!(
+                "`{}` is a LazyFS power cut, which runs only where GOODFETCH_LAZYFS names a LazyFS build (`just lazyfs-test` on Linux); repeat it there rather than drop it",
+                power_cut.as_str()
+            );
+        }
+        fixed.push("--ignore-default-filter".to_owned());
+    }
+    fixed.push(format!("--stress-count={count}"));
+    Ok(fixed)
 }
 
 /// The node IDs that select each of `count` runs of a pytest test. pytest-repeat

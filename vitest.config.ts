@@ -58,13 +58,28 @@ const component: TestProjectInlineConfiguration = {
 // Each Storybook story of the Console renders as a test through Storybook's
 // Vitest addon, which runs the a11y addon's axe pass on it, once in light
 // and once in dark (TESTING.md, Components and Accessibility): one project
-// per colour scheme, each pinning the stories' `theme` global.
+// per colour scheme, each pinning the stories' `theme` global. The addon
+// sets the project's `include` to the `stories` globs of the Storybook
+// configuration, and ignores any other. It gives no plugin when Vitest does
+// not load this file (no `VITEST` in the environment): the project is then
+// left out, so it never falls back to Vitest's default `include` and
+// collects every other project's tests.
 const storybookConfig = join(import.meta.dirname, "console", "collie", ".storybook");
-const componentStories = (theme: "light" | "dark"): TestProjectInlineConfiguration => ({
+const componentStories = async (
+  theme: "light" | "dark",
+): Promise<TestProjectInlineConfiguration[]> => {
+  const plugins = await storybookTest({ configDir: storybookConfig, initialGlobals: { theme } });
+  return plugins.length === 0 ? [] : [componentStoriesProject(theme, plugins)];
+};
+const componentStoriesProject = (
+  theme: "light" | "dark",
+  plugins: Awaited<ReturnType<typeof storybookTest>>,
+): TestProjectInlineConfiguration => ({
   extends: true,
-  plugins: [storybookTest({ configDir: storybookConfig, initialGlobals: { theme } })],
+  plugins,
   test: {
     name: `component-stories-${theme}`,
+    exclude: [...outside, visualTests],
     testTimeout: 300_000,
     setupFiles: ["@goodfetch/test-support/vitest-browser/setup"],
     browser: {
@@ -161,6 +176,9 @@ const config: ViteUserConfig = defineConfig({
             exclude: [...outside, "**/generated/**"],
           },
         }),
+    // Every project extends this, so none collects a file outside the
+    // sources, such as another checkout's tests under `.claude/worktrees/`.
+    exclude: outside,
     retry: 0,
     restoreMocks: true,
     unstubEnvs: true,
@@ -204,7 +222,9 @@ const config: ViteUserConfig = defineConfig({
         },
       },
       component,
-      ...(existsSync(storybookConfig) ? [componentStories("light"), componentStories("dark")] : []),
+      ...(existsSync(storybookConfig)
+        ? [...(await componentStories("light")), ...(await componentStories("dark"))]
+        : []),
       ...(process.env["GOODFETCH_TEST_SUITE"] === "release" ? [componentTextSpacing] : []),
       ...visual.projects,
     ],

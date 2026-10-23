@@ -313,6 +313,25 @@ fn journey_test_carrying_no_single_variant_fails(
     assert_eq!(outcome.code, 1);
 }
 
+/// Playwright reports a test of test support's `journey` with its surface's
+/// tag twice: the test's own `@console`, and the one it reads from its
+/// group's title, `J-001@console`. A tag carried twice is still one tag.
+#[test]
+fn playwright_test_carrying_its_surface_tag_twice_carries_one_variant() {
+    let workspace = catalog();
+    workspace.edit(
+        PLAYWRIGHT,
+        "[\"J-001\", \"console\"]",
+        "[\"console\", \"J-001\", \"console\"]",
+    );
+
+    let outcome = check(&workspace);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(untested(&outcome), Vec::<String>::new());
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
 #[test]
 fn variant_no_test_carries_is_reported_and_passes() {
     let workspace = catalog();

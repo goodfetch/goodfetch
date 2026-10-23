@@ -250,10 +250,14 @@ fn collect_playwright(suite: &PlaywrightSuite, title: &str, tests: &mut Vec<Jour
 }
 
 /// The variant a test's tags carry (Playwright's without their `@`), if a
-/// tag names a Journey.
+/// tag names a Journey. A tag listed twice counts once: Playwright lists the
+/// surface's tag of a test of test support's `journey` twice, the test's own
+/// and the one it reads from its group's title, `J-001@console`.
 fn tagged(tags: &[String]) -> Option<Carried> {
+    let tags: std::collections::BTreeSet<&String> = tags.iter().collect();
     let journeys: Vec<&String> = tags
         .iter()
+        .copied()
         .filter(|tag| {
             tag.strip_prefix("J-")
                 .is_some_and(|digits| digits.bytes().next().is_some_and(|b| b.is_ascii_digit()))
@@ -264,6 +268,7 @@ fn tagged(tags: &[String]) -> Option<Carried> {
     }
     let surfaces: Vec<&String> = tags
         .iter()
+        .copied()
         .filter(|tag| variants::is_surface(tag))
         .collect();
     Some(match (journeys.as_slice(), surfaces.as_slice()) {

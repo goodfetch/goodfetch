@@ -22,6 +22,10 @@
 //!   held before it, or `none`, by loading `/storage/found?mark=<found>`
 //!   before the page's `load` event: the Sessions' cases read both from the
 //!   observations (ADR 0021).
+//! - `scope.test/heavy?mib=<n>`, linked from nowhere, is a heavy page: its
+//!   script fills `n` MiB (1 to 1024, else 64) of a buffer it keeps, so the
+//!   page's memory, and its browser's, grows by that much: the Resource
+//!   governor's cases read it (ADR 0040).
 //!
 //! Every other page is an article with its ID; any other path is `404`.
 //! No task names the family: the engine's scope cases read it.
@@ -89,6 +93,7 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
         .header("location", link("http", "elsewhere.test", "/offsite")),
         (HOST, "/storage") => storage(request.parameter("mark")),
         (HOST, "/storage/found") => Page::text("text/plain; charset=utf-8", String::new()),
+        (HOST, "/heavy") => heavy(request.parameter("mib")),
         (HOST, "/cached") => {
             let title = name(visit.seed, &[FAMILY_PLACE, CACHED_PLACE]);
             Page::ok(article("S-CACHED", &title, &[]))
@@ -131,6 +136,19 @@ fn storage(mark: Option<&str>) -> Page {
     );
     Page::ok(document("Storage", &body))
         .header("set-cookie", format!("mark={mark}; Path=/; SameSite=Lax"))
+}
+
+/// The heavy page, which fills and keeps a buffer of `mib` MiB, 1 to
+/// 1024, else 64.
+fn heavy(mib: Option<&str>) -> Page {
+    let mib = mib
+        .and_then(|mib| mib.parse::<u32>().ok())
+        .filter(|mib| (1..=1024).contains(mib))
+        .unwrap_or(64);
+    let body = format!(
+        "<main>\n<h1>Heavy</h1>\n</main>\n<script>\nconst held = new Uint8Array({mib} * 1048576);\nfor (let at = 0; at < held.length; at += 4096) {{ held[at] = 1; }}\nwindow.held = held;\ndocument.querySelector(\"h1\").dataset.mib = \"{mib}\";\n</script>\n"
+    );
+    Page::ok(document("Heavy", &body))
 }
 
 /// The site's index, linking `links`.

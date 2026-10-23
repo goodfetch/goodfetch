@@ -41,6 +41,7 @@
 mod ends;
 mod life;
 mod lifecycle;
+mod memory;
 mod tabs;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -138,8 +139,9 @@ struct State {
     runs: BTreeMap<RunId, RunSessions>,
     sessions: BTreeMap<SessionId, Arc<Session>>,
     pages: BTreeMap<PageId, OpenPage>,
-    /// The crashed pages a close released, by their Run, whose later calls
-    /// raise `page_crashed` again until their Run stops.
+    /// The crashed pages a close released, and those the Resource governor
+    /// ended past their memory cap, by their Run, whose later calls raise
+    /// `page_crashed` or `page_memory_exceeded` again until their Run stops.
     crashed: BTreeMap<PageId, (RunId, PageLife)>,
     opened_pages: u64,
 }
@@ -685,6 +687,7 @@ impl Sessions {
             }
             state.runs.insert(run.id().clone(), runs);
             self.leave_with(run);
+            self.end_pages_past_their_cap(run);
         }
         Ok(state
             .runs

@@ -53,6 +53,7 @@
 //! | `BrowserCrash` | `Crashed`, browser crash | `Crashed`, browser crash | `Crashed`, browser crash | late | `Closed` | late |
 //! | `TargetEvent` | `Open` | `Navigating` | `Paused` | late | late | late |
 //! | `LeaseEnded` | `Closing`, closes | `Closing`, closes | `Closing`, closes | `Crashed`, released | late | late |
+//! | `MemoryExceeded` | `Closing`, closes | `Closing`, closes | `Closing`, closes | `Crashed`, released | late | late |
 //!
 //! A quit or a crash racing a close (`Closing`) ends the page with nothing
 //! raised, since its calls already ended, and the crash does not count in
@@ -470,6 +471,9 @@ pub(crate) enum PageEvent {
     TargetEvent,
     /// Its crawl handler's lease ended.
     LeaseEnded,
+    /// The Resource governor ends it past its memory cap while memory is
+    /// critical (ADR 0040).
+    MemoryExceeded,
 }
 
 /// What a page does on an allowed event, besides changing state.
@@ -548,7 +552,9 @@ pub(crate) fn page(
             }
             PageEvent::Judged => Ok((PageState::Open, PageEffect::Judge)),
             PageEvent::Pause => Ok((PageState::Paused, PageEffect::Pause)),
-            PageEvent::Close | PageEvent::LeaseEnded => Ok((PageState::Closing, PageEffect::Close)),
+            PageEvent::Close | PageEvent::LeaseEnded | PageEvent::MemoryExceeded => {
+                Ok((PageState::Closing, PageEffect::Close))
+            }
             PageEvent::TargetDestroyed => Ok((PageState::Closed, PageEffect::ClosedInBrowser)),
             PageEvent::RendererCrash => Ok((PageState::Crashed, PageEffect::RendererCrash)),
             PageEvent::BrowserQuit => Ok((PageState::Closed, PageEffect::Quit)),
@@ -566,7 +572,9 @@ pub(crate) fn page(
             PageEvent::Committed => Ok((PageState::Open, PageEffect::Commit)),
             PageEvent::NavFailed => Ok((PageState::Open, PageEffect::FailNavigation)),
             PageEvent::TargetEvent => Ok((PageState::Navigating, PageEffect::Nothing)),
-            PageEvent::Close | PageEvent::LeaseEnded => Ok((PageState::Closing, PageEffect::Close)),
+            PageEvent::Close | PageEvent::LeaseEnded | PageEvent::MemoryExceeded => {
+                Ok((PageState::Closing, PageEffect::Close))
+            }
             PageEvent::TargetDestroyed => Ok((PageState::Closed, PageEffect::ClosedInBrowser)),
             PageEvent::RendererCrash => Ok((PageState::Crashed, PageEffect::RendererCrash)),
             PageEvent::BrowserQuit => Ok((PageState::Closed, PageEffect::Quit)),
@@ -583,7 +591,9 @@ pub(crate) fn page(
             }
             PageEvent::Judged => Ok((PageState::Paused, PageEffect::Defer)),
             PageEvent::PauseEnded => Ok((PageState::Open, PageEffect::EndPause)),
-            PageEvent::Close | PageEvent::LeaseEnded => Ok((PageState::Closing, PageEffect::Close)),
+            PageEvent::Close | PageEvent::LeaseEnded | PageEvent::MemoryExceeded => {
+                Ok((PageState::Closing, PageEffect::Close))
+            }
             PageEvent::TargetDestroyed => Ok((PageState::Closed, PageEffect::ClosedInBrowser)),
             PageEvent::RendererCrash => Ok((PageState::Crashed, PageEffect::RendererCrash)),
             PageEvent::BrowserQuit => Ok((PageState::Closed, PageEffect::Quit)),
@@ -594,7 +604,7 @@ pub(crate) fn page(
             PageEvent::Gesture | PageEvent::Read | PageEvent::Goto | PageEvent::Pause => {
                 refused(Refusal::Program(PAGE_CRASHED.name))
             }
-            PageEvent::Close | PageEvent::LeaseEnded => {
+            PageEvent::Close | PageEvent::LeaseEnded | PageEvent::MemoryExceeded => {
                 Ok((PageState::Crashed, PageEffect::Release))
             }
             PageEvent::ExternalNav
@@ -624,7 +634,8 @@ pub(crate) fn page(
             | PageEvent::Close
             | PageEvent::RendererCrash
             | PageEvent::TargetEvent
-            | PageEvent::LeaseEnded => late,
+            | PageEvent::LeaseEnded
+            | PageEvent::MemoryExceeded => late,
         },
         PageState::Closed => match event {
             PageEvent::Gesture | PageEvent::Read | PageEvent::Goto | PageEvent::Pause => {
@@ -641,7 +652,8 @@ pub(crate) fn page(
             | PageEvent::BrowserQuit
             | PageEvent::BrowserCrash
             | PageEvent::TargetEvent
-            | PageEvent::LeaseEnded => late,
+            | PageEvent::LeaseEnded
+            | PageEvent::MemoryExceeded => late,
         },
     }
 }

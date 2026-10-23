@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 goodfetch-engine.workspace = true
+goodfetch-fetch-tier.workspace = true
 goodfetch-frontier.workspace = true
 goodfetch-protocol.workspace = true
 goodfetch-session-pool.workspace = true

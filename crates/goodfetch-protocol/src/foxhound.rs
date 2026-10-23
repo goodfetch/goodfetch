@@ -5,10 +5,12 @@
 //! items, `frontier` what its Frontier answers each seed and enqueue, and
 //! `outcomes` the reads of how its requests ended, `report` what a crawl's
 //! Run report adds, and `session_pool` the Session of its Session pool that
-//! serves each attempt.
+//! serves each attempt, and `fetch` the tier that fetches a crawl
+//! request's document.
 
 pub mod block;
 pub mod crawl;
+pub mod fetch;
 pub mod frontier;
 pub mod outcomes;
 pub mod report;

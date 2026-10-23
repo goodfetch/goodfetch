@@ -57,6 +57,7 @@ use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, CompletenessReason, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
+use goodfetch_fetch_tier::{FetchTiers, HttpTier};
 use goodfetch_frontier::{Bounds, completeness_reasons};
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
@@ -134,6 +135,7 @@ pub(crate) async fn drive(
     mut arrivals: Opened,
     crawls: Crawls,
     settings: RunSettings,
+    tiers: FetchTiers,
 ) {
     let mut servers = vec![Serving {
         client,
@@ -141,7 +143,20 @@ pub(crate) async fn drive(
         in_flight: 0,
         gone: false,
     }];
-    deliver(&run, &mut servers, &mut arrivals, &settings).await;
+    // One HTTP tier for the Run, so its hops share connections (#763).
+    match FetchTiers::http(&run, settings.resolved()) {
+        Ok(http) => {
+            let fetching = Fetching {
+                tiers: &tiers,
+                http: http.as_ref(),
+            };
+            deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
+        }
+        Err(error) => {
+            tracing::error!(%error, run_id = %run.id(), "the crawl's HTTP tier could not be built");
+            run.end(failed(&run, &error)).await;
+        }
+    }
     crawls.close(run.id()).await;
 }
 
@@ -151,6 +166,7 @@ async fn deliver(
     servers: &mut Vec<Serving>,
     arrivals: &mut Opened,
     settings: &RunSettings,
+    fetching: &Fetching<'_>,
 ) {
     let run_leases = Leases::new(run.clock(), run.id().as_str(), run.state().epoch());
     let Some((mut admission, mut pool)) = opened(run, settings).await else {
@@ -168,10 +184,7 @@ async fn deliver(
                 run,
                 &run_leases,
                 policy,
-                Pooled {
-                    pool: &mut pool,
-                    settings: PoolSettings::of(&resolved),
-                },
+                Pooled::of(&mut pool, &resolved, fetching),
                 &mut admission,
                 servers,
                 &mut attempts,
@@ -294,7 +307,13 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
 /// # Cancel safety
 ///
 /// As [`drive`]'s.
-pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings, crawls: Crawls) {
+pub(crate) async fn resume(
+    run: Run,
+    client: Client,
+    settings: RunSettings,
+    crawls: Crawls,
+    tiers: FetchTiers,
+) {
     let policy = CrawlPolicy::of(&settings.at_admission().await);
     let retry_max = policy.retry_max;
     let bounds = Bounds::of_settings(settings.resolved());
@@ -320,13 +339,42 @@ pub(crate) async fn resume(run: Run, client: Client, settings: RunSettings, craw
         Ok(_) => {}
     }
     let opened = crawls.open(&run).await;
-    drive(run, client, opened, crawls, settings).await;
+    drive(run, client, opened, crawls, settings, tiers).await;
 }
 
-/// The crawl's Session pool under the Run's settings now.
+/// The tiers a Run's crawl requests are fetched on: under `fetch.tier:
+/// http`, its HTTP tier; else none, and each handler is given its request
+/// alone.
+struct Fetching<'a> {
+    tiers: &'a FetchTiers,
+    http: Option<&'a HttpTier>,
+}
+
+impl Fetching<'_> {
+    /// What one attempt fetches its request's document with.
+    fn served(&self) -> Option<(FetchTiers, HttpTier)> {
+        self.http.map(|http| (self.tiers.clone(), http.clone()))
+    }
+}
+
+/// What each attempt is given: a Session drawn from the crawl's Session
+/// pool under the Run's settings now, and the tier that fetches its
+/// request's document.
 struct Pooled<'a> {
     pool: &'a mut SessionPool,
     settings: PoolSettings,
+    fetching: &'a Fetching<'a>,
+}
+
+impl<'a> Pooled<'a> {
+    /// Draws from `pool` under `resolved`, fetching on `fetching`.
+    fn of(pool: &'a mut SessionPool, resolved: &Resolved, fetching: &'a Fetching<'a>) -> Self {
+        Self {
+            pool,
+            settings: PoolSettings::of(resolved),
+            fetching,
+        }
+    }
 }
 
 /// Admits work items up to each serving Connection's room and the HTTP
@@ -390,6 +438,7 @@ async fn lease_to_servers(
                     server.client.clone(),
                     (leased, session, leased_count(run)),
                     lease,
+                    pooled.fetching.served(),
                 ),
             ));
         }

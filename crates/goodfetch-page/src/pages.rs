@@ -62,7 +62,7 @@ use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, Setti
 
 use crate::browser_fetch;
 use crate::dialogs::{self, Dialogs};
-use crate::driver::{Arrived, Destination};
+use crate::driver::{Arrived, Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events::{self, Requested};
@@ -99,11 +99,12 @@ pub fn contribution_with(pins: Vec<PinnedArtifact>, hooks: Arc<dyn HandlerPages>
             interception.clone(),
             events.clone(),
             dialogs.clone(),
-            hooks,
+            Arc::clone(&hooks),
         ),
         interception,
         events,
         dialogs,
+        hooks,
     };
     let contribution = with_page_handlers(
         Contribution::new("page").with_run_state_tables(sessions::TABLES),
@@ -598,6 +599,9 @@ struct Pages {
     events: page_events::Table,
     /// Each open page's dialogs and their handlers.
     dialogs: Dialogs,
+    /// The Product's hook, which also serves the pages its fetch tiers
+    /// opened from a document.
+    hooks: Arc<dyn HandlerPages>,
 }
 
 impl Pages {
@@ -767,6 +771,21 @@ impl Pages {
     /// cosmetic rules match (ADR 0047), which Provenance records.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_FORMATS.name, run_id = tracing::field::Empty))]
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
+        if let Some(served) = self.hooks.document(&params.page_id) {
+            tracing::Span::current().record("run_id", served.run.id().as_str());
+            let document = SerializedDocument {
+                html: served.html,
+                url: served.url,
+                base_url: served.base_url,
+            };
+            let request = params.formats;
+            let (formats, _) = served
+                .run
+                .owner()
+                .blocking(move || clean_up::read(&document, request, None))
+                .await;
+            return Ok(formats);
+        }
         let page = self.open(&params.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let document = page

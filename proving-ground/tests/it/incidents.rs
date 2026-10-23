@@ -308,6 +308,19 @@ fn content_coding_pages_are_labelled_as_adr_0119_lists() {
     let zstd = page(7);
     assert_eq!(zstd.header("content-encoding").as_deref(), Some("zstd"));
     assert_eq!(zstd.body()[..4], [0x28, 0xb5, 0x2f, 0xfd]);
+    for (ordinal, label) in [(8, "gzip"), (9, "deflate"), (10, "br"), (11, "zstd")] {
+        assert_eq!(
+            page(ordinal).header("content-encoding").as_deref(),
+            Some(label)
+        );
+    }
+    let gzipped = gunzip(page(8).body()).expect("gzip");
+    assert!(String::from_utf8_lossy(&gzipped).contains("Content coding page 8"));
+    let mut zlib = String::new();
+    flate2::read::ZlibDecoder::new(page(9).body())
+        .read_to_string(&mut zlib)
+        .expect("deflate with its zlib wrapper");
+    assert!(zlib.contains("Content coding page 9"));
 
     let decoding_failed = json!({
         "code": "navigation_failed",

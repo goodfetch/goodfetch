@@ -1895,6 +1895,18 @@
           "minimum": 0,
           "type": "integer"
         },
+        "page_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PageId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page served from the fetched document, which the handler reads\nas any page, when the engine fetched it."
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
@@ -1904,6 +1916,18 @@
           "$ref": "#/$defs/ServingSession",
           "arrived_in": "0.1",
           "description": "The Session of the crawl's Session pool that serves the attempt."
+        },
+        "tier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FetchTier"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The tier that fetched the request's document, when the engine\nfetched it (`fetch.tier`); none when the handler is given the\nrequest alone."
         }
       },
       "required": [
@@ -3603,6 +3627,36 @@
       "description": "A Feature's ID, `<kind>:<id>`, such as `row:CO-18` or `story:3-18`.",
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*:[^:\\s]+$",
       "type": "string"
+    },
+    "FetchTier": {
+      "description": "A tier that fetches a crawl request's document (ADR 0020), from the\ncheapest up.",
+      "oneOf": [
+        {
+          "const": "http",
+          "description": "An HTTP request, over reqwest in `standard` and `identified`\nSessions.",
+          "type": "string"
+        },
+        {
+          "const": "discovered_api",
+          "description": "The site's own API, found from its pages.",
+          "type": "string"
+        },
+        {
+          "const": "browser_fetch",
+          "description": "A request sent from a browser page's context.",
+          "type": "string"
+        },
+        {
+          "const": "light_browser",
+          "description": "A browser that runs scripts without layout.",
+          "type": "string"
+        },
+        {
+          "const": "browser",
+          "description": "Collie's browser page.",
+          "type": "string"
+        }
+      ]
     },
     "FillParams": {
       "additionalProperties": false,
@@ -12156,6 +12210,23 @@
                 },
                 "type": "object"
               },
+              "fetch": {
+                "additionalProperties": false,
+                "properties": {
+                  "tier": {
+                    "description": "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
+                    "enum": [
+                      "auto",
+                      "http",
+                      "discovered_api",
+                      "browser_fetch",
+                      "light_browser",
+                      "browser"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
               "filter_lists": {
                 "additionalProperties": false,
                 "properties": {
@@ -13747,6 +13818,23 @@
                   "offline": {
                     "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
                     "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "fetch": {
+                "additionalProperties": false,
+                "properties": {
+                  "tier": {
+                    "description": "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
+                    "enum": [
+                      "auto",
+                      "http",
+                      "discovered_api",
+                      "browser_fetch",
+                      "light_browser",
+                      "browser"
+                    ]
                   }
                 },
                 "type": "object"
@@ -15358,6 +15446,23 @@
                   "offline": {
                     "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
                     "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "fetch": {
+                "additionalProperties": false,
+                "properties": {
+                  "tier": {
+                    "description": "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
+                    "enum": [
+                      "auto",
+                      "http",
+                      "discovered_api",
+                      "browser_fetch",
+                      "light_browser",
+                      "browser"
+                    ]
                   }
                 },
                 "type": "object"

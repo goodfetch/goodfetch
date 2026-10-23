@@ -45,6 +45,12 @@ ceiling = 4
 floor = 4
 ceiling = 4
 
+[settings.governor.browser]
+contexts_per_process = 4
+recycle_pages = 4
+recycle_idle = 30000
+memory_cap = 4
+
 [settings.browser_cache]
 max_unused_age = 30000
 

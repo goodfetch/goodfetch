@@ -4741,6 +4741,50 @@
       ]
     },
     {
+      "id": "setting:governor.browser.contexts_per_process",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:governor.browser.memory_cap",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:governor.browser.recycle_idle",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:governor.browser.recycle_pages",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:governor.browser_page.ceiling",
       "kind": "setting",
       "area": 3,

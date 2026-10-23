@@ -9,13 +9,13 @@ Usage: goodfetch-collie [OPTIONS] <COMMAND>
 
 Commands:
   browsers         Manages the browser builds this version pins in the Browser cache
+  certs            Lists, accepts and forgets the certificate pins of the user's known-certificates store
   console          Opens the Console in the browser, signed in: starts the major's Daemon unless one runs
   config           Shows the settings and where each value comes from
   daemon           Starts, stops and shows the Daemon of this executable's major, which both Products share
   runs             Works on the runs of this executable's major, of both Products
   usage            Shows, sets and raises the Limits of the user's Usage ledger, which hold every engine of the user
   upgrade-files    Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
-  certs            Calls the catalog's `certs` operations
   engine           Calls the catalog's `engine` operations
   events           Calls the catalog's `events` operations
   run              Calls the catalog's `run` operations
@@ -69,6 +69,56 @@ Usage: goodfetch-collie browsers clean [OPTIONS]
 Options:
       --dry-run       Lists what it would delete, and deletes nothing
       --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie certs --help
+Lists, accepts and forgets the certificate pins of the user's known-certificates store
+
+Usage: goodfetch-collie certs [OPTIONS] <COMMAND>
+
+Commands:
+  list    Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key
+  accept  Pins the changed key that stopped a host in place of its pin: a person's answer, asked at the terminal, and refused with `person_required` under `--json` or when stdin is no terminal
+  forget  Removes a host's pin, so its next connection under trust on first use pins again: a person's answer, asked at the terminal, and refused with `person_required` under `--json` or when stdin is no terminal
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie certs list --help
+Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key
+
+Usage: goodfetch-collie certs list [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie certs accept --help
+Pins the changed key that stopped a host in place of its pin: a person's answer, asked at the terminal, and refused with `person_required` under `--json` or when stdin is no terminal
+
+Usage: goodfetch-collie certs accept [OPTIONS] <HOST>
+
+Arguments:
+  <HOST>  The pinned host
+
+Options:
+      --json          Refused: a person answers at a terminal, never under `--json`
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie certs forget --help
+Removes a host's pin, so its next connection under trust on first use pins again: a person's answer, asked at the terminal, and refused with `person_required` under `--json` or when stdin is no terminal
+
+Usage: goodfetch-collie certs forget [OPTIONS] <HOST>
+
+Arguments:
+  <HOST>  The pinned host
+
+Options:
+      --json          Refused: a person answers at a terminal, never under `--json`
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -324,28 +374,6 @@ Usage: goodfetch-collie upgrade-files [OPTIONS]
 
 Options:
       --from <MAJOR>  The older major to upgrade from, such as `1` or `0.4`; the newest older major Goodfetch home holds when not given
-      --json          Prints the result as JSON
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
-
-$ goodfetch-collie certs --help
-Calls the catalog's `certs` operations
-
-Usage: goodfetch-collie certs [OPTIONS] <COMMAND>
-
-Commands:
-  list  Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key
-
-Options:
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
-
-$ goodfetch-collie certs list --help
-Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key
-
-Usage: goodfetch-collie certs list [OPTIONS]
-
-Options:
       --json          Prints the result as JSON
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help

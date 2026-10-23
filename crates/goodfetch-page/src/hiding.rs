@@ -1,8 +1,8 @@
 //! Live hiding (ADR 0047; spec #577): the elements the cosmetic rules of a
 //! Session's Filter lists match are hidden on its live pages, on Chromium
-//! through a style sheet `CSS.createStyleSheet` makes, which no element of
-//! the document owns, so the site's `document.styleSheets` never holds it.
-//! Each frame of a page gets its sheet in every new document: when the
+//! through the page's hiding sheets ([`Sheets`]), one per document, into
+//! which the Consent prompt runner writes its own rules too.
+//! Each frame of a page gets its rules in every new document: when the
 //! frame commits a document, and again at its `DOMContentLoaded` and its
 //! `load`, the guard's isolated world reads the document's URL and the
 //! classes and IDs its elements hold, and the sheet is written with the
@@ -16,6 +16,9 @@
 //! on demand, A05-45); `off` enables neither the `DOM` nor the `CSS`
 //! domain, so their cost goes too. Provenance records the choice for each
 //! page.
+
+mod documents;
+mod sheets;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Weak};
@@ -34,6 +37,9 @@ use tokio::sync::Mutex;
 use crate::driver::{PageDriver, Turn, Unanswered};
 use crate::interception::{Cosmetic, PageCleanUp};
 use crate::trace;
+
+pub(crate) use self::documents::Part;
+pub(crate) use self::sheets::Sheets;
 
 /// The read of a frame's URL, classes and IDs.
 const COLLECT: &str = include_str!("hiding/collect.js");
@@ -91,6 +97,7 @@ pub(crate) struct PageHiding {
     driver: PageDriver,
     run: Run,
     cosmetic: Cosmetic,
+    sheets: Arc<Sheets>,
     session: Arc<SessionHiding>,
     /// The rules each frame's sheet holds now.
     frames: Mutex<BTreeMap<page::FrameId, Vec<CssRule>>>,
@@ -106,9 +113,9 @@ struct Collected {
 
 impl Hiding {
     /// Puts the page `page_id` of the Session `session_id`, which `driver`
-    /// drives for `run`, under live hiding as `clean_up` chose, recording
-    /// the choice in Provenance; none under `off` or with no Filter list
-    /// on.
+    /// drives for `run`, under live hiding as `clean_up` chose, writing into
+    /// the page's `sheets` and recording the choice in Provenance; none
+    /// under `off` or with no Filter list on.
     ///
     /// # Errors
     ///
@@ -121,6 +128,7 @@ impl Hiding {
         driver: &PageDriver,
         run: &Run,
         clean_up: &PageCleanUp,
+        sheets: &Arc<Sheets>,
     ) -> Result<Option<Arc<PageHiding>>, CallError> {
         let mode = Mode::of(&clean_up.live_hiding);
         let cosmetic = clean_up.cosmetic.clone().filter(|_| mode != Mode::Off);
@@ -151,6 +159,7 @@ impl Hiding {
             driver: driver.clone(),
             run: run.clone(),
             cosmetic,
+            sheets: Arc::clone(sheets),
             session: Arc::clone(&session),
             frames: Mutex::new(BTreeMap::new()),
         });
@@ -164,6 +173,7 @@ impl Hiding {
             .opening_command(&dom::EnableParams::default())
             .await?;
         driver.opening_command(&css::EnableParams {}).await?;
+        sheets.styled(driver.session());
         run.spawn(follow(events, Arc::clone(&page)));
         Ok(Some(page))
     }
@@ -181,6 +191,11 @@ impl Hiding {
 async fn follow(mut events: Subscription, page: Arc<PageHiding>) {
     while let Some(event) = events.next().await {
         let frame = if let Some(navigated) = event.read::<page::FrameNavigatedEvent>() {
+            page.sheets.navigated(
+                page.driver.session(),
+                &navigated.frame.id,
+                &navigated.frame.loader_id,
+            );
             navigated.frame.id
         } else if let Some(reached) = event.read::<page::LifecycleEventEvent>()
             && matches!(reached.name.as_str(), "DOMContentLoaded" | "load")
@@ -239,19 +254,13 @@ impl PageHiding {
         let ids: Vec<&str> = read.ids.iter().map(String::as_str).collect();
         let rules = PageRules::of(&self.cosmetic.lists, &self.cosmetic.choices, &read.url)
             .css_rules(&classes, &ids);
-        let sheet = self
-            .driver
-            .command(&css::CreateStyleSheetParams {
-                frame_id: frame.clone(),
-                force: None,
-            })
-            .await?
-            .style_sheet_id;
-        self.driver
-            .command(&css::SetStyleSheetTextParams {
-                style_sheet_id: sheet,
-                text: hiding::sheet(&rules, lifted),
-            })
+        self.sheets
+            .set(
+                self.driver.session(),
+                frame,
+                Part::Hiding,
+                hiding::sheet(&rules, lifted),
+            )
             .await?;
         Ok(Some(rules))
     }

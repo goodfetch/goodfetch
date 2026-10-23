@@ -195,6 +195,7 @@ fn forked(dependencies: &mut Dependencies) -> Dependencies {
         run_state: dependencies.run_state.clone(),
         politeness: dependencies.politeness.clone(),
         environment: dependencies.environment.clone(),
+        keychain: dependencies.keychain.clone(),
     }
 }
 

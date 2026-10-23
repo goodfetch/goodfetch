@@ -769,7 +769,9 @@ jobs:
   # Read and write); the owner creates that repository and adds the secret
   # (TESTING.md, the results store; ADR 0135's amendment of 2026-10-22).
   # `github.token` cannot read another private repository, so nothing falls
-  # back to it: without the secret the job fails on its first step, naming it.
+  # back to it: without the secret the job fails on its first step, naming it,
+  # never a silent pass. It runs after every cell and is none, so it leaves
+  # their verdict as it is.
   budgets:
     name: budgets
     needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, caches]
@@ -786,7 +788,7 @@ jobs:
           TEST_RESULTS_TOKEN: ${{ secrets.TEST_RESULTS_TOKEN }}
         run: |
           if [[ -z "$TEST_RESULTS_TOKEN" ]]; then
-            echo "::error::The budgets job reads the results store, $GITHUB_REPOSITORY_OWNER/test-results, with the Actions secret TEST_RESULTS_TOKEN (a fine-grained token on that repository with Contents: Read), which this repository does not have: the owner adds it (ADR 0135)."
+            echo "::error::The results store $GITHUB_REPOSITORY_OWNER/test-results or its TEST_RESULTS_TOKEN secret is missing (ADR 0064): budgets not checked."
             exit 1
           fi
       - name: Check out

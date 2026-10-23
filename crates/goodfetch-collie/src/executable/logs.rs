@@ -1,26 +1,35 @@
 //! The executable's `tracing` subscriber (ADRs 0049, 0122 and 0132; RT-17,
-//! RT-18): logs filtered by `GOODFETCH_LOG` in `EnvFilter`'s syntax, as text
-//! on stderr or JSON lines on stdout under `daemon run`, in the format
-//! `log.format` names, and as JSON lines in a file of the Goodfetch home's
-//! log folder when `GOODFETCH_LOG_OUTPUT` asks for one; each Connection's
-//! `$/log` events at its own level; the spans exported over OTLP/HTTP once
+//! RT-18), from the machine's `log.*` settings: logs filtered by
+//! `log.level`, `info` or a `tracing` filter directive, as text on stderr
+//! or JSON lines on stdout under `daemon run`, in the format `log.format`
+//! names, and, where `log.output` is `file`, as JSON lines in the Goodfetch
+//! home's log folder, rotated at `log.file.max_size` and kept to
+//! `log.file.max_files` (the `log_file` module): one set of files per
+//! Daemon, one per process for any other; each Connection's `$/log` events
+//! at its own level; the spans exported over OTLP/HTTP once
 //! `otlp.traces_endpoint` names a collector, and never otherwise, their
 //! trace and span IDs drawn from an `Entropy` of their own. Every
 //! timestamp reads the `Clock`.
-
-use std::collections::BTreeMap;
-use std::ffi::{OsStr, OsString};
-use std::fs::File;
-use std::sync::Arc;
+//!
+//! `log.output` defaults to `file` for a Daemon a start launched, which has
+//! no terminal, to `stdout` under `daemon run`, whose JSON lines on stdout
+//! its platform collects and rotates, and to `none` for any other process,
+//! an Attached engine's logs going to its Client as log events. `stdout` is
+//! `daemon run`'s alone: anywhere else stdout is the protocol or the CLI's
+//! output, and it fails with `setting_not_applicable`.
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
-use goodfetch_engine::home::Home;
+use goodfetch_engine::home::{Home, major_name};
 use goodfetch_engine::log::{ClockTime, LogEvents};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::trace::EntropyIds;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::log::{LOG_FORMAT, OTLP_TRACES_ENDPOINT};
+use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::log::{
+    LOG_FILE_MAX_FILES, LOG_FILE_MAX_SIZE, LOG_FORMAT, LOG_LEVEL, LOG_OUTPUT, OTLP_TRACES_ENDPOINT,
+};
+use goodfetch_protocol::settings::{SETTING_INVALID, SETTING_NOT_APPLICABLE};
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::{WithExportConfig as _, WithHttpConfig as _};
 use opentelemetry_sdk::trace::SdkTracerProvider;
@@ -29,24 +38,54 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
+use super::log_file::{LogFile, Rotation};
 use super::otlp::{EXPORT_TIMEOUT, Ureq};
-use super::{Command, DaemonCommand, LOG_FOLDER, LOG_OUTPUT_VARIABLE, Parsed};
+use super::{Command, DaemonCommand, LOG_FOLDER, Parsed};
 
-/// Where `parsed`'s logs go: whether to their file by default, as a Daemon
-/// a start launched does, which has no terminal (ADR 0122); and to stdout
-/// as JSON lines, as the foreground Daemon does, whose stdout no protocol
-/// uses (ADR 0049), or to stderr.
-pub(super) fn logs_of(parsed: &Parsed) -> (bool, LogsTo) {
-    match parsed {
-        Parsed::HandWritten(Command::Daemon {
-            command: DaemonCommand::Launched { .. },
-            ..
-        }) => (true, LogsTo::Stderr),
-        Parsed::HandWritten(Command::Daemon {
-            command: DaemonCommand::Run { .. },
-            ..
-        }) => (false, LogsTo::Stdout),
-        _ => (false, LogsTo::Stderr),
+/// The kinds of process whose logs ADR 0122 tells apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Process {
+    /// `daemon run`, the foreground Daemon, whose stdout no protocol uses
+    /// (ADR 0049).
+    DaemonRun,
+    /// A Daemon a start or the installed service launched, which has no
+    /// terminal.
+    DaemonLaunched,
+    /// Any other command, an Attached engine included.
+    Other,
+}
+
+impl Process {
+    /// The kind of `parsed`'s process.
+    pub(super) fn of(parsed: &Parsed) -> Self {
+        match parsed {
+            Parsed::HandWritten(Command::Daemon {
+                command: DaemonCommand::Launched { .. },
+                ..
+            }) => Self::DaemonLaunched,
+            Parsed::HandWritten(Command::Daemon {
+                command: DaemonCommand::Run { .. },
+                ..
+            }) => Self::DaemonRun,
+            _ => Self::Other,
+        }
+    }
+
+    /// Where its logs go beside their file.
+    pub(super) fn to(self) -> LogsTo {
+        match self {
+            Self::DaemonRun => LogsTo::Stdout,
+            Self::DaemonLaunched | Self::Other => LogsTo::Stderr,
+        }
+    }
+
+    /// Its `log.output` when unset.
+    fn default_output(self) -> &'static str {
+        match self {
+            Self::DaemonRun => "stdout",
+            Self::DaemonLaunched => "file",
+            Self::Other => "none",
+        }
     }
 }
 
@@ -61,45 +100,103 @@ pub(super) enum LogsTo {
     Stdout,
 }
 
-/// The file of this process's logs in the home's log folder, when
-/// `GOODFETCH_LOG_OUTPUT` is `file`, or it is unset and `by_default`; none
-/// when it is `none` or unset.
-pub(super) fn log_file(
-    binary: &str,
-    environment: &BTreeMap<OsString, OsString>,
-    home: Option<&Home>,
-    by_default: bool,
-) -> Result<Option<File>, String> {
-    let output = environment.get(OsStr::new(LOG_OUTPUT_VARIABLE));
-    match output.map(|output| output.to_str()) {
-        None if !by_default => Ok(None),
-        Some(Some("none")) => Ok(None),
-        None | Some(Some("file")) => {
-            let home = home.ok_or("no Goodfetch home holds a log folder")?;
-            let folder = home.root().join(LOG_FOLDER);
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "main opens the log file before the runtime starts (ADR 0122)"
-            )]
-            let file = std::fs::create_dir_all(&folder).and_then(|()| {
-                File::options()
-                    .create(true)
-                    .append(true)
-                    .open(folder.join(format!("{binary}-{}.jsonl", std::process::id())))
-            });
-            file.map(Some)
-                .map_err(|error| format!("{}: {error}", folder.display()))
-        }
-        Some(_) => Err("it is `file` or `none`".to_owned()),
+/// Why the logs cannot go where the settings say, as the Error code and
+/// message the process stops with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Refused {
+    /// The Error code.
+    pub(super) code: &'static str,
+    /// What is wrong.
+    pub(super) message: String,
+}
+
+/// The `tracing` filter `log.level` sets, `info` when unset; a directive
+/// `tracing` cannot read is refused with `setting_invalid`.
+pub(super) fn filter_of(settings: Option<&Resolved>) -> Result<String, Refused> {
+    let level = settings
+        .and_then(|settings| settings.value(LOG_LEVEL.name).as_str().map(str::to_owned))
+        .unwrap_or_else(|| "info".to_owned());
+    match tracing_subscriber::EnvFilter::try_new(&level) {
+        Ok(_) => Ok(level),
+        Err(error) => Err(Refused {
+            code: SETTING_INVALID.name,
+            message: format!("`log.level` is `{level}`, which is no `tracing` filter: {error}"),
+        }),
     }
+}
+
+/// The log file of `binary`'s `process` of `version` in `home`'s log
+/// folder when `log.output` is `file` (one set per Daemon, one per process
+/// otherwise), rotated as `log.file.*` say; none when it is `none`, or
+/// `stdout` under `daemon run`.
+///
+/// # Errors
+///
+/// `setting_not_applicable` for `stdout` outside `daemon run`, whose
+/// stdout is the protocol or the CLI's output, and when the file cannot be
+/// opened, or no home holds the folder.
+pub(super) fn file_of(
+    binary: &str,
+    process: Process,
+    version: &ProductVersion,
+    home: Option<&Home>,
+    settings: Option<&Resolved>,
+    clock: Clock,
+) -> Result<Option<LogFile>, Refused> {
+    let output = settings
+        .and_then(|settings| settings.value(LOG_OUTPUT.name).as_str().map(str::to_owned))
+        .unwrap_or_else(|| process.default_output().to_owned());
+    match (output.as_str(), process) {
+        ("file", _) => {}
+        ("none", _) | ("stdout", Process::DaemonRun) => return Ok(None),
+        ("stdout", _) => {
+            return Err(Refused {
+                code: SETTING_NOT_APPLICABLE.name,
+                message: "`log.output` is `stdout`, which only `daemon run` writes: this process's stdout is the protocol or the CLI's output; set `file` or `none`".to_owned(),
+            });
+        }
+        (other, _) => {
+            return Err(Refused {
+                code: SETTING_INVALID.name,
+                message: format!("`log.output` is `{other}`: it is `stdout`, `file` or `none`"),
+            });
+        }
+    }
+    let count = |key: &str, default: u64| {
+        settings
+            .and_then(|settings| settings.count(key))
+            .unwrap_or(default)
+    };
+    let rotation = Rotation {
+        max_size: count(LOG_FILE_MAX_SIZE.name, 10 << 20),
+        max_files: count(LOG_FILE_MAX_FILES.name, 5),
+    };
+    let stem = match process {
+        Process::DaemonRun | Process::DaemonLaunched => format!("daemon-{}", major_name(version)),
+        Process::Other => format!("{binary}-{}", std::process::id()),
+    };
+    let home = home.ok_or_else(|| Refused {
+        code: SETTING_NOT_APPLICABLE.name,
+        message: "`log.output` is `file`, and no Goodfetch home holds a log folder".to_owned(),
+    })?;
+    let folder = home.root().join(LOG_FOLDER);
+    LogFile::open(&folder, &stem, rotation, clock)
+        .map(Some)
+        .map_err(|error| Refused {
+            code: SETTING_NOT_APPLICABLE.name,
+            message: format!(
+                "the log file cannot be opened in `{}`: {error}",
+                folder.display()
+            ),
+        })
 }
 
 /// What the subscriber is built from.
 pub(super) struct Logs<'a> {
-    /// `GOODFETCH_LOG`'s filter, `info` when unset or unreadable.
-    pub(super) filter: Option<&'a OsString>,
+    /// `log.level`'s filter.
+    pub(super) filter: String,
     /// The log file, if any.
-    pub(super) file: Option<File>,
+    pub(super) file: Option<LogFile>,
     /// Where the logs go besides it.
     pub(super) to: LogsTo,
     /// The machine's settings, when they read.
@@ -122,15 +219,20 @@ pub(super) struct Handles {
 }
 
 /// The installed subscriber's export, which sends the spans still waiting
-/// when it is dropped.
+/// when it is dropped, and its log file, whose waiting lines are written
+/// then.
 pub(super) struct Installed {
     export: Option<SdkTracerProvider>,
+    file: Option<LogFile>,
 }
 
 impl Drop for Installed {
     fn drop(&mut self) {
         if let Some(export) = self.export.take() {
             let _ = export.shutdown();
+        }
+        if let Some(file) = &self.file {
+            file.flush();
         }
     }
 }
@@ -139,10 +241,8 @@ impl Drop for Installed {
 /// start is logged and left off.
 pub(super) fn install(logs: Logs<'_>) -> Installed {
     let filter = || {
-        logs.filter
-            .and_then(|filter| filter.to_str())
-            .and_then(|filter| tracing_subscriber::EnvFilter::try_new(filter).ok())
-            .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("info"))
+        tracing_subscriber::EnvFilter::try_new(&logs.filter)
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
     };
     let format = logs
         .settings
@@ -188,12 +288,13 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
             None,
         )
     };
+    let kept = logs.file.clone();
     let file = logs.file.map(|file| {
         tracing_subscriber::fmt::layer()
             .json()
             .with_timer(timer)
             .with_span_events(FmtSpan::CLOSE)
-            .with_writer(Arc::new(file))
+            .with_writer(file)
             .with_filter(filter())
     });
     let endpoint = logs
@@ -227,7 +328,7 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
     if let Some(error) = failed {
         tracing::error!(%error, "the spans' OTLP export cannot start, and is off");
     }
-    Installed { export }
+    Installed { export, file: kept }
 }
 
 /// The export of every span to the OTLP/HTTP collector at `endpoint`, its

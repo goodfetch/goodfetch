@@ -1,7 +1,7 @@
 //! An Attached engine over stdio: `hello`, refused before any other message
 //! and then closed, `engine.info`, `$/cancel` and every failure's shape,
-//! read through `StrictStdout` with the engine's logs at `trace`, so a log
-//! line on stdout fails the test (ADRs 0024, 0066 and 0095).
+//! read through `StrictStdout` with the engine's `log.level` at `trace`,
+//! so a log line on stdout fails the test (ADRs 0024, 0066 and 0095).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -42,8 +42,20 @@ impl<'env> Attached<'env> {
         deadline: Duration,
         configure: impl FnOnce(&mut Command),
     ) -> Self {
+        Self::start_logging(env, deadline, "trace", configure)
+    }
+
+    /// Starts it as [`Attached::start_waiting`] does, its `log.level` at
+    /// `level` rather than `trace`.
+    pub(crate) fn start_logging(
+        env: &'env TestEnv,
+        deadline: Duration,
+        level: &str,
+        configure: impl FnOnce(&mut Command),
+    ) -> Self {
+        env.log_level(level);
         let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-collie"));
-        command.arg("attached-engine").env("GOODFETCH_LOG", "trace");
+        command.arg("attached-engine");
         configure(&mut command);
         Self::spawned(env, deadline, &mut command)
     }

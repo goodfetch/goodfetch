@@ -20,6 +20,7 @@ mod commands;
 mod config;
 mod console;
 mod daemon;
+mod daemon_log;
 mod daemon_run;
 mod events;
 mod exit_codes;
@@ -45,6 +46,8 @@ mod secrets;
 mod service_manager;
 mod settings_flags;
 mod sign_in;
+#[cfg(target_os = "linux")]
+mod tmpfs;
 mod upgrade_files;
 mod usage;
 #[cfg(target_os = "linux")]

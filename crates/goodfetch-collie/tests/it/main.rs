@@ -32,6 +32,7 @@ mod human_output;
 mod invalid_calls;
 mod journeys;
 mod lasting_sign_ins;
+#[cfg(unix)]
 mod launch;
 mod layout;
 #[cfg(target_os = "linux")]

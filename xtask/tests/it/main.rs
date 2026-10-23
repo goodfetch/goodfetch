@@ -61,6 +61,7 @@ mod perf;
 mod perf_build;
 mod perf_ceilings;
 mod perf_drift;
+#[cfg(unix)]
 mod perf_run;
 mod pre_merge;
 mod quarantine;

@@ -40,12 +40,13 @@ use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::carry::{Carried, Origins};
-pub(crate) use self::navigation::Arrived;
+pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
 use crate::errors::{
     Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects, truncated,
 };
 use crate::launch::launch;
+use crate::proxy::{Answer, Party, SessionProxy, party, proxy_error};
 use crate::trace::CommandLog;
 use identity::Identity;
 
@@ -61,6 +62,10 @@ pub(crate) const GUARD_WORLD: &str = "goodfetch-guard";
 /// What the guard's world holds before the guard does: a marker, which no
 /// page script can read, as the Proving ground's CDP probe checks.
 const GUARD_MARKER: &str = "globalThis.__goodfetch_guard__ = true;";
+
+/// The header an intermediary names its own errors in (RFC 9209), as the
+/// browser gives a response's headers, lower-cased.
+const PROXY_STATUS: &str = "proxy-status";
 
 /// The expression that reads the encoding a document was decoded with.
 const DOCUMENT_ENCODING: &str = "document.characterSet";
@@ -281,17 +286,22 @@ impl Connect for LocalBrowser {
 }
 
 /// The Session-level driver: one Session's browser context, its own
-/// cookies and storage (ADR 0037 / SA-10), in which it opens its pages,
-/// made on its first use.
+/// cookies and storage (ADR 0037 / SA-10) and its one proxy, set on the
+/// context so no page or request has another (SA-22), in which it opens its
+/// pages, made on its first use.
 pub(crate) struct SessionDriver<B> {
     browser: B,
+    proxy: Option<Arc<SessionProxy>>,
     context: OnceCell<browser::BrowserContextID>,
 }
 
 impl<B: Connect> SessionDriver<B> {
-    pub(crate) fn new(browser: B) -> Self {
+    /// The driver of a Session of `browser` whose requests go through
+    /// `proxy`, if it has one.
+    pub(crate) fn new(browser: B, proxy: Option<Arc<SessionProxy>>) -> Self {
         Self {
             browser,
+            proxy,
             context: OnceCell::new(),
         }
     }
@@ -309,10 +319,15 @@ impl<B: Connect> SessionDriver<B> {
         let opening = browser.opening();
         self.context
             .get_or_try_init(|| async {
+                let proxy = self.proxy.as_deref();
                 browser
                     .send(
                         None,
-                        &target::CreateBrowserContextParams::default(),
+                        &target::CreateBrowserContextParams {
+                            proxy_server: proxy.map(SessionProxy::browser_server),
+                            proxy_bypass_list: proxy.map(SessionProxy::browser_bypass),
+                            ..target::CreateBrowserContextParams::default()
+                        },
                         &opening,
                     )
                     .await
@@ -428,6 +443,7 @@ impl<B: Connect> SessionDriver<B> {
         Ok(PageDriver {
             browser,
             session,
+            proxy: self.proxy.clone(),
             frame,
             navigation_timeout,
             started: Arc::new(watch::Sender::new(0)),
@@ -451,6 +467,8 @@ pub(crate) struct SerializedDocument {
 pub(crate) struct PageDriver {
     browser: Browser,
     session: TargetSession,
+    /// Its Session's proxy, if it has one.
+    proxy: Option<Arc<SessionProxy>>,
     /// The page's main frame.
     frame: page::FrameId,
     navigation_timeout: Duration,
@@ -654,6 +672,11 @@ impl PageDriver {
         &self.frame
     }
 
+    /// Its Session's proxy, if it has one.
+    pub(crate) fn proxy(&self) -> Option<&SessionProxy> {
+        self.proxy.as_deref()
+    }
+
     /// The events of the page's target, from when this answers.
     pub(crate) async fn events(&self) -> Subscription {
         self.browser.connection.subscribe(Some(&self.session)).await
@@ -804,6 +827,11 @@ impl PageDriver {
         )
         .await;
         match followed {
+            Ok(Ok(Ok(Arrived::Document(Some(response)))))
+                if let Some(failed) = self.answered_by_proxy(&url, &response) =>
+            {
+                Err(failed)
+            }
             Ok(Ok(Ok(Arrived::Document(Some(response))))) if wait_until != WaitUntil::Commit => {
                 Ok(Arrived::Document(Some(PageResponse {
                     encoding: self.document_encoding(&call).await?,
@@ -811,7 +839,11 @@ impl PageDriver {
                 })))
             }
             Ok(Ok(Ok(arrived))) => Ok(arrived),
-            Ok(Ok(Err(Ended::Failed(error)))) => Err(network_error(&url, &error)),
+            Ok(Ok(Err(Ended::Failed(error)))) => Err(self
+                .proxy
+                .as_ref()
+                .and_then(|proxy| proxy.failure(&url, &error))
+                .unwrap_or_else(|| network_error(&url, &error))),
             Ok(Ok(Err(Ended::Interrupted))) => Err(interrupted(&url)),
             Ok(Ok(Err(Ended::TooManyRedirects(chain)))) => Err(too_many_redirects(&url, chain)),
             Ok(Ok(Err(Ended::Truncated { received, expected }))) => {
@@ -824,6 +856,19 @@ impl PageDriver {
                 &format!("no load event within `{}`", TIMEOUT_NAVIGATION.name),
             )),
         }
+    }
+
+    /// `proxy_unavailable` when `response`, the document's response to a
+    /// navigation to `url`, is the Session's proxy's own, never the site's
+    /// (the proxy-or-site rule).
+    fn answered_by_proxy(&self, url: &str, response: &PageResponse) -> Option<CallError> {
+        let proxy = self.proxy.as_deref()?;
+        let proxy_status = response.headers.get(PROXY_STATUS).map(String::as_str);
+        if party(Answer::Response { proxy_status }) != Party::Proxy {
+            return None;
+        }
+        let error = proxy_status.and_then(proxy_error).unwrap_or_default();
+        Some(proxy.unavailable(url, &error))
     }
 
     /// The encoding the main frame's document was decoded with, read in

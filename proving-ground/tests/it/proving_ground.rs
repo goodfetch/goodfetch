@@ -148,6 +148,14 @@ impl ProvingGround {
             .to_owned()
     }
 
+    /// The password the authenticated proxies accept.
+    pub(crate) fn proxy_password(&self) -> String {
+        self.line_json()["proxy_credentials"]["password"]
+            .as_str()
+            .expect("the line names the proxy password")
+            .to_owned()
+    }
+
     /// The address of the DNS fixture `serve` reported.
     pub(crate) fn dns(&self) -> String {
         self.line_json()["dns"]

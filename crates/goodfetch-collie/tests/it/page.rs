@@ -8,13 +8,16 @@
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the test reads the Run trace, lists processes and polls the Proving ground on its own thread, never an async worker"
+#![cfg_attr(
+    unix,
+    expect(
+        clippy::disallowed_methods,
+        reason = "the test reads the Run trace, lists processes and polls the Proving ground on its own thread, never an async worker"
+    )
 )]
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, CleanUp};
@@ -290,8 +293,9 @@ pub(crate) fn browser_command_lines(env: &TestEnv) -> Vec<String> {
 }
 
 /// The CDP methods the Run's trace recorded.
+#[cfg(unix)]
 fn traced_methods(env: &TestEnv, run_id: &str) -> BTreeSet<String> {
-    let file: PathBuf = env
+    let file = env
         .home()
         .join("0.0")
         .join("runs")
@@ -312,6 +316,7 @@ fn traced_methods(env: &TestEnv, run_id: &str) -> BTreeSet<String> {
 
 /// The checks the Proving ground's CDP probe page reported, once it
 /// reported that it ran (within 10 s).
+#[cfg(unix)]
 fn probe_reports(proving_ground: &ProvingGround) -> Vec<(String, String)> {
     let ran = ("ran".to_owned(), "content".to_owned());
     let mut reports = Vec::new();
@@ -338,6 +343,7 @@ fn probe_reports(proving_ground: &ProvingGround) -> Vec<(String, String)> {
 /// What the probe would see of `Runtime` enabled and of a script outside
 /// its isolated world. `navigator.webdriver`, which it also reports, is
 /// the same with a window or without (#696); hiding it is area 8's.
+#[cfg(unix)]
 const SIDE_EFFECTS: [&str; 2] = ["runtime_enable", "automation_bindings"];
 
 /// The browser runs over a pipe with no debugging port, `Runtime` is never

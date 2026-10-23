@@ -125,6 +125,7 @@ impl TestEnv {
                 .ok_or_else(|| TestEnvError::NotUnicode(path.clone()))?;
             env.insert(name.to_owned(), value.to_owned());
         }
+        #[cfg(unix)]
         restrict_to_owner(&root.join("runtime"))?;
         write_user_configuration(&home, "", &log_level())?;
         env.insert("TZ".to_owned(), "UTC".to_owned());
@@ -274,10 +275,9 @@ impl TestEnv {
         command
     }
 
-    /// Starts a command with its standard input and output piped and records
-    /// its process, which must have exited when the test's teardown runs.
     /// Starts `command` with the standard streams it sets, and records it,
     /// for a process whose output goes to a file, such as LazyFS's.
+    #[cfg(target_os = "linux")]
     pub(crate) fn spawn_with_streams(
         &self,
         command: &mut std::process::Command,
@@ -289,6 +289,8 @@ impl TestEnv {
         Ok(self.processes.record(program, child))
     }
 
+    /// Starts a command with its standard input and output piped and records
+    /// its process, which must have exited when the test's teardown runs.
     pub fn spawn(&self, command: &mut std::process::Command) -> io::Result<Process> {
         let program = Path::new(command.get_program())
             .file_name()
@@ -475,11 +477,6 @@ fn write_user_configuration(home: &Path, settings: &str, log_level: &str) -> io:
 fn restrict_to_owner(folder: &Path) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt as _;
     std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700))
-}
-
-#[cfg(not(unix))]
-fn restrict_to_owner(_folder: &Path) -> io::Result<()> {
-    Ok(())
 }
 
 /// Why a test's setup cannot start.

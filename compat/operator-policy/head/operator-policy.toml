@@ -84,6 +84,12 @@ block_resources = ["image"]
 [settings.live_view]
 hiding = "auto"
 
+[settings.proxy]
+server = "http://proxy.example:3128"
+bypass = "example"
+username = "example"
+password = "env:EXAMPLE"
+
 [settings.run_state]
 location = "example"
 durability = "full"
@@ -99,6 +105,7 @@ run = 30000
 close = 30000
 action = 30000
 navigation = 30000
+wait = 30000
 first_byte = 30000
 handler = 30000
 
@@ -275,6 +282,12 @@ block_resources = ["image"]
 [lock.live_view]
 hiding = "auto"
 
+[lock.proxy]
+server = "http://proxy.example:3128"
+bypass = "example"
+username = "example"
+password = "env:EXAMPLE"
+
 [lock.run_state]
 location = "example"
 durability = "full"
@@ -290,6 +303,7 @@ run = 30000
 close = 30000
 action = 30000
 navigation = 30000
+wait = 30000
 first_byte = 30000
 handler = 30000
 
@@ -441,6 +455,7 @@ run = 30000
 close = 30000
 action = 30000
 navigation = 30000
+wait = 30000
 first_byte = 30000
 handler = 30000
 

@@ -222,7 +222,13 @@ impl Network {
     ) -> io::Result<Option<(DaemonListener, DaemonEndpoint)>> {
         match self {
             Self::InMemory(_) => Ok(None),
+            #[cfg(unix)]
             Self::Os => activated_os(environment),
+            #[cfg(not(unix))]
+            Self::Os => {
+                let _ = environment;
+                Ok(None)
+            }
         }
     }
 }
@@ -259,13 +265,6 @@ fn activated_os(
         DaemonListener(Listening::Unix(listener)),
         DaemonEndpoint::Unix(path),
     )))
-}
-
-#[cfg(not(unix))]
-fn activated_os(
-    _environment: &BTreeMap<OsString, OsString>,
-) -> io::Result<Option<(DaemonListener, DaemonEndpoint)>> {
-    Ok(None)
 }
 
 #[cfg(unix)]

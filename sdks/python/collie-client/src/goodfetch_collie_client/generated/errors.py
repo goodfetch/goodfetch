@@ -90,6 +90,14 @@ class BodyNotFoundError(ProgramError):
         super().__init__(message, code="body_not_found", group="program", retryable=False)
 
 
+class BodyUnavailableError(UnavailableError):
+    """The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say "Request content was evicted from inspector cache". A retry finds the body gone all the same."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="body_unavailable", group="unavailable", retryable=False)
+
+
 class BrowserHostOutdatedError(UnavailableError):
     """The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command."""
 
@@ -346,6 +354,22 @@ class ProtocolVersionUnsupportedError(UnavailableError):
         super().__init__(message, code="protocol_version_unsupported", group="unavailable", retryable=False)
 
 
+class ProxyAuthFailedError(RefusedError):
+    """The Session's proxy answered `407 Proxy Authentication Required`: the Session gave it no credentials, or it refused those of `proxy.username` and `proxy.password`. The details name the proxy and the username, never the password. Fix the credentials; retrying with the same ones fails the same way."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="proxy_auth_failed", group="refused", retryable=False)
+
+
+class ProxyUnavailableError(UnavailableError):
+    """The Session's proxy could not be reached, its TLS failed, or it refused the tunnel or the request with an error of its own: the details name the proxy, never its credentials, and the browser's network error when it named one. It is the proxy's failure, never the site's and never `navigation_failed`: retry later, or through another proxy."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="proxy_unavailable", group="unavailable", retryable=True)
+
+
 class ResourcesExhaustedError(UnavailableError):
     """The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings."""
 
@@ -408,6 +432,14 @@ class RunInUseError(RefusedError):
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="run_in_use", group="refused", retryable=True)
+
+
+class RunKeyMismatchError(UnavailableError):
+    """A resumed Run's data key does not open under the key-encryption key `run_state.key_reference` names, such as a Checkpoint moved to a machine whose own key is another: the key that wrapped it never travels with the Checkpoint. The details name the Run, the setting, the reference resolved and the reference that wrapped the key, never a value. Name the key that wrapped it, in project configuration or configuration, and resume again."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_key_mismatch", group="unavailable", retryable=False)
 
 
 class RunNotFoundError(ProgramError):
@@ -551,6 +583,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "artifact_download_failed": ArtifactDownloadFailedError,
     "artifact_unavailable_offline": ArtifactUnavailableOfflineError,
     "body_not_found": BodyNotFoundError,
+    "body_unavailable": BodyUnavailableError,
     "browser_host_outdated": BrowserHostOutdatedError,
     "browser_launch_failed": BrowserLaunchFailedError,
     "browser_not_installed": BrowserNotInstalledError,
@@ -583,6 +616,8 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "pattern_unsupported": PatternUnsupportedError,
     "person_required": PersonRequiredError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
+    "proxy_auth_failed": ProxyAuthFailedError,
+    "proxy_unavailable": ProxyUnavailableError,
     "resources_exhausted": ResourcesExhaustedError,
     "response_truncated": ResponseTruncatedError,
     "route_already_handled": RouteAlreadyHandledError,
@@ -591,6 +626,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "run_ended": RunEndedError,
     "run_id_invalid": RunIdInvalidError,
     "run_in_use": RunInUseError,
+    "run_key_mismatch": RunKeyMismatchError,
     "run_not_found": RunNotFoundError,
     "run_not_owned": RunNotOwnedError,
     "run_state_unavailable": RunStateUnavailableError,

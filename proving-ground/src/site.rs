@@ -235,9 +235,10 @@ impl Site {
 
     /// The connection a request asks the server to hold open, given its
     /// `Host` header: one of the `live` family's WebSocket and server-sent
-    /// events stream.
+    /// events stream, or the `access` family's page events WebSocket.
     pub(crate) fn push(host: &str, method: &Method, path: &str) -> Option<Push> {
-        browser_pages::push(&observation::host_name(host), method, path)
+        let name = observation::host_name(host);
+        browser_pages::push(&name, method, path).or_else(|| access::push(&name, method, path))
     }
 
     /// The whole response, as bytes, of a request to `path` on `host` (its
@@ -371,6 +372,10 @@ impl Site {
                 content_type: "application/json",
                 headers: Vec::new(),
                 body: self.observations.document().into(),
+            },
+            (&Method::GET, "/network-fixtures") => match self.observations.network_fixtures() {
+                Some(fixtures) => Reply::json(StatusCode::OK, &fixtures),
+                None => Reply::not_found(),
             },
             (&Method::GET, "/certificate-authority") => Reply {
                 status: StatusCode::OK,

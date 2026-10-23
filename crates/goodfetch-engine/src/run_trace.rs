@@ -3,7 +3,9 @@
 //! of the Run's folder, each the event's catalog name and its data, as the
 //! event stream would carry it. A request that failed while no call waited
 //! for it, such as one the egress policy refused, is recorded here as
-//! `page.request_failed`, so a refusal is never a timeout.
+//! `page.request_failed`, so a refusal is never a timeout: a page's with its
+//! `PageRequest`, and one the engine's own HTTP client sent for the Run, which
+//! no page sent, with the URL, method and failure it knows (`RequestFailed`).
 #![expect(
     clippy::disallowed_methods,
     reason = "the log appends to its file through the owner's blocking policy, never on an async worker"
@@ -14,7 +16,11 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use goodfetch_protocol::page::{PAGE_REQUEST_FAILED, RequestFailed};
+use goodfetch_protocol::catalog::Event;
+use goodfetch_protocol::page::RequestFailed;
+use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
+
+use serde::Serialize;
 
 use crate::tasks::TaskOwner;
 
@@ -49,9 +55,23 @@ impl RequestLog {
     ///
     /// Dropping the future never stops a line being written once it began.
     pub async fn request_failed(&self, failed: &RequestFailed) -> io::Result<()> {
+        self.record(&PAGE_REQUEST_FAILED, failed).await
+    }
+
+    /// Records `event` with its `data`, as the event stream carries it, such
+    /// as a page's `page.request_failed` with its `PageRequest`.
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future never stops a line being written once it began.
+    pub async fn record(&self, event: &Event, data: &impl Serialize) -> io::Result<()> {
         let mut line = serde_json::to_vec(&serde_json::json!({
-            "event": PAGE_REQUEST_FAILED.name,
-            "data": failed,
+            "event": event.name,
+            "data": data,
         }))?;
         line.push(b'\n');
         let file = Arc::clone(&self.file);

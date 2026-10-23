@@ -271,7 +271,8 @@ fn blocked(
                     && line["data"]["url"]
                         .as_str()
                         .is_some_and(|url| url.ends_with(path))
-                    && line["data"]["failure"]["error"] == json!(BLOCKED_BY_CLIENT)
+                    && line["data"]["failure"]["error_text"] == json!(BLOCKED_BY_CLIENT)
+                    && line["data"]["failure"]["error"]["code"] == json!("navigation_failed")
             }),
         );
     }

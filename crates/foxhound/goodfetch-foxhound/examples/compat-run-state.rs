@@ -15,12 +15,14 @@
 //! blocks its address, so its Session pool holds a Session retired by the
 //! escalation and its domain's proxy tier; and a Run its
 //! program drives, under an Operator policy and with a setting that
-//! weakens a guarantee, whose Key-value store keeps a cursor, which
-//! `run.abort` stops; and a Run bound to a
+//! weakens a guarantee, whose Key-value store keeps a cursor and whose run
+//! state holds its data key wrapped, which `run.abort` stops; and a Run
+//! bound to a
 //! Browser host and holding to a Clean-up rules digest, started through a
 //! contribution of the writer's own since no Client sets those yet, with a
 //! warning and `nothingDone` its owners handed over, and two Sessions its
-//! program opened, its default one open and another closed, which that
+//! program opened, its default one open and another closed, with a proxy
+//! of its own, which that
 //! contribution records since no browser runs here, whose program sets a
 //! progress message, which `run.checkpoint` checkpoints and
 //! `run.pause` pauses with a Checkpoint.
@@ -41,6 +43,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::run_key::{self, StoredKey, Wrapped};
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::runs::{EndedBy, Start, Started};
 use goodfetch_engine::tasks::BlockingPolicy;
@@ -107,6 +110,7 @@ fn scenario() -> Vec<Value> {
             "key_value_store.set",
             json!({ "run_id": "aborted", "key": "cursor", "value": { "page": 2, "seen": [1, null] } }),
         ),
+        call(12, "compat.keyed", json!({ "run_id": "aborted" })),
         call(4, "run.abort", json!({ "run_id": "aborted" })),
         call(5, "compat.bound", json!({})),
         call(
@@ -139,8 +143,37 @@ const BOUND: Operation = Operation {
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
 };
 
+/// Stores a wrapped data key in a live Run's run state: one of the
+/// layout's shape (version, nonce, 32 bytes and their tag), fixed, since a
+/// real one is random and the set must be the same at each write.
+const KEYED: Operation = Operation {
+    name: "compat.keyed",
+    description: "Stores a fixed wrapped data key in a Run's run state.",
+    ..BOUND
+};
+
+async fn keyed(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default()).expect("a Run ID");
+    let run = context.runs().live(run_id).await.expect("the Run is live");
+    let stored = StoredKey {
+        wrapped: Wrapped::from_bytes(
+            std::iter::once(1_u8)
+                .chain((0..72).map(|byte: u8| byte.wrapping_mul(37)))
+                .collect(),
+        ),
+        key_reference: "secretfile:run-state-key".to_owned(),
+    };
+    run.state()
+        .write(move |connection| run_key::store(connection, &stored))
+        .await
+        .expect("the wrapped data key is kept");
+    Ok(json!({ "keyed": true }))
+}
+
 fn bound() -> Contribution {
-    Contribution::new("compat-run-state").with_handler(Handler::new(
+    Contribution::new("compat-run-state")
+        .with_handler(Handler::new(&KEYED, keyed))
+        .with_handler(Handler::new(
         &BOUND,
         |_: Value, context: CallContext| async move {
             let started = context
@@ -180,7 +213,7 @@ fn bound() -> Contribution {
                     .write(|connection| {
                         connection
                             .execute(
-                                r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed) VALUES (1, 1, 0, '{}', 6178731391398722387), (2, 0, 1, '{"filter_lists.ads":false}', -2937466112876520115)"#,
+                                r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed) VALUES (1, 1, 0, '{}', 6178731391398722387), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115)"#,
                                 [],
                             )
                             .map(drop)

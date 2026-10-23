@@ -18,7 +18,10 @@
 //! 6. The page's navigation gate, then its lease check.
 //! 7. The engine's own additions, last, so no route reads them: the
 //!    Session's cookies, Secret placeholders, the Session's credentials.
-//! 8. The network.
+//! 8. The network, through the Session's proxy if it has one: an HTTP or
+//!    HTTPS proxy's 407 is answered with the Session's credentials once per
+//!    request, and a second 407, or one with no credentials to give, fails
+//!    the page's navigation with `proxy_auth_failed` (ADR 0053).
 //!
 //! A route therefore sees exactly what the interception sees, and adding
 //! one changes neither caching nor which requests are intercepted. Routes
@@ -48,7 +51,6 @@ use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::Policy;
-use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{RunSettings, Values};
 use goodfetch_protocol::jsonrpc::RequestId;
@@ -66,6 +68,8 @@ use self::pipeline::PageContext;
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
 use crate::driver::PageDriver;
+use crate::page_events::Refusals;
+use crate::proxy::SessionProxy;
 use crate::url_pattern::UrlPattern;
 
 /// Whose requests a route answers.
@@ -159,7 +163,8 @@ impl Interception {
     /// Puts the page `page_id` of the Session `session`, which `driver`
     /// drives for `run`, under the interception: every request of its
     /// target is paused and passes the pipeline from now on, its Clean-up
-    /// rules chosen by `own`, the Session's own settings, over the Run's.
+    /// rules chosen by `own`, the Session's own settings, over the Run's,
+    /// each refusal left in `refusals` for the request's failure to carry.
     /// It answers what the Session chose of the Clean-up rules beside its
     /// requests' blocking.
     ///
@@ -179,6 +184,7 @@ impl Interception {
         driver: &PageDriver,
         run: &Run,
         own: &Values,
+        refusals: Refusals,
     ) -> Result<PageCleanUp, CallError> {
         let policy = match run.settings() {
             Some(settings) => Policy::of(settings.resolved()),
@@ -233,7 +239,12 @@ impl Interception {
                     resource_type: None,
                     request_stage: Some(fetch::RequestStage::Request),
                 }]),
-                handle_auth_requests: None,
+                // An HTTP or HTTPS proxy's 407 reaches the engine, which
+                // answers it with the Session's credentials (SA-22).
+                handle_auth_requests: driver
+                    .proxy()
+                    .is_some_and(SessionProxy::answers_authentication)
+                    .then_some(true),
             })
             .await?;
         let context = Arc::new(PageContext::new(
@@ -243,7 +254,7 @@ impl Interception {
             self.shared.answers.clone(),
             policy,
             blocking,
-            RequestLog::new(run.owner().child(), run.folder()),
+            refusals,
             run.clone(),
         ));
         run.spawn(pipeline::dispatch(events, context));

@@ -158,7 +158,7 @@ impl Keychain {
     }
 
     /// The value of `service`'s `account`.
-    async fn read(
+    pub(super) async fn read(
         &self,
         service: String,
         account: String,

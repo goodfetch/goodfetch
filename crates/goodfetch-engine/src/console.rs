@@ -62,20 +62,13 @@ use content::{Asked, CONTENT_LISTENER, Content};
 /// no `eval`, since no source allows them; every string sent to a script
 /// sink refused (`require-trusted-types-for 'script'`) and no Trusted Types
 /// policy allowed; no frame may embed it; violations reported to its own
-/// address. With a content origin at `content`, it may frame that origin
-/// and show its images, and nothing else's.
+/// address. With a content origin at `content`, a bare origin, it may frame
+/// that origin and nothing else's; its files, images included, show in the
+/// origin's own `sandbox` frames, so no other directive widens.
 pub fn content_security_policy(content: Option<&str>) -> String {
-    let (frames, images) = content.map_or_else(
-        || (String::new(), "'self'".to_owned()),
-        |content| {
-            (
-                format!("frame-src {content}; "),
-                format!("'self' {content}"),
-            )
-        },
-    );
+    let frames = content.map_or_else(String::new, |content| format!("frame-src {content}; "));
     format!(
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src {images}; font-src 'self'; connect-src 'self'; manifest-src 'self'; {frames}base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'; report-uri /csp-report"
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; {frames}base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'; report-uri /csp-report"
     )
 }
 

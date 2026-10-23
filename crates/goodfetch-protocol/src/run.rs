@@ -24,7 +24,8 @@ use crate::catalog::{
     schema_of,
 };
 use crate::connection::{DaemonEndpoint, PrivateEndpoint, StoppedBy};
-use crate::settings::ProjectSettings;
+use crate::settings::{ProjectSettings, SettingLimit};
+use crate::storage::StorageLevel;
 
 mod report;
 pub mod warning;
@@ -723,6 +724,26 @@ pub struct RunProgress {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub message: Option<ProgressMessage>,
+    /// The worst storage level among the filesystems the Run writes to,
+    /// once the Resource governor sampled them (ADR 0122).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub storage: Option<RunStorage>,
+}
+
+/// The worst storage level among the filesystems a Run writes to, with
+/// that filesystem's folder and free space (ADR 0122).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunStorage {
+    /// The level.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub level: StorageLevel,
+    /// A folder the Run writes to on that filesystem.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub folder: String,
+    /// The space left on it to the engine's user, in bytes.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub free_bytes: u64,
 }
 
 /// What `run.set_progress_message` takes.
@@ -961,6 +982,36 @@ pub const RESOURCES_EXHAUSTED: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: Some(15),
     arrived_in: ARRIVED_IN,
 };
+
+/// What `resources_exhausted` details (ADRs 0040 and 0122).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ResourcesExhaustedDetails {
+    /// The resource that ran out.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub resource: Resource,
+    /// The Run, when one was stopped or refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: Option<RunId>,
+    /// For storage, the folder on the full filesystem; none where the
+    /// engine has no folder of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub path: Option<String>,
+    /// For storage, the space left on that filesystem, in bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub free_bytes: Option<u64>,
+    /// For storage, the setting that set the level, with its value and
+    /// layer (ADR 0079).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: Option<SettingLimit>,
+    /// What to do: the folder to free, or the setting to lower, then a
+    /// start with the Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
 
 /// What `run_not_found`, `run_in_use`, `run_busy`, `run_not_owned` and
 /// `run_state_unavailable` detail.

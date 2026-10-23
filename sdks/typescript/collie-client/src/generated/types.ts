@@ -463,6 +463,13 @@ export type StartedAs = "new" | "existing" | "resumed";
  */
 export type StoppedBy = "client" | "program";
 /**
+ * A filesystem's storage level (ADR 0122), from the best to the worst.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StorageLevel".
+ */
+export type StorageLevel = "normal" | "low" | "critical";
+/**
  * The surface a `hello` comes from (ADR 0024).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2779,6 +2786,32 @@ export interface RunProgress {
    * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
+  /**
+   * The worst storage level among the filesystems the Run writes to,
+   * once the Resource governor sampled them (ADR 0122).
+   */
+  storage?: RunStorage | null;
+}
+/**
+ * The worst storage level among the filesystems a Run writes to, with
+ * that filesystem's folder and free space (ADR 0122).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunStorage".
+ */
+export interface RunStorage {
+  /**
+   * A folder the Run writes to on that filesystem.
+   */
+  folder: string;
+  /**
+   * The space left on it to the engine's user, in bytes.
+   */
+  free_bytes: number;
+  /**
+   * The level.
+   */
+  level: "normal" | "low" | "critical";
 }
 /**
  * What a Run states about itself when it ends (ADR 0102). A part no area

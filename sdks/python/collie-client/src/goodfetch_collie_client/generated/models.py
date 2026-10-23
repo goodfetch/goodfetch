@@ -1082,20 +1082,6 @@ class RunParams(BaseModel):
     """The Run's ID."""
 
 
-class RunProgress(BaseModel):
-    """A Run's progress as it is now (ADR 0102): what `run.progress` reports."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    lifecycle: Lifecycle
-    """Where it is."""
-    message: ProgressMessage | None = None
-    """The program's own status line, once it set one."""
-    run_id: RunId
-    """The Run's ID."""
-
-
 class RunResumeParams(BaseModel):
     """What `run.resume` takes."""
 
@@ -1465,6 +1451,24 @@ class StoppedBy(StrEnum):
     """A Client, such as through `$/cancel`."""
     program = "program"
     """The program, such as through `run.stop` (ADR 0102)."""
+
+
+class StorageLevel(StrEnum):
+    """A filesystem's storage level (ADR 0122), from the best to the worst."""
+
+    normal = "normal"
+    """It has room: nothing is shed."""
+    low = "low"
+    """
+    Its free space or inodes fell below `storage.low_free`: the Runs
+    writing to it shed what they can do without and carry
+    `storage_low`.
+    """
+    critical = "critical"
+    """
+    Its free space or inodes fell below `storage.critical_free`: every
+    Run with an essential write there stops resumably.
+    """
 
 
 class SubscriptionEnded(BaseModel):
@@ -2562,6 +2566,23 @@ class RunStarted(BaseModel):
     """Whether the start began it."""
 
 
+class RunStorage(BaseModel):
+    """
+    The worst storage level among the filesystems a Run writes to, with
+    that filesystem's folder and free space (ADR 0122).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    folder: str
+    """A folder the Run writes to on that filesystem."""
+    free_bytes: Annotated[int, Field(ge=0)]
+    """The space left on it to the engine's user, in bytes."""
+    level: StorageLevel
+    """The level."""
+
+
 class SessionRouteParams(BaseModel):
     """
     What `session.route` takes: the Session, and the URLs whose requests its
@@ -2974,6 +2995,25 @@ class Resync(BaseModel):
     )
     runs: list[RunAxes]
     """The axes of each Run the engine knows, live or ended."""
+
+
+class RunProgress(BaseModel):
+    """A Run's progress as it is now (ADR 0102): what `run.progress` reports."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    lifecycle: Lifecycle
+    """Where it is."""
+    message: ProgressMessage | None = None
+    """The program's own status line, once it set one."""
+    run_id: RunId
+    """The Run's ID."""
+    storage: RunStorage | None = None
+    """
+    The worst storage level among the filesystems the Run writes to,
+    once the Resource governor sampled them (ADR 0122).
+    """
 
 
 class RunStopping(BaseModel):

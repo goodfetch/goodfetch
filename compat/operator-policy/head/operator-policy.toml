@@ -64,6 +64,12 @@ accept_invalid_certs = { "example.test" = "example" }
 [settings.browser]
 headless = true
 
+[settings.proxy]
+server = "http://proxy.example:3128"
+bypass = "example"
+username = "example"
+password = "env:EXAMPLE"
+
 [settings.run_state]
 location = "example"
 durability = "full"
@@ -229,6 +235,12 @@ accept_invalid_certs = { "example.test" = "example" }
 
 [lock.browser]
 headless = true
+
+[lock.proxy]
+server = "http://proxy.example:3128"
+bypass = "example"
+username = "example"
+password = "env:EXAMPLE"
 
 [lock.run_state]
 location = "example"

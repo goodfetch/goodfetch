@@ -338,6 +338,22 @@ class ProtocolVersionUnsupportedError(UnavailableError):
         super().__init__(message, code="protocol_version_unsupported", group="unavailable", retryable=False)
 
 
+class ProxyAuthFailedError(RefusedError):
+    """The Session's proxy answered `407 Proxy Authentication Required`: the Session gave it no credentials, or it refused those of `proxy.username` and `proxy.password`. The details name the proxy and the username, never the password. Fix the credentials; retrying with the same ones fails the same way."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="proxy_auth_failed", group="refused", retryable=False)
+
+
+class ProxyUnavailableError(UnavailableError):
+    """The Session's proxy could not be reached, its TLS failed, or it refused the tunnel or the request with an error of its own: the details name the proxy, never its credentials, and the browser's network error when it named one. It is the proxy's failure, never the site's and never `navigation_failed`: retry later, or through another proxy."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="proxy_unavailable", group="unavailable", retryable=True)
+
+
 class ResourcesExhaustedError(UnavailableError):
     """The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings."""
 
@@ -574,6 +590,8 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "pattern_unsupported": PatternUnsupportedError,
     "person_required": PersonRequiredError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
+    "proxy_auth_failed": ProxyAuthFailedError,
+    "proxy_unavailable": ProxyUnavailableError,
     "resources_exhausted": ResourcesExhaustedError,
     "response_truncated": ResponseTruncatedError,
     "route_already_handled": RouteAlreadyHandledError,

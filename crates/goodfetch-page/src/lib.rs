@@ -15,6 +15,7 @@ mod guard;
 mod interception;
 mod launch;
 mod pages;
+mod proxy;
 pub mod robots_txt;
 mod sessions;
 mod trace;

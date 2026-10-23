@@ -7,7 +7,8 @@
 //! element a locator matches, through the guard (ADR 0019); and the Error
 //! codes a page's browser, its navigations, its locators and the URL
 //! patterns its calls pass fail with. Its `route` module holds the page's
-//! and the Session's routes, and its `session` module a Run's own Sessions.
+//! and the Session's routes, its `session` module a Run's own Sessions and
+//! its `proxy` module a Session's proxy.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -32,9 +33,14 @@ use crate::jsonrpc::{ErrorData, RequestId};
 use crate::run::RunId;
 use crate::settings::SettingLimit;
 
+pub mod proxy;
 pub mod route;
 pub mod session;
 
+use self::proxy::{
+    PROXY_AUTH_FAILED, PROXY_BYPASS, PROXY_PASSWORD, PROXY_SERVER, PROXY_UNAVAILABLE,
+    PROXY_USERNAME,
+};
 use self::route::{
     PAGE_HANDLER_FAILED, PAGE_ROUTE, ROUTE_ABORT, ROUTE_ALREADY_HANDLED, ROUTE_CONTINUE,
     ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL, ROUTE_HANDLE, SESSION_ROUTE,
@@ -983,10 +989,18 @@ pub const ENTRIES: Entries = Entries {
         PATTERN_UNSUPPORTED,
         PAGE_HANDLER_FAILED,
         ROUTE_ALREADY_HANDLED,
+        PROXY_UNAVAILABLE,
+        PROXY_AUTH_FAILED,
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[BROWSER_HEADLESS],
+    settings: &[
+        BROWSER_HEADLESS,
+        PROXY_SERVER,
+        PROXY_BYPASS,
+        PROXY_USERNAME,
+        PROXY_PASSWORD,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

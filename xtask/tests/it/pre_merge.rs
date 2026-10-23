@@ -520,18 +520,31 @@ fn a_gate_run_while_another_holds_the_records_fails_before_any_step() {
     );
 }
 
-/// A gate run that narrows what runs or swaps the executables under test
-/// fails before any step, so it records nothing a normal run would reuse
-/// (the re-review's N1).
+/// A gate run that narrows what runs, swaps the executables under test or
+/// lets a failing assertion pass fails before any step, so it records
+/// nothing a normal run would reuse (the re-review's N1): the test
+/// selection, engine and order seed, pytest's added options and plugins,
+/// every insta, Vitest and nextest setting, and Playwright's test-runner
+/// ones.
 #[rstest]
 #[case::selection("GOODFETCH_TEST_SELECTION")]
 #[case::engine("GOODFETCH_TEST_ENGINE")]
 #[case::order_seed("GOODFETCH_ORDER_SEED")]
+#[case::pytest_options("PYTEST_ADDOPTS")]
+#[case::pytest_plugins("PYTEST_PLUGINS")]
+#[case::pytest_autoload("PYTEST_DISABLE_PLUGIN_AUTOLOAD")]
+#[case::insta_force_pass("INSTA_FORCE_PASS")]
+#[case::insta_glob_filter("INSTA_GLOB_FILTER")]
+#[case::insta_update("INSTA_UPDATE")]
+#[case::vitest("VITEST_MODE")]
+#[case::playwright("PWTEST_SHARD")]
+#[case::playwright_test("PW_TEST_REPORTER")]
+#[case::nextest("NEXTEST_RETRIES")]
 fn a_whole_workspace_gate_run_that_narrows_what_runs_is_refused(#[case] variable: &str) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
 
-    let run = pre_merge_with_env(&workspace, &stand_in, &["all"], &[(variable, "set")]);
+    let run = pre_merge_with_env(&workspace, &stand_in, &["all"], &[(variable, "1")]);
 
     assert_eq!(run.code, Some(2), "{}", run.stderr);
     assert!(run.stderr.contains(variable), "{}", run.stderr);
@@ -574,4 +587,21 @@ pre-merge\tpart\ttest-support/typescript\tVitest, Playwright and pytest rerun ev
         "{:?}",
         run.gate
     );
+}
+
+/// The host's own settings that select no test, such as where Playwright's
+/// browsers are installed, leave the gate run as it is.
+#[test]
+fn a_whole_workspace_gate_run_keeps_the_hosts_own_settings() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+
+    let run = pre_merge_with_env(
+        &workspace,
+        &stand_in,
+        &["all"],
+        &[("PLAYWRIGHT_BROWSERS_PATH", "/opt/browsers")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
 }

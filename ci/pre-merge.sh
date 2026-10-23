@@ -84,17 +84,22 @@ beside() {
 lock=""
 trap '[[ ${#pids[@]} -eq 0 ]] || kill "${pids[@]}" 2>/dev/null || true; [[ -z $lock ]] || rm -rf "$lock"; just _skips-report' EXIT
 
-# A whole-workspace gate run that narrows what runs or swaps the
-# executables under test would record results a normal run then reuses, so
-# it fails before any step (ADR 0135). The rest of the environment that
-# changes how tests run is part of the record's host fingerprint.
+# A whole-workspace gate run that narrows what runs, swaps the executables
+# under test or lets a failing assertion pass would record results a normal
+# run then reuses, so it fails before any step (ADR 0135): the test
+# selection, engine and order seed; pytest's added options and plugins
+# (`PYTEST_ADDOPTS` can add `-k` or `--deselect`); and every variable of
+# insta (`INSTA_FORCE_PASS`, `INSTA_GLOB_FILTER`, `INSTA_UPDATE`…), Vitest,
+# nextest (retries, profiles, filters) and Playwright's test runner
+# (`PWTEST_*`, `PW_TEST_*`). The rest of the environment that changes how
+# tests run is part of the record's host fingerprint.
 if [[ $all == all ]]; then
-  for variable in GOODFETCH_TEST_SELECTION GOODFETCH_TEST_ENGINE GOODFETCH_ORDER_SEED; do
-    if [[ -n "${!variable:-}" ]]; then
-      echo "error: $variable is set, which narrows or changes what \`just pre-merge all\` runs; unset it for a gate run" >&2
-      exit 2
-    fi
+  narrowing=$(compgen -e | grep -E \
+    '^(GOODFETCH_TEST_SELECTION|GOODFETCH_TEST_ENGINE|GOODFETCH_ORDER_SEED|PYTEST_ADDOPTS|PYTEST_PLUGINS|PYTEST_DISABLE_PLUGIN_AUTOLOAD|INSTA_.*|VITEST_.*|NEXTEST_.*|PWTEST_.*|PW_TEST_.*)$' || true)
+  for variable in $narrowing; do
+    echo "error: $variable is set, which narrows or changes what \`just pre-merge all\` runs; unset it for a gate run" >&2
   done
+  [[ -z $narrowing ]] || exit 2
 fi
 
 # One gate run at a time records into a workspace's target/gate-runs/: a

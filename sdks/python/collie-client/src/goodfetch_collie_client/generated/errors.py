@@ -330,6 +330,14 @@ class PageHandlerFailedError(ProgramError):
         super().__init__(message, code="page_handler_failed", group="program", retryable=False)
 
 
+class PageMemoryExceededError(UnavailableError):
+    """Memory was critical and the page held more than `governor.browser.page_memory_cap`, so the Resource governor ended it once no call on it was in flight. The page is gone: open another and try again, which the governor admits once memory frees up."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="page_memory_exceeded", group="unavailable", retryable=True)
+
+
 class PathNotWritableError(ProgramError):
     """The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path."""
 
@@ -645,6 +653,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "not_in_product": NotInProductError,
     "page_crashed": PageCrashedError,
     "page_handler_failed": PageHandlerFailedError,
+    "page_memory_exceeded": PageMemoryExceededError,
     "path_not_writable": PathNotWritableError,
     "pattern_unsupported": PatternUnsupportedError,
     "person_required": PersonRequiredError,

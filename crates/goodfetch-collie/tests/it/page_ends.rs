@@ -163,7 +163,10 @@ fn a_renderer_killed_mid_call_raises_page_crashed_emits_crash_and_refuses_later_
     );
 }
 
-/// Covers: story:5-28, story:5-27, event:page.crash
+/// A browser the OS kills, as its OOM killer does with `SIGKILL`, counts
+/// as a page crash, in Usage too (ADR 0040's shedding ladder).
+///
+/// Covers: story:5-28, story:5-27, story:3-59, event:page.crash
 #[test]
 fn a_browser_killed_by_a_signal_raises_page_crashed_with_its_exit_and_its_session_stays_crashed() {
     let env = TestEnv::new();

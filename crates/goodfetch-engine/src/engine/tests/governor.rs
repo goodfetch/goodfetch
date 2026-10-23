@@ -253,3 +253,60 @@ fn a_daemon_at_its_governors_last_resort_is_live_and_not_ready() {
         ]
     );
 }
+
+/// The last resort stops one Run, checkpointed and resumable: `stopped`
+/// and `incomplete` with `resource: "memory"`, the first of equals when no
+/// Run has a browser; the governor then measures again before it stops
+/// another, so once memory is freed the other Run goes on and finishes.
+///
+/// Covers: story:3-59, setting:governor.last_resort_after, operation:run.resume
+#[test]
+fn the_last_resort_stops_one_run_resumably_and_measures_again_before_another() {
+    let env = TestEnv::new();
+    configure(
+        &env,
+        "governor.sample_interval = 250\ngovernor.last_resort_after = 1000\n\
+         governor.http.ceiling = 1\ngovernor.browser_page.ceiling = 1\ngovernor.model_call.ceiling = 1\n",
+    );
+    let proc = proc(250 * MIB);
+    let engine = governed(engine(Product::Collie), proc.path());
+    let rollup = proc.path().join("proc/self/smaps_rollup");
+
+    let (stopped, other, resumed) = attached_on(&engine, &env, |mut client| async move {
+        client.send(&[hello("collie", "0.1")]).await;
+        let _ = client.next().await;
+        call(&mut client, 1, "run.start", json!({ "run_id": "first" })).await;
+        call(&mut client, 2, "run.start", json!({ "run_id": "second" })).await;
+        // Critical at the floor from the first sample, at 0 s: the last
+        // resort at 1 s stops the first Run.
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        std::fs::write(&rollup, format!("Pss: {} kB\n", 100 * MIB / 1024)).unwrap();
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        let stopped = call(&mut client, 3, "run.finish", json!({ "run_id": "first" })).await;
+        let other = call(&mut client, 4, "run.finish", json!({ "run_id": "second" })).await;
+        let resumed = call(&mut client, 5, "run.resume", json!({ "run_id": "first" })).await;
+        client.close().await;
+        while client.next().await.is_some() {}
+        (stopped, other, resumed)
+    });
+
+    assert_eq!(
+        (
+            &stopped["result"]["lifecycle"],
+            &stopped["result"]["completeness"],
+            &stopped["result"]["stop_reason"],
+            stopped["result"]["checkpoint"].is_object(),
+            &other["result"]["lifecycle"],
+            &resumed["result"]["started_as"],
+        ),
+        (
+            &json!("stopped"),
+            &json!("incomplete"),
+            &json!({ "kind": "resources", "resource": "memory" }),
+            true,
+            &json!("finished"),
+            &json!("resumed"),
+        ),
+        "{stopped}\n{other}\n{resumed}"
+    );
+}

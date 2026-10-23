@@ -433,6 +433,15 @@ export class PageHandlerFailedError extends ProgramError {
 }
 
 /**
+ * Memory was critical and the page held more than `governor.browser.page_memory_cap`, so the Resource governor ended it once no call on it was in flight. The page is gone: open another and try again, which the governor admits once memory frees up.
+ */
+export class PageMemoryExceededError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_memory_exceeded", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.
  */
 export class PathNotWritableError extends ProgramError {
@@ -783,6 +792,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   not_in_product: NotInProductError,
   page_crashed: PageCrashedError,
   page_handler_failed: PageHandlerFailedError,
+  page_memory_exceeded: PageMemoryExceededError,
   path_not_writable: PathNotWritableError,
   pattern_unsupported: PatternUnsupportedError,
   person_required: PersonRequiredError,

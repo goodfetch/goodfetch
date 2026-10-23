@@ -85,6 +85,16 @@ impl System {
         self
     }
 
+    /// The memory of the process `process` and every descendant, as
+    /// [`footprint_of`] counts it, read where the governor reads the
+    /// machine. Blocking.
+    pub(crate) fn footprint(&self, process: u32) -> u64 {
+        match &self.source {
+            Source::LinuxFiles(proc) => linux::Proc(proc).footprint_from(&process.to_string()),
+            Source::Os => footprint_of(process),
+        }
+    }
+
     /// Reads the machine now. Blocking.
     pub(crate) fn read(&self, inputs: &Inputs) -> SystemReading {
         let found = match &self.source {

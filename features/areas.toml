@@ -888,6 +888,13 @@ number = 3
 kind = "error"
 prefix = "resources_exhausted"
 
+# Area 3's shedding ladder (#236, ADR 0040): a page the Resource governor
+# ends past its memory cap.
+[[area]]
+number = 3
+kind = "error"
+prefix = "page_memory_exceeded"
+
 [[area]]
 number = 5
 kind = "error"

@@ -242,10 +242,10 @@ const SUBSCRIBE: [&str; 6] = [
 #[test]
 fn sigterm_cancels_the_call_and_exits_143() {
     let env = TestEnv::new();
+    env.log_level("trace");
     let mut command = env.process_command(COLLIE);
     command
         .args(SUBSCRIBE)
-        .env("GOODFETCH_LOG", "trace")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let process = env.spawn(&mut command).unwrap();

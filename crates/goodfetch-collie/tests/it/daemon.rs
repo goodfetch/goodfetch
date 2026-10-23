@@ -504,10 +504,7 @@ fn the_daemon_socket_passes_its_endpoint_table_rows() {
         found.token.clone(),
     )
     .with_other_listener_token("a-private-endpoints-token");
-    let log = env
-        .home()
-        .join("logs")
-        .join(format!("goodfetch-collie-{}.jsonl", found.pid));
+    let log = env.home().join("logs").join("daemon-0.0.jsonl");
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     let verifier = move |_: ListenerKind, rule: Rule| {
         let reason = match rule {
@@ -516,23 +513,44 @@ fn the_daemon_socket_passes_its_endpoint_table_rows() {
             Rule::HelloNotFirst => "hello_not_first",
             _ => return Ok(false),
         };
-        let text = std::fs::read_to_string(&log).map_err(AuditUnreadable::new)?;
-        let refusals = text
-            .lines()
-            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .filter(|record| {
-                record["target"] == json!("goodfetch::rpc::refusal")
-                    && record["fields"]["listener"] == json!("daemon_socket")
-                    && record["fields"]["reason"] == json!(reason)
-            })
-            .count();
-        let earlier = seen.insert(reason.to_owned(), refusals).unwrap_or(0);
+        let earlier = seen.get(reason).copied().unwrap_or(0);
+        let refusals = audited(&log, "daemon_socket", reason, earlier)?;
+        seen.insert(reason.to_owned(), refusals);
         Ok(refusals > earlier)
     };
 
     let ran = EndpointRunner::new(verifier).run(&listener);
 
     assert_eq!(ran, Ok(()));
+}
+
+/// How many refusals of `listener` for `reason` the log file `log` holds,
+/// once it holds more than `earlier` or `MESSAGE_DEADLINE` passed: the log
+/// writer writes each line on a thread of its own, a moment after the
+/// refusal (ADR 0122).
+pub(crate) fn audited(
+    log: &Path,
+    listener: &str,
+    reason: &str,
+    earlier: usize,
+) -> Result<usize, AuditUnreadable> {
+    let deadline = std::time::Instant::now() + goodfetch_test_support::MESSAGE_DEADLINE;
+    loop {
+        let text = std::fs::read_to_string(log).map_err(AuditUnreadable::new)?;
+        let refusals = text
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter(|record| {
+                record["target"] == json!("goodfetch::rpc::refusal")
+                    && record["fields"]["listener"] == json!(listener)
+                    && record["fields"]["reason"] == json!(reason)
+            })
+            .count();
+        if refusals > earlier || std::time::Instant::now() > deadline {
+            return Ok(refusals);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
 }
 
 /// Starts the Scripted engine as the Daemon of the test's home, on a script

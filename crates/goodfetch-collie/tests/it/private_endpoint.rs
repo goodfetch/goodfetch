@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_test_support::{
-    AuditUnreadable, DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress,
-    ListenerKind, Rule, RuntimeFile, TestEnv,
+    DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress, ListenerKind, Rule,
+    RuntimeFile, TestEnv,
 };
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -139,17 +139,9 @@ fn the_private_endpoint_passes_its_endpoint_table_rows() {
             Rule::HelloNotFirst => "hello_not_first",
             _ => return Ok(false),
         };
-        let text = std::fs::read_to_string(&log).map_err(AuditUnreadable::new)?;
-        let refusals = text
-            .lines()
-            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .filter(|record| {
-                record["target"] == json!("goodfetch::rpc::refusal")
-                    && record["fields"]["listener"] == json!("private_endpoint")
-                    && record["fields"]["reason"] == json!(reason)
-            })
-            .count();
-        let earlier = seen.insert(reason.to_owned(), refusals).unwrap_or(0);
+        let earlier = seen.get(reason).copied().unwrap_or(0);
+        let refusals = crate::daemon::audited(&log, "private_endpoint", reason, earlier)?;
+        seen.insert(reason.to_owned(), refusals);
         Ok(refusals > earlier)
     };
 

@@ -34,13 +34,9 @@ pub const START_TIME: &str = "2026-01-05T09:00:00Z";
 /// [`START_TIME`] in seconds since the Unix epoch.
 const START_SECONDS: u64 = 1_767_603_600;
 
-/// Where an engine started with the map writes its logs: JSON lines in the
-/// Goodfetch home's log folder (ADR 0122), standing in for `log.output:
-/// file` until the engine reads its configuration.
-const LOG_OUTPUT: (&str, &str) = ("GOODFETCH_LOG_OUTPUT", "file");
-
-/// Which logs it writes: `rpc`'s dispatch records and the engine's outcome
-/// records, which ADR 0072's exercise audit reads, beside the default level.
+/// Which logs every engine the test starts writes: `rpc`'s dispatch records
+/// and the engine's outcome records, which ADR 0072's exercise audit reads,
+/// beside the default level.
 fn log_level() -> String {
     format!("info,{DISPATCH_TARGET}=trace,{OUTCOME_TARGET}=trace")
 }
@@ -50,8 +46,10 @@ const NAME_LENGTH: usize = 64;
 
 /// The settings every test's user configuration starts with: the Console
 /// of every Daemon the test starts listens on a port the OS chooses, never
-/// on its major's fixed port (ADR 0059).
-pub const TEST_SETTINGS: &str = "console.address = \"127.0.0.1:0\"\n";
+/// on its major's fixed port (ADR 0059); and every engine process writes
+/// its JSON log into the home's log folder (ADR 0122), at the test's level
+/// (`log.level`, [`TestEnv::log_level`]).
+pub const TEST_SETTINGS: &str = "console.address = \"127.0.0.1:0\"\nlog.output = \"file\"\n";
 
 /// The user configuration's file in the per-major folder.
 const USER_CONFIGURATION: &str = "configuration.toml";
@@ -59,12 +57,14 @@ const USER_CONFIGURATION: &str = "configuration.toml";
 /// One test's isolated setup. Its folder is removed when it drops, unless
 /// the test failed: then it is kept and listed on stderr. Dropping it also
 /// fails the test if a process it started is still alive, or if its
-/// crash-dump folder holds a file. Its map turns on the JSON log of every
-/// engine the test starts, whose lines it copies into the test's exercise
-/// record when it drops, under `just test`.
+/// crash-dump folder holds a file. Its user configuration turns on the
+/// JSON log of every engine the test starts, whose lines it copies into
+/// the test's exercise record when it drops, under `just test`.
 pub struct TestEnv {
     folder: tempfile::TempDir,
     home: PathBuf,
+    /// The `log.level` of its user configuration.
+    log_level: std::cell::RefCell<String>,
     crash_dumps: PathBuf,
     env: BTreeMap<String, String>,
     seed: u64,
@@ -126,11 +126,9 @@ impl TestEnv {
             env.insert(name.to_owned(), value.to_owned());
         }
         restrict_to_owner(&root.join("runtime"))?;
-        write_user_configuration(&home, "")?;
+        write_user_configuration(&home, "", &log_level())?;
         env.insert("TZ".to_owned(), "UTC".to_owned());
         env.insert("LANG".to_owned(), "C.UTF-8".to_owned());
-        env.insert(LOG_OUTPUT.0.to_owned(), LOG_OUTPUT.1.to_owned());
-        env.insert("GOODFETCH_LOG".to_owned(), log_level());
         let record = ExerciseRecord::of(variables);
         if let Some(record) = &record {
             record.open()?;
@@ -148,6 +146,7 @@ impl TestEnv {
         Ok(Self {
             folder,
             home,
+            log_level: std::cell::RefCell::new(log_level()),
             crash_dumps,
             env,
             seed,
@@ -181,8 +180,7 @@ impl TestEnv {
     }
 
     /// The same setup with one more variable in the map every child gets,
-    /// such as `GOODFETCH_LOG=info` for a run on a pseudo-terminal whose
-    /// transcript two runs compare (the trace lines carry their instant).
+    /// such as `TERM` for a run on a pseudo-terminal.
     #[must_use]
     pub fn with_variable(mut self, name: &str, value: &str) -> Self {
         self.env.insert(name.to_owned(), value.to_owned());
@@ -200,14 +198,32 @@ impl TestEnv {
     }
 
     /// Writes the home's user configuration with `settings`, lines of TOML
-    /// under `[settings]`, after [`TEST_SETTINGS`], which every test's home
-    /// starts with, unless `settings` sets `console.address` itself.
+    /// under `[settings]`, after [`TEST_SETTINGS`] and the test's
+    /// `log.level`, which every test's home starts with, each unless
+    /// `settings` sets its key itself.
     ///
     /// # Panics
     ///
     /// If the file cannot be written.
     pub fn user_configuration(&self, settings: &str) {
-        write_user_configuration(&self.home, settings).unwrap_or_else(|error| {
+        write_user_configuration(&self.home, settings, &self.log_level.borrow()).unwrap_or_else(
+            |error| panic!("the test's user configuration cannot be written: {error}"),
+        );
+    }
+
+    /// Sets the `log.level` of every engine the test starts from now on,
+    /// a `tracing` filter directive, such as `trace` for a test whose
+    /// stdout must hold no log line at any level, or `info` for a
+    /// pseudo-terminal's transcript two runs compare (the trace lines carry
+    /// their instant): in the user configuration as it is, whoever wrote
+    /// it, every other line kept (ADR 0122).
+    ///
+    /// # Panics
+    ///
+    /// If the file cannot be read or written.
+    pub fn log_level(&self, filter: &str) {
+        filter.clone_into(&mut self.log_level.borrow_mut());
+        set_log_level(&self.home, filter).unwrap_or_else(|error| {
             panic!("the test's user configuration cannot be written: {error}")
         });
     }
@@ -415,14 +431,40 @@ fn folder_name(test: &str) -> String {
 /// Writes `home`'s user configuration of the workspace's major: its format
 /// version, then [`TEST_SETTINGS`] and `settings` under `[settings]`; when
 /// `settings` sets the Console's address itself, its value alone.
-fn write_user_configuration(home: &Path, settings: &str) -> io::Result<()> {
+/// Sets `log.level` to `filter` in `home`'s user configuration: its line
+/// replaced, or one added under `[settings]`, every other line kept.
+fn set_log_level(home: &Path, filter: &str) -> io::Result<()> {
+    let file = home
+        .join(major_folder(env!("CARGO_PKG_VERSION")))
+        .join(USER_CONFIGURATION);
+    let level = format!("log.level = \"{filter}\"");
+    let mut lines: Vec<String> = std::fs::read_to_string(&file)?
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("log.level"))
+        .map(str::to_owned)
+        .collect();
+    match lines.iter().position(|line| line.trim() == "[settings]") {
+        Some(table) => lines.insert(table + 1, level),
+        None => lines.extend(["[settings]".to_owned(), level]),
+    }
+    std::fs::write(file, lines.join("\n") + "\n")
+}
+
+/// Writes `home`'s user configuration: [`TEST_SETTINGS`] and `log.level`
+/// at `log_level`, each unless `settings` sets its key, then `settings`.
+fn write_user_configuration(home: &Path, settings: &str, log_level: &str) -> io::Result<()> {
     let folder = home.join(major_folder(env!("CARGO_PKG_VERSION")));
     std::fs::create_dir_all(&folder)?;
-    let defaults = if settings.contains("console.address") {
-        ""
-    } else {
-        TEST_SETTINGS
-    };
+    let level = format!("log.level = \"{log_level}\"\n");
+    let defaults: String = TEST_SETTINGS
+        .lines()
+        .map(|line| format!("{line}\n"))
+        .chain(std::iter::once(level))
+        .filter(|line| {
+            let key = line.split('=').next().unwrap_or_default().trim();
+            !settings.contains(key)
+        })
+        .collect();
     std::fs::write(
         folder.join(USER_CONFIGURATION),
         format!("version = \"0.1\"\n\n[settings]\n{defaults}{settings}"),

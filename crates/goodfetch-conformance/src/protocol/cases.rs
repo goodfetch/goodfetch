@@ -278,22 +278,12 @@ impl Case {
     ) -> Result<(), Gone> {
         match self {
             Self::Hello => {
-                speaks_the_major(hello, checks);
+                speaks_the_protocol_major(hello, checks);
                 Ok(())
             }
             Self::EngineInfo => engine_info(connection, hello, checks),
-            Self::UnknownMethod => {
-                let id = connection.request(UNKNOWN_METHOD, &json!({}))?;
-                let answer = connection.answer(id)?.message;
-                refused_as(&answer, ProtocolFailure::MethodNotFound, checks);
-                Ok(())
-            }
-            Self::InvalidParams => {
-                let id = connection.request(ENGINE_INFO.name, &json!({ "unknown": true }))?;
-                let answer = connection.answer(id)?.message;
-                refused_as(&answer, ProtocolFailure::InvalidParams, checks);
-                Ok(())
-            }
+            Self::UnknownMethod => unknown_method(connection, checks),
+            Self::InvalidParams => invalid_params(connection, checks),
             Self::CancelInFlight => cancel_in_flight(connection, checks),
             Self::CancelAnswered => cancel_answered(connection, checks),
             Self::FabricatedHello => fabricated_hello(connection, target, hello, checks),
@@ -375,8 +365,7 @@ impl Case {
     }
 }
 
-/// `hello` names the protocol's major this harness speaks.
-fn speaks_the_major(hello: &HelloResult, checks: &mut Checks) {
+fn speaks_the_protocol_major(hello: &HelloResult, checks: &mut Checks) {
     checks.check(
         format!(
             "the engine speaks the protocol's major {}",
@@ -384,6 +373,20 @@ fn speaks_the_major(hello: &HelloResult, checks: &mut Checks) {
         ),
         hello.protocol_version.major == PROTOCOL_VERSION.major,
     );
+}
+
+fn unknown_method(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
+    let id = connection.request(UNKNOWN_METHOD, &json!({}))?;
+    let answer = connection.answer(id)?.message;
+    refused_as(&answer, ProtocolFailure::MethodNotFound, checks);
+    Ok(())
+}
+
+fn invalid_params(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
+    let id = connection.request(ENGINE_INFO.name, &json!({ "unknown": true }))?;
+    let answer = connection.answer(id)?.message;
+    refused_as(&answer, ProtocolFailure::InvalidParams, checks);
+    Ok(())
 }
 
 fn engine_info(

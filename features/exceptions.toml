@@ -113,12 +113,6 @@ reason = "Declared for ADR 0069's exit-code table (#1188), but nothing raises it
 link = "https://github.com/goodfetch/goodfetch/issues/755"
 
 [[exception]]
-feature = "error:resources_exhausted"
-evidence = "none"
-reason = "Declared for ADR 0069's exit-code table (#1188), but nothing raises it yet: a new Run refused at the `critical` storage level, and a call whose Run's stop could not be recorded, raise it in #1566, whose storage tests remove this exception."
-link = "https://github.com/goodfetch/goodfetch/issues/1566"
-
-[[exception]]
 feature = "error:secret_unbound"
 evidence = "none"
 reason = "Declared with the Secret-provider driver (#615), but nothing raises it yet: a Secret placeholder with no binding raises it once placeholders are bound to Secret references and domains, in #654, whose test removes this exception."

@@ -64,11 +64,9 @@ fn line(message: &Value) -> Vec<u8> {
 /// Starts an Attached engine that sets the install Limit and starts a
 /// crawl whose handler never answers, and kills it at `moment`.
 fn killed_at(env: &TestEnv, moment: &Moment, log: &mut ObservationLog<Value>) {
+    env.log_level("trace");
     let mut command = env.process_command(FOXHOUND);
-    command
-        .arg("attached-engine")
-        .env("GOODFETCH_LOG", "trace")
-        .stderr(Stdio::null());
+    command.arg("attached-engine").stderr(Stdio::null());
     let victim = env.spawn(&mut command).unwrap();
     {
         let mut child = victim.child();

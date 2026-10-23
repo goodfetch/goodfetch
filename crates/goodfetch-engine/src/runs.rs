@@ -80,6 +80,7 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
+pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Holding, RulesContext};
 pub use self::import::fuzz_run_state_import;
 pub use self::reader::RunReader;
 pub use self::reindex::{Reindexed, reindex};
@@ -104,7 +105,9 @@ use crate::client::Client;
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::events::Events;
-use crate::governor::{Filesystem, Governor, Held, RunShare, StorageSample};
+use crate::governor::{
+    Filesystem, Governor, Held, LastResort, RunShare, StorageSample, last_resort_run,
+};
 use crate::home::{Home, RunStateLocation, major_name};
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation};
@@ -193,6 +196,9 @@ pub(crate) struct RunsSetup {
     pub(crate) governor: Governor,
     /// What the composition's areas add to each Run's report (ADR 0102).
     pub(crate) report_parts: Vec<Arc<dyn ReportPart>>,
+    /// The composition's Clean-up rules, which choose the version each new
+    /// Run holds to (ADR 0047), if it has any.
+    pub(crate) clean_up: Option<Arc<dyn CleanUpVersions>>,
     /// The Console's address, when this engine serves one (ADR 0031): each
     /// Run's report names its page there.
     pub(crate) console: Option<String>,
@@ -807,6 +813,7 @@ enum Command {
     Drain(oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
     Storage(Arc<StorageSample>),
     StorageFailed(PathBuf),
+    LastResort(LastResort),
 }
 
 /// What the registry answers about the engine's health (ADR 0050): whether
@@ -855,6 +862,27 @@ pub struct Runs {
     /// The Secret-provider driver, which holds the user's Audit log.
     secrets: Secrets,
     drivers: Arc<BTreeMap<RunKind, Driver>>,
+    /// The composition's Clean-up rules, which choose the version each new
+    /// Run holds to (ADR 0047), if it has any.
+    clean_up: Option<Arc<CleanUpRules>>,
+}
+
+/// The composition's Clean-up rules, and the engine's Product version, the
+/// release whose code applies them.
+struct CleanUpRules {
+    versions: Arc<dyn CleanUpVersions>,
+    product_version: ProductVersion,
+}
+
+impl CleanUpRules {
+    /// Those of `setup`, if its composition has any.
+    fn of(setup: &RunsSetup) -> Option<Arc<Self>> {
+        let versions = setup.clean_up.clone()?;
+        Some(Arc::new(Self {
+            versions,
+            product_version: setup.version.clone(),
+        }))
+    }
 }
 
 impl std::fmt::Debug for Runs {
@@ -1012,6 +1040,11 @@ impl Run {
         self.owner.token()
     }
 
+    /// Whether the Run was asked to stop at its next safe point.
+    pub(crate) fn is_stopping(&self) -> bool {
+        self.shared.stop.borrow().is_some()
+    }
+
     /// Answers once something asks the Run to stop at its next safe point,
     /// such as its `timeout.run` passing, with the reason it stops for: its
     /// driver then admits nothing new, lets each attempt in flight commit
@@ -1100,6 +1133,24 @@ impl Run {
     pub async fn warn(&self, warning: RunWarning) -> Result<(), RunStateError> {
         self.state
             .write(move |connection| report::warn(connection, &warning))
+            .await
+    }
+
+    /// Hands `warning` over to the Run's report unless it holds a warning
+    /// of the same code already, such as one an earlier run epoch handed
+    /// over before a resume.
+    ///
+    /// # Errors
+    ///
+    /// When its run state cannot be written.
+    pub async fn warn_once(&self, warning: RunWarning) -> Result<(), RunStateError> {
+        self.state
+            .write(move |connection| {
+                if report::warned(connection, &warning.code)? {
+                    return Ok(());
+                }
+                report::warn(connection, &warning)
+            })
             .await
     }
 
@@ -1657,6 +1708,7 @@ impl Runs {
             limits: Arc::new(limits),
             secrets,
             drivers: Arc::new(setup.drivers.clone()),
+            clean_up: CleanUpRules::of(&setup),
         };
         let politeness = SharedPoliteness {
             file: Arc::new(tokio::sync::OnceCell::new()),
@@ -1687,6 +1739,7 @@ impl Runs {
             found_ended: std::collections::BTreeSet::new(),
             sampled: Vec::new(),
             unrecorded: BTreeMap::new(),
+            memory_stop: MemoryStop::Idle,
         };
         owner.spawn(registry.run(mailbox));
         runs
@@ -1757,7 +1810,52 @@ impl Runs {
     /// # Cancel safety
     ///
     /// Dropping the future after the start was sent still starts the Run.
-    pub async fn start(&self, start: Start) -> Result<Started, StartError> {
+    pub async fn start(&self, mut start: Start) -> Result<Started, StartError> {
+        let mut fallback = None;
+        if start.clean_up_digest.is_none()
+            && let Some(rules) = &self.clean_up
+        {
+            let chosen = rules
+                .versions
+                .choose(self.rules_context(rules, start.settings.as_ref()))
+                .await;
+            start.clean_up_digest = Some(chosen.digest);
+            fallback = chosen.fallback;
+        }
+        let settings = start.settings.clone();
+        let started = self.start_chosen(start).await;
+        if let (Ok(Started::New(run)), Some(rules)) = (&started, &self.clean_up) {
+            rules
+                .versions
+                .held(
+                    run,
+                    Holding::Started { fallback },
+                    self.rules_context(rules, settings.as_ref()),
+                )
+                .await;
+        }
+        started
+    }
+
+    /// What the Clean-up rules `rules` are told of a Run whose start
+    /// resolved `settings`.
+    fn rules_context<'a>(
+        &'a self,
+        rules: &'a CleanUpRules,
+        settings: Option<&'a RunSettings>,
+    ) -> RulesContext<'a> {
+        RulesContext {
+            settings,
+            home: self.home(),
+            clock: self.clock(),
+            product: self.limits.product,
+            product_version: &rules.product_version,
+            owner: &self.limits.owner,
+        }
+    }
+
+    /// [`Runs::start`] once its Clean-up rules are chosen.
+    async fn start_chosen(&self, start: Start) -> Result<Started, StartError> {
         let secrets = self
             .secrets
             .for_run(secret_timeout(start.settings.as_ref()));
@@ -2037,6 +2135,7 @@ impl Runs {
             Some(Unwrapped { stored, key }) => (Some(stored), Some(key)),
             None => (None, None),
         };
+        let settings = resume.settings.clone();
         let (answer, answered) = oneshot::channel();
         self.commands
             .send(Command::Resume(
@@ -2046,7 +2145,18 @@ impl Runs {
             ))
             .await
             .map_err(|_| RunError::Stopped)?;
-        answered.await.map_err(|_| RunError::Stopped)?
+        let resumed = answered.await.map_err(|_| RunError::Stopped)?;
+        if let (Ok(Resumed::New { run, .. }), Some(rules)) = (&resumed, &self.clean_up) {
+            rules
+                .versions
+                .held(
+                    run,
+                    Holding::Resumed,
+                    self.rules_context(rules, settings.as_ref()),
+                )
+                .await;
+        }
+        resumed
     }
 
     /// The data key of the Run `resume` resumes, unwrapped by the
@@ -2451,6 +2561,21 @@ struct Registry {
     /// The Runs whose stop their run file could not record, left
     /// interrupted until a start with their ID resumes them (ADR 0122).
     unrecorded: BTreeMap<RunId, Box<StorageExhausted>>,
+    /// Where the governor's last resort stands: it stops one Run at a time.
+    memory_stop: MemoryStop,
+}
+
+/// Where the governor's last resort stands (ADR 0040): it stops one Run at
+/// a time, and measures again before it stops another.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum MemoryStop {
+    /// No Run is being stopped for it.
+    Idle,
+    /// This Run is being stopped for it.
+    Stopping(RunId),
+    /// The Run it stopped ended: only a sample past this number, read
+    /// wholly after that end, may stop another.
+    After(u64),
 }
 
 impl Registry {
@@ -2461,7 +2586,7 @@ impl Registry {
         // writes are done.
         self.write_managed().await;
         self.reclaim().await;
-        self.sample_storage();
+        self.follow_governor();
         while let Some(command) = mailbox.recv().await {
             match command {
                 Command::Start(start, _, answer) if self.draining => {
@@ -2553,6 +2678,7 @@ impl Registry {
                 Command::Discard(run_id, answer) => self.discard(run_id, answer).await,
                 Command::Storage(sample) => self.storage(&sample).await,
                 Command::StorageFailed(folder) => self.storage_failed(&folder),
+                Command::LastResort(last_resort) => self.last_resort(last_resort),
             }
         }
         self.readers.wait().await;
@@ -2591,6 +2717,72 @@ impl Registry {
                 }
             }
         });
+    }
+
+    /// Hands the governor's storage samples (ADR 0122) and whether each
+    /// sample found it at its last resort (ADR 0040) to the registry.
+    fn follow_governor(&mut self) {
+        self.sample_storage();
+        self.follow_last_resort();
+    }
+
+    /// Hands each of the governor's samples, whether it found it at its
+    /// last resort, to the registry (ADR 0040).
+    fn follow_last_resort(&self) {
+        let mut samples = self.setup.governor.last_resort();
+        let registry = self.runs.clone();
+        let token = self.owner.token().clone();
+        self.owner.spawn(async move {
+            loop {
+                tokio::select! {
+                    () = token.cancelled() => return,
+                    changed = samples.changed() => if changed.is_err() { return },
+                }
+                let last_resort = *samples.borrow_and_update();
+                let Some(registry) = registry.upgrade() else {
+                    return;
+                };
+                if registry
+                    .send(Command::LastResort(last_resort))
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        });
+    }
+
+    /// Acts on a sample at the governor's last resort (ADR 0040): the live
+    /// Run with the largest footprint, never one a person holds a page of,
+    /// checkpoints and stops at its next safe point with
+    /// `resource: "memory"`; while it stops, and until a sample read wholly
+    /// after its end, no other Run is stopped.
+    fn last_resort(&mut self, last_resort: LastResort) {
+        match self.memory_stop {
+            MemoryStop::Stopping(_) => return,
+            MemoryStop::After(after) if last_resort.sample <= after => return,
+            MemoryStop::After(_) | MemoryStop::Idle => self.memory_stop = MemoryStop::Idle,
+        }
+        if !last_resort.reached {
+            return;
+        }
+        let candidates = self.live.values().filter_map(|live| {
+            let run = live.run.as_ref().filter(|run| !run.is_stopping())?;
+            Some(((live.id.clone(), run), run.governor().weight()))
+        });
+        let Some((run_id, run)) = last_resort_run(candidates) else {
+            return;
+        };
+        tracing::warn!(
+            run_id = %run_id,
+            "memory stayed critical at the governor's floor: the Run with the largest footprint stops"
+        );
+        run.stop(StopReason::Resources {
+            resource: goodfetch_protocol::run::Resource::Memory,
+            folder: None,
+        });
+        self.memory_stop = MemoryStop::Stopping(run_id);
     }
 
     /// Acts on a storage sample (ADR 0122): each live Run with an essential
@@ -2797,6 +2989,12 @@ impl Registry {
     /// the Run interrupted, with no live writer, as after a crash, and a
     /// start with its ID resumes it (ADR 0122).
     fn ended(&mut self, run_id: RunId, ended: Ended) {
+        if self.memory_stop == MemoryStop::Stopping(run_id.clone()) {
+            // The sample after the latest may have been read before this
+            // end: the governor measures again from the one after it.
+            let latest = self.setup.governor.last_resort().borrow().sample;
+            self.memory_stop = MemoryStop::After(latest + 1);
+        }
         if let Some(live) = self.live.remove(&run_id) {
             // The lock goes before the report, so whoever the report wakes
             // finds the Run's writer gone.
@@ -3411,6 +3609,7 @@ impl Registry {
             limits: Arc::clone(&self.limits),
             secrets: self.secrets.clone(),
             drivers: Arc::clone(&self.drivers),
+            clean_up: CleanUpRules::of(&self.setup),
         }
     }
 
@@ -4434,6 +4633,7 @@ impl Closing {
     }
 }
 
+mod clean_up;
 mod discard;
 mod folder;
 mod import;

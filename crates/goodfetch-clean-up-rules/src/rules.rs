@@ -5,6 +5,7 @@
 //! feature), so every Session shares one behind an `Arc` with no lock.
 
 use adblock::Engine;
+use adblock::lists::{FilterSet, ParseOptions};
 
 use crate::stand_ins;
 
@@ -82,7 +83,82 @@ impl FilterLists {
     pub fn serialized_size() -> usize {
         ADS.size + TRACKERS.size + ANNOYANCES.size
     }
+
+    /// Compiles a downloaded version's Filter lists from their texts, each
+    /// with the version's unbreak list, as the build compiles the embedded
+    /// ones: on the engine's own machine, with its own `adblock` (ADR 0047).
+    /// It blocks for as long as the lists are long, so the engine runs it
+    /// on a blocking task (ADR 0060).
+    pub fn compile(texts: &ListTexts<'_>) -> Self {
+        let compiled = |list: &str| {
+            let mut set = FilterSet::new(false);
+            set.add_filter_list(list.to_owned(), ParseOptions::default());
+            set.add_filter_list(texts.unbreak.to_owned(), ParseOptions::default());
+            let mut engine = Engine::new_with_filter_set(set);
+            engine.use_resources(stand_ins::resources());
+            engine
+        };
+        Self {
+            ads: compiled(texts.ads),
+            trackers: compiled(texts.trackers),
+            annoyances: compiled(texts.annoyances),
+        }
+    }
 }
+
+/// The texts of one version's Filter lists.
+#[derive(Clone, Copy, Debug)]
+pub struct ListTexts<'a> {
+    /// EasyList's, which `filter_lists.ads` turns on.
+    pub ads: &'a str,
+    /// EasyPrivacy's, which `filter_lists.trackers` turns on.
+    pub trackers: &'a str,
+    /// Fanboy Annoyance's, which `filter_lists.annoyances` turns on.
+    pub annoyances: &'a str,
+    /// Brave's unbreak list, compiled into each.
+    pub unbreak: &'a str,
+}
+
+/// `text`, a Filter list Goodfetch did not build, without its cookie
+/// sections, which the Consent prompt runner handles instead (ADR 0047): a
+/// section begins at its marker, `! *** easylist:easylist_cookie/… ***` in
+/// easylist.to's builds or `! easylist_cookie_….txt` in fanboy.co.nz's, and
+/// runs to the next marker of either form.
+pub fn without_cookie_sections(text: &str) -> String {
+    let mut kept = String::with_capacity(text.len());
+    let mut dropping = false;
+    for line in text.split_inclusive('\n') {
+        if let Some(section) = section_marker(line.trim_end()) {
+            dropping = section.contains("easylist_cookie");
+        }
+        if !dropping {
+            kept.push_str(line);
+        }
+    }
+    kept
+}
+
+/// The section a marker line names: `easylist:<path>` in `! *** … ***`, or
+/// the `<name>.txt` of `! <name>.txt`; none for any other line.
+fn section_marker(line: &str) -> Option<&str> {
+    let comment = line.strip_prefix('!')?.trim();
+    if let Some(inner) = comment
+        .strip_prefix("***")
+        .and_then(|rest| rest.strip_suffix("***"))
+    {
+        return Some(inner.trim());
+    }
+    let name = comment.strip_suffix(".txt")?;
+    (!name.is_empty() && !name.contains(char::is_whitespace)).then_some(comment)
+}
+
+/// The digest of the embedded part's files, its `manifest.json` among them,
+/// `sha256:<hex>` by the Browser cache's tree rule (ADR 0024): the version
+/// a Run holds to when it holds to the embedded part.
+pub const EMBEDDED_DIGEST: &str = EMBEDDED_DIGEST_OF_BUILD;
+
+/// The embedded part's `manifest.json`, as the crate carries it.
+pub const EMBEDDED_MANIFEST: &str = include_str!("../rules/manifest.json");
 
 /// Loads the engine of `list` from `compressed`, decompressed into
 /// `buffer`, with the stand-ins.

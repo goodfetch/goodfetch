@@ -271,6 +271,15 @@ export class DaemonDrainingError extends UnavailableError {
 }
 
 /**
+ * The dialog was answered already, by an earlier `accept` or `dismiss`, or it closed, its handler having ended or the dialog having got its default: the first answer stands and this one changed nothing.
+ */
+export class DialogAlreadyHandledError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "dialog_already_handled", group: "program", retryable: false });
+  }
+}
+
+/**
  * The run's egress policy refused a request before it connected: a host the domain policy does not allow, an address that is not globally reachable, or a scheme no request may use. The details name the URL, the rule, the address when there is one and the setting that would allow it.
  */
 export class EgressRefusedError extends RefusedError {
@@ -415,11 +424,20 @@ export class PageCrashedError extends UnavailableError {
 }
 
 /**
- * A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or else by the next call on its page. The details name the handler, the request's URL and what the failure said.
+ * A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed; a dialog handler's dialog got its default and the handler was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or by the call the dialog blocked, or else by the next call on its page. The details name the handler, the URL of the request or of the dialog's document, and what the failure said.
  */
 export class PageHandlerFailedError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "page_handler_failed", group: "program", retryable: false });
+  }
+}
+
+/**
+ * Memory was critical and the page held more than `governor.browser.page_memory_cap`, so the Resource governor ended it once no call on it was in flight. The page is gone: open another and try again, which the governor admits once memory frees up.
+ */
+export class PageMemoryExceededError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_memory_exceeded", group: "unavailable", retryable: true });
   }
 }
 
@@ -721,7 +739,7 @@ export class UpgradeSourceUnsupportedError extends RefusedError {
 }
 
 /**
- * The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused.
+ * The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The details name the key and say which was refused.
  */
 export class ValueInvalidError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {
@@ -747,6 +765,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   connection_lost: ConnectionLostError,
   console_port_in_use: ConsolePortInUseError,
   daemon_draining: DaemonDrainingError,
+  dialog_already_handled: DialogAlreadyHandledError,
   egress_refused: EgressRefusedError,
   engine_exited: EngineExitedError,
   engine_not_found: EngineNotFoundError,
@@ -764,6 +783,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   not_in_product: NotInProductError,
   page_crashed: PageCrashedError,
   page_handler_failed: PageHandlerFailedError,
+  page_memory_exceeded: PageMemoryExceededError,
   path_not_writable: PathNotWritableError,
   pattern_unsupported: PatternUnsupportedError,
   person_required: PersonRequiredError,

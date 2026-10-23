@@ -269,6 +269,8 @@ pub struct RouteFetched {
 pub enum PageHandler {
     /// A route's handler.
     Route,
+    /// A dialog handler.
+    Dialog,
 }
 
 /// What `page_handler_failed` details.
@@ -277,7 +279,8 @@ pub struct PageHandlerFailedDetails {
     /// The handler that failed.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub handler: PageHandler,
-    /// The URL of the request it was answering.
+    /// The URL of the request it was answering, or of the document whose
+    /// dialog it was answering.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: String,
     /// What its failure said.
@@ -296,7 +299,7 @@ pub struct RouteAlreadyHandledDetails {
 /// A handler the program gave a page failed (ADRs 0081 and 0085).
 pub const PAGE_HANDLER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "page_handler_failed",
-    description: "A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or else by the next call on its page. The details name the handler, the request's URL and what the failure said.",
+    description: "A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed; a dialog handler's dialog got its default and the handler was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or by the call the dialog blocked, or else by the next call on its page. The details name the handler, the URL of the request or of the dialog's document, and what the failure said.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,

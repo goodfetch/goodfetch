@@ -168,9 +168,9 @@ impl PageDriver {
     }
 }
 
-/// Starts following `browser`'s service workers for `run`: its browser
-/// events are read from now, then the browser attaches the engine to each
-/// worker before it runs.
+/// Starts following `browser`'s service workers and new pages for `run`:
+/// its browser events are read from now, then the browser attaches the
+/// engine to each worker and each page before it runs (`popups`).
 ///
 /// # Errors
 ///
@@ -189,6 +189,11 @@ pub(super) async fn start(browser: &Browser, run: &Run) -> Result<(), CallError>
                     target::FilterEntry {
                         exclude: Some(false),
                         r#type: Some(SERVICE_WORKER.to_owned()),
+                    },
+                    // Pages, so a popup is prepared before it runs.
+                    target::FilterEntry {
+                        exclude: Some(false),
+                        r#type: Some(super::popups::PAGE.to_owned()),
                     },
                     target::FilterEntry {
                         exclude: Some(true),
@@ -212,6 +217,8 @@ async fn follow(mut events: Subscription, browser: Browser, run: Run) {
             if attached.target_info.r#type == SERVICE_WORKER {
                 let (browser, task) = (browser.clone(), run.clone());
                 task.spawn(attach(browser, attached, run.clone()));
+            } else if attached.target_info.r#type == super::popups::PAGE {
+                run.spawn(super::popups::attach(browser.clone(), attached));
             }
         } else if let Some(detached) = event.read::<target::DetachedFromTargetEvent>() {
             if let Some(gone) =

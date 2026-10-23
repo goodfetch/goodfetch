@@ -17,6 +17,7 @@ mod browsers;
 mod certs;
 #[cfg(target_os = "macos")]
 mod checkpoint;
+mod clean_up_rules;
 mod client_conformance;
 mod commands;
 mod config;
@@ -54,6 +55,8 @@ mod secrets;
 mod service_manager;
 mod sessions;
 mod settings_flags;
+#[cfg(unix)]
+mod shedding;
 mod sign_in;
 #[cfg(target_os = "linux")]
 mod storage;

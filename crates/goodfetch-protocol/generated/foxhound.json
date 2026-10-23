@@ -1909,6 +1909,155 @@
       ],
       "type": "object"
     },
+    "Dialog": {
+      "description": "A dialog as its handler sees it.",
+      "properties": {
+        "default_value": {
+          "arrived_in": "0.1",
+          "description": "A prompt's default value; empty for any other kind.",
+          "type": "string"
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "Its message.",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/DialogType",
+          "arrived_in": "0.1",
+          "description": "Its kind."
+        }
+      },
+      "required": [
+        "type",
+        "message",
+        "default_value"
+      ],
+      "type": "object"
+    },
+    "DialogAcceptParams": {
+      "additionalProperties": false,
+      "description": "What `dialog.accept` takes: the dialog, and a prompt's text.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "dialog_id": {
+          "$ref": "#/$defs/DialogId",
+          "arrived_in": "0.1",
+          "description": "The dialog."
+        },
+        "prompt_text": {
+          "arrived_in": "0.1",
+          "description": "The text a prompt returns; its default value when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "dialog_id"
+      ],
+      "type": "object"
+    },
+    "DialogAnswered": {
+      "description": "What an answer to a dialog answers once the page closed the dialog.",
+      "type": "object"
+    },
+    "DialogDismissParams": {
+      "additionalProperties": false,
+      "description": "What `dialog.dismiss` takes: the dialog.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "dialog_id": {
+          "$ref": "#/$defs/DialogId",
+          "arrived_in": "0.1",
+          "description": "The dialog."
+        }
+      },
+      "required": [
+        "dialog_id"
+      ],
+      "type": "object"
+    },
+    "DialogHandleParams": {
+      "description": "What `dialog.handle` gives the handler: the dialog, named by the ID its\nanswer passes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "dialog": {
+          "$ref": "#/$defs/Dialog",
+          "arrived_in": "0.1",
+          "description": "The dialog."
+        },
+        "dialog_id": {
+          "$ref": "#/$defs/DialogId",
+          "arrived_in": "0.1",
+          "description": "The dialog, which an answer names."
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the `page.on_dialog` call whose handler is asked."
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page that opened it."
+        }
+      },
+      "required": [
+        "id",
+        "dialog_id",
+        "page_id",
+        "dialog"
+      ],
+      "type": "object"
+    },
+    "DialogHandled": {
+      "description": "What the handler replies to `dialog.handle` once it ended; a failure\nreply says it failed.",
+      "type": "object"
+    },
+    "DialogId": {
+      "description": "One dialog a handler answers, which `dialog.*` names.",
+      "type": "string"
+    },
+    "DialogType": {
+      "description": "A dialog's kind, as Playwright's `dialog.type()` names it.",
+      "oneOf": [
+        {
+          "const": "alert",
+          "description": "`alert()`.",
+          "type": "string"
+        },
+        {
+          "const": "confirm",
+          "description": "`confirm()`.",
+          "type": "string"
+        },
+        {
+          "const": "prompt",
+          "description": "`prompt()`.",
+          "type": "string"
+        },
+        {
+          "const": "beforeunload",
+          "description": "A `beforeunload` handler that asks to stay: raised by a navigation,\nor by `page.close` with `run_before_unload`.",
+          "type": "string"
+        }
+      ]
+    },
+    "DialogsEnded": {
+      "description": "What `page.on_dialog` answers when its page closes.",
+      "type": "object"
+    },
     "DownloadId": {
       "description": "A Download of a Run, named by the engine when it keeps its file:\n`<run_id>.download-<position>`.",
       "type": "string"
@@ -2479,6 +2628,49 @@
       "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$",
       "type": "string"
     },
+    "KeyValueStoreBytes": {
+      "description": "Bytes the store holds for a key, with their content type.",
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/KeyValueStoreContent",
+          "arrived_in": "0.1",
+          "description": "The bytes, in Base64."
+        },
+        "content_type": {
+          "arrived_in": "0.1",
+          "description": "Their content type, as `set_bytes` gave it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "content",
+        "content_type"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreBytesValue": {
+      "description": "What `key_value_store.get_bytes` answers: the key's committed bytes, or\nnull when the key is absent.",
+      "properties": {
+        "bytes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyValueStoreBytes"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The bytes and their content type, or null for an absent key."
+        }
+      },
+      "type": "object"
+    },
+    "KeyValueStoreContent": {
+      "contentEncoding": "base64",
+      "description": "Bytes the Key-value store keeps, in Base64 (RFC 4648, with padding).",
+      "type": "string"
+    },
     "KeyValueStoreDeleted": {
       "description": "What `key_value_store.delete` answers once the key is gone.",
       "properties": {
@@ -2563,6 +2755,43 @@
     },
     "KeyValueStoreSet": {
       "description": "What `key_value_store.set` answers once the value is committed.",
+      "type": "object"
+    },
+    "KeyValueStoreSetBytesParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.set_bytes` takes: the Run, the key, and the bytes\nwith their content type.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "content": {
+          "$ref": "#/$defs/KeyValueStoreContent",
+          "arrived_in": "0.1",
+          "description": "The bytes, in Base64."
+        },
+        "content_type": {
+          "arrived_in": "0.1",
+          "description": "Their content type, such as `image/png`.",
+          "type": "string"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        }
+      },
+      "required": [
+        "run_id",
+        "key",
+        "content",
+        "content_type"
+      ],
       "type": "object"
     },
     "KeyValueStoreSetParams": {
@@ -3482,6 +3711,37 @@
       ],
       "type": "object"
     },
+    "PageCloseParams": {
+      "additionalProperties": false,
+      "description": "What `page.close` takes: the page, and whether its `beforeunload`\nhandlers run.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "run_before_unload": {
+          "arrived_in": "0.1",
+          "description": "Runs the page's `beforeunload` handlers first, whose dialog goes to\nthe page's dialog handlers; false when absent.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "page_id"
+      ],
+      "type": "object"
+    },
+    "PageClosed": {
+      "description": "What `page.close` answers.",
+      "type": "object"
+    },
     "PageDownload": {
       "description": "What `page.download` reports: a navigation of a page that the browser\nturned into a download.",
       "properties": {
@@ -3565,6 +3825,11 @@
           "const": "close",
           "description": "`page.close`.",
           "type": "string"
+        },
+        {
+          "const": "popup",
+          "description": "`page.popup`.",
+          "type": "string"
         }
       ]
     },
@@ -3637,6 +3902,25 @@
       "description": "A page of a Run, named by the engine when it opens it.",
       "type": "string"
     },
+    "PageOnDialogParams": {
+      "additionalProperties": false,
+      "description": "What `page.on_dialog` takes: the page whose dialogs its handler\nanswers.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id"
+      ],
+      "type": "object"
+    },
     "PageOnEnded": {
       "description": "What `page.on` answers when its page goes, closed or with its Run.",
       "type": "object"
@@ -3702,6 +3986,26 @@
       },
       "required": [
         "page_id"
+      ],
+      "type": "object"
+    },
+    "PagePopup": {
+      "description": "What `page.popup` reports: the page that opened a popup, and the\npopup, a page of the same Session.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The opener."
+        },
+        "popup": {
+          "$ref": "#/$defs/PageOpened",
+          "arrived_in": "0.1",
+          "description": "The popup."
+        }
+      },
+      "required": [
+        "page_id",
+        "popup"
       ],
       "type": "object"
     },
@@ -6136,9 +6440,48 @@
       "description": "What `session.close` answers once the Session is closed.",
       "type": "object"
     },
+    "SessionEventName": {
+      "description": "A Session's event a program listens to.",
+      "oneOf": [
+        {
+          "const": "page",
+          "description": "`session.page`.",
+          "type": "string"
+        }
+      ]
+    },
     "SessionId": {
       "description": "A Session of a Run, named by the engine when it opens it.",
       "type": "string"
+    },
+    "SessionOnEnded": {
+      "description": "What `session.on` answers when its Session goes, closed or with its\nRun.",
+      "type": "object"
+    },
+    "SessionOnParams": {
+      "additionalProperties": false,
+      "description": "What `session.on` takes: the Session and the event listened to.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "event": {
+          "$ref": "#/$defs/SessionEventName",
+          "arrived_in": "0.1",
+          "description": "The event."
+        },
+        "session_id": {
+          "$ref": "#/$defs/SessionId",
+          "arrived_in": "0.1",
+          "description": "The Session."
+        }
+      },
+      "required": [
+        "session_id",
+        "event"
+      ],
+      "type": "object"
     },
     "SessionOpened": {
       "description": "What `run.new_session` answers: the Session it opened.",
@@ -6151,6 +6494,23 @@
       },
       "required": [
         "session_id"
+      ],
+      "type": "object"
+    },
+    "SessionPages": {
+      "description": "What `session.pages` answers: the Session's open pages, in the order\nthey opened.",
+      "properties": {
+        "pages": {
+          "arrived_in": "0.1",
+          "description": "The pages.",
+          "items": {
+            "$ref": "#/$defs/PageId"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "pages"
       ],
       "type": "object"
     },
@@ -7840,6 +8200,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The dialog was answered already, by an earlier `accept` or `dismiss`, or it closed, its handler having ended or the dialog having got its default: the first answer stands and this one changed nothing.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "dialog_already_handled",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The run's egress policy refused a request before it connected: a host the domain policy does not allow, an address that is not globally reachable, or a scheme no request may use. The details name the URL, the rule, the address when there is one and the setting that would allow it.",
       "exit_code": null,
       "group": "refused",
@@ -8040,13 +8410,23 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or else by the next call on its page. The details name the handler, the request's URL and what the failure said.",
+      "description": "A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed; a dialog handler's dialog got its default and the handler was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or by the call the dialog blocked, or else by the next call on its page. The details name the handler, the URL of the request or of the dialog's document, and what the failure said.",
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
       "name": "page_handler_failed",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Memory was critical and the page held more than `governor.browser.page_memory_cap`, so the Resource governor ended it once no call on it was in flight. The page is gone: open another and try again, which the governor admits once memory frees up.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "page_memory_exceeded",
+      "product": "collie",
+      "retryable": true
     },
     {
       "arrived_in": "0.1",
@@ -8400,7 +8780,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused.",
+      "description": "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The details name the key and say which was refused.",
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -8578,6 +8958,18 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
+      "description": "The page opened a popup, `window.open()` or a link to a new tab: a page of the same Session, already under its routes and its interception, published before the popup's first request leaves. Published while `page.on` listens to `popup`.",
+      "name": "page.popup",
+      "payload": {
+        "$ref": "#/$defs/PagePopup"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
       "description": "The page sent a request, `Request`, once per hop of a redirect chain: its URL, method, headers, body, resource type, navigation flag and the hops before it. Published while `page.on` listens to `request`; a service worker's own requests are never a page's.",
       "name": "page.request",
       "payload": {
@@ -8726,6 +9118,18 @@
       "name": "sample.echoed",
       "payload": {
         "$ref": "#/$defs/SampleEchoed"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A page opened in the Session: one `session.new_page` or `run.new_page` opened, or a popup one of its pages opened. Published while `session.on` listens to `page`.",
+      "name": "session.page",
+      "payload": {
+        "$ref": "#/$defs/PageOpened"
       },
       "product": "collie",
       "stability": "experimental"
@@ -8901,6 +9305,20 @@
       "product": "foxhound",
       "result": {
         "$ref": "#/$defs/CrawlRequestHandled"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "deprecated": null,
+      "description": "Asks a dialog handler to answer one dialog its page opened, named by its `dialog_id`, with `dialog.accept` or `dialog.dismiss`. The handler replies once it ends: a dialog it did not answer falls through to the handler before, and past the last one gets its default. A failure reply gives the dialog its default unless it was answered, removes the handler and raises `page_handler_failed`.",
+      "name": "dialog.handle",
+      "params": {
+        "$ref": "#/$defs/DialogHandleParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/DialogHandled"
       },
       "stability": "experimental"
     },
@@ -9387,6 +9805,44 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Answers a dialog by accepting it, a prompt with `prompt_text`, or else its default value; it answers once the page closed the dialog.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dialog.accept",
+      "params": {
+        "$ref": "#/$defs/DialogAcceptParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/DialogAnswered"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Answers a dialog by dismissing it, as its Cancel button does; it answers once the page closed the dialog.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dialog.dismiss",
+      "params": {
+        "$ref": "#/$defs/DialogDismissParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/DialogAnswered"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
@@ -9470,7 +9926,7 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
-      "description": "Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.",
+      "description": "Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it.",
       "events": [],
       "kind": "round_trip",
       "name": "key_value_store.get",
@@ -9481,6 +9937,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/KeyValueStoreValue"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.get_bytes",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreKeyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreBytesValue"
       },
       "stability": "experimental"
     },
@@ -9514,6 +9989,25 @@
       "name": "key_value_store.set",
       "params": {
         "$ref": "#/$defs/KeyValueStoreSetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreSet"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Commits bytes with their content type for a key in a live Run's Key-value store, replacing what it held: the last commit wins. Bytes over 1 MiB are kept as a file in the Run's folder, which its Checkpoints carry.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.set_bytes",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreSetBytesParams"
       },
       "product": "collie",
       "reach": "all_surfaces",
@@ -9595,6 +10089,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageBodyRead"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.close",
+      "params": {
+        "$ref": "#/$defs/PageCloseParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageClosed"
       },
       "stability": "experimental"
     },
@@ -9697,7 +10210,8 @@
         "page.dom_content_loaded",
         "page.download",
         "page.crash",
-        "page.close"
+        "page.close",
+        "page.popup"
       ],
       "kind": "event",
       "name": "page.on",
@@ -9708,6 +10222,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageOnEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Hands the page's JavaScript dialogs to the program, armed when the call arrives: Playwright's `page.on('dialog')`. The call stays in flight, and for each dialog the engine sends `dialog.handle`, which the handler answers with `dialog.accept` or `dialog.dismiss`. Later handlers come first and the first answer wins; a handler that ends without one falls through, and past the last one, or with none, an `alert`, `confirm` or `prompt` is dismissed and a `beforeunload` dialog accepted, so a handler that answers nothing never stalls the page. Cancelling the call removes the handler; a handler that fails ends it with `page_handler_failed`, the dialog getting its default.",
+      "events": [],
+      "kind": "sequence",
+      "name": "page.on_dialog",
+      "params": {
+        "$ref": "#/$defs/PageOnDialogParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/DialogsEnded"
       },
       "stability": "experimental"
     },
@@ -10340,6 +10873,46 @@
     {
       "arrived_in": "0.1",
       "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.",
+      "events": [
+        "session.page"
+      ],
+      "kind": "event",
+      "name": "session.on",
+      "params": {
+        "$ref": "#/$defs/SessionOnParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SessionOnEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "session.pages",
+      "params": {
+        "$ref": "#/$defs/SessionParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SessionPages"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
       "description": "Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes.",
@@ -10609,6 +11182,86 @@
         "description": "A duration in milliseconds.",
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "ghcr.io/goodfetch/clean-up-rules",
+      "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+      "name": "clean_up.channel",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": {
+        "ads": "https://easylist.to/easylist/easylist.txt",
+        "annoyances": "https://secure.fanboy.co.nz/fanboy-annoyance.txt",
+        "trackers": "https://easylist.to/easylist/easyprivacy.txt",
+        "unbreak": "https://raw.githubusercontent.com/brave/adblock-lists/master/brave-unbreak.txt"
+      },
+      "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+      "name": "clean_up.lists",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "release",
+      "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+      "name": "clean_up.update",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "release",
+          "daily",
+          "upstream"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "The exact version of the Clean-up rules a new Run holds to, by its digest `sha256:<hex>` as Provenance names it, instead of the newest one `clean_up.update` gives: a daily version it names is fetched from the daily channel, and it is exempt from the channel's expiry and its refusal of older versions. None by default.",
+      "name": "clean_up.version",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
       },
       "weakens": false
     },
@@ -11282,6 +11935,24 @@
       "default": null,
       "description": "The memory, in bytes, of a browser and its processes past which it is recycled; unset by default, when the cap is twice what the browser used once it had opened its first page.",
       "name": "governor.browser.memory_cap",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 1073741824,
+      "description": "The memory, in bytes, of one page's JavaScript heap and the buffers it holds, past which the Resource governor ends the page while memory is critical: 1 GiB. The page ends at its safe point, once no call on it is in flight, and its calls raise `page_memory_exceeded`, which is retryable.",
+      "name": "governor.browser.page_memory_cap",
       "product": "collie",
       "products": [
         "collie",
@@ -13189,6 +13860,13 @@
       "name": "challenge",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run holds to other Clean-up rules than `clean_up.update` or `clean_up.version` ask for, such as the embedded part when the daily channel cannot be reached; Provenance names both.",
+      "name": "clean_up_rules_fallback",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",

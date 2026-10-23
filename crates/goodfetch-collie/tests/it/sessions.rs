@@ -674,10 +674,10 @@ fn run_new_session_on_a_run_an_earlier_command_stopped_fails_with_run_not_found(
     );
 }
 
-/// `session new-page` and `session close` through the commands generated
-/// from the catalog: no engine holds the Session they name, so each fails
-/// with `closed`.
-/// Covers: command:session.new-page, command:session.close
+/// `session new-page`, `session close` and `session pages` (#719) through
+/// the commands generated from the catalog: no engine holds the Session
+/// they name, so each fails with `closed`.
+/// Covers: command:session.new-page, command:session.close, command:session.pages
 #[test]
 fn session_commands_on_a_session_no_engine_holds_fail_with_closed() {
     let env = TestEnv::new();
@@ -686,10 +686,12 @@ fn session_commands_on_a_session_no_engine_holds_fail_with_closed() {
         (
             failed_command(&env, &["session", "new-page", "gone.session-1"]),
             failed_command(&env, &["session", "close", "gone.session-1"]),
+            failed_command(&env, &["session", "pages", "gone.session-1"]),
         ),
         (
             (Some(3), json!("closed"), json!("session.new_page")),
             (Some(3), json!("closed"), json!("session.close")),
+            (Some(3), json!("closed"), json!("session.pages")),
         )
     );
 }

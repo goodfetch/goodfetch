@@ -15,14 +15,17 @@ use goodfetch_protocol::connection::{
     CALL_CANCELLED, CallCancelledDetails, ClosedValue, INTERNAL, InternalDetails, StoppedBy,
 };
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
+use goodfetch_protocol::governor::{PAGE_MEMORY_EXCEEDED, PageMemoryExceededDetails};
 use goodfetch_protocol::jsonrpc::{ErrorData, ProtocolFailure};
 use goodfetch_protocol::page::{
     BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails, NAVIGATION_FAILED,
     NAVIGATION_INTERRUPTED, NavigationFailedDetails, NavigationInterruptedDetails, PAGE_CRASHED,
-    PageCrashedDetails, RESPONSE_TRUNCATED, RedirectLimit, ResponseTruncatedDetails,
+    PageCrashedDetails, PageId, RESPONSE_TRUNCATED, RedirectLimit, ResponseTruncatedDetails,
     SITE_PREFERENCES_REFUSED, SitePreferencesRefusedDetails, TOO_MANY_REDIRECTS,
     TooManyRedirectsDetails,
 };
+
+use goodfetch_protocol::settings::SettingLimit;
 
 use crate::page_value::Refusal as GateRefusal;
 
@@ -149,6 +152,28 @@ pub(crate) fn site_preferences_failure(url: &str, refusal: &GateRefusal) -> Erro
         retryable: SITE_PREFERENCES_REFUSED.retryable,
         details: error.details().cloned().unwrap_or_default(),
     }
+}
+
+/// `page_memory_exceeded` for the page `page_id`, which held `memory` past
+/// `limit`, `governor.browser.page_memory_cap`, while memory was critical
+/// (ADR 0040).
+pub(crate) fn page_memory_exceeded(
+    page_id: &PageId,
+    memory: u64,
+    limit: SettingLimit,
+) -> CallError {
+    CallError::new(
+        &PAGE_MEMORY_EXCEEDED,
+        format!(
+            "memory was critical and the page `{}` held {memory} bytes, past `governor.browser.page_memory_cap`: it ended",
+            page_id.0
+        ),
+        &PageMemoryExceededDetails {
+            page_id: page_id.clone(),
+            memory,
+            limit,
+        },
+    )
 }
 
 /// `page_crashed` for a page whose renderer crashed, its browser still up.

@@ -10,7 +10,7 @@
 //! translation point of this boundary's failures into [`Failure`] (ADR
 //! 0127).
 
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::path::Path;
 use std::str::FromStr;
 
@@ -52,6 +52,16 @@ impl Digest {
     /// Its 32 bytes.
     pub(crate) fn as_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+
+    /// Its 64 lowercase hexadecimal digits, without the `sha256:` prefix.
+    pub fn hex(&self) -> String {
+        self.0
+            .iter()
+            .fold(String::with_capacity(64), |mut hex, byte| {
+                let _ = write!(hex, "{byte:02x}");
+                hex
+            })
     }
 }
 

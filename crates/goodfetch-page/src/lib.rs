@@ -11,7 +11,9 @@
 //! names a Foxhound type.
 
 mod browser_fetch;
+mod clean_up_versions;
 mod consent;
+mod dialogs;
 mod driver;
 mod errors;
 mod guard;
@@ -29,4 +31,5 @@ mod sessions;
 mod trace;
 pub mod url_pattern;
 
+pub use clean_up_versions::manifest_file;
 pub use pages::{contribution, contribution_with};

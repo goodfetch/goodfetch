@@ -17,6 +17,9 @@ const FILES: &str = "files";
 pub enum FileKind {
     /// A Download's file (ADR 0085).
     Download,
+    /// Bytes over 1 MiB a Key-value store keeps (ADR 0103), named by their
+    /// key.
+    KeyValue,
 }
 
 impl FileKind {
@@ -24,6 +27,7 @@ impl FileKind {
     fn as_str(self) -> &'static str {
         match self {
             Self::Download => "download",
+            Self::KeyValue => "key_value",
         }
     }
 }
@@ -177,4 +181,74 @@ pub(crate) fn find(connection: &Connection, position: u64) -> rusqlite::Result<O
             },
         )
         .optional()
+}
+
+/// Removes the record of the kept file at `position` from the run state
+/// `connection` holds, and answers the SHA-256 it named, if any. The file
+/// stays until [`forget`] finds no record naming it.
+///
+/// # Errors
+///
+/// SQLite's.
+pub(crate) fn unrecord(connection: &Connection, position: u64) -> rusqlite::Result<Option<String>> {
+    let Ok(position) = i64::try_from(position) else {
+        return Ok(None);
+    };
+    connection
+        .query_row(
+            "DELETE FROM run_files WHERE position = ?1 RETURNING sha256",
+            [position],
+            |row| row.get(0),
+        )
+        .optional()
+}
+
+/// Deletes the kept file whose SHA-256 is `sha256` from the Run folder
+/// `folder` once no record of the run state `connection` holds names it:
+/// files are content-addressed, so another record may share it. Run it in
+/// the writer's order, after the commit that removed the last record, so
+/// that a record of the same bytes written beside it either keeps the file
+/// or finds it gone and writes it again. A file that cannot be deleted is
+/// left in the Run's folder, which a discard removes.
+///
+/// # Errors
+///
+/// SQLite's.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "it runs in the run state's writer, a blocking actor of its own"
+)]
+pub(crate) fn forget(connection: &Connection, folder: &Path, sha256: &str) -> rusqlite::Result<()> {
+    let named: bool = connection.query_row(
+        "SELECT EXISTS (SELECT 1 FROM run_files WHERE sha256 = ?1)",
+        [sha256],
+        |row| row.get(0),
+    )?;
+    if let (false, Some(kept)) = (named, file(folder, sha256)) {
+        match std::fs::remove_file(&kept) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                tracing::warn!(file = %kept.display(), %error, "a kept file no record names could not be deleted");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The bytes of the kept file whose SHA-256 is `sha256` in the Run folder
+/// `folder`.
+///
+/// # Errors
+///
+/// When the file cannot be read: `NotFound` once it was forgotten, and
+/// `InvalidInput` when `sha256` is no SHA-256 in lowercase hex.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "its callers run it under their owner's blocking policy"
+)]
+pub(crate) fn read(folder: &Path, sha256: &str) -> io::Result<Vec<u8>> {
+    let kept = file(folder, sha256)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no SHA-256 names the file"))?;
+    std::fs::read(kept)
 }

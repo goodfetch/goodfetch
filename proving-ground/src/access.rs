@@ -6,8 +6,9 @@
 //! block-detection corpus; and pages no task names, which the engine's own
 //! tests read: the identity a page reads of its browser, every client hint
 //! asked for, and a 100 ms timer that reports whether a page behind another
-//! tab kept it (spec #577, ticket #696); a page's events (#703); and a page
-//! a service worker controls (#707). Its answers name the build's age beside the
+//! tab kept it (spec #577, ticket #696); a page's events (#703); a page
+//! a service worker controls (#707); and a page that opens each JavaScript
+//! dialog and one that opens a popup (#719). Its answers name the build's age beside the
 //! Access dimensions a result was run under, so every result is reported per
 //! Fingerprint method, engine, Access mode and build age, against stock
 //! headless and headful Chrome as controls.
@@ -59,6 +60,10 @@ const PAGE_EVENTS: &str = "/page-events";
 const PAGE_EVENTS_DATA: [&str; 2] = ["/page-events/data.json", "/page-events/aborted"];
 /// The WebSocket the page events page opens.
 const PAGE_EVENTS_SOCKET: &str = "/page-events/socket";
+/// The dialogs page, the popup page and the page its popup loads.
+const DIALOGS: &str = "/dialogs";
+const POPUP: &str = "/popup";
+const POPUP_OPENED: &str = "/popup/opened";
 /// The service worker page and its worker's script.
 const SERVICE_WORKER: &str = "/service-worker/";
 const SERVICE_WORKER_SCRIPT: &str = "/service-worker/sw.js";
@@ -83,6 +88,8 @@ const CDP_PROBE_SCRIPT: &str = include_str!("../pages/access/cdp-probe.js");
 const IDENTITY_SCRIPT: &str = include_str!("../pages/access/identity.js");
 const TIMER_SCRIPT: &str = include_str!("../pages/access/timer.js");
 const PAGE_EVENTS_SCRIPT: &str = include_str!("../pages/access/page-events.js");
+const DIALOGS_SCRIPT: &str = include_str!("../pages/access/dialogs.js");
+const POPUP_SCRIPT: &str = include_str!("../pages/access/popup.js");
 const SERVICE_WORKER_PAGE_SCRIPT: &str = include_str!("../pages/access/service-worker.js");
 const SERVICE_WORKER_WORKER_SCRIPT: &str = include_str!("../pages/access/service-worker-sw.js");
 
@@ -183,6 +190,19 @@ pub(crate) fn respond(
             ),
             None,
         ),
+        Method::GET if path == DIALOGS => (
+            Reply::html(page(seed, "dialogs", &reporting(DIALOGS_SCRIPT))),
+            None,
+        ),
+        Method::GET if path == POPUP => (
+            Reply::html(page(
+                seed,
+                "popup",
+                &format!("<script>\n{POPUP_SCRIPT}</script>\n"),
+            )),
+            None,
+        ),
+        Method::GET if path == POPUP_OPENED => (Reply::html(page(seed, "popup-opened", "")), None),
         Method::GET if path == SERVICE_WORKER => (
             Reply::html(page(
                 seed,

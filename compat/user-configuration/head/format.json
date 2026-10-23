@@ -107,6 +107,42 @@
             },
             "type": "object"
           },
+          "clean_up": {
+            "additionalProperties": false,
+            "properties": {
+              "channel": {
+                "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+                "type": "string"
+              },
+              "lists": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+                "type": "object"
+              },
+              "update": {
+                "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+                "enum": [
+                  "release",
+                  "daily",
+                  "upstream"
+                ]
+              },
+              "version": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact version of the Clean-up rules a new Run holds to, by its digest `sha256:<hex>` as Provenance names it, instead of the newest one `clean_up.update` gives: a daily version it names is fetched from the daily channel, and it is exempt from the channel's expiry and its refusal of older versions. None by default."
+              }
+            },
+            "type": "object"
+          },
           "consent": {
             "additionalProperties": false,
             "properties": {
@@ -439,6 +475,11 @@
                       }
                     ],
                     "description": "The memory, in bytes, of a browser and its processes past which it is recycled; unset by default, when the cap is twice what the browser used once it had opened its first page."
+                  },
+                  "page_memory_cap": {
+                    "description": "The memory, in bytes, of one page's JavaScript heap and the buffers it holds, past which the Resource governor ends the page while memory is critical: 1 GiB. The page ends at its safe point, once no call on it is in flight, and its calls raise `page_memory_exceeded`, which is retryable.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "recycle_idle": {
                     "description": "How long a browser may hold no open page before it closes, each of its Sessions keeping its cookies and storage for the browser that replaces it: 5 minutes.",

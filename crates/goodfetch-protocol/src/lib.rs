@@ -15,6 +15,7 @@ pub mod browser_cache;
 pub mod case_log;
 pub mod catalog;
 pub mod checkpoint;
+pub mod clean_up_rules;
 pub mod cli;
 pub mod connection;
 pub mod console;

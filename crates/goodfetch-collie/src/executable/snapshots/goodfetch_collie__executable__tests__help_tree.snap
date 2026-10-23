@@ -619,6 +619,7 @@ Usage: goodfetch-collie session [OPTIONS] <COMMAND>
 Commands:
   new-page  Opens a page in the Session, with its cookies and storage. Once the Session is closed, it raises `closed`
   close     Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing
+  pages     Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -650,6 +651,19 @@ Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
+$ goodfetch-collie session pages --help
+Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`
+
+Usage: goodfetch-collie session pages [OPTIONS] <SESSION_ID>
+
+Arguments:
+  <SESSION_ID>  The Session
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
 $ goodfetch-collie page --help
 Calls the catalog's `page` operations
 
@@ -662,6 +676,7 @@ Commands:
   go-forward  Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121)
   formats     Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it
   body        Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size
+  close       Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -748,6 +763,20 @@ Options:
       --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help             Print help
 
+$ goodfetch-collie page close --help
+Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that
+
+Usage: goodfetch-collie page close [OPTIONS] <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --run-before-unload  Runs the page's `beforeunload` handlers first, whose dialog goes to the page's dialog handlers; false when absent
+      --json               Prints the result as JSON
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
 $ goodfetch-collie locator --help
 Calls the catalog's `locator` operations
 
@@ -827,17 +856,19 @@ Calls the catalog's `key_value_store` operations
 Usage: goodfetch-collie key-value-store [OPTIONS] <COMMAND>
 
 Commands:
-  get     Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it
-  set     Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`
-  delete  Removes a key from a live Run's Key-value store and answers whether it existed
-  keys    Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock
+  get        Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it
+  set        Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`
+  get-bytes  Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock
+  set-bytes  Commits bytes with their content type for a key in a live Run's Key-value store, replacing what it held: the last commit wins. Bytes over 1 MiB are kept as a file in the Run's folder, which its Checkpoints carry
+  delete     Removes a key from a live Run's Key-value store and answers whether it existed
+  keys       Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
 $ goodfetch-collie key-value-store get --help
-Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it
+Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it
 
 Usage: goodfetch-collie key-value-store get [OPTIONS] --key <KEY> --run-id <RUN_ID>
 
@@ -860,6 +891,32 @@ Options:
       --json             Prints the result as JSON
       --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help             Print help
+
+$ goodfetch-collie key-value-store get-bytes --help
+Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock
+
+Usage: goodfetch-collie key-value-store get-bytes [OPTIONS] --key <KEY> --run-id <RUN_ID>
+
+Options:
+      --key <KEY>        The key
+      --run-id <RUN_ID>  The Run whose store it is
+      --json             Prints the result as JSON
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
+
+$ goodfetch-collie key-value-store set-bytes --help
+Commits bytes with their content type for a key in a live Run's Key-value store, replacing what it held: the last commit wins. Bytes over 1 MiB are kept as a file in the Run's folder, which its Checkpoints carry
+
+Usage: goodfetch-collie key-value-store set-bytes [OPTIONS] --content <CONTENT> --content-type <CONTENT_TYPE> --key <KEY> --run-id <RUN_ID>
+
+Options:
+      --content <CONTENT>            The bytes, in Base64
+      --content-type <CONTENT_TYPE>  Their content type, such as `image/png`
+      --key <KEY>                    The key
+      --run-id <RUN_ID>              The Run whose store it is
+      --json                         Prints the result as JSON
+      --color <WHEN>                 When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                         Print help
 
 $ goodfetch-collie key-value-store delete --help
 Removes a key from a live Run's Key-value store and answers whether it existed

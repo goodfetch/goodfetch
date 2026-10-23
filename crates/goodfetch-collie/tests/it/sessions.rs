@@ -539,6 +539,95 @@ fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state
     );
 }
 
+/// The ad of `clean-up.test`'s `/ads` page, which EasyList blocks.
+const AD: &str = "/img/top-ad-sidebar.gif";
+
+/// Loads `clean-up.test`'s `/ads` page on `page`, and answers how many
+/// requests for its ad the Proving ground has received since it started.
+fn ads_loaded(
+    engine: &mut Attached,
+    id: i64,
+    proving_ground: &ProvingGround,
+    page: &PageOpened,
+) -> usize {
+    let url = proving_ground.url("clean-up.test", "/ads");
+    let loaded = call(
+        engine,
+        id,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": url }),
+    );
+    assert_eq!(
+        loaded["result"]["response"]["status"],
+        json!(200),
+        "{loaded}"
+    );
+    proving_ground.observations().unwrap()["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| {
+            request["host"] == json!("clean-up.test") && request["target"] == json!(AD)
+        })
+        .count()
+}
+
+/// Covers: story:5-94, operation:run.new_session, setting:filter_lists.ads
+#[cfg(unix)]
+#[test]
+fn a_sessions_own_filter_list_settings_choose_its_pages_clean_up_over_the_runs_and_survive_a_resume()
+ {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "cleaned");
+    let own = session_of(&call(
+        &mut engine,
+        2,
+        "run.new_session",
+        &json!({ "run_id": "cleaned", "settings": { "filter_lists": { "ads": false } } }),
+    ));
+    let default_page = opened(&call(
+        &mut engine,
+        3,
+        "run.new_page",
+        &json!({ "run_id": "cleaned" }),
+    ));
+    let by_the_run = ads_loaded(&mut engine, 4, &proving_ground, &default_page);
+    let own_page = page_in(&mut engine, 5, &own);
+    let by_the_session = ads_loaded(&mut engine, 6, &proving_ground, &own_page);
+    engine.kill();
+
+    let mut resumed = Attached::start_waiting(&env, crate::page::BROWSER_DEADLINE, |command| {
+        command.env(goodfetch_test_support::BROWSERS_PATH_VARIABLE, &cache);
+    });
+    resumed.send(&crate::attached::hello("collie", "0.1"));
+    let _ = resumed.next();
+    let resolve: serde_json::Map<String, Value> = proving_ground
+        .description()
+        .resolve
+        .iter()
+        .map(|(host, address)| (host.clone(), json!([address])))
+        .collect();
+    let _ = call(
+        &mut resumed,
+        1,
+        "run.resume",
+        &json!({ "run_id": "cleaned", "settings": { "network": { "resolve": resolve } } }),
+    );
+    let own_page = page_in(&mut resumed, 2, &own);
+    let after_the_resume = ads_loaded(&mut resumed, 3, &proving_ground, &own_page);
+    let _ = call(
+        &mut resumed,
+        4,
+        "run.finish",
+        &json!({ "run_id": "cleaned" }),
+    );
+    let _ = resumed.finish();
+
+    assert_eq!((by_the_run, by_the_session, after_the_resume), (0, 1, 2));
+}
+
 /// Runs Collie's command `args` with `--json`, which fails, and returns its
 /// exit status, Error code and operation.
 fn failed_command(env: &TestEnv, args: &[&str]) -> (Option<i32>, Value, Value) {

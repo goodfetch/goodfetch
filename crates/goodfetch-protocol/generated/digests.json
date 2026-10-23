@@ -1,7 +1,7 @@
 {
   "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py": {
-    "input": "7bd91bc81c113204ff5c5ab32e31fb5813e33c10871bdaa6403f4c870c2bdb2a",
-    "output": "7bfe8dc3a93da02d648b1d25ca658dcaa4835c71c700a1f51d6689a341102ddc",
+    "input": "5d553a202d6792c6efafb5b44b062511057bf61fe72a0e6cc0b0769c811a259c",
+    "output": "3937a3deb427e5800dfc74fd2e6bfa68e727d43940b187ce85de3a66dd26c7c3",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
@@ -16,8 +16,8 @@
     }
   },
   "sdks/typescript/collie-client/src/generated/types.ts": {
-    "input": "454408ae85e4cb746f765ea58996adff4fa749d9616a0c948fc30918d0335343",
-    "output": "f8c9fe87741f155baf4f42fd9c6f554e6742dcbba7deac39bb061c80168122dc",
+    "input": "b7be636721ee280d1d07345615c8d252219571ab8da8c3395fea58dfcaa43c04",
+    "output": "afe96333ca2135fd820e74e70749f2eb18456136ceb1192ff14e8d48f0863606",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }

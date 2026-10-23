@@ -1,5 +1,14 @@
 PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
+CREATE TABLE changes (
+        person TEXT NOT NULL,
+        host TEXT NOT NULL,
+        spki_sha256 BLOB NOT NULL,
+        seen_at TEXT NOT NULL,
+        run_id TEXT,
+        PRIMARY KEY (person, host)
+    ) STRICT;
+INSERT INTO "changes" VALUES('os_user','expired.certificates.test',X'1154B708A18BC9809B87921E67044A6767DC913F8E15AEC0E90E3D12CF846C96','2026-01-05T09:00:00Z','stopped-by-a-change');
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('known-certificates','0.1');
 CREATE TABLE pins (

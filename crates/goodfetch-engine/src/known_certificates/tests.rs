@@ -18,7 +18,7 @@ use jiff::Timestamp;
 use rstest::rstest;
 use rusqlite::Connection;
 
-use super::{Found, KeyHash, KnownCertificates, KnownCertificatesError, Pinned};
+use super::{Accepted, Found, KeyHash, KnownCertificates, KnownCertificatesError, Pinned};
 use crate::home::Home;
 
 /// ADR 0059's test `Clock` start, when every pin is made.
@@ -123,12 +123,14 @@ fn two_peoples_pins_on_one_store_are_kept_apart() {
                 spki_sha256: Some(key(1).to_string()),
                 pinned_at: Some(at_start()),
                 run_id: Some(run("adas-run")),
+                changed_spki_sha256: None,
             },
             CertificatePin {
                 host: "wiki.intranet.example".to_owned(),
                 spki_sha256: Some(key(2).to_string()),
                 pinned_at: Some(at_start()),
                 run_id: None,
+                changed_spki_sha256: None,
             },
         ]
     );
@@ -139,6 +141,7 @@ fn two_peoples_pins_on_one_store_are_kept_apart() {
             spki_sha256: Some(key(3).to_string()),
             pinned_at: Some(at_start()),
             run_id: Some(run("graces-run")),
+            changed_spki_sha256: None,
         }]
     );
     assert_eq!(
@@ -166,6 +169,174 @@ fn a_second_pin_of_a_host_keeps_the_first() {
     assert_eq!(
         store.find("os_user", "intranet.example").unwrap(),
         Found::Pinned(key(1))
+    );
+}
+
+/// A moment an hour after [`now`], when a change is seen or accepted.
+fn later() -> Timestamp {
+    "2026-01-05T10:00:00Z".parse().unwrap()
+}
+
+/// Story 4-36: the key that stopped a pinned host waits beside its pin, as
+/// `certs list` shows it, until the person accepts it: the pin then holds
+/// that key, dated when it was accepted and by the Run that met it, and no
+/// change waits any more; the answer names the key it replaced.
+/// Covers: story:4-36, format:known-certificates
+#[test]
+fn an_accepted_change_replaces_the_pin_with_the_key_that_stopped_the_host() {
+    let env = TestEnv::new();
+    let store = store(&env);
+    store
+        .pin(
+            "os_user",
+            "intranet.example",
+            &key(1),
+            Some(&run("first")),
+            now(),
+        )
+        .unwrap();
+    store
+        .record_change(
+            "os_user",
+            "intranet.example",
+            &key(2),
+            Some(&run("stopped")),
+            now(),
+        )
+        .unwrap();
+    let waiting = store.list("os_user").unwrap();
+
+    let accepted = store
+        .accept("os_user", "intranet.example", &key(2), later())
+        .unwrap();
+
+    assert_eq!(waiting[0].changed_spki_sha256, Some(key(2).to_string()));
+    let pin = CertificatePin {
+        host: "intranet.example".to_owned(),
+        spki_sha256: Some(key(2).to_string()),
+        pinned_at: Some(PointInTime::from_rfc3339("2026-01-05T10:00:00Z".to_owned())),
+        run_id: Some(run("stopped")),
+        changed_spki_sha256: None,
+    };
+    assert_eq!(
+        accepted,
+        Accepted {
+            previous: Found::Pinned(key(1)),
+            pin: pin.clone(),
+        }
+    );
+    assert_eq!(
+        (
+            store.find("os_user", "intranet.example").unwrap(),
+            store.list("os_user").unwrap(),
+        ),
+        (Found::Pinned(key(2)), vec![pin])
+    );
+}
+
+/// A person accepts only the key that stopped the host: another key, or a
+/// host with no change waiting, is refused and the pin stays.
+/// Covers: story:4-36
+#[rstest]
+#[case::another_key(Some(3))]
+#[case::no_change_waiting(None)]
+fn a_key_that_did_not_stop_the_host_is_not_accepted(#[case] changed: Option<u8>) {
+    let env = TestEnv::new();
+    let store = store(&env);
+    store
+        .pin("os_user", "intranet.example", &key(1), None, now())
+        .unwrap();
+    if let Some(changed) = changed {
+        store
+            .record_change("os_user", "intranet.example", &key(changed), None, now())
+            .unwrap();
+    }
+
+    let refused = store.accept("os_user", "intranet.example", &key(2), later());
+
+    assert_eq!(
+        refused,
+        Err(KnownCertificatesError::NoSuchChange {
+            host: "intranet.example".to_owned()
+        })
+    );
+    assert_eq!(
+        store.find("os_user", "intranet.example").unwrap(),
+        Found::Pinned(key(1))
+    );
+}
+
+/// Story 4-43: a pin row the engine cannot read stops its host, and the key
+/// that host presented then is what the person accepts in its place.
+/// Covers: story:4-36, story:4-43
+#[test]
+fn an_unreadable_pin_row_is_replaced_by_the_accepted_key() {
+    let env = TestEnv::new();
+    let store = store(&env);
+    store
+        .pin("os_user", "intranet.example", &key(1), None, now())
+        .unwrap();
+    Connection::open(store.path())
+        .unwrap()
+        .execute("UPDATE pins SET spki_sha256 = x'0102'", [])
+        .unwrap();
+    store
+        .record_change("os_user", "intranet.example", &key(2), None, now())
+        .unwrap();
+
+    let accepted = store
+        .accept("os_user", "intranet.example", &key(2), later())
+        .unwrap();
+
+    assert_eq!(
+        (
+            accepted.previous,
+            store.find("os_user", "intranet.example").unwrap()
+        ),
+        (Found::Unreadable, Found::Pinned(key(2)))
+    );
+}
+
+/// Story 4-37: `certs forget` removes the person's pin and the change
+/// waiting for it, and nothing of another person's; a host with no pin is
+/// forgotten as nothing.
+/// Covers: story:4-37, format:known-certificates
+#[test]
+fn forgetting_a_host_removes_its_pin_and_its_waiting_change_only() {
+    let env = TestEnv::new();
+    let store = store(&env);
+    for person in ["os_user", "grace"] {
+        store
+            .pin(person, "intranet.example", &key(1), None, now())
+            .unwrap();
+        store
+            .record_change(person, "intranet.example", &key(2), None, now())
+            .unwrap();
+    }
+
+    let forgotten = store.forget("os_user", "intranet.example").unwrap();
+    let again = store.forget("os_user", "intranet.example").unwrap();
+
+    assert_eq!((forgotten, again), (true, false));
+    assert_eq!(
+        (
+            store.find("os_user", "intranet.example").unwrap(),
+            store.list("os_user").unwrap(),
+            store.find("grace", "intranet.example").unwrap(),
+            store.list("grace").unwrap()[0].changed_spki_sha256.clone(),
+        ),
+        (
+            Found::Unpinned,
+            Vec::new(),
+            Found::Pinned(key(1)),
+            Some(key(2).to_string())
+        )
+    );
+    assert_eq!(
+        store
+            .pin("os_user", "intranet.example", &key(3), None, later())
+            .unwrap(),
+        Pinned::First
     );
 }
 
@@ -208,6 +379,7 @@ fn a_pin_row_the_engine_cannot_read_reads_as_unreadable(#[case] damage: &str) {
                 spki_sha256: None,
                 pinned_at: None,
                 run_id: None,
+                changed_spki_sha256: None,
             }]
         )
     );
@@ -314,4 +486,9 @@ fn the_head_sets_store_opens_and_takes_another_pin() {
             .collect::<Vec<_>>(),
         ["intranet.example"]
     );
+    let changed = KeyHash::of_public_key(b"the expired leaf's changed key");
+    let accepted = store
+        .accept("os_user", "expired.certificates.test", &changed, now())
+        .unwrap();
+    assert_eq!(accepted.pin.spki_sha256, Some(changed.to_string()));
 }

@@ -39,6 +39,14 @@ fn file_formats() -> serde_json::Value {
             "schema": { "$ref": "#/$defs/BrowserCacheEntry" },
         },
         {
+            "name": "clean-up-rules",
+            "version": "0.1",
+            "storage": "json",
+            "rule": "newest_readable",
+            "hello_from": [],
+            "schema": { "$ref": "#/$defs/CleanUpRulesManifest" },
+        },
+        {
             "name": "run-index",
             "version": "0.1",
             "storage": "sqlite",

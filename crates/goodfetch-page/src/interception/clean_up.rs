@@ -1,17 +1,17 @@
 //! The Clean-up rules the interception matches at step 4 (ADRs 0047, 0057
-//! and 0117): the embedded Filter lists, loaded on the first page whose
-//! Session turns one on, never at engine start, through a blocking task of
-//! the page's Run (ADR 0060), then shared by every Session of the engine
-//! behind one `Arc` with no lock; the never-block list, compiled once; and
-//! what a Session's own settings, over its Run's, choose of them.
+//! and 0117): the Filter lists of the version the page's Run holds to,
+//! loaded on the first page whose Session turns one on, never at engine
+//! start, through a blocking task of the page's Run (ADR 0060), then shared
+//! by every Session of the Runs that hold to that version behind one `Arc`
+//! with no lock; the never-block list, compiled once; and what a Session's
+//! own settings, over its Run's, choose of them.
 
 use std::sync::Arc;
 
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
 use goodfetch_clean_up_rules::never_block::NeverBlock;
-use goodfetch_clean_up_rules::rules::FilterLists;
+use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{Resolved, Values};
-use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_protocol::page::{
     BROWSER_BLOCK_RESOURCES, BROWSER_SERVICE_WORKERS, LIVE_VIEW_HIDING,
 };
@@ -23,34 +23,31 @@ use serde_json::Value;
 use tokio::sync::OnceCell;
 
 use super::steps::Blocking;
+use crate::clean_up_versions::Versions;
 
 /// The engine's Clean-up rules, each part loaded when first needed.
 #[derive(Default)]
 pub(super) struct CleanUp {
     never_block: OnceCell<Arc<NeverBlock>>,
-    lists: OnceCell<Arc<FilterLists>>,
+    versions: Arc<Versions>,
 }
 
 impl CleanUp {
-    /// Step 4 as `choices` make it, its parts loaded through `owner`'s
-    /// blocking tasks if no page loaded them yet.
-    pub(super) async fn blocking(&self, choices: Choices, owner: &TaskOwner) -> Blocking {
+    /// The versions of the Clean-up rules the engine's Runs hold to.
+    pub(super) fn versions(&self) -> Arc<Versions> {
+        Arc::clone(&self.versions)
+    }
+
+    /// Step 4 as `choices` make it for a page of `run`, its parts loaded
+    /// through the Run's blocking tasks if no page loaded them yet.
+    pub(super) async fn blocking(&self, choices: Choices, run: &Run) -> Blocking {
+        let owner = run.owner();
         let never_block = self
             .never_block
             .get_or_init(|| async { Arc::new(owner.blocking(NeverBlock::new).await) })
             .await;
         let lists = if choices.needs_lists() {
-            let lists = self
-                .lists
-                .get_or_init(|| async {
-                    let loaded = owner
-                        .blocking(FilterLists::embedded)
-                        .await
-                        .expect("invariant: the build compiled the embedded Filter lists with this binary's own adblock");
-                    Arc::new(loaded)
-                })
-                .await;
-            Some(Arc::clone(lists))
+            Some(self.versions.lists(run, owner).await)
         } else {
             None
         };

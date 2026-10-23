@@ -20,7 +20,7 @@
 
 [suite]
 name = "clients"
-version = "4"
+version = "5"
 
 [[capability]]
 name = "lifecycle"
@@ -102,5 +102,19 @@ modes = ["attached", "linked"]
 [[capability.case]]
 id = "key-value-store-set-null-refused"
 covers = ["story:6-29"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+# Bytes with their content type (#792): `getBytes` answers what `setBytes`
+# stored, and neither reader answers the other's type (S2).
+[[capability.case]]
+id = "key-value-store-bytes-round-trip"
+covers = ["story:6-30"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+[[capability.case]]
+id = "key-value-store-read-of-the-other-type-refused"
+covers = ["story:6-30"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]

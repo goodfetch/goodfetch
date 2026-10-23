@@ -1,13 +1,14 @@
 # Which of goodfetch-page's top-level modules may import which (ADR 0126).
 [modules]
 browser_fetch = ["driver", "errors", "interception", "page_value", "proxy"]
+clean_up_versions = ["trace"]
 consent = ["driver", "guard", "hiding"]
 dialogs = ["driver"]
 driver = ["errors", "launch", "page_value", "proxy", "trace"]
 errors = ["page_value"]
 guard = ["driver", "hiding"]
 hiding = ["driver", "interception", "trace"]
-interception = ["driver", "errors", "page_events", "page_value", "proxy", "url_pattern"]
+interception = ["clean_up_versions", "driver", "errors", "page_events", "page_value", "proxy", "url_pattern"]
 launch = []
 page_events = ["driver", "url_pattern"]
 page_value = ["url_pattern"]
@@ -83,3 +84,8 @@ target = []
 # Which of `pages`'s own modules may import which.
 [submodules.pages]
 clean_up = []
+
+# Which of `clean_up_versions' own modules may import which.
+[submodules.clean_up_versions]
+daily = []
+upstream = []

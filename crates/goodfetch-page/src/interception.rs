@@ -88,6 +88,7 @@ use self::navigations::Pending;
 use self::pipeline::{Observing, PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
+use crate::clean_up_versions::Versions;
 use crate::driver::{OnServiceWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
 use crate::page_value::ResponseObserver;
@@ -245,6 +246,12 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Interception {
+    /// The versions of the Clean-up rules the engine's Runs hold to, which
+    /// choose each new Run's (ADR 0047).
+    pub(crate) fn versions(&self) -> Arc<Versions> {
+        self.shared.clean_up.versions()
+    }
+
     /// Opens the Session `session`'s route table, once.
     pub(crate) fn open_session(&self, session: &SessionId) {
         lock(&self.shared.tables)
@@ -307,7 +314,7 @@ impl Interception {
         let choices = clean_up::choices(resolved, own);
         let blocked = (!choices.block_resources.is_empty())
             .then(|| clean_up::effective(resolved, own, BROWSER_BLOCK_RESOURCES.name).to_string());
-        let blocking = self.shared.clean_up.blocking(choices, run.owner()).await;
+        let blocking = self.shared.clean_up.blocking(choices, run).await;
         let clean_up = PageCleanUp {
             cosmetic: blocking.lists.as_ref().map(|lists| Cosmetic {
                 lists: Arc::clone(lists),

@@ -18,4 +18,6 @@ mod driver;
 mod tiers;
 mod transports;
 
-pub use driver::{Fetched, Hop, Sent, Transport, TransportFailure, fetch};
+pub use driver::{
+    Body, Deadlines, Fetched, Hop, Sending, Sent, Transport, TransportFailure, fetch,
+};

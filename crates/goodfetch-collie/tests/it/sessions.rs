@@ -11,9 +11,10 @@
 
 #[cfg(unix)]
 use goodfetch_protocol::page::{PageOpened, SessionId};
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{Mode, TestEnv};
 #[cfg(unix)]
 use goodfetch_test_support::{ProvingGround, browser_cache};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::attached::Attached;
@@ -640,12 +641,13 @@ fn a_sessions_own_filter_list_settings_choose_its_pages_clean_up_over_the_runs_a
     assert_eq!((by_the_run, by_the_session, after_the_resume), (0, 1, 2));
 }
 
-/// Runs Collie's command `args` with `--json`, which fails, and returns its
-/// exit status, Error code and operation.
-fn failed_command(env: &TestEnv, args: &[&str]) -> (Option<i32>, Value, Value) {
+/// Runs Collie's command `args` with `--json` in `mode`, which fails, and
+/// returns its exit status, Error code and operation.
+fn failed_command(env: &TestEnv, args: &[&str], mode: Mode) -> (Option<i32>, Value, Value) {
     let checked = goodfetch_test_support::cli(env, env!("CARGO_BIN_EXE_goodfetch-collie"))
         .args(args)
         .arg("--json")
+        .mode(mode)
         .json("CommandFailed")
         .unwrap();
     (
@@ -659,17 +661,21 @@ fn failed_command(env: &TestEnv, args: &[&str]) -> (Option<i32>, Value, Value) {
 /// Run the engine of an earlier command stopped as it exited: no live Run
 /// has its ID, so the call fails with `run_not_found`.
 /// Covers: command:run.new-session
-#[test]
-fn run_new_session_on_a_run_an_earlier_command_stopped_fails_with_run_not_found() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_new_session_on_a_run_an_earlier_command_stopped_fails_with_run_not_found(
+    #[case] mode: Mode,
+) {
     let env = TestEnv::new();
     let started = goodfetch_test_support::cli(&env, env!("CARGO_BIN_EXE_goodfetch-collie"))
-        .args(["run", "start", "--run-id", "first"])
+        .args(["run", "start", "--run-id", "first", "--attached"])
         .run()
         .unwrap();
     assert_eq!(started.exit, Some(0), "{started}");
 
     assert_eq!(
-        failed_command(&env, &["run", "new-session", "first"]),
+        failed_command(&env, &["run", "new-session", "first"], mode),
         (Some(3), json!("run_not_found"), json!("run.new_session"))
     );
 }
@@ -678,15 +684,17 @@ fn run_new_session_on_a_run_an_earlier_command_stopped_fails_with_run_not_found(
 /// the commands generated from the catalog: no engine holds the Session
 /// they name, so each fails with `closed`.
 /// Covers: command:session.new-page, command:session.close, command:session.pages
-#[test]
-fn session_commands_on_a_session_no_engine_holds_fail_with_closed() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn session_commands_on_a_session_no_engine_holds_fail_with_closed(#[case] mode: Mode) {
     let env = TestEnv::new();
 
     assert_eq!(
         (
-            failed_command(&env, &["session", "new-page", "gone.session-1"]),
-            failed_command(&env, &["session", "close", "gone.session-1"]),
-            failed_command(&env, &["session", "pages", "gone.session-1"]),
+            failed_command(&env, &["session", "new-page", "gone.session-1"], mode),
+            failed_command(&env, &["session", "close", "gone.session-1"], mode),
+            failed_command(&env, &["session", "pages", "gone.session-1"], mode),
         ),
         (
             (Some(3), json!("closed"), json!("session.new_page")),

@@ -100,7 +100,13 @@ fn a_bad_duration_is_a_usage_error_before_any_engine_call() {
     let env = TestEnv::new();
 
     let output = cli(&env, COLLIE)
-        .args(["run", "start", "--set", "timeout.navigation=45x"])
+        .args([
+            "run",
+            "start",
+            "--set",
+            "timeout.navigation=45x",
+            "--attached",
+        ])
         .run()
         .unwrap();
 
@@ -144,7 +150,14 @@ fn run_start_sends_the_settings_flags_as_the_runs_settings() {
     let env = TestEnv::new();
 
     let checked = cli(&env, COLLIE)
-        .args(["run", "start", "--set", "timeout.navigation_=45s", "--json"])
+        .args([
+            "run",
+            "start",
+            "--set",
+            "timeout.navigation_=45s",
+            "--json",
+            "--attached",
+        ])
         .json("CommandFailed")
         .unwrap();
 
@@ -170,7 +183,13 @@ fn a_key_only_configuration_holds_is_not_applicable_and_names_the_configuration_
     let env = TestEnv::new();
 
     let output = cli(&env, COLLIE)
-        .args(["run", "start", "--set", "browser_cache.max_unused_age=1h"])
+        .args([
+            "run",
+            "start",
+            "--set",
+            "browser_cache.max_unused_age=1h",
+            "--attached",
+        ])
         .run()
         .unwrap();
 

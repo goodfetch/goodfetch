@@ -82,19 +82,51 @@ pub(crate) fn inside(pid: u32, path: &Path) -> PathBuf {
 }
 
 /// Fills the filesystem of `folder`, as `pid` sees it, with a file of
-/// zeros until no byte is left, keeping `room` bytes free; answers the
-/// file, which [`free`] removes.
+/// zeros, keeping `room` bytes free, or until no byte is left when `room`
+/// is 0; answers the file, which [`free`] removes.
+///
+/// With some `room`, the file never takes more than what is free beyond
+/// it: a filesystem full for a moment on the way is one the engine's
+/// storage sample or a commit of run state may meet, and either stops the
+/// Run as at `critical` (ADR 0122).
 pub(crate) fn fill(pid: u32, folder: &Path, room: u64) -> PathBuf {
     let filler = inside(pid, &folder.join("filler"));
     let mut file = std::fs::File::create(&filler).unwrap();
     let block = vec![0_u8; 64 * 1024];
-    while file.write_all(&block).is_ok() {}
-    let small = [0_u8; 512];
-    while file.write_all(&small).is_ok() {}
-    let full = file.metadata().unwrap().len();
-    file.set_len(full.saturating_sub(room)).unwrap();
+    if room == 0 {
+        while file.write_all(&block).is_ok() {}
+        let small = [0_u8; 512];
+        while file.write_all(&small).is_ok() {}
+    } else {
+        let mut left = available(&filler).saturating_sub(room);
+        while left > 0 {
+            let size = block.len().min(usize::try_from(left).unwrap_or(usize::MAX));
+            if file.write_all(&block[..size]).is_err() {
+                break;
+            }
+            left -= u64::try_from(size).unwrap();
+        }
+    }
     file.sync_all().unwrap();
     filler
+}
+
+/// The bytes left to an unprivileged user on the filesystem holding
+/// `path`, as `stat --file-system` reads them.
+fn available(path: &Path) -> u64 {
+    let output = Command::new("stat")
+        .args(["--file-system", "--format", "%a %S"])
+        .arg(path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "`stat --file-system` failed: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    let read = String::from_utf8(output.stdout).unwrap();
+    let (blocks, size) = read.trim().split_once(' ').unwrap();
+    blocks.parse::<u64>().unwrap() * size.parse::<u64>().unwrap()
 }
 
 /// Frees what [`fill`] took.

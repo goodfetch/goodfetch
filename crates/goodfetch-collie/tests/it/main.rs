@@ -47,6 +47,8 @@ mod service_manager;
 mod settings_flags;
 mod sign_in;
 #[cfg(target_os = "linux")]
+mod storage;
+#[cfg(target_os = "linux")]
 mod tmpfs;
 mod upgrade_files;
 mod usage;

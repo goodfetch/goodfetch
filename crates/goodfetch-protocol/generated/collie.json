@@ -1042,6 +1042,155 @@
       ],
       "type": "object"
     },
+    "Dialog": {
+      "description": "A dialog as its handler sees it.",
+      "properties": {
+        "default_value": {
+          "arrived_in": "0.1",
+          "description": "A prompt's default value; empty for any other kind.",
+          "type": "string"
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "Its message.",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/DialogType",
+          "arrived_in": "0.1",
+          "description": "Its kind."
+        }
+      },
+      "required": [
+        "type",
+        "message",
+        "default_value"
+      ],
+      "type": "object"
+    },
+    "DialogAcceptParams": {
+      "additionalProperties": false,
+      "description": "What `dialog.accept` takes: the dialog, and a prompt's text.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "dialog_id": {
+          "$ref": "#/$defs/DialogId",
+          "arrived_in": "0.1",
+          "description": "The dialog."
+        },
+        "prompt_text": {
+          "arrived_in": "0.1",
+          "description": "The text a prompt returns; its default value when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "dialog_id"
+      ],
+      "type": "object"
+    },
+    "DialogAnswered": {
+      "description": "What an answer to a dialog answers once the page closed the dialog.",
+      "type": "object"
+    },
+    "DialogDismissParams": {
+      "additionalProperties": false,
+      "description": "What `dialog.dismiss` takes: the dialog.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "dialog_id": {
+          "$ref": "#/$defs/DialogId",
+          "arrived_in": "0.1",
+          "description": "The dialog."
+        }
+      },
+      "required": [
+        "dialog_id"
+      ],
+      "type": "object"
+    },
+    "DialogHandleParams": {
+      "description": "What `dialog.handle` gives the handler: the dialog, named by the ID its\nanswer passes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "dialog": {
+          "$ref": "#/$defs/Dialog",
+          "arrived_in": "0.1",
+          "description": "The dialog."
+        },
+        "dialog_id": {
+          "$ref": "#/$defs/DialogId",
+          "arrived_in": "0.1",
+          "description": "The dialog, which an answer names."
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the `page.on_dialog` call whose handler is asked."
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page that opened it."
+        }
+      },
+      "required": [
+        "id",
+        "dialog_id",
+        "page_id",
+        "dialog"
+      ],
+      "type": "object"
+    },
+    "DialogHandled": {
+      "description": "What the handler replies to `dialog.handle` once it ended; a failure\nreply says it failed.",
+      "type": "object"
+    },
+    "DialogId": {
+      "description": "One dialog a handler answers, which `dialog.*` names.",
+      "type": "string"
+    },
+    "DialogType": {
+      "description": "A dialog's kind, as Playwright's `dialog.type()` names it.",
+      "oneOf": [
+        {
+          "const": "alert",
+          "description": "`alert()`.",
+          "type": "string"
+        },
+        {
+          "const": "confirm",
+          "description": "`confirm()`.",
+          "type": "string"
+        },
+        {
+          "const": "prompt",
+          "description": "`prompt()`.",
+          "type": "string"
+        },
+        {
+          "const": "beforeunload",
+          "description": "A `beforeunload` handler that asks to stay: raised by a navigation,\nor by `page.close` with `run_before_unload`.",
+          "type": "string"
+        }
+      ]
+    },
+    "DialogsEnded": {
+      "description": "What `page.on_dialog` answers when its page closes.",
+      "type": "object"
+    },
     "DownloadId": {
       "description": "A Download of a Run, named by the engine when it keeps its file:\n`<run_id>.download-<position>`.",
       "type": "string"
@@ -2283,6 +2432,37 @@
       ],
       "type": "object"
     },
+    "PageCloseParams": {
+      "additionalProperties": false,
+      "description": "What `page.close` takes: the page, and whether its `beforeunload`\nhandlers run.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "run_before_unload": {
+          "arrived_in": "0.1",
+          "description": "Runs the page's `beforeunload` handlers first, whose dialog goes to\nthe page's dialog handlers; false when absent.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "page_id"
+      ],
+      "type": "object"
+    },
+    "PageClosed": {
+      "description": "What `page.close` answers.",
+      "type": "object"
+    },
     "PageDownload": {
       "description": "What `page.download` reports: a navigation of a page that the browser\nturned into a download.",
       "properties": {
@@ -2366,6 +2546,11 @@
           "const": "close",
           "description": "`page.close`.",
           "type": "string"
+        },
+        {
+          "const": "popup",
+          "description": "`page.popup`.",
+          "type": "string"
         }
       ]
     },
@@ -2438,6 +2623,25 @@
       "description": "A page of a Run, named by the engine when it opens it.",
       "type": "string"
     },
+    "PageOnDialogParams": {
+      "additionalProperties": false,
+      "description": "What `page.on_dialog` takes: the page whose dialogs its handler\nanswers.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id"
+      ],
+      "type": "object"
+    },
     "PageOnEnded": {
       "description": "What `page.on` answers when its page goes, closed or with its Run.",
       "type": "object"
@@ -2503,6 +2707,26 @@
       },
       "required": [
         "page_id"
+      ],
+      "type": "object"
+    },
+    "PagePopup": {
+      "description": "What `page.popup` reports: the page that opened a popup, and the\npopup, a page of the same Session.",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The opener."
+        },
+        "popup": {
+          "$ref": "#/$defs/PageOpened",
+          "arrived_in": "0.1",
+          "description": "The popup."
+        }
+      },
+      "required": [
+        "page_id",
+        "popup"
       ],
       "type": "object"
     },
@@ -4417,9 +4641,48 @@
       "description": "What `session.close` answers once the Session is closed.",
       "type": "object"
     },
+    "SessionEventName": {
+      "description": "A Session's event a program listens to.",
+      "oneOf": [
+        {
+          "const": "page",
+          "description": "`session.page`.",
+          "type": "string"
+        }
+      ]
+    },
     "SessionId": {
       "description": "A Session of a Run, named by the engine when it opens it.",
       "type": "string"
+    },
+    "SessionOnEnded": {
+      "description": "What `session.on` answers when its Session goes, closed or with its\nRun.",
+      "type": "object"
+    },
+    "SessionOnParams": {
+      "additionalProperties": false,
+      "description": "What `session.on` takes: the Session and the event listened to.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "event": {
+          "$ref": "#/$defs/SessionEventName",
+          "arrived_in": "0.1",
+          "description": "The event."
+        },
+        "session_id": {
+          "$ref": "#/$defs/SessionId",
+          "arrived_in": "0.1",
+          "description": "The Session."
+        }
+      },
+      "required": [
+        "session_id",
+        "event"
+      ],
+      "type": "object"
     },
     "SessionOpened": {
       "description": "What `run.new_session` answers: the Session it opened.",
@@ -4432,6 +4695,23 @@
       },
       "required": [
         "session_id"
+      ],
+      "type": "object"
+    },
+    "SessionPages": {
+      "description": "What `session.pages` answers: the Session's open pages, in the order\nthey opened.",
+      "properties": {
+        "pages": {
+          "arrived_in": "0.1",
+          "description": "The pages.",
+          "items": {
+            "$ref": "#/$defs/PageId"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "pages"
       ],
       "type": "object"
     },
@@ -5936,6 +6216,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The dialog was answered already, by an earlier `accept` or `dismiss`, or it closed, its handler having ended or the dialog having got its default: the first answer stands and this one changed nothing.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "dialog_already_handled",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The run's egress policy refused a request before it connected: a host the domain policy does not allow, an address that is not globally reachable, or a scheme no request may use. The details name the URL, the rule, the address when there is one and the setting that would allow it.",
       "exit_code": null,
       "group": "refused",
@@ -6106,7 +6396,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or else by the next call on its page. The details name the handler, the request's URL and what the failure said.",
+      "description": "A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed; a dialog handler's dialog got its default and the handler was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or by the call the dialog blocked, or else by the next call on its page. The details name the handler, the URL of the request or of the dialog's document, and what the failure said.",
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -6624,6 +6914,18 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
+      "description": "The page opened a popup, `window.open()` or a link to a new tab: a page of the same Session, already under its routes and its interception, published before the popup's first request leaves. Published while `page.on` listens to `popup`.",
+      "name": "page.popup",
+      "payload": {
+        "$ref": "#/$defs/PagePopup"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
       "description": "The page sent a request, `Request`, once per hop of a redirect chain: its URL, method, headers, body, resource type, navigation flag and the hops before it. Published while `page.on` listens to `request`; a service worker's own requests are never a page's.",
       "name": "page.request",
       "payload": {
@@ -6760,6 +7062,18 @@
       "name": "sample.echoed",
       "payload": {
         "$ref": "#/$defs/SampleEchoed"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A page opened in the Session: one `session.new_page` or `run.new_page` opened, or a popup one of its pages opened. Published while `session.on` listens to `page`.",
+      "name": "session.page",
+      "payload": {
+        "$ref": "#/$defs/PageOpened"
       },
       "product": "collie",
       "stability": "experimental"
@@ -6924,6 +7238,20 @@
     }
   ],
   "handler_requests": [
+    {
+      "arrived_in": "0.1",
+      "deprecated": null,
+      "description": "Asks a dialog handler to answer one dialog its page opened, named by its `dialog_id`, with `dialog.accept` or `dialog.dismiss`. The handler replies once it ends: a dialog it did not answer falls through to the handler before, and past the last one gets its default. A failure reply gives the dialog its default unless it was answered, removes the handler and raises `page_handler_failed`.",
+      "name": "dialog.handle",
+      "params": {
+        "$ref": "#/$defs/DialogHandleParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/DialogHandled"
+      },
+      "stability": "experimental"
+    },
     {
       "arrived_in": "0.1",
       "deprecated": null,
@@ -7314,6 +7642,44 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Answers a dialog by accepting it, a prompt with `prompt_text`, or else its default value; it answers once the page closed the dialog.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dialog.accept",
+      "params": {
+        "$ref": "#/$defs/DialogAcceptParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/DialogAnswered"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Answers a dialog by dismissing it, as its Cancel button does; it answers once the page closed the dialog.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dialog.dismiss",
+      "params": {
+        "$ref": "#/$defs/DialogDismissParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/DialogAnswered"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
@@ -7527,6 +7893,25 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.close",
+      "params": {
+        "$ref": "#/$defs/PageCloseParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageClosed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": true,
       "class": "read",
       "deprecated": null,
@@ -7624,7 +8009,8 @@
         "page.dom_content_loaded",
         "page.download",
         "page.crash",
-        "page.close"
+        "page.close",
+        "page.popup"
       ],
       "kind": "event",
       "name": "page.on",
@@ -7635,6 +8021,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageOnEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Hands the page's JavaScript dialogs to the program, armed when the call arrives: Playwright's `page.on('dialog')`. The call stays in flight, and for each dialog the engine sends `dialog.handle`, which the handler answers with `dialog.accept` or `dialog.dismiss`. Later handlers come first and the first answer wins; a handler that ends without one falls through, and past the last one, or with none, an `alert`, `confirm` or `prompt` is dismissed and a `beforeunload` dialog accepted, so a handler that answers nothing never stalls the page. Cancelling the call removes the handler; a handler that fails ends it with `page_handler_failed`, the dialog getting its default.",
+      "events": [],
+      "kind": "sequence",
+      "name": "page.on_dialog",
+      "params": {
+        "$ref": "#/$defs/PageOnDialogParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/DialogsEnded"
       },
       "stability": "experimental"
     },
@@ -8145,6 +8550,46 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageOpened"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.",
+      "events": [
+        "session.page"
+      ],
+      "kind": "event",
+      "name": "session.on",
+      "params": {
+        "$ref": "#/$defs/SessionOnParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SessionOnEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "session.pages",
+      "params": {
+        "$ref": "#/$defs/SessionParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SessionPages"
       },
       "stability": "experimental"
     },

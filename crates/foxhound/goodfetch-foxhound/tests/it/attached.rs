@@ -18,11 +18,9 @@ fn line(message: &Value) -> Vec<u8> {
 #[test]
 fn foxhounds_engine_accepts_a_client_that_needs_foxhound_and_answers_its_operations() {
     let env = TestEnv::new();
+    env.log_level("trace");
     let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-foxhound"));
-    command
-        .arg("attached-engine")
-        .env("GOODFETCH_LOG", "trace")
-        .stderr(Stdio::piped());
+    command.arg("attached-engine").stderr(Stdio::piped());
     let process = env.spawn(&mut command).unwrap();
     let mut stdin = process.child().stdin.take().unwrap();
     let mut stdout = StrictStdout::of(&process).unwrap();

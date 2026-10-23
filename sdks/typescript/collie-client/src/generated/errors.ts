@@ -163,6 +163,15 @@ export class BodyNotFoundError extends ProgramError {
 }
 
 /**
+ * The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say "Request content was evicted from inspector cache". A retry finds the body gone all the same.
+ */
+export class BodyUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "body_unavailable", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.
  */
 export class BrowserHostOutdatedError extends UnavailableError {
@@ -204,6 +213,15 @@ export class CallCancelledError extends UnavailableError {
 export class CapabilityUnavailableError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "capability_unavailable", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt or the Console, which no agent, Recipe or `--json` command can do.
+ */
+export class CertificateChangedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "certificate_changed", group: "refused", retryable: false });
   }
 }
 
@@ -690,11 +708,13 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   artifact_download_failed: ArtifactDownloadFailedError,
   artifact_unavailable_offline: ArtifactUnavailableOfflineError,
   body_not_found: BodyNotFoundError,
+  body_unavailable: BodyUnavailableError,
   browser_host_outdated: BrowserHostOutdatedError,
   browser_launch_failed: BrowserLaunchFailedError,
   browser_not_installed: BrowserNotInstalledError,
   call_cancelled: CallCancelledError,
   capability_unavailable: CapabilityUnavailableError,
+  certificate_changed: CertificateChangedError,
   certificate_invalid: CertificateInvalidError,
   closed: ClosedError,
   connection_lost: ConnectionLostError,

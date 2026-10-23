@@ -3,17 +3,20 @@
 driver = ["errors", "launch", "proxy", "trace"]
 errors = []
 guard = ["driver"]
-interception = ["driver", "proxy", "url_pattern"]
+interception = ["driver", "page_events", "proxy", "url_pattern"]
 launch = []
-pages = ["driver", "guard", "interception", "sessions"]
+page_events = ["driver", "url_pattern"]
+pages = ["driver", "guard", "interception", "page_events", "sessions", "url_pattern"]
+pool = ["driver", "proxy", "trace"]
 proxy = []
-sessions = ["driver", "interception", "proxy"]
+sessions = ["driver", "interception", "page_events", "pool", "proxy"]
 robots_txt = []
 trace = []
 url_pattern = []
 
 # Which of `driver`'s own modules may import which.
 [submodules.driver]
+carry = ["world"]
 identity = []
 navigation = []
 world = []
@@ -21,9 +24,14 @@ world = []
 # Which of `interception`'s own modules may import which.
 [submodules.interception]
 answers = ["steps"]
+clean_up = ["steps"]
 pipeline = ["answers", "routes", "steps"]
 routes = []
 steps = []
+
+# Which of `pool`'s own modules may import which.
+[submodules.pool]
+rules = []
 
 # Which of `proxy`'s own modules may import which.
 [submodules.proxy]

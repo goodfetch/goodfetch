@@ -181,7 +181,7 @@ fn bound() -> Contribution {
                     .write(|connection| {
                         connection
                             .execute(
-                                r#"INSERT INTO page_sessions (position, is_default, closed, settings) VALUES (1, 1, 0, '{}'), (2, 0, 1, '{"proxy":{"server":"http://proxy.example:3128","username":"user","password":"env:PROXY_PASSWORD"}}')"#,
+                                r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed) VALUES (1, 1, 0, '{}', 6178731391398722387), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115)"#,
                                 [],
                             )
                             .map(drop)

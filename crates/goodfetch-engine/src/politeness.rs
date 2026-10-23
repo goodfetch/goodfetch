@@ -35,7 +35,7 @@ use goodfetch_protocol::catalog::ProtocolVersion;
 use goodfetch_protocol::formats::{Compatibility, POLITENESS_FILE};
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _, TransactionBehavior};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 use crate::tasks::TaskOwner;
 use crate::transport;
@@ -244,6 +244,15 @@ pub enum PolitenessError {
     /// The OS refused the wake endpoint or its folder.
     #[error("the Politeness file's wake endpoint: {0}")]
     WakeEndpoint(String),
+    /// The disk was full or failed an I/O at a transaction (ADR 0122): it
+    /// was rolled back, and nothing of it is acknowledged.
+    #[error("the Politeness file at `{path}` could not be written to its storage: {message}")]
+    Storage {
+        /// The file.
+        path: PathBuf,
+        /// SQLite's message.
+        message: String,
+    },
     /// The file's actor has stopped.
     #[error("the Politeness file's actor has stopped")]
     Closed,
@@ -278,6 +287,9 @@ struct Inner {
     wakes: broadcast::Sender<Wake>,
     endpoint: Option<String>,
     _wake_folder: Option<tempfile::TempDir>,
+    /// The first transaction that met a full disk or an I/O error, as
+    /// SQLite named it, once one did (ADR 0122).
+    failures: watch::Sender<Option<String>>,
 }
 
 impl fmt::Debug for Politeness {
@@ -423,7 +435,15 @@ impl Politeness {
             wakes,
             endpoint,
             _wake_folder: wake_folder,
+            failures: watch::Sender::new(None),
         })))
+    }
+
+    /// The first transaction of the file that met a full disk or an I/O
+    /// error, once one did (ADR 0122): the Runs that take its Permits stop
+    /// on it.
+    pub fn storage_failures(&self) -> watch::Receiver<Option<String>> {
+        self.0.failures.subscribe()
     }
 
     /// The wakes this engine's waiters receive, from the moment it is
@@ -540,7 +560,18 @@ impl Politeness {
             .send(job)
             .await
             .map_err(|_| PolitenessError::Closed)?;
-        answered.await.map_err(|_| PolitenessError::Closed)?
+        let answer = answered.await.map_err(|_| PolitenessError::Closed)?;
+        if let Err(PolitenessError::Storage { message, .. }) = &answer {
+            tracing::warn!(%message, "a transaction of the Politeness file met a full disk or an I/O error and was rolled back");
+            self.0.failures.send_if_modified(|failure| {
+                let first = failure.is_none();
+                if first {
+                    *failure = Some(message.clone());
+                }
+                first
+            });
+        }
+        answer
     }
 
     /// Wakes the waiter whose turn it is; one whose endpoint is gone loses
@@ -598,10 +629,30 @@ pub fn moment(milliseconds: i64) -> SystemTime {
     UNIX_EPOCH + std::time::Duration::from_millis(u64::try_from(milliseconds).unwrap_or_default())
 }
 
-fn sqlite_error(path: &Path, error: &impl fmt::Display) -> PolitenessError {
-    PolitenessError::Sqlite {
-        path: path.to_owned(),
-        message: error.to_string(),
+/// The failure of a transaction of the file at `path` on `error`: a full
+/// disk or an I/O error as such, after which SQLite may have rolled the
+/// whole transaction back, and the transaction's drop rolls back the rest
+/// (ADR 0122).
+fn sqlite_error(path: &Path, error: &(dyn std::error::Error + 'static)) -> PolitenessError {
+    let storage = error
+        .downcast_ref::<rusqlite::Error>()
+        .and_then(rusqlite::Error::sqlite_error_code)
+        .is_some_and(|code| {
+            matches!(
+                code,
+                rusqlite::ErrorCode::DiskFull | rusqlite::ErrorCode::SystemIoFailure
+            )
+        });
+    if storage {
+        PolitenessError::Storage {
+            path: path.to_owned(),
+            message: error.to_string(),
+        }
+    } else {
+        PolitenessError::Sqlite {
+            path: path.to_owned(),
+            message: error.to_string(),
+        }
     }
 }
 

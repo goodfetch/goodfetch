@@ -91,11 +91,9 @@ struct Attached {
 
 impl Attached {
     fn start(env: &TestEnv) -> Self {
+        env.log_level("trace");
         let mut command = env.process_command(FOXHOUND);
-        command
-            .arg("attached-engine")
-            .env("GOODFETCH_LOG", "trace")
-            .stderr(Stdio::piped());
+        command.arg("attached-engine").stderr(Stdio::piped());
         let process = env.spawn(&mut command).unwrap();
         let stdin = process.child().stdin.take();
         let stdout = StrictStdout::of(&process).unwrap();

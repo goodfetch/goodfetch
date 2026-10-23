@@ -64,11 +64,12 @@ use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, Lifecycle, NotUnderstoodLimit,
     NothingDone, PointInTime, Presence, ProgressMessage, RUN_IN_USE, RUN_PROGRESS,
     RUN_STATE_DURABILITY, ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunOwner,
-    RunProgress, RunReport, RunStarted, RunUsage, RunWarning, StartInput, StartedAs, StopReason,
-    Tags,
+    RunProgress, RunReport, RunStarted, RunStorage, RunUsage, RunWarning, StartInput, StartedAs,
+    StopReason, Tags,
 };
 use goodfetch_protocol::secrets::{RUN_STATE_KEY_REFERENCE, TIMEOUT_SECRET};
 use goodfetch_protocol::settings::{SettingsLayer, WeakenedSetting};
+use goodfetch_protocol::storage::StorageLevel;
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
 use serde_json::Value;
@@ -99,10 +100,10 @@ use crate::client::Client;
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::events::Events;
-use crate::governor::{Governor, RunShare};
+use crate::governor::{Filesystem, Governor, Held, RunShare, StorageSample};
 use crate::home::{Home, RunStateLocation, major_name};
 use crate::known_certificates::KnownCertificates;
-use crate::ledger::{Charged, Charging, Ledger, Refusal, Reservation};
+use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation};
 use crate::metrics::Metrics;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::run_index;
@@ -376,9 +377,56 @@ pub enum StartError {
     /// (`run_state.key_reference`), gave no value.
     #[error(transparent)]
     Secret(SecretError),
+    /// The filesystem its run file would go to is at the `critical`
+    /// storage level (ADR 0122).
+    #[error("the filesystem of `{}` is at the critical storage level", .0.folder.display())]
+    ResourcesExhausted(Box<StorageExhausted>),
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
+}
+
+/// A filesystem a Run needs at the `critical` storage level (ADR 0122).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StorageExhausted {
+    /// The Run.
+    pub run_id: RunId,
+    /// The folder on that filesystem.
+    pub folder: PathBuf,
+    /// What the governor found of it.
+    pub filesystem: Filesystem,
+}
+
+/// The worst storage level in `sample` among the filesystems of `folders`,
+/// with the first folder found on it.
+fn worst<'a>(
+    sample: &'a StorageSample,
+    folders: [&'a PathBuf; 3],
+) -> Option<(&'a PathBuf, &'a Filesystem)> {
+    folders
+        .into_iter()
+        .filter_map(|folder| sample.of(folder).map(|filesystem| (folder, filesystem)))
+        .fold(
+            None,
+            |worst: Option<(&PathBuf, &Filesystem)>, found| match worst {
+                Some((_, kept)) if kept.level >= found.1.level => worst,
+                _ => Some(found),
+            },
+        )
+}
+
+/// The `storage_low` warning of a Run whose worst filesystem is `storage`
+/// (ADR 0122): its folder, its free space and what the Run sheds there.
+fn storage_low(storage: &RunStorage) -> RunWarning {
+    RunWarning {
+        code: goodfetch_protocol::run::warning::STORAGE_LOW.to_owned(),
+        message: format!(
+            "The filesystem of `{}` had {} bytes free, below `storage.low_free`: the Run records no Run trace video, stores no new Response cache entry and skips its periodic Checkpoints there.",
+            storage.folder, storage.free_bytes
+        ),
+        sessions: Vec::new(),
+        folder: Some(storage.folder.clone()),
+    }
 }
 
 /// Why a Run could not charge Usage.
@@ -487,6 +535,10 @@ pub enum RunError {
     /// The engine drains (ADR 0049): it resumes no Run.
     #[error("the engine drains and resumes no Run")]
     Draining(RunId),
+    /// A filesystem the Run needs is at the `critical` storage level (ADR
+    /// 0122).
+    #[error("the filesystem of `{}` is at the critical storage level", .0.folder.display())]
+    ResourcesExhausted(Box<StorageExhausted>),
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
@@ -556,7 +608,7 @@ impl RunError {
 /// What an abort waits for: a Run this engine ends, or one whose writer
 /// role it takes.
 enum Waiting {
-    Report(watch::Receiver<Option<RunReport>>),
+    Report(watch::Receiver<Option<Ended>>),
     TakeOver(oneshot::Receiver<Result<RunReport, RunError>>),
 }
 
@@ -639,7 +691,7 @@ enum Command {
     Finish(
         RunId,
         Letting,
-        oneshot::Sender<Result<watch::Receiver<Option<RunReport>>, RunError>>,
+        oneshot::Sender<Result<watch::Receiver<Option<Ended>>, RunError>>,
     ),
     ProgressMessage(
         RunId,
@@ -654,11 +706,11 @@ enum Command {
     ),
     End(RunId, End),
     Uses(RunId, Product),
-    Ended(RunId, Box<RunReport>),
-    StopAll(oneshot::Sender<Vec<watch::Receiver<Option<RunReport>>>>),
+    Ended(RunId, Box<Ended>),
+    StopAll(oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
     StopConnection(
         ConnectionId,
-        oneshot::Sender<Vec<watch::Receiver<Option<RunReport>>>>,
+        oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>,
     ),
     LiveCount(oneshot::Sender<usize>),
     Health(oneshot::Sender<RegistryHealth>),
@@ -674,7 +726,7 @@ enum Command {
         RunId,
         StopReason,
         Option<PathBuf>,
-        oneshot::Sender<Result<watch::Receiver<Option<RunReport>>, RunError>>,
+        oneshot::Sender<Result<watch::Receiver<Option<Ended>>, RunError>>,
     ),
     Resume(
         Box<(Resume, Link)>,
@@ -684,7 +736,9 @@ enum Command {
     Machine(oneshot::Sender<Result<String, RunError>>),
     SafeStop(RunId, StoppedBy, oneshot::Sender<Result<Waiting, RunError>>),
     Reader(RunId, oneshot::Sender<RunReader>),
-    Drain(oneshot::Sender<Vec<watch::Receiver<Option<RunReport>>>>),
+    Drain(oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
+    Storage(Arc<StorageSample>),
+    StorageFailed(PathBuf),
 }
 
 /// What the registry answers about the engine's health (ADR 0050): whether
@@ -776,6 +830,11 @@ struct Shared {
     secrets: RunSecrets,
     /// Its share of the Resource governor's admissions.
     governor: RunShare,
+    /// Its folder, which the governor samples while the Run lives (ADR
+    /// 0122).
+    _sampled: Held,
+    /// The governor's last storage sample.
+    storage: watch::Receiver<Arc<StorageSample>>,
 }
 
 impl std::fmt::Debug for Run {
@@ -894,6 +953,9 @@ impl Run {
     /// once its `timeout` passes; and for a Run its program drives, which
     /// has nothing in flight in the engine, the one that then stops it.
     fn watch_safe_points(&self, timeout: Option<Duration>, ended_by: EndedBy) {
+        // A commit its writer could not make stops it from its last
+        // acknowledged one, as at `critical` (ADR 0122).
+        self.stop_on_failures(self.state.storage_failures(), Some(&self.folder));
         if let Some(timeout) = timeout {
             let timed = self.clone();
             self.spawn(async move {
@@ -1026,7 +1088,12 @@ impl Run {
         let politeness = if settings.value(POLITENESS_SHARING.name).as_str() == Some("run") {
             Politeness::in_memory(self.admitting.politeness.tables.clone(), &self.owner).await?
         } else {
-            self.admitting.politeness.file().await?
+            let file = self.admitting.politeness.file().await?;
+            self.stop_on_failures(
+                file.storage_failures(),
+                self.admitting.politeness.path.parent(),
+            );
+            file
         };
         let holder = Holder {
             run_id: self.id.to_string(),
@@ -1036,6 +1103,29 @@ impl Run {
         Ok(Some(
             admission.sharing(politeness, holder, self.clock, settings),
         ))
+    }
+
+    /// Stops the Run at its next safe point, as at `critical`, once
+    /// `failures` reports a write of one of its essential files that met a
+    /// full disk or an I/O error, naming `folder` (ADR 0122).
+    fn stop_on_failures(
+        &self,
+        mut failures: watch::Receiver<Option<String>>,
+        folder: Option<&Path>,
+    ) {
+        let failing = self.clone();
+        let folder = folder.map(|folder| folder.display().to_string());
+        self.spawn(async move {
+            tokio::select! {
+                () = failing.cancellation().cancelled() => {}
+                failed = failures.wait_for(Option::is_some) => if failed.is_ok() {
+                    failing.stop_at_safe_point(StopReason::Resources {
+                        resource: goodfetch_protocol::run::Resource::Storage,
+                        folder,
+                    });
+                },
+            }
+        });
     }
 
     /// Its owner, whose tasks and blocking work stop with the Run.
@@ -1266,6 +1356,17 @@ impl Run {
                 )));
                 Err(Refusal::NotUnderstood(limit).into())
             }
+            Err(Refusal::Ledger(LedgerError::Storage { path, message })) => {
+                // The ledger holds every Run's Limits: each Run of the
+                // engine stops as at `critical` (ADR 0122).
+                let folder = path.parent().map_or_else(|| path.clone(), Path::to_owned);
+                let _ = self
+                    .runs
+                    .commands
+                    .send(Command::StorageFailed(folder))
+                    .await;
+                Err(Refusal::Ledger(LedgerError::Storage { path, message }).into())
+            }
             Err(refusal) => Err(refusal.into()),
         }
     }
@@ -1355,6 +1456,8 @@ impl Runs {
             machine: None,
             draining: false,
             found_ended: std::collections::BTreeSet::new(),
+            sampled: Vec::new(),
+            unrecorded: BTreeMap::new(),
         };
         owner.spawn(registry.run(mailbox));
         runs
@@ -1870,7 +1973,7 @@ impl Runs {
 }
 
 /// The Runs a drain stops (ADR 0049).
-pub(crate) struct Draining(Vec<watch::Receiver<Option<RunReport>>>);
+pub(crate) struct Draining(Vec<watch::Receiver<Option<Ended>>>);
 
 impl Draining {
     /// How many Runs it stops.
@@ -1900,12 +2003,25 @@ fn location(per_major: &Path, folder: &Path) -> String {
         .replace('\\', "/")
 }
 
-async fn wait_for(mut report: watch::Receiver<Option<RunReport>>) -> Result<RunReport, RunError> {
+async fn wait_for(mut report: watch::Receiver<Option<Ended>>) -> Result<RunReport, RunError> {
     let ended = report
         .wait_for(Option::is_some)
         .await
         .map_err(|_| RunError::Stopped)?;
-    Ok(ended.clone().expect("invariant: the wait ends on a report"))
+    match ended.clone().expect("invariant: the wait ends on an end") {
+        Ended::Report(report) => Ok(*report),
+        Ended::Unrecorded(exhausted) => Err(RunError::ResourcesExhausted(exhausted)),
+    }
+}
+
+/// How a Run's end went: its report, or a stop its run file could not
+/// record, which leaves it interrupted (ADR 0122).
+#[derive(Clone, Debug)]
+enum Ended {
+    /// Its end and its report are in its run file.
+    Report(Box<RunReport>),
+    /// The commit recording its stop met a full disk or an I/O error.
+    Unrecorded(Box<StorageExhausted>),
 }
 
 /// What the registry keeps of a live Run; its [`Run`] goes to its end once
@@ -1922,7 +2038,7 @@ struct Live {
     started_at: PointInTime,
     policy_version: Option<String>,
     weakened: Vec<WeakenedSetting>,
-    report: watch::Sender<Option<RunReport>>,
+    report: watch::Sender<Option<Ended>>,
     writer: Arc<TaskOwner>,
     lock: Arc<File>,
     connection: Option<ConnectionId>,
@@ -1933,6 +2049,11 @@ struct Live {
     /// Its Lifecycle, which only the Run's table changes: `running` until
     /// its end is decided, then the Lifecycle it ends in.
     lifecycle: Lifecycle,
+    /// The worst storage level among the filesystems it writes to, as its
+    /// progress last carried it; none while all are `normal`.
+    storage: Option<RunStorage>,
+    /// The folders whose `low` level its report carries a warning for.
+    warned_low: std::collections::BTreeSet<String>,
 }
 
 struct Registry {
@@ -1957,6 +2078,13 @@ struct Registry {
     /// The Runs a start found finished: a later call that ends one did
     /// nothing, which its report says (ADR 0102).
     found_ended: std::collections::BTreeSet<RunId>,
+    /// The engine's folders the governor samples while the registry lives:
+    /// the run folders', the Goodfetch home and the temporary folder (ADR
+    /// 0122).
+    sampled: Vec<Held>,
+    /// The Runs whose stop their run file could not record, left
+    /// interrupted until a start with their ID resumes them (ADR 0122).
+    unrecorded: BTreeMap<RunId, Box<StorageExhausted>>,
 }
 
 impl Registry {
@@ -1967,6 +2095,7 @@ impl Registry {
         // writes are done.
         self.write_managed().await;
         self.reclaim().await;
+        self.sample_storage();
         while let Some(command) = mailbox.recv().await {
             match command {
                 Command::Start(start, _, answer) if self.draining => {
@@ -2000,7 +2129,7 @@ impl Registry {
                     let _ = self.end_or_report(&run_id, end).await;
                 }
                 Command::Uses(run_id, product) => self.uses(&run_id, product).await,
-                Command::Ended(run_id, report) => self.ended(run_id, *report),
+                Command::Ended(run_id, ended) => self.ended(run_id, *ended),
                 Command::StopAll(answer) => {
                     let ids: Vec<RunId> = self.live.keys().cloned().collect();
                     let _ = answer.send(self.stop_by_client(ids).await);
@@ -2054,6 +2183,8 @@ impl Registry {
                 Command::Reader(run_id, answer) => {
                     let _ = answer.send(self.reader(&run_id));
                 }
+                Command::Storage(sample) => self.storage(&sample).await,
+                Command::StorageFailed(folder) => self.storage_failed(&folder),
             }
         }
         self.readers.wait().await;
@@ -2061,9 +2192,165 @@ impl Registry {
         self.owner.wait().await;
     }
 
+    /// Has the governor sample the engine's own folders, and hands each of
+    /// its storage samples to the registry (ADR 0122).
+    fn sample_storage(&mut self) {
+        let governor = &self.setup.governor;
+        let location = self
+            .setup
+            .location
+            .folder(&self.setup.home, &self.setup.version);
+        self.sampled = vec![
+            governor.sample(location),
+            governor.sample(self.setup.home.root().to_owned()),
+            governor.sample(std::env::temp_dir()),
+        ];
+        let mut samples = governor.storage();
+        let registry = self.runs.clone();
+        let token = self.owner.token().clone();
+        self.owner.spawn(async move {
+            loop {
+                tokio::select! {
+                    () = token.cancelled() => return,
+                    changed = samples.changed() => if changed.is_err() { return },
+                }
+                let sample = Arc::clone(&samples.borrow_and_update());
+                let Some(registry) = registry.upgrade() else {
+                    return;
+                };
+                if registry.send(Command::Storage(sample)).await.is_err() {
+                    return;
+                }
+            }
+        });
+    }
+
+    /// Acts on a storage sample (ADR 0122): each live Run with an essential
+    /// write on a filesystem at `critical` (its run file, or the Usage
+    /// ledger and the Politeness file in the Goodfetch home) stops at its
+    /// next safe point; each Run's progress carries the worst level among
+    /// its filesystems when it changes, and its report a `storage_low`
+    /// warning for each folder found at `low` or worse.
+    async fn storage(&mut self, sample: &StorageSample) {
+        let home = self.setup.home.root().to_owned();
+        let temporary = std::env::temp_dir();
+        let mut changed = Vec::new();
+        for live in self.live.values_mut() {
+            let Some(run) = &live.run else {
+                continue;
+            };
+            let essential = [&live.folder, &home];
+            if let Some(folder) = essential.into_iter().find(|folder| {
+                sample
+                    .of(folder)
+                    .is_some_and(|filesystem| filesystem.level == StorageLevel::Critical)
+            }) {
+                run.stop(StopReason::Resources {
+                    resource: goodfetch_protocol::run::Resource::Storage,
+                    folder: Some(folder.display().to_string()),
+                });
+            }
+            let Some((folder, filesystem)) = worst(sample, [&live.folder, &home, &temporary])
+            else {
+                continue;
+            };
+            let storage = RunStorage {
+                level: filesystem.level,
+                folder: folder.display().to_string(),
+                free_bytes: filesystem.free,
+            };
+            let was = live
+                .storage
+                .as_ref()
+                .map_or(StorageLevel::Normal, |storage| storage.level);
+            if storage.level != was {
+                live.storage = Some(storage.clone());
+                changed.push((
+                    live.id.clone(),
+                    storage.clone(),
+                    live.progress_message.clone(),
+                ));
+            }
+            if storage.level >= StorageLevel::Low && live.warned_low.insert(storage.folder.clone())
+            {
+                let warning = storage_low(&storage);
+                let warned = run.clone();
+                run.spawn(async move {
+                    if let Err(error) = warned.warn(warning).await {
+                        tracing::warn!(%error, run_id = %warned.id, "the Run's `storage_low` warning was not kept");
+                    }
+                });
+            }
+        }
+        for (run_id, storage, message) in changed {
+            let progress = RunProgress {
+                run_id: run_id.clone(),
+                lifecycle: Lifecycle::Running,
+                message,
+                storage: Some(storage),
+            };
+            self.setup
+                .events
+                .publish(&RUN_PROGRESS, Some(run_id.as_str()), &progress)
+                .await;
+        }
+    }
+
+    /// Whether this engine may resume the Run `run_id` that `held` holds in
+    /// `folder`: one bound to its machine only there (ADR 0056), one of its
+    /// Product only, and none while its folder's filesystem is at `critical`
+    /// (ADR 0122).
+    async fn may_resume(
+        &mut self,
+        run_id: &RunId,
+        held: &checkpoint::Held,
+        folder: &Path,
+    ) -> Result<(), RunError> {
+        if let Some(RunBinding::Machine { machine }) = &held.binding
+            && *machine != self.machine().await?
+        {
+            return Err(RunError::BoundToMachine(run_id.clone()));
+        }
+        if !self.setup.product.contains(held.needs) {
+            return Err(RunError::NotInProduct {
+                run_id: run_id.clone(),
+                needs: held.needs,
+            });
+        }
+        match self.critical_at(folder.to_owned()).await {
+            Some(filesystem) => Err(RunError::ResourcesExhausted(Box::new(StorageExhausted {
+                run_id: run_id.clone(),
+                folder: folder.to_owned(),
+                filesystem,
+            }))),
+            None => Ok(()),
+        }
+    }
+
+    /// Stops every live Run at its next safe point, as at `critical`, after
+    /// a write of a file they all depend on, in `folder`, met a full disk or
+    /// an I/O error (ADR 0122).
+    fn storage_failed(&self, folder: &Path) {
+        for run in self.live.values().filter_map(|live| live.run.as_ref()) {
+            run.stop(StopReason::Resources {
+                resource: goodfetch_protocol::run::Resource::Storage,
+                folder: Some(folder.display().to_string()),
+            });
+        }
+    }
+
+    /// The filesystem holding `path` now, when it is at `critical`.
+    async fn critical_at(&self, path: PathBuf) -> Option<Filesystem> {
+        let governor = self.setup.governor.clone();
+        self.owner
+            .blocking(move || governor.storage_at(&path))
+            .await
+            .filter(|filesystem| filesystem.level == StorageLevel::Critical)
+    }
+
     /// Takes no Run from now on, stops each live Run for the drain with a
     /// Checkpoint, and answers the waits for their reports.
-    async fn drain(&mut self) -> Vec<watch::Receiver<Option<RunReport>>> {
+    async fn drain(&mut self) -> Vec<watch::Receiver<Option<Ended>>> {
         self.draining = true;
         let ids: Vec<RunId> = self.live.keys().cloned().collect();
         let mut reports = Vec::new();
@@ -2077,7 +2364,7 @@ impl Registry {
 
     /// Stops each of `ids` as aborted by its Client, and answers the waits
     /// for their reports.
-    async fn stop_by_client(&mut self, ids: Vec<RunId>) -> Vec<watch::Receiver<Option<RunReport>>> {
+    async fn stop_by_client(&mut self, ids: Vec<RunId>) -> Vec<watch::Receiver<Option<Ended>>> {
         let mut reports = Vec::new();
         for run_id in ids {
             let end = End::Stopped(StopReason::Abort {
@@ -2137,9 +2424,11 @@ impl Registry {
         }
     }
 
-    /// Records that the Run `run_id` ended with `report`, and wakes the
-    /// waits for its report.
-    fn ended(&mut self, run_id: RunId, report: RunReport) {
+    /// Records that the Run `run_id` ended as `ended` says, and wakes the
+    /// waits for its report. A stop its run file could not record leaves
+    /// the Run interrupted, with no live writer, as after a crash, and a
+    /// start with its ID resumes it (ADR 0122).
+    fn ended(&mut self, run_id: RunId, ended: Ended) {
         if let Some(live) = self.live.remove(&run_id) {
             // The lock goes before the report, so whoever the report wakes
             // finds the Run's writer gone.
@@ -2150,10 +2439,19 @@ impl Registry {
                 ..
             } = live;
             drop(lock);
-            self.setup.metrics.run_ended(kind, &report);
-            waiters.send_replace(Some(report.clone()));
+            if let Ended::Report(report) = &ended {
+                self.setup.metrics.run_ended(kind, report);
+            }
+            waiters.send_replace(Some(ended.clone()));
         }
-        self.ended.insert(run_id, report);
+        match ended {
+            Ended::Report(report) => {
+                self.ended.insert(run_id, *report);
+            }
+            Ended::Unrecorded(exhausted) => {
+                self.unrecorded.insert(run_id, exhausted);
+            }
+        }
     }
 
     /// The live Runs that the Client of `connection` started or resumed.
@@ -2283,6 +2581,17 @@ impl Registry {
                 lifecycle: found.lifecycle,
                 needs: found.needs,
             }));
+        }
+        let location = self
+            .setup
+            .location
+            .folder(&self.setup.home, &self.setup.version);
+        if let Some(filesystem) = self.critical_at(location.clone()).await {
+            return Err(StartError::ResourcesExhausted(Box::new(StorageExhausted {
+                run_id,
+                folder: location,
+                filesystem,
+            })));
         }
         let started = self
             .begin(run_id, start, inputs, secrets, connection)
@@ -2445,6 +2754,8 @@ impl Registry {
             checkpoint: None,
             progress_message: None,
             lifecycle: Lifecycle::Running,
+            storage: None,
+            warned_low: std::collections::BTreeSet::new(),
         };
         let row = self.index_row(&live, Lifecycle::Running, None);
         self.write_index(row).await;
@@ -2543,7 +2854,7 @@ impl Registry {
         &mut self,
         run_id: &RunId,
         letting: Letting,
-    ) -> Result<watch::Receiver<Option<RunReport>>, RunError> {
+    ) -> Result<watch::Receiver<Option<Ended>>, RunError> {
         let Some(live) = self.live.get(run_id) else {
             return self.ended_report(run_id).await;
         };
@@ -2596,6 +2907,7 @@ impl Registry {
             run_id: run_id.clone(),
             lifecycle: Lifecycle::Running,
             message: Some(message),
+            storage: self.live.get(run_id).and_then(|live| live.storage.clone()),
         };
         self.setup
             .events
@@ -2653,6 +2965,8 @@ impl Registry {
                 span: tracing::info_span!(parent: None, "run", run_id = %run_id),
                 secrets,
                 governor: self.setup.governor.join(share),
+                _sampled: self.setup.governor.sample(folder.to_owned()),
+                storage: self.setup.governor.storage(),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),
@@ -2681,7 +2995,7 @@ impl Registry {
         &mut self,
         run_id: &RunId,
         end: End,
-    ) -> Result<watch::Receiver<Option<RunReport>>, RunError> {
+    ) -> Result<watch::Receiver<Option<Ended>>, RunError> {
         self.end_with(run_id, end, None).await
     }
 
@@ -2692,7 +3006,7 @@ impl Registry {
         run_id: &RunId,
         end: End,
         location: Option<PathBuf>,
-    ) -> Result<watch::Receiver<Option<RunReport>>, RunError> {
+    ) -> Result<watch::Receiver<Option<Ended>>, RunError> {
         let Some(row) = self
             .live
             .get(run_id)
@@ -2732,6 +3046,7 @@ impl Registry {
             vfs,
             nonce,
             events: events.clone(),
+            governor: self.setup.governor.clone(),
         });
         let console_url = self
             .setup
@@ -2752,47 +3067,29 @@ impl Registry {
             last_checkpoint: live.checkpoint.clone(),
             parts: self.setup.report_parts.clone(),
             console_url,
+            governor: self.setup.governor.clone(),
         };
-        let index = self.setup.home.run_index(&self.setup.version);
-        let version = self.setup.version.clone();
-        let registry = self.runs.clone();
-        let run_id = run_id.clone();
-        self.ending_owner.spawn(async move {
-            let report = closing.end().await;
-            let ended = RunIndexRow {
-                lifecycle: report.lifecycle,
-                verdict: Some(report.verdict),
-                completeness: Some(report.completeness),
-                ended_at: Some(report.ended_at.clone()),
-                owner: None,
-                ..row
-            };
-            if let Err(error) = run_index::write(&index, &version, &ended) {
-                tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
-            }
-            events
-                .publish_axes(RunAxes {
-                    run_id: run_id.clone(),
-                    lifecycle: report.lifecycle,
-                    verdict: Some(report.verdict),
-                    completeness: Some(report.completeness),
-                })
-                .await;
-            if let Some(registry) = registry.upgrade() {
-                let _ = registry.send(Command::Ended(run_id, Box::new(report))).await;
-            }
-        });
+        let recording = Recording {
+            index: self.setup.home.run_index(&self.setup.version),
+            version: self.setup.version.clone(),
+            row,
+            events,
+            registry: self.runs.clone(),
+        };
+        self.ending_owner.spawn(recording.end(closing));
         Ok(receiver)
     }
 
     /// The report of a Run this engine ended, or whose state its folder
     /// holds.
-    async fn report_of(
-        &self,
-        run_id: &RunId,
-    ) -> Result<watch::Receiver<Option<RunReport>>, RunError> {
+    async fn report_of(&self, run_id: &RunId) -> Result<watch::Receiver<Option<Ended>>, RunError> {
         if let Some(report) = self.ended.get(run_id) {
-            return Ok(watch::Sender::new(Some(report.clone())).subscribe());
+            return Ok(
+                watch::Sender::new(Some(Ended::Report(Box::new(report.clone())))).subscribe(),
+            );
+        }
+        if let Some(exhausted) = self.unrecorded.get(run_id) {
+            return Ok(watch::Sender::new(Some(Ended::Unrecorded(exhausted.clone()))).subscribe());
         }
         let file = self.folder(run_id).join(RUN_FILE);
         let vfs = self.setup.run_state.vfs.clone();
@@ -2801,7 +3098,9 @@ impl Registry {
             .blocking(move || read_report(&file, vfs.as_deref()))
             .await;
         match report {
-            Ok(Some(report)) => Ok(watch::Sender::new(Some(report)).subscribe()),
+            Ok(Some(report)) => {
+                Ok(watch::Sender::new(Some(Ended::Report(Box::new(report)))).subscribe())
+            }
             Ok(None) | Err(_) => Err(RunError::NotFound(run_id.clone())),
         }
     }
@@ -2811,13 +3110,13 @@ impl Registry {
     async fn ended_report(
         &self,
         run_id: &RunId,
-    ) -> Result<watch::Receiver<Option<RunReport>>, RunError> {
+    ) -> Result<watch::Receiver<Option<Ended>>, RunError> {
         let answered = self.report_of(run_id).await?;
         if !self.found_ended.contains(run_id) {
             return Ok(answered);
         }
         let mut report = answered.borrow().clone();
-        if let Some(report) = &mut report {
+        if let Some(Ended::Report(report)) = &mut report {
             report.nothing_done = Some(NothingDone::AlreadyEnded {
                 ended_at: report.ended_at.clone(),
             });
@@ -2930,6 +3229,7 @@ impl Registry {
             clock: self.setup.clock,
             events: self.setup.events.clone(),
             tasks: Arc::new(self.ending_owner.child()),
+            governor: self.setup.governor.clone(),
         };
         let registry = self.runs.clone();
         self.ending_owner.spawn(async move {
@@ -2950,7 +3250,7 @@ impl Registry {
         run_id: &RunId,
         reason: StopReason,
         location: Option<PathBuf>,
-    ) -> Result<watch::Receiver<Option<RunReport>>, RunError> {
+    ) -> Result<watch::Receiver<Option<Ended>>, RunError> {
         self.end_with(run_id, End::Stopped(reason), location).await
     }
 
@@ -3002,18 +3302,8 @@ impl Registry {
             }));
         }
         let held = self.held(&run_id, checkpoint.as_deref()).await?;
-        if let Some(RunBinding::Machine { machine }) = &held.binding
-            && *machine != self.machine().await?
-        {
-            return Err(RunError::BoundToMachine(run_id));
-        }
-        if !self.setup.product.contains(held.needs) {
-            return Err(RunError::NotInProduct {
-                run_id,
-                needs: held.needs,
-            });
-        }
         let folder = self.folder(&run_id);
+        self.may_resume(&run_id, &held, &folder).await?;
         let lifecycle = match lifecycle::apply(held.lifecycle, RunEvent::Resume) {
             Ok(Next::To(next)) => next,
             Ok(Next::Unchanged) => {
@@ -3033,6 +3323,7 @@ impl Registry {
             .await?;
         let recorded = self.recorded(&run_id, &folder).await?;
         self.ended.remove(&run_id);
+        self.unrecorded.remove(&run_id);
         let live = Live {
             id: run_id.clone(),
             run: Some(self.new_run(&run_id, &folder, state, connection, settings, secrets)),
@@ -3058,6 +3349,8 @@ impl Registry {
                 .as_deref()
                 .and_then(ProgressMessage::parse),
             lifecycle,
+            storage: None,
+            warned_low: std::collections::BTreeSet::new(),
         };
         let row = self.index_row(&live, lifecycle, None);
         self.write_index(row).await;
@@ -3188,6 +3481,9 @@ impl Registry {
                     compatibility,
                     install,
                 },
+                StartError::ResourcesExhausted(exhausted) => {
+                    RunError::ResourcesExhausted(exhausted)
+                }
                 StartError::Conflict { .. }
                 | StartError::LimitReached(_)
                 | StartError::LimitNotUnderstood(_)
@@ -3300,13 +3596,25 @@ async fn announce_stop(events: &Events, run_id: &RunId, cause: &StopReason) {
 }
 
 /// Writes a Checkpoint of a Run every `interval` of its clock until it
-/// stops; one that fails is logged and the next is tried (ADR 0122).
+/// stops; one that fails is logged and the next is tried, and one onto
+/// a filesystem at the `low` storage level or worse is skipped, as the run
+/// file still holds the state (ADR 0122).
 async fn periodic_checkpoints(run: Run, interval: Duration) {
     loop {
         tokio::select! {
             biased;
             () = run.cancellation().cancelled() => return,
             () = run.clock.sleep(interval) => {}
+        }
+        let low = run
+            .shared
+            .storage
+            .borrow()
+            .of(&run.folder)
+            .is_some_and(|filesystem| filesystem.level >= StorageLevel::Low);
+        if low {
+            tracing::debug!(run_id = %run.id, "a periodic Checkpoint was skipped: its filesystem is low on space");
+            continue;
         }
         if let Err(error) = run.runs.checkpoint(run.id.clone(), None).await {
             tracing::warn!(%error, run_id = %run.id, "a periodic Checkpoint was not written");
@@ -3338,12 +3646,34 @@ struct Taking {
     clock: Clock,
     events: Events,
     tasks: Arc<TaskOwner>,
+    /// What tells whether its destination's filesystem is at `critical`.
+    governor: Governor,
 }
 
 impl Taking {
     /// Writes it: a live Run's, of `live_epoch`, announced first; an
-    /// interrupted Run's under its writer lock.
+    /// interrupted Run's under its writer lock. A destination on a
+    /// filesystem at the `critical` storage level fails at once with a
+    /// full disk, before a byte is written (ADR 0122).
     async fn take(self, live_epoch: Option<u64>) -> Result<Checkpoint, RunError> {
+        let (governor, destination) = (self.governor.clone(), self.destination.clone());
+        let critical = self
+            .tasks
+            .blocking(move || governor.storage_at(&destination))
+            .await
+            .is_some_and(|filesystem| filesystem.level == StorageLevel::Critical);
+        if critical {
+            return Err(RunError::WriteFailed {
+                run_id: self.run_id,
+                message: format!(
+                    "the filesystem of `{}` is at the critical storage level",
+                    self.destination.display()
+                ),
+                folder: self.folder,
+                reason: "storage_full",
+                os_code: None,
+            });
+        }
         if let Some(run_epoch) = live_epoch {
             let checkpointing = RunCheckpointing {
                 run_id: self.run_id.clone(),
@@ -3430,6 +3760,91 @@ struct CheckpointTo {
     vfs: Option<String>,
     nonce: u64,
     events: Events,
+    governor: Governor,
+}
+
+/// What a stop of the Run `run_id` in `folder` that its run file could not
+/// record answers its waiting call with (ADR 0122): its folder's filesystem
+/// as `governor` reads it now, under `writer`'s blocking work, or a full one
+/// when it cannot be read.
+async fn unrecorded(
+    run_id: RunId,
+    folder: PathBuf,
+    governor: &Governor,
+    writer: &TaskOwner,
+) -> Box<StorageExhausted> {
+    let (governor, probed) = (governor.clone(), folder.clone());
+    let filesystem = writer
+        .blocking(move || governor.storage_at(&probed))
+        .await
+        .unwrap_or_else(|| Filesystem {
+            folders: vec![folder.clone()],
+            level: StorageLevel::Critical,
+            free: 0,
+            limit: None,
+        });
+    Box::new(StorageExhausted {
+        run_id,
+        folder,
+        filesystem,
+    })
+}
+
+/// Where a Run's end is recorded beside its run file: its Run index row,
+/// its axes on the event stream, and the registry.
+struct Recording {
+    index: PathBuf,
+    version: ProductVersion,
+    row: RunIndexRow,
+    events: Events,
+    registry: mpsc::WeakSender<Command>,
+}
+
+impl Recording {
+    /// Ends `closing`'s Run, then records its end; a stop its run file could
+    /// not record goes to the registry alone, its Run index row left as it
+    /// was, as after a crash (ADR 0122).
+    async fn end(self, closing: Closing) {
+        let run_id = closing.run.id.clone();
+        let report = match closing.end().await {
+            Ended::Report(report) => *report,
+            unrecorded @ Ended::Unrecorded(_) => {
+                if let Some(registry) = self.registry.upgrade() {
+                    let _ = registry
+                        .send(Command::Ended(run_id, Box::new(unrecorded)))
+                        .await;
+                }
+                return;
+            }
+        };
+        let ended = RunIndexRow {
+            lifecycle: report.lifecycle,
+            verdict: Some(report.verdict),
+            completeness: Some(report.completeness),
+            ended_at: Some(report.ended_at.clone()),
+            owner: None,
+            ..self.row
+        };
+        if let Err(error) = run_index::write(&self.index, &self.version, &ended) {
+            tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
+        }
+        self.events
+            .publish_axes(RunAxes {
+                run_id: run_id.clone(),
+                lifecycle: report.lifecycle,
+                verdict: Some(report.verdict),
+                completeness: Some(report.completeness),
+            })
+            .await;
+        if let Some(registry) = self.registry.upgrade() {
+            let _ = registry
+                .send(Command::Ended(
+                    run_id,
+                    Box::new(Ended::Report(Box::new(report))),
+                ))
+                .await;
+        }
+    }
 }
 
 /// A Run on its way to its end.
@@ -3452,13 +3867,17 @@ struct Closing {
     parts: Vec<Arc<dyn ReportPart>>,
     /// Its page in the Console, when the engine serves one.
     console_url: Option<String>,
+    /// What reads the filesystem of a stop its run file could not record.
+    governor: Governor,
 }
 
 impl Closing {
     /// Stops the Run's tasks, gives back its Slices, writes its end into
     /// run state with its report, assembled there (ADR 0102), a stop's
-    /// Checkpoint after it, closes its writer and frees its lock.
-    async fn end(self) -> RunReport {
+    /// Checkpoint after it, closes its writer and frees its lock. An end
+    /// whose commit meets a full disk or an I/O error is unrecorded (ADR
+    /// 0122).
+    async fn end(self) -> Ended {
         let Self {
             run,
             writer,
@@ -3473,6 +3892,7 @@ impl Closing {
             last_checkpoint,
             parts,
             console_url,
+            governor,
         } = self;
         run.owner.stop().await;
         let (stop_reason, error, finished) = match end {
@@ -3512,6 +3932,14 @@ impl Closing {
         let written = ended.is_ok();
         let mut report = match ended {
             Ok(report) => report,
+            Err(RunStateError::Storage { message, .. }) => {
+                tracing::warn!(%message, run_id = %run_id, "the Run's stop was not recorded: its run file met a full disk or an I/O error, and it is left interrupted");
+                drop(state);
+                let exhausted = unrecorded(run_id, folder, &governor, &writer).await;
+                writer.wait().await;
+                drop(lock);
+                return Ended::Unrecorded(exhausted);
+            }
             Err(error) => {
                 tracing::warn!(%error, "the Run's end was not written to its run state");
                 bare
@@ -3530,6 +3958,7 @@ impl Closing {
                 events: to.events,
                 tasks: Arc::clone(&writer),
                 folder,
+                governor: to.governor,
             };
             match taking.take(Some(state.epoch())).await {
                 Ok(checkpoint) => report.checkpoint = Some(checkpoint),
@@ -3541,7 +3970,7 @@ impl Closing {
         drop(state);
         writer.wait().await;
         drop(lock);
-        report
+        Ended::Report(Box::new(report))
     }
 }
 

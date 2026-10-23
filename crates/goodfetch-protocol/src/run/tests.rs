@@ -64,9 +64,10 @@ fn tags_hold_at_most_sixteen_of_sixty_four_characters(
     assert_eq!(serde_json::from_value::<Tags>(tags).is_ok(), read);
 }
 
-/// The ticket's warning table (#1543): every code an area hands over to a
-/// Run's report, Foxhound's `trap_links_off` included.
-const TICKET_WARNING_CODES: [&str; 21] = [
+/// The ticket's warning table (#1543, and #713's `block_resources_visible`):
+/// every code an area hands over to a Run's report, Foxhound's
+/// `trap_links_off` included.
+const TICKET_WARNING_CODES: [&str; 22] = [
     "fingerprint_none",
     "fingerprint_js_injection",
     "fingerprint_basic",
@@ -83,6 +84,7 @@ const TICKET_WARNING_CODES: [&str; 21] = [
     "storage_low",
     "politeness_store_degraded",
     "clean_up_rules_stale",
+    "block_resources_visible",
     "path_not_writable",
     "file_write_failed",
     "baseline_unavailable",

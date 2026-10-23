@@ -171,6 +171,43 @@ class BrowserName(StrEnum):
     """Safari."""
 
 
+class CertsAcceptParams(BaseModel):
+    """
+    What `certs.accept` takes: the host, and the changed key the person
+    accepts, as `certs.list` shows it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    host: str
+    """The pinned host, as the URL parser leaves it."""
+    spki_sha256: str
+    """The SHA-256 of the changed key, as `sha256/` and its standard base64."""
+
+
+class CertsForgetParams(BaseModel):
+    """What `certs.forget` takes: the host."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    host: str
+    """The pinned host, as the URL parser leaves it."""
+
+
+class CertsForgotten(BaseModel):
+    """What `certs.forget` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    forgotten: bool
+    """Whether the caller had a pin for it, now removed."""
+    host: str
+    """The host."""
+
+
 class CertsListParams(BaseModel):
     """What `certs.list` takes: nothing."""
 
@@ -218,6 +255,23 @@ class ConsoleKeyRotated(BaseModel):
     )
     signed_out: Annotated[int, Field(ge=0)]
     """How many sign-ins it ended: every one."""
+
+
+class ConsoleLocation(BaseModel):
+    """
+    Where a console message was written: its script's URL and position, as
+    the browser counts them from 0.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    column_number: Annotated[int, Field(ge=0)]
+    """The column, from 0."""
+    line_number: Annotated[int, Field(ge=0)]
+    """The line, from 0."""
+    url: str
+    """The script's URL; empty for a script the page evaluated."""
 
 
 class ConsoleRotateKeyParams(BaseModel):
@@ -714,6 +768,32 @@ class PageBodyRead(BaseModel):
     """The body's size in bytes."""
 
 
+class PageEventName(StrEnum):
+    """
+    A page's event a program listens to, by its words (ADR 0099): each
+    SDK joins them as Playwright spells the event, such as `pageerror`.
+    """
+
+    console = "console"
+    """`page.console`."""
+    page_error = "page_error"
+    """`page.page_error`."""
+    request = "request"
+    """`page.request`."""
+    request_finished = "request_finished"
+    """`page.request_finished`."""
+    request_failed = "request_failed"
+    """`page.request_failed`."""
+    response = "response"
+    """`page.response`."""
+    web_socket = "web_socket"
+    """`page.web_socket`, with each socket's `web_socket.*` events."""
+    load = "load"
+    """`page.load`."""
+    dom_content_loaded = "dom_content_loaded"
+    """`page.dom_content_loaded`."""
+
+
 class PageFormats(BaseModel):
     """
     What `page.formats` answers: the formats the request asked for, and
@@ -742,6 +822,26 @@ class PageId(RootModel[str]):
     """A page of a Run, named by the engine when it opens it."""
 
 
+class PageOnEnded(BaseModel):
+    """What `page.on` answers when its page goes, closed or with its Run."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class PageOnParams(BaseModel):
+    """What `page.on` takes: the page and the event listened to."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: PageEventName
+    """The event."""
+    page_id: PageId
+    """The page."""
+
+
 class PageParams(BaseModel):
     """What `page.reload`, `page.go_back` and `page.go_forward` take: the page."""
 
@@ -765,14 +865,38 @@ class PageResponse(BaseModel):
     0119); none for another response, and for a navigation that answered
     at `commit`, before its document was decoded.
     """
+    from_service_worker: bool
+    """
+    Whether a site's service worker supplied it, from its own cache or
+    through its own fetch (ADR 0121).
+    """
     headers: dict[str, str]
     """Its headers, their names lower-cased, as the browser received them."""
+    request_id: str
+    """The browser's ID for its request, which `response.body` takes."""
     status: Annotated[int, Field(ge=0, le=65535)]
     """Its HTTP status."""
     status_text: str
     """Its status text."""
     url: str
     """Its final URL."""
+
+
+class PageWebSocket(BaseModel):
+    """
+    What `page.web_socket` reports: a WebSocket the page opened, whose
+    frames and close follow as `web_socket.*` events.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    page_id: PageId
+    """The page."""
+    url: str
+    """Its URL."""
+    web_socket_id: str
+    """The browser's ID for the socket, which its events name."""
 
 
 class PeriodLength(StrEnum):
@@ -925,24 +1049,23 @@ class RecordingReport(BaseModel):
     """The engine that wrote them."""
 
 
-class RequestFailed(BaseModel):
-    """
-    What `page.request_failed` reports: a request of the run that failed
-    while no call waited for it, such as one the egress policy refused.
-    """
+class RequestFailure(BaseModel):
+    """Why a request failed, as Playwright's `request.failure()` gives it."""
 
     model_config = ConfigDict(
         extra="allow",
     )
-    failure: ErrorData
+    error: ErrorData | None = None
     """
-    Why it failed: the Error code a call waiting for it would have
-    raised, with its details, such as `egress_refused`.
+    The Error code the engine failed it with, with its details, when the
+    engine did, such as `egress_refused`.
     """
-    method: str
-    """Its method, such as `GET`."""
-    url: str
-    """The request's URL, as the run gave it."""
+    error_text: str
+    """
+    The browser's network error, such as `net::ERR_FAILED` for a request
+    a route aborted or `net::ERR_BLOCKED_BY_CLIENT` for one the engine
+    blocked.
+    """
 
 
 class RequestId(RootModel[int | str]):
@@ -957,6 +1080,21 @@ class Resource(StrEnum):
     """The machine's or the container's memory."""
     storage = "storage"
     """A filesystem the Run writes to."""
+
+
+class ResponseBodyParams(BaseModel):
+    """
+    What `response.body` takes: the page and the request whose response's
+    body it reads.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    request_id: str
+    """The request, by the browser's ID."""
 
 
 class RouteAnswered(BaseModel):
@@ -1095,20 +1233,6 @@ class RunParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    run_id: RunId
-    """The Run's ID."""
-
-
-class RunProgress(BaseModel):
-    """A Run's progress as it is now (ADR 0102): what `run.progress` reports."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    lifecycle: Lifecycle
-    """Where it is."""
-    message: ProgressMessage | None = None
-    """The program's own status line, once it set one."""
     run_id: RunId
     """The Run's ID."""
 
@@ -1611,6 +1735,24 @@ class StoppedBy(StrEnum):
     """The program, such as through `run.stop` (ADR 0102)."""
 
 
+class StorageLevel(StrEnum):
+    """A filesystem's storage level (ADR 0122), from the best to the worst."""
+
+    normal = "normal"
+    """It has room: nothing is shed."""
+    low = "low"
+    """
+    Its free space or inodes fell below `storage.low_free`: the Runs
+    writing to it shed what they can do without and carry
+    `storage_low`.
+    """
+    critical = "critical"
+    """
+    Its free space or inodes fell below `storage.critical_free`: every
+    Run with an essential write there stops resumably.
+    """
+
+
 class SubscriptionEnded(BaseModel):
     """
     What `events.subscribe` answers when its subscription ends without the
@@ -1793,6 +1935,21 @@ class Verdict(StrEnum):
     """Everything else: a person reviews it."""
 
 
+class WaitForRequestFinishedParams(BaseModel):
+    """
+    What `page.wait_for_request_finished` takes: the page, and the URLs of
+    the requests it waits for; any request when none is given.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    url: UrlMatcher | None = None
+    """The URLs it waits for."""
+
+
 class WaitUntil(StrEnum):
     """
     When a navigation answers, by the state its document reached
@@ -1830,6 +1987,59 @@ class WeakenedSetting(BaseModel):
     """Its value."""
 
 
+class WebError(BaseModel):
+    """
+    What `page.page_error` reports, `WebError`: an exception the page did
+    not catch (ADR 0085), never a `PageError`, ADR 0079's group.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    message: str
+    """Its message."""
+    name: str
+    """
+    Its name, such as `TypeError`; `Error` for a thrown value that is no
+    error.
+    """
+    page_id: PageId
+    """The page."""
+    stack: str | None = None
+    """Its stack as the browser renders it, when it has one."""
+
+
+class WebSocketClosed(BaseModel):
+    """What `web_socket.close` reports: a page's WebSocket closed."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    page_id: PageId
+    """The page."""
+    web_socket_id: str
+    """The socket."""
+
+
+class WebSocketFrame(BaseModel):
+    """
+    What `web_socket.frame_sent` and `web_socket.frame_received` report: one
+    message frame of a page's WebSocket.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    binary: bool
+    """Whether it is a binary frame."""
+    page_id: PageId
+    """The page."""
+    payload: str
+    """Its payload: its text, or for a binary frame its bytes in Base64."""
+    web_socket_id: str
+    """The socket."""
+
+
 class ArtifactId(BaseModel):
     """Which Pinned artifact: its kind, its name and its build."""
 
@@ -1842,6 +2052,22 @@ class ArtifactId(BaseModel):
     """What it is."""
     name: str
     """Its name, such as `chrome-for-testing`."""
+
+
+class BodyHandle(BaseModel):
+    """A page body as a handle: its ID, the file that holds it and its size."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    body: Annotated[str, Field(pattern="^[0-9a-f]{64}$")]
+    """Its ID, the lowercase hex SHA-256 of its bytes."""
+    path: str
+    """The file that holds it, which a Client on the same machine reads."""
+    run_id: RunId
+    """The Run whose folder holds it."""
+    size: Annotated[int, Field(ge=0)]
+    """Its size in bytes."""
 
 
 class CancelParams(BaseModel):
@@ -1864,6 +2090,12 @@ class CertificatePin(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    changed_spki_sha256: str | None = None
+    """
+    The SHA-256 of the key the host presented instead, which stopped it
+    with `certificate_changed`, as `sha256/` and its standard base64: the
+    key `certs.accept` pins in its place. None while no change waits.
+    """
     host: str
     """The host, as the URL parser leaves it."""
     pinned_at: PointInTime | None = None
@@ -1974,6 +2206,28 @@ class ConfigExplainParams(BaseModel):
     """
     Run-layer values to explain with, as a Run's `settings` would give
     them.
+    """
+
+
+class ConsoleMessage(BaseModel):
+    """What `page.console` reports: a message the page wrote to its console."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    location: ConsoleLocation
+    """Where it was written."""
+    page_id: PageId
+    """The page."""
+    text: str
+    """
+    Its text: each argument, a primitive as its value and any other as
+    the browser describes it, joined by spaces.
+    """
+    type: str
+    """
+    Its type as Playwright names it, such as `log`, `warning` or
+    `error`.
     """
 
 
@@ -2436,6 +2690,19 @@ class PageDownload(BaseModel):
     """The file's URL."""
 
 
+class PageFired(BaseModel):
+    """
+    What `page.load` and `page.dom_content_loaded` report: the page whose
+    main frame's document fired the event.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    page_id: PageId
+    """The page."""
+
+
 class PageOpened(BaseModel):
     """
     What `run.new_page` and `session.new_page` answer: the page, and the
@@ -2449,6 +2716,43 @@ class PageOpened(BaseModel):
     """The page."""
     session_id: SessionId
     """Its Session: the Run's default Session for `run.new_page`."""
+
+
+class PageRequest(BaseModel):
+    """
+    A request of a page, ADR 0085's `Request`: one per hop of a redirect
+    chain, each hop under the same `request_id`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    failure: RequestFailure | None = None
+    """Why it failed, for `page.request_failed`; none otherwise."""
+    headers: dict[str, str]
+    """Its headers as the browser sent them."""
+    is_navigation_request: bool
+    """Whether it loads the document of the page's main frame."""
+    method: str
+    """Its method, such as `GET`."""
+    page_id: PageId
+    """The page that sent it."""
+    post_data: str | None = None
+    """Its body, in Base64 (RFC 4648, with padding), when it has one."""
+    redirect_chain: list[str]
+    """
+    The URLs of the hops a redirect led from before it, the first first;
+    empty when no redirect led to it.
+    """
+    request_id: str
+    """The browser's ID for it, which `response.body` takes."""
+    resource_type: str
+    """
+    The browser's name for what it loads, such as `Document` or
+    `Fetch`.
+    """
+    url: str
+    """Its URL."""
 
 
 class PageRouteParams(BaseModel):
@@ -2704,6 +3008,23 @@ class RunStarted(BaseModel):
     """The Run's ID."""
     started_as: StartedAs
     """Whether the start began it."""
+
+
+class RunStorage(BaseModel):
+    """
+    The worst storage level among the filesystems a Run writes to, with
+    that filesystem's folder and free space (ADR 0122).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    folder: str
+    """A folder the Run writes to on that filesystem."""
+    free_bytes: Annotated[int, Field(ge=0)]
+    """The space left on it to the engine's user, in bytes."""
+    level: StorageLevel
+    """The level."""
 
 
 class SessionRouteParams(BaseModel):
@@ -3143,9 +3464,12 @@ class NewSessionParams(BaseModel):
     """The Run."""
     settings: dict[str, Any] | None = None
     """
-    The Session's own settings, nested by key; `session.source` is
-    refused here with `setting_not_applicable`, as the call's own
-    `source` sets it.
+    The Session's own settings, nested by key: `filter_lists.ads`,
+    `.trackers`, `.annoyances`, `.first_party_scripts` and
+    `browser.block_resources` choose its pages' Clean-up rules over the
+    Run's. `session.source` is refused here with `setting_not_applicable`,
+    as the call's own `source` sets it, and so is any other key, which
+    only the Run sets.
     """
     source: SessionSource | None = None
     """
@@ -3175,6 +3499,21 @@ class NotUnderstoodLimit(BaseModel):
     """The Usage kind it caps."""
 
 
+class PageExchange(BaseModel):
+    """
+    What `page.response` reports, and `page.wait_for_request_finished`
+    answers: a request and the response it got.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    request: PageRequest
+    """The request."""
+    response: PageResponse
+    """Its response, whose body `response.body` reads."""
+
+
 class Resync(BaseModel):
     """
     What `events.resync` gives: the current state, from which the stream
@@ -3186,6 +3525,25 @@ class Resync(BaseModel):
     )
     runs: list[RunAxes]
     """The axes of each Run the engine knows, live or ended."""
+
+
+class RunProgress(BaseModel):
+    """A Run's progress as it is now (ADR 0102): what `run.progress` reports."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    lifecycle: Lifecycle
+    """Where it is."""
+    message: ProgressMessage | None = None
+    """The program's own status line, once it set one."""
+    run_id: RunId
+    """The Run's ID."""
+    storage: RunStorage | None = None
+    """
+    The worst storage level among the filesystems the Run writes to,
+    once the Resource governor sampled them (ADR 0122).
+    """
 
 
 class RunStopping(BaseModel):

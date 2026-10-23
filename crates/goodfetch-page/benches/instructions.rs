@@ -21,9 +21,9 @@ fn check_and_arm(count: usize) -> usize {
 library_benchmark_group!(name = guard, benchmarks = check_and_arm);
 
 #[library_benchmark]
-#[bench::thousand_requests(1000)]
-fn intercept(count: usize) -> usize {
-    black_box(scenarios::intercept(black_box(count)))
+#[bench::thousand_requests_with_filter_lists(args = (1000), setup = scenarios::filter_lists)]
+fn intercept((count, blocking): (usize, scenarios::steps::Blocking)) -> usize {
+    black_box(scenarios::intercept(black_box(count), &blocking))
 }
 
 library_benchmark_group!(name = interception, benchmarks = intercept);

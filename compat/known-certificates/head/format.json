@@ -5,6 +5,14 @@
       "CertificatePin": {
         "description": "One pin of the known-certificates store, as `certs.list` answers it and\nas the store's rows hold it: a host whose certificate was accepted on\nfirst use, and the key it must keep presenting.",
         "properties": {
+          "changed_spki_sha256": {
+            "arrived_in": "0.1",
+            "description": "The SHA-256 of the key the host presented instead, which stopped it\nwith `certificate_changed`, as `sha256/` and its standard base64: the\nkey `certs.accept` pins in its place. None while no change waits.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "host": {
             "arrived_in": "0.1",
             "description": "The host, as the URL parser leaves it.",

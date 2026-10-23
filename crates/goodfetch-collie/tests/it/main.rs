@@ -11,6 +11,7 @@ mod attached;
 mod audit;
 #[cfg(unix)]
 mod background_traffic;
+mod browser_pool;
 mod browsers;
 mod certs;
 #[cfg(target_os = "macos")]
@@ -21,6 +22,7 @@ mod config;
 mod console;
 mod content_origin;
 mod daemon;
+mod daemon_log;
 mod daemon_run;
 mod events;
 mod exit_codes;
@@ -39,6 +41,7 @@ mod locator;
 mod log;
 mod ops;
 mod page;
+mod page_events;
 mod parent_death;
 mod private_endpoint;
 mod proxy;
@@ -48,6 +51,10 @@ mod service_manager;
 mod sessions;
 mod settings_flags;
 mod sign_in;
+#[cfg(target_os = "linux")]
+mod storage;
+#[cfg(target_os = "linux")]
+mod tmpfs;
 mod upgrade_files;
 mod usage;
 #[cfg(target_os = "linux")]

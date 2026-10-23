@@ -23,6 +23,7 @@ use crate::agent;
 use crate::browser_pages;
 use crate::catalog;
 use crate::certificates;
+use crate::clean_up;
 use crate::crawl::{self, Families};
 use crate::encodings;
 use crate::exchange::{Reply, Request};
@@ -120,6 +121,7 @@ impl Site {
                 extraction::HOST,
                 files::HOST,
                 languages::HOST,
+                clean_up::HOST,
             ])
             .map(|host| (host.to_owned(), None))
             .collect();
@@ -233,9 +235,10 @@ impl Site {
 
     /// The connection a request asks the server to hold open, given its
     /// `Host` header: one of the `live` family's WebSocket and server-sent
-    /// events stream.
+    /// events stream, or the `access` family's page events WebSocket.
     pub(crate) fn push(host: &str, method: &Method, path: &str) -> Option<Push> {
-        browser_pages::push(&observation::host_name(host), method, path)
+        let name = observation::host_name(host);
+        browser_pages::push(&name, method, path).or_else(|| access::push(&name, method, path))
     }
 
     /// The whole response, as bytes, of a request to `path` on `host` (its
@@ -290,6 +293,9 @@ impl Site {
             return reply;
         }
         if let Some(reply) = certificates::respond(&name) {
+            return reply;
+        }
+        if let Some(reply) = clean_up::respond(&name, request) {
             return reply;
         }
         if name == model::HOST {

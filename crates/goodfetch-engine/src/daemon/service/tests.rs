@@ -33,7 +33,6 @@ fn fixture_environment() -> BTreeMap<OsString, OsString> {
     environment(&[
         ("HOME", "/Users/ada"),
         ("GOODFETCH_HOME", HOME),
-        ("GOODFETCH_LOG", "info,goodfetch=debug"),
         ("GOODFETCH_TOKEN", "a secret no service may hold"),
         ("PATH", "/usr/bin"),
         ("USERDOMAIN", "WORKSTATION"),

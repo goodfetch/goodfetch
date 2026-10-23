@@ -13,6 +13,7 @@ autobenches = false
 [dependencies]
 data-encoding.workspace = true
 goodfetch-cdp.workspace = true
+goodfetch-clean-up-rules.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-extractor.workspace = true
 goodfetch-protocol.workspace = true
@@ -27,7 +28,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 # `net` and `io-util` for the per-Session SOCKS5 relay (the `proxy` module).
 tokio = { workspace = true, features = ["io-util", "net", "process", "sync", "time", "macros"] }
-# The relay's stop, when its Session's proxy goes.
+# The relay's stop, when its Session's proxy goes; a browser of the pool
+# closes on its own token, a child of its Run's.
 tokio-util.workspace = true
 tracing.workspace = true
 url.workspace = true

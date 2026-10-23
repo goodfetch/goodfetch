@@ -10,15 +10,23 @@ use std::time::Duration;
 
 use goodfetch_protocol::governor::{AllowanceSource, GovernorLevel};
 
+#[cfg(test)]
+use super::storage::DiskView;
+use super::storage::Disks;
+
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(windows)]
 mod windows;
 
-/// Where the governor reads the machine.
+/// Where the governor reads the machine, and where it reads the
+/// filesystems the Runs write to (ADR 0122).
 #[derive(Clone, Debug)]
-pub struct System(Source);
+pub struct System {
+    source: Source,
+    pub(crate) disks: Disks,
+}
 
 #[derive(Clone, Debug)]
 enum Source {
@@ -55,18 +63,31 @@ impl System {
     /// The OS the engine runs on, which only `main` and the engine's own
     /// default use.
     pub fn os() -> Self {
-        Self(Source::Os)
+        Self {
+            source: Source::Os,
+            disks: Disks::Os,
+        }
     }
 
     /// A folder laid out as Linux's `/proc`, whose `self` is the engine,
     /// and whose `self/mountinfo` names where the cgroup file system is.
     pub fn linux_files(proc: PathBuf) -> Self {
-        Self(Source::LinuxFiles(proc))
+        Self {
+            source: Source::LinuxFiles(proc),
+            disks: Disks::Os,
+        }
+    }
+
+    /// The same, reading the filesystems through a test's `view`.
+    #[cfg(test)]
+    pub(crate) fn with_disks(mut self, view: DiskView) -> Self {
+        self.disks = Disks::View(view);
+        self
     }
 
     /// Reads the machine now. Blocking.
     pub(crate) fn read(&self, inputs: &Inputs) -> SystemReading {
-        let found = match &self.0 {
+        let found = match &self.source {
             Source::LinuxFiles(proc) => linux_files(proc, inputs),
             Source::Os => os(inputs),
         };
@@ -83,6 +104,29 @@ impl System {
             host: found.host,
             cpu_time: found.cpu_time,
         }
+    }
+}
+
+/// The memory of the process `process` and every descendant, in bytes,
+/// as the governor counts the engine's: PSS on Linux, the platform's own
+/// footprint elsewhere; nothing for a process that is gone. Blocking.
+pub fn footprint_of(process: u32) -> u64 {
+    #[cfg(target_os = "linux")]
+    {
+        linux::Proc(Path::new("/proc")).footprint_from(&process.to_string())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos::footprint_from(process)
+    }
+    #[cfg(windows)]
+    {
+        windows::footprint_from(process)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    {
+        let _ = process;
+        0
     }
 }
 

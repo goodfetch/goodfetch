@@ -7,7 +7,8 @@
 //! element a locator matches, through the guard (ADR 0019); and the Error
 //! codes a page's browser, its navigations, its locators and the URL
 //! patterns its calls pass fail with. Its `route` module holds the page's
-//! and the Session's routes, its `session` module a Run's own Sessions and
+//! and the Session's routes, its `session` module a Run's own Sessions,
+//! its `events` module the page's events and its responses' bodies, and
 //! its `proxy` module a Session's proxy.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
@@ -16,6 +17,10 @@
 //! `page.body`, which sends it in `$/chunk` notifications, one per credit
 //! the Client grants the call with `$/credit`, and answers once the last
 //! chunk is sent.
+//!
+//! Size: one catalog module, the contract of a Run's pages: their
+//! operations, Error codes and `browser.*` settings, kept whole so each
+//! entry sits beside the others it is listed with.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -33,10 +38,17 @@ use crate::jsonrpc::{ErrorData, RequestId};
 use crate::run::RunId;
 use crate::settings::SettingLimit;
 
+pub mod events;
 pub mod proxy;
 pub mod route;
 pub mod session;
 
+use self::events::{
+    BODY_UNAVAILABLE, PAGE_CONSOLE, PAGE_DOM_CONTENT_LOADED, PAGE_LOAD, PAGE_ON, PAGE_PAGE_ERROR,
+    PAGE_REQUEST, PAGE_REQUEST_FAILED, PAGE_REQUEST_FINISHED, PAGE_RESPONSE,
+    PAGE_WAIT_FOR_REQUEST_FINISHED, PAGE_WEB_SOCKET, RESPONSE_BODY, WEB_SOCKET_CLOSE,
+    WEB_SOCKET_FRAME_RECEIVED, WEB_SOCKET_FRAME_SENT,
+};
 use self::route::{
     PAGE_HANDLER_FAILED, PAGE_ROUTE, ROUTE_ABORT, ROUTE_ALREADY_HANDLED, ROUTE_CONTINUE,
     ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL, ROUTE_HANDLE, SESSION_ROUTE,
@@ -241,6 +253,13 @@ pub struct PageResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub encoding: Option<String>,
+    /// The browser's ID for its request, which `response.body` takes.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub request_id: String,
+    /// Whether a site's service worker supplied it, from its own cache or
+    /// through its own fetch (ADR 0121).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub from_service_worker: bool,
 }
 
 /// What a navigation answers: the document's response, or none for a
@@ -352,8 +371,10 @@ pub struct PageDownload {
     pub suggested_filename: String,
 }
 
-/// What `page.request_failed` reports: a request of the run that failed
-/// while no call waited for it, such as one the egress policy refused.
+/// What the Run trace records of a request the engine's own HTTP client
+/// sent for the Run that failed while no call waited for it, such as one the
+/// egress policy refused; a page's failed request is a `page.request_failed`
+/// event's `PageRequest`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RequestFailed {
     /// The request's URL, as the run gave it.
@@ -621,18 +642,6 @@ pub const PAGE_DOWNLOAD: Event = Event {
     arrived_in: ARRIVED_IN,
 };
 
-/// A request no call waited for failed (ADRs 0081 and 0085's
-/// `requestfailed`).
-pub const PAGE_REQUEST_FAILED: Event = Event {
-    name: "page.request_failed",
-    description: "A request of the run failed while no call waited for it, such as one the egress policy refused with `egress_refused`: the Run trace records it, so a refusal is never a timeout. Names the request's URL and method, and the failure's Error code with its details.",
-    class: EventClass::Lossless,
-    payload: schema_of::<RequestFailed>,
-    stability: Stability::Experimental,
-    deprecated: None,
-    arrived_in: ARRIVED_IN,
-};
-
 /// `locator.click`.
 pub const LOCATOR_CLICK: Operation = Operation {
     name: "locator.click",
@@ -774,6 +783,26 @@ pub const BROWSER_HEADLESS: Setting = Setting {
 
 fn headless() -> serde_json::Value {
     serde_json::Value::Bool(true)
+}
+
+/// The resource kinds `browser.block_resources` takes, a closed list (ADR
+/// 0117).
+pub const BLOCKABLE_RESOURCES: &[&str] = &["image", "media", "font", "stylesheet"];
+
+/// `browser.block_resources` (ADRs 0047 and 0117; spec #577).
+pub const BROWSER_BLOCK_RESOURCES: Setting = Setting {
+    name: "browser.block_resources",
+    description: "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
+    kind: ValueKind::List(&ValueKind::Choice(BLOCKABLE_RESOURCES)),
+    default: no_resources,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn no_resources() -> serde_json::Value {
+    serde_json::Value::Array(Vec::new())
 }
 
 /// A format asked for as `true`: with its default options.
@@ -969,11 +998,29 @@ pub const ENTRIES: Entries = Entries {
         ROUTE_FULFILL,
         ROUTE_ABORT,
         ROUTE_FETCH,
+        PAGE_ON,
+        RESPONSE_BODY,
+        PAGE_WAIT_FOR_REQUEST_FINISHED,
     ],
-    events: &[PAGE_DOWNLOAD, PAGE_REQUEST_FAILED],
+    events: &[
+        PAGE_DOWNLOAD,
+        PAGE_CONSOLE,
+        PAGE_PAGE_ERROR,
+        PAGE_REQUEST,
+        PAGE_REQUEST_FINISHED,
+        PAGE_REQUEST_FAILED,
+        PAGE_RESPONSE,
+        PAGE_WEB_SOCKET,
+        WEB_SOCKET_FRAME_SENT,
+        WEB_SOCKET_FRAME_RECEIVED,
+        WEB_SOCKET_CLOSE,
+        PAGE_LOAD,
+        PAGE_DOM_CONTENT_LOADED,
+    ],
     handler_requests: &[ROUTE_HANDLE],
     error_codes: &[
         BODY_NOT_FOUND,
+        BODY_UNAVAILABLE,
         NAVIGATION_FAILED,
         NAVIGATION_INTERRUPTED,
         TOO_MANY_REDIRECTS,
@@ -988,7 +1035,7 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[BROWSER_HEADLESS],
+    settings: &[BROWSER_HEADLESS, BROWSER_BLOCK_RESOURCES],
     hook_stages: &[],
     shared_type_values: &[],
 };

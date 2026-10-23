@@ -10,15 +10,23 @@
 //! `session.route` arm their routes there, `route.*` answer the requests
 //! those routes hold, and a failure a route's handler left on a page is
 //! raised by the navigation waiting on its request, or else by the page's
-//! next call.
+//! next call. A page's events are published while `page.on` listens to
+//! them, and `response.body` and `page.wait_for_request_finished` read its
+//! responses' bodies (`page_events`).
 
 use std::collections::BTreeMap;
 
 use goodfetch_engine::browser_cache::PinnedArtifact;
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_extractor::{Context, Document};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::page::events::{
+    PAGE_ON, PAGE_WAIT_FOR_REQUEST_FINISHED, PageOnEnded, PageOnParams, RESPONSE_BODY,
+    ResponseBodyParams, WaitForRequestFinishedParams,
+};
+use goodfetch_protocol::page::route::UrlMatcher;
 use goodfetch_protocol::page::route::{
     PAGE_ROUTE, PageRouteParams, ROUTE_ABORT, ROUTE_CONTINUE, ROUTE_FALLBACK, ROUTE_FETCH,
     ROUTE_FULFILL, RouteAbortParams, RouteAnswered, RouteFetched, RouteFulfillParams,
@@ -38,7 +46,9 @@ use goodfetch_protocol::page::{
 use crate::driver::{Arrived, Destination};
 use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
+use crate::page_events;
 use crate::sessions::{self, OpenPage, Sessions};
+use crate::url_pattern::UrlPattern;
 
 /// What the page crate adds to the engine (ADR 0087): its run state's
 /// Sessions table and the handlers of `run.new_page`, of the Sessions'
@@ -48,9 +58,11 @@ use crate::sessions::{self, OpenPage, Sessions};
 /// come from `pins`, the builds the Product version pins.
 pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
     let interception = Interception::default();
+    let events = page_events::Table::default();
     let pages = Pages {
-        sessions: Sessions::new(pins, interception.clone()),
+        sessions: Sessions::new(pins, interception.clone(), events.clone()),
         interception,
+        events,
     };
     let contribution = with_page_handlers(
         Contribution::new("page").with_run_state_tables(sessions::TABLES),
@@ -58,7 +70,55 @@ pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
     );
     let contribution = with_session_handlers(contribution, &pages.sessions);
     let contribution = with_locator_handlers(contribution, &pages);
+    let contribution = with_event_handlers(contribution, &pages.events);
     with_route_handlers(contribution, &pages.interception)
+}
+
+/// Adds the handlers of `page.on`, each listening from when its call
+/// arrives until the call goes, of `page.wait_for_request_finished`, armed
+/// when its call arrives, and of `response.body`.
+fn with_event_handlers(contribution: Contribution, table: &page_events::Table) -> Contribution {
+    let (listening, waiting, reading) = (table.clone(), table.clone(), table.clone());
+    contribution
+        .with_handler(Handler::new(
+            &PAGE_ON,
+            move |params: PageOnParams, _context: CallContext| {
+                let listened = listening
+                    .get(&params.page_id)
+                    .map(|events| events.listen(params.event, Clock::system().wall()));
+                async move {
+                    let (armed, runtime) = listened?;
+                    armed.until_gone(runtime).await?;
+                    Ok::<PageOnEnded, CallError>(PageOnEnded {})
+                }
+            },
+        ))
+        .with_handler(Handler::new(
+            &PAGE_WAIT_FOR_REQUEST_FINISHED,
+            move |params: WaitForRequestFinishedParams, context: CallContext| {
+                let armed = waiting.get(&params.page_id).and_then(|events| {
+                    let pattern = params.url.as_ref().map(pattern_of).transpose()?;
+                    Ok(events.wait_for_request_finished(pattern, context.surface()))
+                });
+                async move { armed?.await }
+            },
+        ))
+        .with_handler(Handler::new(
+            &RESPONSE_BODY,
+            move |params: ResponseBodyParams, context: CallContext| {
+                let events = reading.get(&params.page_id);
+                let surface = context.surface();
+                async move { events?.body(&params.request_id, surface).await }
+            },
+        ))
+}
+
+/// The engine's matcher for `matcher`.
+fn pattern_of(matcher: &UrlMatcher) -> Result<UrlPattern, CallError> {
+    Ok(match matcher {
+        UrlMatcher::Glob { pattern } => UrlPattern::glob(pattern)?,
+        UrlMatcher::Regex { pattern } => UrlPattern::regex(pattern)?,
+    })
 }
 
 /// Adds the handlers of `run.new_session`, `session.new_page` and
@@ -369,6 +429,8 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
 struct Pages {
     sessions: Sessions,
     interception: Interception,
+    /// Each open page's events, which calls reach as they arrive.
+    events: page_events::Table,
 }
 
 impl Pages {

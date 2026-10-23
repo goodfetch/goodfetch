@@ -32,11 +32,9 @@ fn folder_name_holds_a_space_and_a_non_ascii_letter() {
 /// The cleared map's variables, in order: those of every OS, and on Windows
 /// those a process needs to start.
 #[cfg(not(windows))]
-const CLEARED_MAP: [&str; 13] = [
+const CLEARED_MAP: [&str; 11] = [
     "BREAKPAD_DUMP_LOCATION",
     "GOODFETCH_HOME",
-    "GOODFETCH_LOG",
-    "GOODFETCH_LOG_OUTPUT",
     "HOME",
     "LANG",
     "TZ",
@@ -48,12 +46,10 @@ const CLEARED_MAP: [&str; 13] = [
     "XDG_STATE_HOME",
 ];
 #[cfg(windows)]
-const CLEARED_MAP: [&str; 16] = [
+const CLEARED_MAP: [&str; 14] = [
     "BREAKPAD_DUMP_LOCATION",
     "ComSpec",
     "GOODFETCH_HOME",
-    "GOODFETCH_LOG",
-    "GOODFETCH_LOG_OUTPUT",
     "HOME",
     "LANG",
     "PATHEXT",
@@ -247,21 +243,38 @@ fn an_unreadable_seed_fails_the_creation() {
     ));
 }
 
+/// The test home's user configuration, as written.
+fn user_configuration(env: &TestEnv) -> String {
+    std::fs::read_to_string(
+        env.home()
+            .join(crate::runtime_file::major_folder(env!("CARGO_PKG_VERSION")))
+            .join("configuration.toml"),
+    )
+    .unwrap()
+}
+
 #[test]
-fn map_turns_on_the_engines_json_log_with_the_dispatch_and_outcome_records() {
+fn user_configuration_turns_on_the_engines_json_log_with_the_dispatch_and_outcome_records() {
     let env = test_env("env::tests::log");
 
-    let log = (
-        env.env()["GOODFETCH_LOG_OUTPUT"].as_str(),
-        env.env()["GOODFETCH_LOG"].as_str(),
+    assert_eq!(
+        user_configuration(&env),
+        "version = \"0.1\"\n\n[settings]\nconsole.address = \"127.0.0.1:0\"\nlog.output = \"file\"\n\
+         log.level = \"info,goodfetch::rpc::dispatch=trace,goodfetch::run::outcome=trace\"\n"
     );
+}
+
+#[test]
+fn a_log_level_keeps_the_settings_the_test_wrote_and_its_own_settings_win() {
+    let env = test_env("env::tests::log_level");
+    env.user_configuration("daemon.idle_timeout = 500\nlog.output = \"none\"\n");
+
+    env.log_level("trace");
 
     assert_eq!(
-        log,
-        (
-            "file",
-            "info,goodfetch::rpc::dispatch=trace,goodfetch::run::outcome=trace"
-        )
+        user_configuration(&env),
+        "version = \"0.1\"\n\n[settings]\nlog.level = \"trace\"\nconsole.address = \"127.0.0.1:0\"\n\
+         daemon.idle_timeout = 500\nlog.output = \"none\"\n"
     );
 }
 

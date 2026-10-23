@@ -2,7 +2,13 @@ version = "0.1"
 lowest_minor = 0
 
 [settings.log]
+level = "example"
+output = "stdout"
 format = "text"
+
+[settings.log.file]
+max_size = 4
+max_files = 4
 
 [settings.otlp]
 traces_endpoint = "example"
@@ -45,6 +51,16 @@ ceiling = 4
 floor = 4
 ceiling = 4
 
+[settings.governor.browser]
+contexts_per_process = 4
+recycle_pages = 4
+recycle_idle = 30000
+memory_cap = 4
+
+[settings.storage]
+low_free = 4
+critical_free = 4
+
 [settings.browser_cache]
 max_unused_age = 30000
 
@@ -63,6 +79,7 @@ accept_invalid_certs = { "example.test" = "example" }
 
 [settings.browser]
 headless = true
+block_resources = ["image"]
 
 [settings.proxy]
 server = "http://proxy.example:3128"
@@ -85,6 +102,7 @@ run = 30000
 close = 30000
 action = 30000
 navigation = 30000
+wait = 30000
 first_byte = 30000
 handler = 30000
 
@@ -103,6 +121,11 @@ refetch_domains = ["example"]
 denied_domains = ["example"]
 
 [settings.filter_lists]
+ads = true
+trackers = true
+annoyances = true
+first_party_scripts = true
+page_scriptlets = true
 extra = ["example"]
 
 [settings.session]

@@ -239,7 +239,7 @@ impl Routes {
 }
 
 /// A glob matcher's wire form.
-fn glob(pattern: &str) -> Value {
+pub(super) fn glob(pattern: &str) -> Value {
     json!({ "kind": "glob", "pattern": pattern })
 }
 
@@ -299,7 +299,7 @@ fn page(
 }
 
 /// `page.goto` on `page` to `url`.
-fn goto(
+pub(super) fn goto(
     routes: &mut Routes,
     connection: &mut Connection,
     page: &PageOpened,

@@ -1,8 +1,9 @@
 //! The logs and traces of Collie's executable (spec #213's Seam 1; ADRs
 //! 0043, 0078, 0122 and 0132): the Attached engine's JSON log in the
-//! Goodfetch home, written only when `GOODFETCH_LOG_OUTPUT` is `file`, as
-//! test support turns it on for ADR 0072's exercise audit, which reads
-//! `rpc`'s dispatch records in it; `log.format` on stderr; the `$/log`
+//! Goodfetch home, written only when `log.output` is `file`, as test
+//! support turns it on for ADR 0072's exercise audit, which reads `rpc`'s
+//! dispatch records in it, and `stdout` refused there; `log.format` on
+//! stderr; the `$/log`
 //! events a Client asks for in `hello`; the spans an OTLP collector
 //! receives once `otlp.traces_endpoint` names it; and no Secret canary in
 //! any log, raw or in Goodfetch's encodings.
@@ -25,7 +26,7 @@ use std::net::TcpListener;
 use std::path::Path;
 use std::sync::mpsc;
 
-use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
+use goodfetch_test_support::{Canaries, MESSAGE_DEADLINE, Output, SecretKind, TestEnv};
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value::Value as AnyValue;
 use prost::Message as _;
@@ -53,12 +54,15 @@ fn log_lines(home: &Path) -> Vec<Value> {
         .collect()
 }
 
+/// With `log.output: file`, as test support sets it, an Attached engine
+/// writes the JSON lines ADR 0072's exercise audit reads into the test's
+/// Goodfetch home.
+///
+/// Covers: row:RT-17, setting:log.output, setting:log.level
 #[test]
 fn with_log_output_file_the_engine_writes_its_dispatch_records_as_json_lines_into_the_home() {
     let env = TestEnv::new();
-    let mut engine = Attached::start_with(&env, |command| {
-        command.env("GOODFETCH_LOG_OUTPUT", "file");
-    });
+    let mut engine = Attached::start(&env);
     engine.send(&hello("collie", "0.1"));
     let _ = engine.next();
     engine.send(&json!({ "jsonrpc": "2.0", "id": 1, "method": "sample.crawl", "params": {} }));
@@ -85,12 +89,15 @@ fn with_log_output_file_the_engine_writes_its_dispatch_records_as_json_lines_int
     );
 }
 
+/// With `log.output: none`, the default of an Attached engine, it writes no
+/// log file.
+///
+/// Covers: row:RT-17, setting:log.output
 #[test]
-fn without_log_output_the_engine_writes_no_log_file() {
+fn with_log_output_none_the_engine_writes_no_log_file() {
     let env = TestEnv::new();
-    let mut engine = Attached::start_with(&env, |command| {
-        command.env_remove("GOODFETCH_LOG_OUTPUT");
-    });
+    env.user_configuration("log.output = \"none\"\n");
+    let mut engine = Attached::start(&env);
     engine.send(&hello("collie", "0.1"));
     let _ = engine.next();
 
@@ -99,16 +106,24 @@ fn without_log_output_the_engine_writes_no_log_file() {
     assert!(!env.home().join("logs").exists());
 }
 
+/// `log.output: stdout` on an Attached engine, whose stdout is its
+/// protocol, fails its start with `setting_not_applicable`, before any
+/// message.
+///
+/// Covers: row:RT-17, setting:log.output, error:setting_not_applicable
 #[test]
-fn an_unknown_log_output_fails_the_start() {
+fn log_output_stdout_on_an_attached_engine_fails_with_setting_not_applicable() {
     let env = TestEnv::new();
-    let engine = Attached::start_with(&env, |command| {
-        command.env("GOODFETCH_LOG_OUTPUT", "stdout");
-    });
+    env.user_configuration("log.output = \"stdout\"\n");
+    let engine = Attached::start(&env);
 
-    let (sent, succeeded) = engine.finish();
+    let (sent, stderr) = engine.finish_with_stderr();
 
-    assert_eq!((sent, succeeded), (vec![], false));
+    assert_eq!(
+        (sent, stderr.contains("setting_not_applicable")),
+        (vec![], true),
+        "{stderr}"
+    );
 }
 
 /// Each line of `stderr` that reads as a JSON value, and how many do not.
@@ -137,9 +152,12 @@ fn an_attached_engine_writes_its_logs_on_stderr_in_the_format_log_format_names(
     if let Some(format) = format {
         env.user_configuration(&format!("log.format = \"{format}\""));
     }
-    let mut engine = Attached::start_with(&env, |command| {
-        command.env("GOODFETCH_LOG", "info,goodfetch::rpc::dispatch=trace");
-    });
+    let mut engine = Attached::start_logging(
+        &env,
+        MESSAGE_DEADLINE,
+        "info,goodfetch::rpc::dispatch=trace",
+        |_| {},
+    );
     engine.send(&hello("collie", "0.1"));
     let _ = engine.next();
     engine.send(&json!({ "jsonrpc": "2.0", "id": 1, "method": "engine.info", "params": {} }));
@@ -418,9 +436,7 @@ fn no_secret_canary_a_client_sends_reaches_the_engines_logs() {
         percent_encoded(&token),
         percent_encoded(&token)
     );
-    let mut engine = Attached::start_with(&env, |command| {
-        command.env("GOODFETCH_LOG_OUTPUT", "file");
-    });
+    let mut engine = Attached::start(&env);
     engine.send(&hello("collie", "0.1"));
     let _ = engine.next();
     for request in [

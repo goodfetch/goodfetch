@@ -7,8 +7,9 @@
 //! element a locator matches, through the guard (ADR 0019); and the Error
 //! codes a page's browser, its navigations, its locators and the URL
 //! patterns its calls pass fail with. Its `route` module holds the page's
-//! and the Session's routes, its `session` module a Run's own Sessions, and
-//! its `events` module the page's events and its responses' bodies.
+//! and the Session's routes, its `session` module a Run's own Sessions,
+//! its `events` module the page's events and its responses' bodies, and
+//! its `proxy` module a Session's proxy.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -38,6 +39,7 @@ use crate::run::RunId;
 use crate::settings::SettingLimit;
 
 pub mod events;
+pub mod proxy;
 pub mod route;
 pub mod session;
 

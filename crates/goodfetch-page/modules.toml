@@ -1,14 +1,15 @@
 # Which of goodfetch-page's top-level modules may import which (ADR 0126).
 [modules]
-driver = ["errors", "launch", "trace"]
+driver = ["errors", "launch", "proxy", "trace"]
 errors = []
 guard = ["driver"]
-interception = ["driver", "page_events", "url_pattern"]
+interception = ["driver", "page_events", "proxy", "url_pattern"]
 launch = []
 page_events = ["driver", "url_pattern"]
 pages = ["driver", "guard", "interception", "page_events", "sessions", "url_pattern"]
-pool = ["driver", "trace"]
-sessions = ["driver", "interception", "page_events", "pool"]
+pool = ["driver", "proxy", "trace"]
+proxy = []
+sessions = ["driver", "interception", "page_events", "pool", "proxy"]
 robots_txt = []
 trace = []
 url_pattern = []
@@ -31,6 +32,11 @@ steps = []
 # Which of `pool`'s own modules may import which.
 [submodules.pool]
 rules = []
+
+# Which of `proxy`'s own modules may import which.
+[submodules.proxy]
+party = []
+relay = []
 
 # Which of `launch`'s own modules may import which.
 [submodules.launch]

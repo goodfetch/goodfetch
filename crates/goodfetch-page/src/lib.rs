@@ -17,6 +17,7 @@ mod launch;
 mod page_events;
 mod pages;
 mod pool;
+mod proxy;
 pub mod robots_txt;
 mod sessions;
 mod trace;

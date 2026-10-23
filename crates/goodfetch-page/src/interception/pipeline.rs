@@ -6,7 +6,7 @@
     reason = "routes are armed and answers delivered as their call arrives, before any `.await`: each lock guards one table or map for one operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use data_encoding::BASE64;
@@ -23,6 +23,7 @@ use goodfetch_protocol::page::route::{
     RouteFetched, RouteHandleParams, RouteHandled, RouteId, RouteRequest,
 };
 use goodfetch_protocol::page::{NAVIGATION_FAILED, NavigationFailedDetails, PageId};
+use secrecy::ExposeSecret as _;
 use tokio::sync::oneshot;
 
 use super::answers::{Answer, Answers, Fulfillment, Reply, already_handled};
@@ -49,6 +50,37 @@ pub(super) struct PageContext {
     /// The URL of the main frame's document last sent on: the source the
     /// Filter lists judge a request without a `Referer` by.
     document: Mutex<String>,
+    /// The requests the Session's proxy credentials were given for.
+    authenticated: Mutex<Authenticated>,
+}
+
+/// The latest requests the Session's proxy credentials were given for, so a
+/// second 407 for one of them is a refusal (STYLE.md: every buffer is
+/// bounded).
+#[derive(Default)]
+struct Authenticated {
+    requests: BTreeSet<fetch::RequestId>,
+    order: VecDeque<fetch::RequestId>,
+}
+
+/// The most requests [`Authenticated`] keeps.
+const AUTHENTICATED_LIMIT: usize = 1024;
+
+impl Authenticated {
+    /// Records `request`; whether it was recorded already.
+    fn seen(&mut self, request: &fetch::RequestId) -> bool {
+        if self.requests.contains(request) {
+            return true;
+        }
+        if self.order.len() == AUTHENTICATED_LIMIT
+            && let Some(oldest) = self.order.pop_front()
+        {
+            self.requests.remove(&oldest);
+        }
+        self.requests.insert(request.clone());
+        self.order.push_back(request.clone());
+        false
+    }
 }
 
 impl PageContext {
@@ -77,6 +109,7 @@ impl PageContext {
             run,
             responses: Mutex::new(BTreeMap::new()),
             document: Mutex::new(String::new()),
+            authenticated: Mutex::new(Authenticated::default()),
         }
     }
 }
@@ -85,6 +118,12 @@ impl PageContext {
 /// pipeline as a task of its own.
 pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>) {
     while let Some(event) = events.next().await {
+        if let Some(required) = event.read::<fetch::AuthRequiredEvent>() {
+            let context = Arc::clone(&context);
+            let run = context.run.clone();
+            run.spawn(async move { context.authenticate(required).await });
+            continue;
+        }
         let Some(paused) = event.read::<fetch::RequestPausedEvent>() else {
             continue;
         };
@@ -162,6 +201,19 @@ impl Held {
 /// The header of the Session's cookies.
 const COOKIE: &str = "cookie";
 
+/// The answer to an authentication challenge, with `credentials` when it
+/// gives them.
+fn answer_auth(
+    response: fetch::AuthChallengeResponseResponse,
+    credentials: Option<(&str, &str)>,
+) -> fetch::AuthChallengeResponse {
+    fetch::AuthChallengeResponse {
+        response,
+        username: credentials.map(|(username, _)| username.to_owned()),
+        password: credentials.map(|(_, password)| password.to_owned()),
+    }
+}
+
 /// A header's value as the browser gives it.
 fn header_value(value: &serde_json::Value) -> String {
     value
@@ -194,6 +246,52 @@ enum Stage {
 }
 
 impl PageContext {
+    /// Answers a 407 or 401 the browser reports: an HTTP or HTTPS proxy's
+    /// with the Session's credentials, once per request; a second one for
+    /// the same request, or one with no credentials to give, is cancelled,
+    /// and on the page's own document leaves `proxy_auth_failed` for the
+    /// navigation (ADR 0053). A site's own 401 goes on as the browser
+    /// would answer it with no credentials.
+    async fn authenticate(&self, required: fetch::AuthRequiredEvent) {
+        let proxy = self
+            .driver
+            .proxy()
+            .filter(|_| required.auth_challenge.source == Some(fetch::AuthChallengeSource::Proxy));
+        let response = match proxy {
+            None => answer_auth(fetch::AuthChallengeResponseResponse::Default, None),
+            Some(proxy) => {
+                let seen = lock(&self.authenticated).seen(&required.request_id);
+                match proxy.credentials() {
+                    Some((username, password)) if !seen => answer_auth(
+                        fetch::AuthChallengeResponseResponse::ProvideCredentials,
+                        Some((
+                            username,
+                            password.map_or("", |password| password.expose_secret()),
+                        )),
+                    ),
+                    _ => {
+                        let navigation = required.resource_type == network::ResourceType::Document
+                            && &required.frame_id == self.driver.main_frame();
+                        if navigation {
+                            self.state.leave(proxy.auth_failed(&required.request.url));
+                        }
+                        answer_auth(fetch::AuthChallengeResponseResponse::CancelAuth, None)
+                    }
+                }
+            }
+        };
+        let answered = self
+            .driver
+            .command(&fetch::ContinueWithAuthParams {
+                request_id: required.request_id,
+                auth_challenge_response: response,
+            })
+            .await;
+        if let Err(failure) = answered {
+            tracing::debug!(%failure, "the request that asked for credentials was gone");
+        }
+    }
+
     /// Runs one paused request through the pipeline.
     async fn intercept(&self, paused: fetch::RequestPausedEvent) {
         let navigation = paused.resource_type == network::ResourceType::Document

@@ -191,6 +191,13 @@ export type Enqueued =
       url: string;
     };
 /**
+ * Where a page function runs (ADR 0085).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "World".
+ */
+export type World = "main" | "isolated";
+/**
  * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -705,6 +712,30 @@ export interface CollieTypes {
  * via the `definition` "Acted".
  */
 export interface Acted {}
+/**
+ * What `page.add_init_script` takes: the page, and the script's source and
+ * argument.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "AddInitScriptParams".
+ */
+export interface AddInitScriptParams {
+  /**
+   * The function's one argument, JSON; absent for none.
+   */
+  arg?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The script's JavaScript source: a function, called with `arg`, or a
+   * script run as it is, which takes none.
+   */
+  function: string;
+  /**
+   * The page.
+   */
+  page_id: string;
+}
 /**
  * A Limit that applies to a Run (ADRs 0041 and 0101): its scope's kind and
  * ID, what it caps, its period, what it allows, what is left of it and who
@@ -1723,6 +1754,49 @@ export interface ErrorData {
   [k: string]: unknown;
 }
 /**
+ * What `page.evaluate` takes: the page, the function's source, its
+ * argument and its world.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EvaluateParams".
+ */
+export interface EvaluateParams {
+  /**
+   * Its one argument, JSON; absent for none.
+   */
+  arg?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The page function's JavaScript source: a function, called with
+   * `arg`, or an expression, which takes none.
+   */
+  function: string;
+  /**
+   * The page.
+   */
+  page_id: string;
+  /**
+   * Where it runs; the main world when absent.
+   */
+  world?: World | null;
+}
+/**
+ * What `page.evaluate` answers: the function's result, awaited when it is
+ * a promise.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Evaluated".
+ */
+export interface Evaluated {
+  /**
+   * The result as JSON; absent when it was `undefined`.
+   */
+  value?: {
+    [k: string]: unknown;
+  };
+}
+/**
  * What `$/events` carries: a batch of one subscription's events, in the
  * order of their positions.
  *
@@ -2048,6 +2122,13 @@ export interface PrivateEndpoint {
    */
   token_file: string;
 }
+/**
+ * What an init script's subscription answers when its page closes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "InitScriptEnded".
+ */
+export interface InitScriptEnded {}
 /**
  * Bytes the store holds for a key, with their content type.
  *

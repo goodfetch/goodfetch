@@ -154,6 +154,35 @@
         }
       ]
     },
+    "AddInitScriptParams": {
+      "additionalProperties": false,
+      "description": "What `page.add_init_script` takes: the page, and the script's source and\nargument.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "arg": {
+          "arrived_in": "0.1",
+          "description": "The function's one argument, JSON; absent for none."
+        },
+        "function": {
+          "arrived_in": "0.1",
+          "description": "The script's JavaScript source: a function, called with `arg`, or a\nscript run as it is, which takes none.",
+          "type": "string"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id",
+        "function"
+      ],
+      "type": "object"
+    },
     "AllowanceSource": {
       "description": "What set the Memory allowance: the tightest of them (ADR 0040).",
       "oneOf": [
@@ -3432,6 +3461,57 @@
       ],
       "type": "object"
     },
+    "EvaluateParams": {
+      "additionalProperties": false,
+      "description": "What `page.evaluate` takes: the page, the function's source, its\nargument and its world.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "arg": {
+          "arrived_in": "0.1",
+          "description": "Its one argument, JSON; absent for none."
+        },
+        "function": {
+          "arrived_in": "0.1",
+          "description": "The page function's JavaScript source: a function, called with\n`arg`, or an expression, which takes none.",
+          "type": "string"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "world": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/World"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where it runs; the main world when absent."
+        }
+      },
+      "required": [
+        "page_id",
+        "function"
+      ],
+      "type": "object"
+    },
+    "Evaluated": {
+      "description": "What `page.evaluate` answers: the function's result, awaited when it is\na promise.",
+      "properties": {
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The result as JSON; absent when it was `undefined`."
+        }
+      },
+      "type": "object"
+    },
     "EventBatch": {
       "additionalProperties": false,
       "description": "What `$/events` carries: a batch of one subscription's events, in the\norder of their positions.",
@@ -4030,6 +4110,10 @@
       "description": "An https:// URL with a host.",
       "pattern": "^https://[^/?#\\s]+[^\\s]*$",
       "type": "string"
+    },
+    "InitScriptEnded": {
+      "description": "What an init script's subscription answers when its page closes.",
+      "type": "object"
     },
     "InstallOutcome": {
       "description": "What installing an artifact did.",
@@ -11284,6 +11368,21 @@
         "binary"
       ],
       "type": "object"
+    },
+    "World": {
+      "description": "Where a page function runs (ADR 0085).",
+      "oneOf": [
+        {
+          "const": "main",
+          "description": "The page's own world, where its globals are, as Playwright's and\nPuppeteer's default: the Session's Provenance marks the call.",
+          "type": "string"
+        },
+        {
+          "const": "isolated",
+          "description": "A world of the engine's own in the page's document, which shares\nits DOM but neither sees nor is seen by the page's scripts.",
+          "type": "string"
+        }
+      ]
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",

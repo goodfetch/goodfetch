@@ -11,8 +11,9 @@
 //! its `events` module the page's events and its responses' bodies, its
 //! `request` module `page.request`, the request API on a page's Session,
 //! its `proxy` module a Session's proxy, its `dialog` module a page's
-//! JavaScript dialogs, and its `tabs` module a Session's pages and popups
-//! and `page.close`.
+//! JavaScript dialogs, its `tabs` module a Session's pages and popups
+//! and `page.close`, and its `functions` module the page functions,
+//! `page.evaluate` and `page.add_init_script`.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -43,6 +44,7 @@ use crate::settings::SettingLimit;
 
 pub mod dialog;
 pub mod events;
+pub mod functions;
 pub mod proxy;
 pub mod request;
 pub mod route;
@@ -57,6 +59,9 @@ use self::events::{
     PAGE_ON, PAGE_PAGE_ERROR, PAGE_REQUEST, PAGE_REQUEST_FAILED, PAGE_REQUEST_FINISHED,
     PAGE_RESPONSE, PAGE_WAIT_FOR_REQUEST_FINISHED, PAGE_WEB_SOCKET, RESPONSE_BODY,
     WEB_SOCKET_CLOSE, WEB_SOCKET_FRAME_RECEIVED, WEB_SOCKET_FRAME_SENT,
+};
+use self::functions::{
+    PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE, PAGE_FUNCTION_FAILED, PAGE_VALUE_INVALID,
 };
 use self::route::{
     PAGE_HANDLER_FAILED, PAGE_ROUTE, ROUTE_ABORT, ROUTE_ALREADY_HANDLED, ROUTE_CONTINUE,
@@ -1122,6 +1127,8 @@ pub const ENTRIES: Entries = Entries {
         SESSION_ON,
         SESSION_PAGES,
         tabs::PAGE_CLOSE,
+        PAGE_EVALUATE,
+        PAGE_ADD_INIT_SCRIPT,
     ],
     events: &[
         PAGE_DOWNLOAD,
@@ -1159,6 +1166,8 @@ pub const ENTRIES: Entries = Entries {
         PAGE_HANDLER_FAILED,
         ROUTE_ALREADY_HANDLED,
         DIALOG_ALREADY_HANDLED,
+        PAGE_FUNCTION_FAILED,
+        PAGE_VALUE_INVALID,
     ],
     plugin_kinds: &[],
     metrics: &[],

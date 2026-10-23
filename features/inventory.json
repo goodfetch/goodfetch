@@ -1150,6 +1150,17 @@
       ]
     },
     {
+      "id": "error:page_function_failed",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:page_handler_failed",
       "kind": "error",
       "area": 5,
@@ -1164,6 +1175,17 @@
       "id": "error:page_memory_exceeded",
       "kind": "error",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:page_value_invalid",
+      "kind": "error",
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2530,6 +2552,17 @@
       ]
     },
     {
+      "id": "operation:page.add_init_script",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:page.body",
       "kind": "operation",
       "area": 3,
@@ -2542,6 +2575,17 @@
     },
     {
       "id": "operation:page.close",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:page.evaluate",
       "kind": "operation",
       "area": 5,
       "milestone": null,

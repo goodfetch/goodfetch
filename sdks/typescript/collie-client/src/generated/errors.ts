@@ -424,6 +424,15 @@ export class PageCrashedError extends UnavailableError {
 }
 
 /**
+ * A page function threw in the page, or did not parse, or is an expression given an argument, which only a function takes. The details give the error's name, its message and the page's stack. A page function sees only the page and its one argument, never the program's variables, so a `ReferenceError`'s fix names the argument: pass the value in it.
+ */
+export class PageFunctionFailedError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_function_failed", group: "program", retryable: false });
+  }
+}
+
+/**
  * A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed; a dialog handler's dialog got its default and the handler was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or by the call the dialog blocked, or else by the next call on its page. The details name the handler, the URL of the request or of the dialog's document, and what the failure said.
  */
 export class PageHandlerFailedError extends ProgramError {
@@ -438,6 +447,15 @@ export class PageHandlerFailedError extends ProgramError {
 export class PageMemoryExceededError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "page_memory_exceeded", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * A page function's result, or its argument, holds a value outside JSON, such as a DOM node, `NaN`, `Infinity`, a function, a `Map`, a `BigInt` or a cycle, which Playwright would have turned into `undefined`, silently. The details name the first such value's path from `$`, its kind and the fix: return the JSON the program needs, such as an element's text or attribute instead of the element.
+ */
+export class PageValueInvalidError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_value_invalid", group: "program", retryable: false });
   }
 }
 
@@ -782,8 +800,10 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   not_a_daemon: NotADaemonError,
   not_in_product: NotInProductError,
   page_crashed: PageCrashedError,
+  page_function_failed: PageFunctionFailedError,
   page_handler_failed: PageHandlerFailedError,
   page_memory_exceeded: PageMemoryExceededError,
+  page_value_invalid: PageValueInvalidError,
   path_not_writable: PathNotWritableError,
   pattern_unsupported: PatternUnsupportedError,
   person_required: PersonRequiredError,

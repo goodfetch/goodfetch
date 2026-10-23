@@ -104,7 +104,9 @@ use crate::client::Client;
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::events::Events;
-use crate::governor::{Filesystem, Governor, Held, RunShare, StorageSample};
+use crate::governor::{
+    Filesystem, Governor, Held, LastResort, RunShare, StorageSample, last_resort_run,
+};
 use crate::home::{Home, RunStateLocation, major_name};
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation};
@@ -807,6 +809,7 @@ enum Command {
     Drain(oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
     Storage(Arc<StorageSample>),
     StorageFailed(PathBuf),
+    LastResort(LastResort),
 }
 
 /// What the registry answers about the engine's health (ADR 0050): whether
@@ -1010,6 +1013,11 @@ impl Run {
     /// abandons each attempt in flight.
     pub fn cancellation(&self) -> &CancellationToken {
         self.owner.token()
+    }
+
+    /// Whether the Run was asked to stop at its next safe point.
+    pub(crate) fn is_stopping(&self) -> bool {
+        self.shared.stop.borrow().is_some()
     }
 
     /// Answers once something asks the Run to stop at its next safe point,
@@ -1687,6 +1695,7 @@ impl Runs {
             found_ended: std::collections::BTreeSet::new(),
             sampled: Vec::new(),
             unrecorded: BTreeMap::new(),
+            memory_stop: MemoryStop::Idle,
         };
         owner.spawn(registry.run(mailbox));
         runs
@@ -2451,6 +2460,21 @@ struct Registry {
     /// The Runs whose stop their run file could not record, left
     /// interrupted until a start with their ID resumes them (ADR 0122).
     unrecorded: BTreeMap<RunId, Box<StorageExhausted>>,
+    /// Where the governor's last resort stands: it stops one Run at a time.
+    memory_stop: MemoryStop,
+}
+
+/// Where the governor's last resort stands (ADR 0040): it stops one Run at
+/// a time, and measures again before it stops another.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum MemoryStop {
+    /// No Run is being stopped for it.
+    Idle,
+    /// This Run is being stopped for it.
+    Stopping(RunId),
+    /// The Run it stopped ended: only a sample past this number, read
+    /// wholly after that end, may stop another.
+    After(u64),
 }
 
 impl Registry {
@@ -2461,7 +2485,7 @@ impl Registry {
         // writes are done.
         self.write_managed().await;
         self.reclaim().await;
-        self.sample_storage();
+        self.follow_governor();
         while let Some(command) = mailbox.recv().await {
             match command {
                 Command::Start(start, _, answer) if self.draining => {
@@ -2553,6 +2577,7 @@ impl Registry {
                 Command::Discard(run_id, answer) => self.discard(run_id, answer).await,
                 Command::Storage(sample) => self.storage(&sample).await,
                 Command::StorageFailed(folder) => self.storage_failed(&folder),
+                Command::LastResort(last_resort) => self.last_resort(last_resort),
             }
         }
         self.readers.wait().await;
@@ -2591,6 +2616,72 @@ impl Registry {
                 }
             }
         });
+    }
+
+    /// Hands the governor's storage samples (ADR 0122) and whether each
+    /// sample found it at its last resort (ADR 0040) to the registry.
+    fn follow_governor(&mut self) {
+        self.sample_storage();
+        self.follow_last_resort();
+    }
+
+    /// Hands each of the governor's samples, whether it found it at its
+    /// last resort, to the registry (ADR 0040).
+    fn follow_last_resort(&self) {
+        let mut samples = self.setup.governor.last_resort();
+        let registry = self.runs.clone();
+        let token = self.owner.token().clone();
+        self.owner.spawn(async move {
+            loop {
+                tokio::select! {
+                    () = token.cancelled() => return,
+                    changed = samples.changed() => if changed.is_err() { return },
+                }
+                let last_resort = *samples.borrow_and_update();
+                let Some(registry) = registry.upgrade() else {
+                    return;
+                };
+                if registry
+                    .send(Command::LastResort(last_resort))
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        });
+    }
+
+    /// Acts on a sample at the governor's last resort (ADR 0040): the live
+    /// Run with the largest footprint, never one a person holds a page of,
+    /// checkpoints and stops at its next safe point with
+    /// `resource: "memory"`; while it stops, and until a sample read wholly
+    /// after its end, no other Run is stopped.
+    fn last_resort(&mut self, last_resort: LastResort) {
+        match self.memory_stop {
+            MemoryStop::Stopping(_) => return,
+            MemoryStop::After(after) if last_resort.sample <= after => return,
+            MemoryStop::After(_) | MemoryStop::Idle => self.memory_stop = MemoryStop::Idle,
+        }
+        if !last_resort.reached {
+            return;
+        }
+        let candidates = self.live.values().filter_map(|live| {
+            let run = live.run.as_ref().filter(|run| !run.is_stopping())?;
+            Some(((live.id.clone(), run), run.governor().weight()))
+        });
+        let Some((run_id, run)) = last_resort_run(candidates) else {
+            return;
+        };
+        tracing::warn!(
+            run_id = %run_id,
+            "memory stayed critical at the governor's floor: the Run with the largest footprint stops"
+        );
+        run.stop(StopReason::Resources {
+            resource: goodfetch_protocol::run::Resource::Memory,
+            folder: None,
+        });
+        self.memory_stop = MemoryStop::Stopping(run_id);
     }
 
     /// Acts on a storage sample (ADR 0122): each live Run with an essential
@@ -2797,6 +2888,12 @@ impl Registry {
     /// the Run interrupted, with no live writer, as after a crash, and a
     /// start with its ID resumes it (ADR 0122).
     fn ended(&mut self, run_id: RunId, ended: Ended) {
+        if self.memory_stop == MemoryStop::Stopping(run_id.clone()) {
+            // The sample after the latest may have been read before this
+            // end: the governor measures again from the one after it.
+            let latest = self.setup.governor.last_resort().borrow().sample;
+            self.memory_stop = MemoryStop::After(latest + 1);
+        }
         if let Some(live) = self.live.remove(&run_id) {
             // The lock goes before the report, so whoever the report wakes
             // finds the Run's writer gone.

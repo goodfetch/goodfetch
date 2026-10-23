@@ -71,6 +71,17 @@ pub struct Governor {
     folders: Folders,
     storage: watch::Receiver<Arc<StorageSample>>,
     settled: watch::Receiver<Settled>,
+    last_resort: watch::Receiver<LastResort>,
+}
+
+/// Whether a sample found the governor at its last resort (ADR 0040).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LastResort {
+    /// The sample's number, from 1 for the first.
+    pub sample: u64,
+    /// Whether memory stayed critical at the floor past
+    /// `governor.last_resort_after`.
+    pub reached: bool,
 }
 
 impl Governor {
@@ -84,6 +95,7 @@ impl Governor {
         let (sender, info) = watch::channel(None);
         let (stored, storage) = watch::channel(Arc::new(StorageSample::default()));
         let (settling, settled) = watch::channel(Settled::built_in());
+        let (resorting, last_resort) = watch::channel(LastResort::default());
         let folders = Folders::default();
         let disks = system.disks.clone();
         let sampler = Sampler {
@@ -96,6 +108,7 @@ impl Governor {
             folders: folders.clone(),
             stored,
             settling,
+            last_resort: resorting,
         };
         let token = owner.token().clone();
         owner.spawn(async move {
@@ -111,6 +124,7 @@ impl Governor {
             folders,
             storage,
             settled,
+            last_resort,
         }
     }
 
@@ -127,6 +141,7 @@ impl Governor {
             folders: Folders::default(),
             storage: watch::channel(Arc::new(StorageSample::default())).1,
             settled: watch::channel(Settled::built_in()).1,
+            last_resort: watch::channel(LastResort::default()).1,
         }
     }
 
@@ -162,6 +177,13 @@ impl Governor {
     /// sample; none before the first, or ever when it never samples.
     pub fn system_info(&self) -> watch::Receiver<Option<SystemInfo>> {
         self.info.clone()
+    }
+
+    /// Whether each sample found it at its last resort, which changes at
+    /// each sample; the Runs' registry stops one Run there, one at a time
+    /// (ADR 0040).
+    pub fn last_resort(&self) -> watch::Receiver<LastResort> {
+        self.last_resort.clone()
     }
 
     /// Whether it is at its last resort: memory stayed critical at the
@@ -250,6 +272,8 @@ struct Sampler {
     stored: watch::Sender<Arc<StorageSample>>,
     /// Where the storage settings of each sample go.
     settling: watch::Sender<Settled>,
+    /// Where each sample says whether it is at its last resort.
+    last_resort: watch::Sender<LastResort>,
 }
 
 /// What the previous sample read, which the next one's CPU and Tokio
@@ -338,6 +362,10 @@ impl Sampler {
                 busy: u32::try_from(cpu_busy).unwrap_or(u32::MAX),
                 tokio_busy: u32::try_from(tokio_share).unwrap_or(u32::MAX),
             };
+            self.last_resort.send_modify(|last_resort| {
+                last_resort.sample += 1;
+                last_resort.reached = decision.last_resort;
+            });
             self.sender.send_replace(Some(info(
                 &limits,
                 &read,

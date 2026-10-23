@@ -2874,6 +2874,22 @@ export interface Locator3 {
   selector: string;
 }
 /**
+ * The bytes a Run sent and received through proxies of one proxy kind.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProxyKindBytes".
+ */
+export interface ProxyKindBytes {
+  /**
+   * The bytes.
+   */
+  bytes: number;
+  /**
+   * The proxy kind, such as `residential`.
+   */
+  kind: string;
+}
+/**
  * The Limit a Run cannot take more of: what `limit_reached` details, and
  * what a Run stopped for it names (ADR 0041).
  *
@@ -3542,6 +3558,16 @@ export interface RunUsage {
    */
   proxy_bytes: number;
   /**
+   * The bytes it sent and received through a Proxy provider's proxies,
+   * by proxy kind (ADR 0021), cheapest kind first.
+   */
+  proxy_bytes_by_kind?: ProxyKindBytes[];
+  /**
+   * The price of those bytes, by currency, at each provider's configured
+   * price (ADR 0101).
+   */
+  proxy_price?: UsageAmount[];
+  /**
    * The requests it sent.
    */
   requests: number;
@@ -3814,6 +3840,16 @@ export interface RunUsage1 {
    * The bytes it sent and received through a proxy.
    */
   proxy_bytes: number;
+  /**
+   * The bytes it sent and received through a Proxy provider's proxies,
+   * by proxy kind (ADR 0021), cheapest kind first.
+   */
+  proxy_bytes_by_kind?: ProxyKindBytes[];
+  /**
+   * The price of those bytes, by currency, at each provider's configured
+   * price (ADR 0101).
+   */
+  proxy_price?: UsageAmount[];
   /**
    * The requests it sent.
    */

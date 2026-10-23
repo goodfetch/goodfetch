@@ -142,7 +142,7 @@ fn the_provider_builds_the_sessions_sticky_username_and_lifetime(
     );
 }
 
-/// Covers: story:8-106, warning:proxy_exit_may_change
+/// Covers: story:8-106, setting:proxy.sticky_lifetime
 #[rstest]
 #[case::within_its_lifetime(29 * 60, None)]
 #[case::past_its_lifetime(31 * 60, Some(vec!["run.session-1".to_owned()]))]

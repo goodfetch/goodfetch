@@ -3,7 +3,8 @@
 //! failures, its Error codes and its operations' types. A crawl's delivery
 //! cases are `delivery`'s, a page's formats cases `formats`'s, its route
 //! cases `routes`'s, a Run's Session cases `sessions`', their proxy cases
-//! `proxies`' and its events and bodies cases `events`'s.
+//! `proxies`', its events and bodies cases `events`'s and the reset gate's
+//! cases `reset`'s.
 
 mod clean_up;
 mod consent;
@@ -15,6 +16,7 @@ mod guard;
 mod launch;
 mod navigation;
 mod proxies;
+mod reset;
 mod routes;
 mod sessions;
 
@@ -85,6 +87,8 @@ pub(crate) enum Case {
     Session(sessions::Case),
     /// A page events or bodies case.
     Events(events::Case),
+    /// A reset gate case.
+    Reset(reset::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -284,7 +288,8 @@ impl Case {
                     .or_else(|| sessions::Case::from_id(id).map(Self::Session))
                     .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp))
                     .or_else(|| events::Case::from_id(id).map(Self::Events))
-                    .or_else(|| consent::Case::from_id(id).map(Self::Consent));
+                    .or_else(|| consent::Case::from_id(id).map(Self::Consent))
+                    .or_else(|| reset::Case::from_id(id).map(Self::Reset));
             }
         })
     }
@@ -384,6 +389,7 @@ impl Case {
             Self::Session(case) => case.run(connection, site, checks),
             Self::CleanUp(case) => case.run(connection, target, site, checks),
             Self::Events(case) => case.run(connection, site, checks),
+            Self::Reset(case) => case.run(connection, target, site, checks),
             Self::Consent(case) => case.run(
                 connection,
                 target.environment.get("GOODFETCH_HOME").map(String::as_str),

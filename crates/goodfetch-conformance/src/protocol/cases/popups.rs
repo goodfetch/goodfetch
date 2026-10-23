@@ -7,7 +7,7 @@
 //! `page.close` closes it, emitting `close`, a second close changing
 //! nothing.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use goodfetch_protocol::connection::CANCEL;
 use goodfetch_protocol::events::{CREDIT, EVENTS, EVENTS_SUBSCRIBE};
@@ -111,17 +111,16 @@ impl Exchange<'_> {
         }
     }
 
-    /// Reads for `quiet`, taking in what arrives.
+    /// Reads until the target stays silent for `quiet`, taking in what
+    /// arrives.
     fn idle(&mut self, quiet: Duration) -> Result<(), Gone> {
-        let started = Instant::now();
-        while let Some(left) = quiet.checked_sub(started.elapsed()) {
-            match self.read(left) {
+        loop {
+            match self.read(quiet) {
                 Ok(_) => {}
                 Err(Gone::Silent(_)) => return Ok(()),
                 Err(gone) => return Err(gone),
             }
         }
-        Ok(())
     }
 
     fn count(&self, name: &str) -> usize {
@@ -206,7 +205,29 @@ fn armed_before(connection: &mut Connection, site: &Site, checks: &mut Checks) -
         listed["result"]["pages"] == json!([page, popup_page]),
     );
 
-    // The popup is a page like any other.
+    let close_listening = drive_and_close(
+        &mut exchange,
+        [&page, &popup_page, &session],
+        &origin,
+        &catalog,
+        checks,
+    )?;
+    let _ = (late, session_listening, close_listening);
+    exchange
+        .connection
+        .notify(CANCEL, &json!({ "id": subscription }))?;
+    finish_run(exchange.connection, run_id)
+}
+
+/// Drives the popup of `page` in `session` as any page, then closes it
+/// twice and calls it once more; answers the id of its `close` listener.
+fn drive_and_close(
+    exchange: &mut Exchange<'_>,
+    [page, popup_page, session]: [&Value; 3],
+    origin: &str,
+    catalog: &str,
+    checks: &mut Checks,
+) -> Result<i64, Gone> {
     let popup_went = exchange.call(
         PAGE_GOTO.name,
         &json!({ "page_id": popup_page, "url": catalog }),
@@ -220,7 +241,7 @@ fn armed_before(connection: &mut Connection, site: &Site, checks: &mut Checks) -
         &json!({ "page_id": popup_page, "event": "close" }),
     )?;
     let closed = exchange.call(PAGE_CLOSE.name, &json!({ "page_id": popup_page }))?;
-    exchange.until("page.close", |data| data["page_id"] == popup_page)?;
+    exchange.until("page.close", |data| data["page_id"] == *popup_page)?;
     let closed_again = exchange.call(PAGE_CLOSE.name, &json!({ "page_id": popup_page }))?;
     let after = exchange.call(SESSION_PAGES.name, &json!({ "session_id": session }))?;
     let later = exchange.call(
@@ -236,9 +257,5 @@ fn armed_before(connection: &mut Connection, site: &Site, checks: &mut Checks) -
         after["result"]["pages"] == json!([page])
             && later["error"]["data"]["code"] == json!("closed"),
     );
-    let _ = (late, session_listening, close_listening);
-    exchange
-        .connection
-        .notify(CANCEL, &json!({ "id": subscription }))?;
-    finish_run(exchange.connection, run_id)
+    Ok(close_listening)
 }

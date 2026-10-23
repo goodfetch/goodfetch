@@ -7325,6 +7325,20 @@
       ],
       "type": "object"
     },
+    "RunDiscarded": {
+      "description": "What `run.discard` answers: the Run it discarded (ADRs 0001 and 0036).",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunFailedRequestsParams": {
       "additionalProperties": false,
       "description": "What `run.failed_requests` takes.",

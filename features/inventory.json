@@ -1281,6 +1281,17 @@
       ]
     },
     {
+      "id": "error:run_live",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:run_not_found",
       "kind": "error",
       "area": 3,
@@ -2562,6 +2573,17 @@
     },
     {
       "id": "operation:run.checkpoint",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.discard",
       "kind": "operation",
       "area": 3,
       "milestone": null,

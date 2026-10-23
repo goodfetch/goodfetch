@@ -617,6 +617,14 @@ pub struct RunParams {
     pub run_id: RunId,
 }
 
+/// What `run.discard` answers: the Run it discarded (ADRs 0001 and 0036).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunDiscarded {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+}
+
 /// What `run.finish` and `run.stop` take: the Run, and how long the call
 /// waits for its end.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -865,6 +873,22 @@ pub const RUN_ABORT: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// `run.discard`.
+pub const RUN_DISCARD: Operation = Operation {
+    name: "run.discard",
+    description: "Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::SdkOnly,
+    params: schema_of::<RunParams>,
+    result: schema_of::<RunDiscarded>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A Run ID the engine refuses (ADR 0102).
 pub const RUN_ID_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "run_id_invalid",
@@ -982,6 +1006,16 @@ pub const RUN_STATE_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A discard of a Run its engine still runs (ADRs 0001 and 0036).
+pub const RUN_LIVE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "run_live",
+    description: "The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A Run its engine's resource governor stopped, or refused at its start,
 /// for want of memory or storage (ADRs 0040 and 0122).
 pub const RESOURCES_EXHAUSTED: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -1023,7 +1057,7 @@ pub struct ResourcesExhaustedDetails {
     pub fix: String,
 }
 
-/// What `run_not_found`, `run_in_use`, `run_busy`, `run_not_owned` and
+/// What `run_not_found`, `run_in_use`, `run_busy`, `run_not_owned`, `run_live` and
 /// `run_state_unavailable` detail.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RunDetails {
@@ -1264,6 +1298,7 @@ pub const ENTRIES: Entries = Entries {
         RUN_ABORT,
         RUN_USAGE,
         RUN_SET_PROGRESS_MESSAGE,
+        RUN_DISCARD,
     ],
     events: &[RUN_AXES_CHANGED, RUN_PROGRESS],
     handler_requests: &[],
@@ -1276,6 +1311,7 @@ pub const ENTRIES: Entries = Entries {
         RUN_BUSY,
         RUN_NOT_OWNED,
         RUN_STATE_UNAVAILABLE,
+        RUN_LIVE,
         RESOURCES_EXHAUSTED,
     ],
     plugin_kinds: &[],

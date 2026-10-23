@@ -157,10 +157,6 @@ pub(crate) struct RunsSetup {
     pub(crate) ledger_vfs: Option<String>,
     /// The install database `run_state`'s VFS serves the run files from,
     /// in the per-install layout, kept open while the registry lives.
-    #[expect(
-        dead_code,
-        reason = "held, never read: its VFS serves the run files while it is open"
-    )]
     pub(crate) install: Option<Arc<InstallDatabase>>,
     /// The tables the composition adds to every run file.
     pub(crate) tables: Vec<RunStateTables>,
@@ -601,6 +597,9 @@ pub enum RunError {
     /// 0122).
     #[error("the filesystem of `{}` is at the critical storage level", .0.folder.display())]
     ResourcesExhausted(Box<StorageExhausted>),
+    /// This engine still runs the Run, so it is not discarded.
+    #[error("the Run `{0}` is live")]
+    Live(RunId),
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
@@ -803,6 +802,7 @@ enum Command {
     Machine(oneshot::Sender<Result<String, RunError>>),
     SafeStop(RunId, StoppedBy, oneshot::Sender<Result<Waiting, RunError>>),
     Reader(RunId, oneshot::Sender<RunReader>),
+    Discard(RunId, oneshot::Sender<Result<(), RunError>>),
     Drain(oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
     Storage(Arc<StorageSample>),
     StorageFailed(PathBuf),
@@ -2155,6 +2155,30 @@ impl Runs {
         answered.await.map_err(|_| RunError::Stopped)
     }
 
+    /// Discards the Run `run_id` for good, so that nothing of it is left
+    /// behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is
+    /// overwritten and its run folder removed, in the per-install layout
+    /// its files deleted from the install database, and its Run index row
+    /// marked *erased*. A Run already discarded is answered as discarded.
+    ///
+    /// # Errors
+    ///
+    /// `Live` when this engine runs it, `InUse` when another engine holds
+    /// its writer lock, `NotFound` when no Run has this Run ID, and
+    /// `Unavailable` when its state cannot be erased.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after it was sent still discards the Run.
+    pub async fn discard(&self, run_id: RunId) -> Result<(), RunError> {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Discard(run_id, answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        answered.await.map_err(|_| RunError::Stopped)?
+    }
+
     /// The same Runs, each Run started through them belonging to the
     /// Daemon's Connection `connection`.
     pub(crate) fn on_connection(&self, connection: ConnectionId) -> Self {
@@ -2422,9 +2446,7 @@ impl Registry {
                     let ids = self.runs_of(connection);
                     let _ = answer.send(self.stop_by_client(ids).await);
                 }
-                Command::LiveCount(answer) => {
-                    let _ = answer.send(self.live.len());
-                }
+                Command::LiveCount(answer) => _ = answer.send(self.live.len()),
                 Command::Health(answer) => {
                     let _ = answer.send(self.health());
                 }
@@ -2465,6 +2487,7 @@ impl Registry {
                 Command::Reader(run_id, answer) => {
                     let _ = answer.send(self.reader(&run_id));
                 }
+                Command::Discard(run_id, answer) => self.discard(run_id, answer).await,
                 Command::Storage(sample) => self.storage(&sample).await,
                 Command::StorageFailed(folder) => self.storage_failed(&folder),
             }
@@ -2765,6 +2788,56 @@ impl Registry {
             Arc::clone(&self.readers),
             following,
         )
+    }
+
+    /// Discards the Run `run_id` and sends `answer` how it went.
+    async fn discard(&mut self, run_id: RunId, answer: oneshot::Sender<Result<(), RunError>>) {
+        let _ = answer.send(self.erase(run_id).await);
+    }
+
+    /// Erases the Run `run_id` (ADRs 0001 and 0036): its state under its
+    /// writer lock, then its Run index row, marked *erased*, and its report.
+    async fn erase(&mut self, run_id: RunId) -> Result<(), RunError> {
+        if self.live.contains_key(&run_id) {
+            return Err(RunError::Live(run_id));
+        }
+        let folder = self.folder(&run_id);
+        let vfs = self.setup.run_state.vfs.clone();
+        let install = self.setup.install.clone();
+        let (id, erasing) = (run_id.clone(), folder.clone());
+        let discarded = self
+            .owner
+            .blocking(move || {
+                discard::discard(id.as_str(), &erasing, vfs.as_deref(), install.as_deref())
+            })
+            .await
+            .map_err(|error| match error {
+                discard::DiscardError::Held => RunError::InUse {
+                    run_id: run_id.clone(),
+                    folder: folder.clone(),
+                },
+                discard::DiscardError::State(error) => RunError::of_state(&run_id, &folder, error),
+                discard::DiscardError::Io(error) => RunError::Unavailable {
+                    run_id: run_id.clone(),
+                    folder: folder.clone(),
+                    error,
+                },
+            })?;
+        self.ended.remove(&run_id);
+        self.found_ended.remove(&run_id);
+        self.unrecorded.remove(&run_id);
+        let path = self.setup.home.run_index(&self.setup.version);
+        let version = self.setup.version.clone();
+        let id = run_id.clone();
+        let listed = self
+            .owner
+            .blocking(move || run_index::erase(&path, &version, &id))
+            .await
+            .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
+        if discarded == discard::Discarded::Absent && !listed {
+            return Err(RunError::NotFound(run_id));
+        }
+        Ok(())
     }
 
     /// How a Run's run file opens under its `settings`: in the durability
@@ -4298,6 +4371,7 @@ impl Closing {
     }
 }
 
+mod discard;
 mod folder;
 mod import;
 pub mod lifecycle;

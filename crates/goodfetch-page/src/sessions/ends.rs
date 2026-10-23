@@ -96,34 +96,30 @@ impl Sessions {
             let (ending, session_event) = match lost {
                 Lost::RendererCrashed => (Ending::RendererCrash, None),
                 Lost::Destroyed => (Ending::Destroyed, None),
-                Lost::BrowserQuit => (
-                    Ending::BrowserQuit,
-                    Some((SessionEvent::BrowserQuit, None)),
-                ),
+                Lost::BrowserQuit => (Ending::BrowserQuit, Some((SessionEvent::BrowserQuit, None))),
                 Lost::BrowserCrashed(exit) => (
                     Ending::BrowserCrash(exit.clone()),
                     Some((SessionEvent::BrowserCrash, exit)),
                 ),
                 Lost::EngineClosed => return,
             };
+            // The Session takes its browser's loss before the page's calls
+            // answer, so a call the program makes next finds it ended.
+            let mut quit = false;
+            if let Some((event, exit)) = session_event
+                && open.seat.is_in(browser).await
+            {
+                match open.life.apply(event, exit) {
+                    Ok(effect) => quit = effect == SessionEffect::Quit,
+                    Err(error) => tracing::error!(%error, "a Session's browser loss was refused"),
+                }
+            }
             match life.end(&ending) {
                 Ok(effect) => sessions.page_ended(&page_id, &session, &run, effect).await,
                 Err(error) => tracing::error!(%error, "a page's end was refused"),
             }
-            let Some((event, exit)) = session_event else {
-                return;
-            };
-            if !open.seat.is_in(browser).await {
-                return;
-            }
-            match open.life.apply(event, exit) {
-                Ok(SessionEffect::Quit) => {
-                    if let Err(error) = sessions.session_ended(&open, &session).await {
-                        tracing::warn!(%error, "a Session its browser's quit ended is not recorded closed");
-                    }
-                }
-                Ok(_) => {}
-                Err(error) => tracing::error!(%error, "a Session's browser loss was refused"),
+            if quit && let Err(error) = sessions.session_ended(&open, &session).await {
+                tracing::warn!(%error, "a Session its browser's quit ended is not recorded closed");
             }
         });
     }

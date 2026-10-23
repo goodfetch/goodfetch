@@ -4,3 +4,4 @@
 
 mod matching;
 mod memory;
+mod removal;

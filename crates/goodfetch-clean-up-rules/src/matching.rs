@@ -69,7 +69,7 @@ pub struct Request<'a> {
 }
 
 /// One of the embedded Filter lists.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum List {
     /// EasyList (`filter_lists.ads`).

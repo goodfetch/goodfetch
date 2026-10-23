@@ -1,6 +1,8 @@
 # Which of goodfetch-clean-up-rules's top-level modules may import which (ADR 0126).
 [modules]
+cosmetic = ["matching", "rules"]
 matching = ["never_block", "rules"]
 never_block = []
+removal = ["cosmetic", "matching", "rules"]
 rules = ["stand_ins"]
 stand_ins = []

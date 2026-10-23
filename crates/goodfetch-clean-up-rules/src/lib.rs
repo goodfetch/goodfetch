@@ -7,7 +7,9 @@
 //! `browser.block_resources`. No browser crate is a dependency: the page
 //! crate calls it from its interception.
 
+pub mod cosmetic;
 pub mod matching;
 pub mod never_block;
+pub mod removal;
 pub mod rules;
 mod stand_ins;

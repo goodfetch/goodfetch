@@ -17,7 +17,7 @@
 //! decompression ratio) and are not part of this family.
 
 use std::io::Write;
-use std::sync::LazyLock;
+use std::sync::OnceLock;
 
 use flate2::Compression;
 use flate2::write::{DeflateEncoder, GzEncoder};
@@ -63,17 +63,24 @@ const SAFE: u32 = 6;
 
 pub(super) const TASKS: u32 = 6;
 
-/// One bomb task: the codings its body carries and the description of what a
-/// correct tool does with it. The sizes it declares are computed from the
-/// body built for it, so the task list names the bytes it really sends.
+/// One bomb task: the codings its body carries, that body's size and the
+/// description of what a correct tool does with it.
 struct Spec {
     content_encodings: &'static [&'static str],
+    /// The bytes of the body built for it, which the task declares. `serve`
+    /// lists every task before it reports its address, and building the
+    /// bodies took most of that start, so the size is written here and a
+    /// test holds it equal to the body's length: the task list names the
+    /// bytes the page really sends, and a body is built only when a bomb's
+    /// page is asked for. An encoder whose output changes fails that test.
+    compressed_bytes: u64,
     description: &'static str,
 }
 
 const SPECS: [Spec; (SAFE - 1) as usize] = [
     Spec {
         content_encodings: &["gzip"],
+        compressed_bytes: 10_208,
         description: "Read the start page as one Record with `id` and `word`. Its body is a \
             gzip decompression bomb: a few kilobytes that decode to far more, past the engine's \
             decompression-ratio limit. A correct tool refuses it at the limit rather than \
@@ -81,6 +88,7 @@ const SPECS: [Spec; (SAFE - 1) as usize] = [
     },
     Spec {
         content_encodings: &["deflate"],
+        compressed_bytes: 10_190,
         description: "Read the start page as one Record with `id` and `word`. Its body is a raw \
             deflate decompression bomb, labelled `Content-Encoding: deflate`, that decodes to \
             far more than it sends, past the engine's decompression-ratio limit. A correct tool \
@@ -88,18 +96,21 @@ const SPECS: [Spec; (SAFE - 1) as usize] = [
     },
     Spec {
         content_encodings: &["br"],
+        compressed_bytes: 27,
         description: "Read the start page as one Record with `id` and `word`. Its body is a \
             Brotli decompression bomb that decodes to far more than it sends, past the engine's \
             decompression-ratio limit. A correct tool refuses it at the limit.",
     },
     Spec {
         content_encodings: &["zstd"],
+        compressed_bytes: 329,
         description: "Read the start page as one Record with `id` and `word`. Its body is a \
             zstd decompression bomb that decodes to far more than it sends, past the engine's \
             decompression-ratio limit. A correct tool refuses it at the limit.",
     },
     Spec {
         content_encodings: &["gzip", "gzip"],
+        compressed_bytes: 105,
         description: "Read the start page as one Record with `id` and `word`. Its body is gzip \
             applied twice, labelled `Content-Encoding: gzip, gzip`, and decodes through both \
             codings to far more than it sends, past the engine's decompression-ratio limit. A \
@@ -107,31 +118,23 @@ const SPECS: [Spec; (SAFE - 1) as usize] = [
     },
 ];
 
-/// A bomb, built once: the bytes served and the sizes the task declares.
-struct Compiled {
-    body: Vec<u8>,
-    content_encodings: Vec<&'static str>,
-    compressed_bytes: u64,
-    expanded_bytes: u64,
-}
+/// Every bomb's body, in [`SPECS`]' order, built once at the first request
+/// for a bomb's page: the bytes are generated here, never committed, so the
+/// source file stays small.
+static BOMBS: OnceLock<Vec<Vec<u8>>> = OnceLock::new();
 
-/// Every bomb's body and sizes, built once at first use: the bytes are
-/// generated here, never committed, so the source file stays small.
-static BOMBS: LazyLock<Vec<Compiled>> = LazyLock::new(|| {
-    SPECS
-        .iter()
-        .map(|spec| {
-            let body = body_for(spec.content_encodings);
-            Compiled {
-                compressed_bytes: u64::try_from(body.len())
-                    .expect("invariant: a bomb's compressed body is small"),
-                expanded_bytes: EXPANDED_BYTES,
-                content_encodings: spec.content_encodings.to_vec(),
-                body,
-            }
+/// The body of the bomb at `index` in [`SPECS`].
+fn bomb_body(index: usize) -> Option<&'static [u8]> {
+    BOMBS
+        .get_or_init(|| {
+            SPECS
+                .iter()
+                .map(|spec| body_for(spec.content_encodings))
+                .collect()
         })
-        .collect()
-});
+        .get(index)
+        .map(Vec::as_slice)
+}
 
 /// The chunk [`write_filler`] streams filler in, kept small so its buffer
 /// stays on the stack.
@@ -286,9 +289,10 @@ pub(super) fn respond(seed: u64, host: &str, request: &Request<'_>) -> Reply {
             .expect("invariant: finishing an in-memory encoder does not fail");
         return encoded(&["gzip"], body);
     }
-    match BOMBS.get(usize::try_from(ordinal - 1).expect("invariant: a small ordinal")) {
-        Some(bomb) => encoded(&bomb.content_encodings, bomb.body.clone()),
-        None => Reply::not_found(),
+    let index = usize::try_from(ordinal - 1).expect("invariant: a small ordinal");
+    match (SPECS.get(index), bomb_body(index)) {
+        (Some(spec), Some(body)) => encoded(spec.content_encodings, body.to_vec()),
+        _ => Reply::not_found(),
     }
 }
 
@@ -306,8 +310,6 @@ pub(super) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
                     Expected::records(vec![record(&id, &word)]),
                 )
             } else {
-                let compiled =
-                    &BOMBS[usize::try_from(ordinal - 1).expect("invariant: a small ordinal")];
                 let spec =
                     &SPECS[usize::try_from(ordinal - 1).expect("invariant: a small ordinal")];
                 (
@@ -320,9 +322,9 @@ pub(super) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
                             ..ExpectedError::default()
                         }),
                         bomb: Some(Bomb {
-                            content_encodings: compiled.content_encodings.clone(),
-                            compressed_bytes: compiled.compressed_bytes,
-                            expanded_bytes: compiled.expanded_bytes,
+                            content_encodings: spec.content_encodings.to_vec(),
+                            compressed_bytes: spec.compressed_bytes,
+                            expanded_bytes: EXPANDED_BYTES,
                         }),
                         ..Expected::default()
                     },
@@ -461,6 +463,36 @@ mod tests {
             EXPANDED_BYTES / compressed > 100 && compressed < 256 * 1024,
             "the zstd frame is a small, high-ratio bomb ({compressed} bytes)"
         );
+    }
+
+    /// `serve` lists every task before it reports its address, so listing
+    /// them must not build the bombs: in an unoptimized build that took two
+    /// seconds of every start, and a loaded host stretched it past the
+    /// start deadline (ADR 0064). Each test runs in its own process
+    /// (nextest), so no other test has built them first.
+    #[test]
+    fn listing_the_bomb_tasks_builds_no_bomb() {
+        let tasks = tasks(SEED, None);
+
+        assert_eq!(tasks.len(), TASKS as usize);
+        assert!(BOMBS.get().is_none(), "the bombs were built to list them");
+    }
+
+    /// Each task declares the size of the body its page really sends.
+    #[test]
+    fn each_bomb_task_declares_the_compressed_size_of_the_body_it_serves() {
+        let tasks = tasks(SEED, None);
+        for (ordinal, spec) in (1..SAFE).zip(&SPECS) {
+            let id = format!("{FAMILY}/{ordinal}");
+            let declared = tasks
+                .iter()
+                .find(|task| task.entry.id == id)
+                .and_then(|task| task.expected.bomb.as_ref())
+                .expect("the bomb task declares its bomb");
+            let built = u64::try_from(body_for(spec.content_encodings).len()).expect("fits u64");
+            assert_eq!(declared.compressed_bytes, built, "{id}");
+            assert_eq!(declared.content_encodings, spec.content_encodings, "{id}");
+        }
     }
 
     #[test]

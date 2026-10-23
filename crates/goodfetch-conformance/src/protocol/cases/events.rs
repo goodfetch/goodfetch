@@ -74,12 +74,15 @@ impl Case {
 /// The credits a subscription grants at once, more than a case's events.
 const CREDITS: u32 = 10_000;
 
-/// The Connection as these cases read it: the events its subscription
-/// delivered so far, and every `route.handle` request answered by aborting
-/// the request, as a handler calling `route.abort()` does.
+/// The Connection as these cases read it: the events the case's own
+/// subscription delivered so far, never another case's, and every
+/// `route.handle` request answered by aborting the request, as a handler
+/// calling `route.abort()` does.
 struct Exchange<'connection> {
     connection: &'connection mut Connection,
     events: Vec<Value>,
+    /// The case's subscription's call.
+    subscription: Option<i64>,
 }
 
 impl Exchange<'_> {
@@ -95,6 +98,12 @@ impl Exchange<'_> {
             return Ok(None);
         }
         if message["method"] == json!(EVENTS) {
+            if self
+                .subscription
+                .is_none_or(|id| message["params"]["id"] != json!(id))
+            {
+                return Ok(None);
+            }
             self.events.extend(
                 message["params"]["events"]
                     .as_array()
@@ -147,11 +156,22 @@ impl Exchange<'_> {
     /// Subscribes to the event stream, granting `credits` at once.
     fn subscribe(&mut self, credits: u32) -> Result<i64, Gone> {
         let id = self.connection.request(EVENTS_SUBSCRIBE.name, &json!({}))?;
+        self.subscription = Some(id);
         if credits > 0 {
             self.connection
                 .notify(CREDIT, &json!({ "id": id, "credits": credits }))?;
         }
         Ok(id)
+    }
+
+    /// Cancels the case's subscription and finishes its Run `run_id`, whose
+    /// pages' listeners then answer.
+    fn end(self, run_id: &str) -> Result<(), Gone> {
+        if let Some(id) = self.subscription {
+            self.connection.notify(CANCEL, &json!({ "id": id }))?;
+            self.connection.answer(id)?;
+        }
+        finish_run(self.connection, run_id)
     }
 
     /// Listens to `event` of `page`, answering the listening call's id.
@@ -200,6 +220,7 @@ fn network_and_load(
     let mut exchange = Exchange {
         connection,
         events: Vec::new(),
+        subscription: None,
     };
     exchange.subscribe(CREDITS)?;
     let mut request_listener = 0;
@@ -291,7 +312,7 @@ fn network_and_load(
             && exchange.data("page.load") == vec![json!({ "page_id": page })],
     );
     no_longer_fires(&mut exchange, &page, &url, request_listener, checks)?;
-    finish_run(exchange.connection, run_id)
+    exchange.end(run_id)
 }
 
 /// Cancelling the `request` listener's call `listener` removes it: the
@@ -339,6 +360,7 @@ fn console_and_page_errors(
     let mut exchange = Exchange {
         connection,
         events: Vec::new(),
+        subscription: None,
     };
     exchange.subscribe(CREDITS)?;
     exchange.call(PAGE_GOTO.name, &json!({ "page_id": page, "url": url }))?;
@@ -384,7 +406,7 @@ fn console_and_page_errors(
                     .is_some_and(|stack| stack.starts_with("TypeError: page-events uncaught\n"))
         }),
     );
-    finish_run(exchange.connection, run_id)
+    exchange.end(run_id)
 }
 
 /// A request the domain policy blocked, one a route aborted and one whose
@@ -408,6 +430,7 @@ fn failed_requests(
     let mut exchange = Exchange {
         connection,
         events: Vec::new(),
+        subscription: None,
     };
     exchange.subscribe(CREDITS)?;
     exchange.listen(&page, "request_failed")?;
@@ -441,7 +464,7 @@ fn failed_requests(
         "the request to a host that does not resolve fails with `net::ERR_NAME_NOT_RESOLVED`",
         failure("nowhere.invalid") == json!({ "error_text": "net::ERR_NAME_NOT_RESOLVED" }),
     );
-    finish_run(exchange.connection, run_id)
+    exchange.end(run_id)
 }
 
 /// A subscriber that grants no credits holds its stream: the page loads and
@@ -454,6 +477,7 @@ fn credits(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Res
     let mut exchange = Exchange {
         connection,
         events: Vec::new(),
+        subscription: None,
     };
     let subscription = exchange.subscribe(0)?;
     exchange.listen(&page, "request")?;
@@ -493,7 +517,7 @@ fn credits(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Res
                 .first()
                 .is_some_and(|request| url_of(request) == url),
     );
-    finish_run(exchange.connection, run_id)
+    exchange.end(run_id)
 }
 
 /// A body `page.wait_for_request_finished` kept reads whole after the page
@@ -514,6 +538,7 @@ fn bodies(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
     let mut exchange = Exchange {
         connection,
         events: Vec::new(),
+        subscription: None,
     };
     let waiting = exchange.connection.request(
         PAGE_WAIT_FOR_REQUEST_FINISHED.name,
@@ -579,7 +604,7 @@ fn bodies(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
         cut_body["error"]["data"]["code"] == json!(RESPONSE_TRUNCATED.name)
             && cut_body["error"]["data"]["url"] == json!(cut),
     );
-    finish_run(exchange.connection, run_id)
+    exchange.end(run_id)
 }
 
 /// The bytes of the page body file a `response.body` answer's handle names,

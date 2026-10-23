@@ -173,7 +173,7 @@ impl Hiding {
             .opening_command(&dom::EnableParams::default())
             .await?;
         driver.opening_command(&css::EnableParams {}).await?;
-        sheets.styled(driver.session()).await;
+        sheets.styled(driver.session());
         run.spawn(follow(events, Arc::clone(&page)));
         Ok(Some(page))
     }
@@ -191,13 +191,11 @@ impl Hiding {
 async fn follow(mut events: Subscription, page: Arc<PageHiding>) {
     while let Some(event) = events.next().await {
         let frame = if let Some(navigated) = event.read::<page::FrameNavigatedEvent>() {
-            page.sheets
-                .navigated(
-                    page.driver.session(),
-                    &navigated.frame.id,
-                    &navigated.frame.loader_id,
-                )
-                .await;
+            page.sheets.navigated(
+                page.driver.session(),
+                &navigated.frame.id,
+                &navigated.frame.loader_id,
+            );
             navigated.frame.id
         } else if let Some(reached) = event.read::<page::LifecycleEventEvent>()
             && matches!(reached.name.as_str(), "DOMContentLoaded" | "load")

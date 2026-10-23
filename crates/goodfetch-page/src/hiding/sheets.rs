@@ -4,11 +4,16 @@
 //! Live hiding and the Consent prompt runner each write their part of it
 //! here, in any frame of the page, out-of-process iframes' targets included;
 //! [`Documents`] decides what each change sends.
+#![expect(
+    clippy::disallowed_types,
+    reason = "the documents' lock guards one step of bookkeeping, never across an `.await` or another lock, so the page's event loops never wait on a command; there is no lock order to test under loom (ADR 0060)"
+)]
+
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use goodfetch_cdp::Failure;
 use goodfetch_cdp::SessionId as TargetSession;
 use goodfetch_cdp::generated::{css, dom, page};
-use tokio::sync::Mutex;
 
 use super::documents::{Documents, Key, Part, Write};
 use crate::driver::PageDriver;
@@ -16,9 +21,10 @@ use crate::driver::PageDriver;
 /// One page's hiding sheets.
 pub(crate) struct Sheets {
     driver: PageDriver,
-    /// Held while a sheet's commands go out, so each document's commands
-    /// reach the browser in the order its changes were made.
     documents: Mutex<Documents>,
+    /// Held while a change's commands go out, so the browser gets each
+    /// document's texts in the order they were set.
+    sending: tokio::sync::Mutex<()>,
 }
 
 impl Sheets {
@@ -27,26 +33,29 @@ impl Sheets {
         Self {
             driver,
             documents: Mutex::new(Documents::default()),
+            sending: tokio::sync::Mutex::new(()),
         }
     }
 
     /// `session`'s `DOM` and `CSS` domains are on already.
-    pub(crate) async fn styled(&self, session: &TargetSession) {
-        self.documents.lock().await.styled(session);
+    pub(crate) fn styled(&self, session: &TargetSession) {
+        self.documents().styled(session);
     }
 
     /// `frame` of `session` committed the document of `loader`, which starts
     /// with an empty sheet.
-    pub(crate) async fn navigated(
-        &self,
-        session: &TargetSession,
-        frame: &page::FrameId,
-        loader: &str,
-    ) {
-        self.documents
-            .lock()
-            .await
-            .navigated(session, frame, loader);
+    pub(crate) fn navigated(&self, session: &TargetSession, frame: &page::FrameId, loader: &str) {
+        self.documents().navigated(session, frame, loader);
+    }
+
+    /// The iframe target `session` detached.
+    pub(crate) fn forget_session(&self, session: &TargetSession) {
+        self.documents().forget_session(session);
+    }
+
+    /// `frame` of `session` detached.
+    pub(crate) fn forget_frame(&self, session: &TargetSession, frame: &page::FrameId) {
+        self.documents().forget_frame(session, frame);
     }
 
     /// Sets `part` of the sheet of `frame`'s document on `session` to
@@ -69,10 +78,12 @@ impl Sheets {
         part: Part,
         text: String,
     ) -> Result<(), Failure> {
-        let mut documents = self.documents.lock().await;
-        let key = (session.clone(), frame.clone());
-        match documents.set(&key, part, text) {
-            Some(write) => self.send(&mut documents, write).await,
+        let _sending = self.sending.lock().await;
+        let write = self
+            .documents()
+            .set(&(session.clone(), frame.clone()), part, text);
+        match write {
+            Some(write) => self.send(write).await,
             None => Ok(()),
         }
     }
@@ -81,38 +92,39 @@ impl Sheets {
     /// `session` goes in, so no hidden owner swallows it, until
     /// [`Self::restore`]; nothing for a click in the page's own frame.
     pub(crate) async fn lift(&self, session: &TargetSession, frame: &page::FrameId) {
-        let mut documents = self.documents.lock().await;
+        let _sending = self.sending.lock().await;
         let page: Key = (
             self.driver.session().clone(),
             self.driver.main_frame().clone(),
         );
-        for write in documents.lift(&(session.clone(), frame.clone()), &page) {
-            let _ = self.send(&mut documents, write).await;
+        let writes = self
+            .documents()
+            .lift(&(session.clone(), frame.clone()), &page);
+        for write in writes {
+            let _ = self.send(write).await;
         }
     }
 
     /// Gives every document lifted for a click its whole sheet again.
     pub(crate) async fn restore(&self) {
-        let mut documents = self.documents.lock().await;
-        for write in documents.restore() {
-            let _ = self.send(&mut documents, write).await;
+        let _sending = self.sending.lock().await;
+        let writes = self.documents().restore();
+        for write in writes {
+            let _ = self.send(write).await;
         }
     }
 
-    /// The iframe target `session` detached.
-    pub(crate) async fn forget_session(&self, session: &TargetSession) {
-        self.documents.lock().await.forget_session(session);
-    }
-
-    /// `frame` of `session` detached.
-    pub(crate) async fn forget_frame(&self, session: &TargetSession, frame: &page::FrameId) {
-        self.documents.lock().await.forget_frame(session, frame);
+    /// The documents, for one step of bookkeeping.
+    fn documents(&self) -> MutexGuard<'_, Documents> {
+        self.documents
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Sends `write`'s commands and records what they did; a sheet the
     /// browser no longer knows, as its document went before the page's
     /// listeners saw it go, is made again once.
-    async fn send(&self, documents: &mut Documents, write: Write) -> Result<(), Failure> {
+    async fn send(&self, write: Write) -> Result<(), Failure> {
         let mut sent = self.commands(&write).await;
         if sent.is_err() && write.sheet.is_some() {
             sent = self
@@ -123,8 +135,8 @@ impl Sheets {
                 .await;
         }
         match &sent {
-            Ok(sheet) => documents.written(&write, sheet.clone()),
-            Err(_) => documents.failed(&write),
+            Ok(sheet) => self.documents().written(&write, sheet.clone()),
+            Err(_) => self.documents().failed(&write),
         }
         sent.map(drop)
     }

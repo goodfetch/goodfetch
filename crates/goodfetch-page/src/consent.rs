@@ -216,12 +216,11 @@ async fn react(shared: &Arc<Shared>, session: &TargetSession, event: &goodfetch_
     } else if let Some(detached) = event.read::<target::DetachedFromTargetEvent>() {
         let detached = TargetSession(detached.session_id);
         shared.frames.lock().await.forget_session(&detached);
-        shared.sheets.forget_session(&detached).await;
+        shared.sheets.forget_session(&detached);
     } else if let Some(navigated) = event.read::<page::FrameNavigatedEvent>() {
         shared
             .sheets
-            .navigated(session, &navigated.frame.id, &navigated.frame.loader_id)
-            .await;
+            .navigated(session, &navigated.frame.id, &navigated.frame.loader_id);
         let shared = Arc::clone(shared);
         let session = session.clone();
         shared.run.clone().spawn(async move {
@@ -245,10 +244,7 @@ async fn react(shared: &Arc<Shared>, session: &TargetSession, event: &goodfetch_
             .lock()
             .await
             .forget_frame(session, &detached.frame_id);
-        shared
-            .sheets
-            .forget_frame(session, &detached.frame_id)
-            .await;
+        shared.sheets.forget_frame(session, &detached.frame_id);
     } else if let Some(called) = event.read::<runtime::BindingCalledEvent>()
         && called.name == BINDING
     {

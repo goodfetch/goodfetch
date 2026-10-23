@@ -141,6 +141,8 @@ extra = ["example"]
 [settings.clean_up]
 update = "release"
 version = "example"
+channel = "example"
+lists = { "example.test" = "example" }
 
 [settings.session]
 source = { kind = "saved_identity", name = "example" }

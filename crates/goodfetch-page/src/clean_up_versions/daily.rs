@@ -1,5 +1,6 @@
 //! The daily channel (ADR 0047): an OCI artifact in the registry Goodfetch
-//! publishes to, one per release line and format version, tagged
+//! publishes to, or a mirror `clean_up.channel` names, one per release
+//! line and format version, tagged
 //! `<line>-format-<format line>`, each version also tagged by its digest,
 //! `sha256-<hex>`, so a resumed Run or a `clean_up.version` fetches the one
 //! it names. Each layer is one file of the version, named by its
@@ -20,14 +21,8 @@ use serde_json::{Value, json};
 
 use super::{FILE_LIMIT, Sources, Version};
 
-/// The registry the channel is published to.
-pub(crate) const REGISTRY: &str = "ghcr.io";
-
-/// The channel's repository in it.
-pub(crate) const REPOSITORY: &str = "goodfetch/clean-up-rules";
-
 /// How often the channel is checked, at most (ADR 0047).
-const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
+const CHECK_EVERY: Duration = Duration::from_hours(24);
 
 /// The media type of an OCI image manifest.
 const MANIFEST_MEDIA_TYPE: &str = "application/vnd.oci.image.manifest.v1+json";
@@ -53,8 +48,8 @@ pub(crate) fn tag(sources: &Sources) -> String {
 }
 
 /// The channel's newest version for this engine: the one last pulled while
-/// the last check is under a day old; otherwise what the conditional check
-/// finds, or the last one when the check fails.
+/// the last check of the same channel is under a day old; otherwise what
+/// the conditional check finds, or the last one when the check fails.
 pub(super) async fn newest(sources: &Sources, now: jiff::Timestamp) -> Result<Version, String> {
     let state = sources.read_state().await;
     let daily = &state["daily"];
@@ -69,14 +64,18 @@ pub(super) async fn newest(sources: &Sources, now: jiff::Timestamp) -> Result<Ve
     let checked_at = daily["checked_at"]
         .as_str()
         .and_then(|text| text.parse::<jiff::Timestamp>().ok());
-    if let (Some(last), Some(checked_at)) = (&last, checked_at)
+    let same_channel = daily["channel"] == json!(sources.channel);
+    if let (Some(last), Some(checked_at), true) = (&last, checked_at, same_channel)
         && checked_at
             .checked_add(CHECK_EVERY)
             .is_ok_and(|due| now < due)
     {
         return Ok(last.clone());
     }
-    let known = last.as_ref().and(daily["manifest"].as_str());
+    let known = last
+        .as_ref()
+        .filter(|_| same_channel)
+        .and(daily["manifest"].as_str());
     let pulled = match pull(sources, &tag(sources), known).await {
         Ok(pulled) => pulled,
         Err(why) => {
@@ -117,6 +116,7 @@ pub(super) async fn newest(sources: &Sources, now: jiff::Timestamp) -> Result<Ve
     let mut state = state.clone();
     state["daily"] = json!({
         "checked_at": now,
+        "channel": sources.channel,
         "manifest": manifest,
         "version": version.digest,
         "published_at": version.manifest.published_at,
@@ -164,7 +164,11 @@ enum Pulled {
 /// digest is `known`, the blob of each layer, checked against its digest.
 async fn pull(sources: &Sources, reference: &str, known: Option<&str>) -> Result<Pulled, String> {
     let mut token = None;
-    let url = format!("https://{REGISTRY}/v2/{REPOSITORY}/manifests/{reference}");
+    let (registry, repository) = sources
+        .channel
+        .split_once('/')
+        .ok_or("`clean_up.channel` names no repository `host[:port]/path`")?;
+    let url = format!("https://{registry}/v2/{repository}/manifests/{reference}");
     let fetched = get(
         sources,
         &url,
@@ -195,7 +199,7 @@ async fn pull(sources: &Sources, reference: &str, known: Option<&str>) -> Result
                     .to_owned(),
             );
         };
-        let url = format!("https://{REGISTRY}/v2/{REPOSITORY}/blobs/{digest}");
+        let url = format!("https://{registry}/v2/{repository}/blobs/{digest}");
         let blob = get(sources, &url, None, &mut token, FILE_LIMIT).await?;
         if blob.status != 200 {
             return Err(format!(

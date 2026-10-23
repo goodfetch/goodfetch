@@ -18,6 +18,10 @@
     clippy::disallowed_methods,
     reason = "a version's files are read on the tasks module's blocking policy, never on an async worker"
 )]
+#![expect(
+    clippy::disallowed_types,
+    reason = "each lock guards a table for one operation, never across another lock or an `.await` (ADR 0060)"
+)]
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -32,7 +36,7 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::http_client::Resolve;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_engine::runs::{Answering, Chosen, CleanUpVersions, Holding, RulesContext, Run};
-use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_engine::tls::read_certificates;
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
@@ -42,7 +46,10 @@ use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::formats::{CLEAN_UP_RULES, Compatibility};
 use goodfetch_protocol::run::warning::{CLEAN_UP_RULES_FALLBACK, CLEAN_UP_RULES_STALE};
 use goodfetch_protocol::run::{RunId, RunWarning};
-use goodfetch_protocol::settings::{CLEAN_UP_UPDATE, CLEAN_UP_VERSION, NETWORK_RESOLVE};
+use goodfetch_protocol::settings::{
+    CLEAN_UP_CHANNEL, CLEAN_UP_LISTS, CLEAN_UP_UPDATE, CLEAN_UP_VERSION, DAILY_CHANNEL,
+    NETWORK_RESOLVE, UPSTREAM_LISTS,
+};
 use goodfetch_protocol::tls::TLS_TRUSTED_CAS;
 use serde_json::{Value, json};
 use tokio::sync::Mutex as AsyncMutex;
@@ -53,7 +60,7 @@ mod daily;
 mod upstream;
 
 /// How old a version may be before its Run's report warns (ADR 0047).
-const STALE_AFTER: Duration = Duration::from_secs(14 * 24 * 60 * 60);
+const STALE_AFTER: Duration = Duration::from_hours(14 * 24);
 
 /// The most bytes one file of a version may hold.
 const FILE_LIMIT: usize = 64 * 1024 * 1024;
@@ -218,13 +225,34 @@ pub(crate) struct Sources {
     state: PathBuf,
     /// The engine's Product version, which the daily channel's tag names.
     pub(crate) product_version: ProductVersion,
+    /// The daily channel's repository, `host[:port]/path`.
+    pub(crate) channel: String,
+    /// The URL of each Filter list `upstream` fetches, by list.
+    pub(crate) lists: BTreeMap<String, String>,
 }
 
 impl Sources {
     /// The sources under `context`'s settings.
     async fn of(context: &RulesContext<'_>) -> Self {
-        let settings = context.settings.map(|settings| settings.resolved());
+        let settings = context.settings.map(RunSettings::resolved);
         let owner = context.owner.child();
+        let channel = settings
+            .and_then(|settings| settings.value(CLEAN_UP_CHANNEL.name).as_str())
+            .unwrap_or(DAILY_CHANNEL)
+            .to_owned();
+        let mut lists: BTreeMap<String, String> = UPSTREAM_LISTS
+            .iter()
+            .map(|(list, url)| ((*list).to_owned(), (*url).to_owned()))
+            .collect();
+        if let Some(named) =
+            settings.and_then(|settings| settings.value(CLEAN_UP_LISTS.name).as_object())
+        {
+            for (list, url) in named {
+                if let Some(url) = url.as_str() {
+                    lists.insert(list.clone(), url.to_owned());
+                }
+            }
+        }
         let mut fetching = Fetching::new(context.clock);
         if let Some(settings) = settings {
             fetching.offline = settings
@@ -263,6 +291,8 @@ impl Sources {
                 .per_major(context.product_version)
                 .join(STATE_FILE),
             product_version: context.product_version.clone(),
+            channel,
+            lists,
         }
     }
 
@@ -377,7 +407,7 @@ impl Versions {
     /// The version a new Run starting under `context` holds to.
     async fn choose_version(&self, context: RulesContext<'_>) -> Chosen {
         self.remember(context.home);
-        let asked = Asked::of(context.settings.map(|settings| settings.resolved()));
+        let asked = Asked::of(context.settings.map(RunSettings::resolved));
         let now = now_of(context.clock);
         let embedded = Version::embedded();
         let chosen = if let Some(digest) = &asked.version {
@@ -425,7 +455,7 @@ impl Versions {
         let Some(recorded) = recorded_digest(run).await else {
             return;
         };
-        let asked = Asked::of(context.settings.map(|settings| settings.resolved()));
+        let asked = Asked::of(context.settings.map(RunSettings::resolved));
         let now = now_of(context.clock);
         let resumed = holding == Holding::Resumed;
         let (version, fallback) = match holding {

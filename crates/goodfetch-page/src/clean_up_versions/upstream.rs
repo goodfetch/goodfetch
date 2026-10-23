@@ -1,6 +1,7 @@
-//! The Filter lists from their authors' own URLs (ADR 0047's `upstream`):
-//! easylist.to's EasyList and EasyPrivacy, fanboy.co.nz's Fanboy Annoyance
-//! and Brave's unbreak list, each fetched again once the shortest expiry
+//! The Filter lists from their authors' own URLs (ADR 0047's `upstream`),
+//! or a mirror's, as `clean_up.lists` names them: easylist.to's EasyList
+//! and EasyPrivacy, fanboy.co.nz's Fanboy Annoyance and Brave's unbreak
+//! list by default, each fetched again once the shortest expiry
 //! they declare (`! Expires: 4 days`) has passed; the cookie sections of
 //! the three lists dropped before they are kept, since the Consent prompt
 //! runner handles those. The version they make is cached by the digest the
@@ -18,37 +19,21 @@ use serde_json::json;
 
 use super::{FILE_LIMIT, Sources, Version};
 
-/// Each list: the setting that turns it on, its file in the version, and
-/// its author's URL.
-pub(crate) const LISTS: [(&str, &str, &str); 4] = [
-    (
-        "ads",
-        "easylist.txt",
-        "https://easylist.to/easylist/easylist.txt",
-    ),
-    (
-        "trackers",
-        "easyprivacy.txt",
-        "https://easylist.to/easylist/easyprivacy.txt",
-    ),
-    (
-        "annoyances",
-        "fanboy-annoyance.txt",
-        "https://secure.fanboy.co.nz/fanboy-annoyance.txt",
-    ),
-    (
-        "unbreak",
-        "brave-unbreak.txt",
-        "https://raw.githubusercontent.com/brave/adblock-lists/master/brave-unbreak.txt",
-    ),
+/// Each list: its key in `clean_up.lists` and in the manifest, and its file
+/// in the version.
+const LISTS: [(&str, &str); 4] = [
+    ("ads", "easylist.txt"),
+    ("trackers", "easyprivacy.txt"),
+    ("annoyances", "fanboy-annoyance.txt"),
+    ("unbreak", "brave-unbreak.txt"),
 ];
 
 /// A list's expiry when it declares none.
-const DEFAULT_EXPIRY: Duration = Duration::from_secs(24 * 60 * 60);
+const DEFAULT_EXPIRY: Duration = Duration::from_hours(24);
 
-/// The newest version from the lists' authors: the last one fetched while
-/// none of its lists expired, otherwise a new one; the last one when the
-/// fetch fails.
+/// The newest version from the lists' URLs: the last one fetched from the
+/// same URLs while none of its lists expired, otherwise a new one; the
+/// last one when the fetch fails.
 pub(super) async fn newest(sources: &Sources, now: jiff::Timestamp) -> Result<Version, String> {
     let state = sources.read_state().await;
     let last = match state["upstream"]["version"].as_str() {
@@ -59,7 +44,9 @@ pub(super) async fn newest(sources: &Sources, now: jiff::Timestamp) -> Result<Ve
             .map(|(version, _)| version),
         None => None,
     };
+    let same_urls = state["upstream"]["lists"] == json!(sources.lists);
     if let Some(last) = &last
+        && same_urls
         && !last.expired(now)
     {
         return Ok(last.clone());
@@ -77,7 +64,7 @@ pub(super) async fn newest(sources: &Sources, now: jiff::Timestamp) -> Result<Ve
         }
     };
     let mut state = state.clone();
-    state["upstream"] = json!({ "version": version.digest });
+    state["upstream"] = json!({ "version": version.digest, "lists": sources.lists });
     sources.write_state(state).await;
     Ok(version)
 }
@@ -86,7 +73,11 @@ pub(super) async fn newest(sources: &Sources, now: jiff::Timestamp) -> Result<Ve
 async fn fetched(sources: &Sources, now: jiff::Timestamp) -> Result<Version, String> {
     let mut files = Vec::new();
     let mut expiry = None::<Duration>;
-    for (list, file, url) in LISTS {
+    for (list, file) in LISTS {
+        let url = sources
+            .lists
+            .get(list)
+            .ok_or_else(|| format!("`clean_up.lists` names no URL for the `{list}` Filter list"))?;
         let answer = rule_sources::get(url, &[], &sources.fetching, FILE_LIMIT)
             .await
             .map_err(|failure| format!("the `{list}` Filter list cannot be fetched: {failure}"))?;

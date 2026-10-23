@@ -202,7 +202,7 @@ fn the_down_proxy_refuses_every_connection() {
 /// so a connection to it stays refused for as long as the Proving ground
 /// runs.
 #[test]
-fn no_other_program_can_take_the_down_proxys_address() {
+fn no_other_program_can_take_the_down_proxy_address() {
     let proving_ground = ProvingGround::start(SEED);
     let down = proving_ground.proxy("down");
 

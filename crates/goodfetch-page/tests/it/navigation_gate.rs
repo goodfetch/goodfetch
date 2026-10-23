@@ -18,7 +18,7 @@ use goodfetch_protocol::page::SitePreference;
 use goodfetch_recording_gate::RecordingGate;
 use serde_json::{Map, Value, json};
 
-use crate::handler_page::{Program, settled, settled_or, with_handler_page};
+use crate::handler_page::{Program, RUN, settled, settled_or, with_handler_page};
 
 /// The navigation test whose page links to `/b`.
 const HISTORY: &str = "2.navigation.test";
@@ -60,8 +60,9 @@ async fn admitted_by(
 }
 
 /// The gate is asked once for each main-frame navigation, whatever starts
-/// it, and once for each redirect or refresh hop.
-/// Covers: operation:page.goto, operation:page.reload, operation:page.go_back, operation:locator.click, operation:page.request
+/// it, and once for each redirect or refresh hop and each `page.request`,
+/// on every page of its Session, one opened later included.
+/// Covers: operation:page.goto, operation:page.reload, operation:page.go_back, operation:locator.click, operation:page.request, operation:run.new_page
 #[test]
 fn the_gate_admits_each_main_frame_navigation_and_each_hop_once() {
     let gate = RecordingGate::new();
@@ -109,6 +110,17 @@ fn the_gate_admits_each_main_frame_navigation_and_each_hop_once() {
             assert!(sent.get("result").is_some(), "{sent}");
         })
         .await;
+        let another_page = admitted_by(&gate, program, 1, async |program| {
+            let opened = program
+                .call("run.new_page", &json!({ "run_id": RUN }))
+                .await;
+            program.page = opened["result"]["page_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("no page opened: {opened}"))
+                .to_owned();
+            program.goto(HISTORY, "/b").await;
+        })
+        .await;
         // Nothing more was asked once each settled.
         let total = gate.admitted().len();
         // A page whose Session registered no response observer keeps none.
@@ -116,7 +128,16 @@ fn the_gate_admits_each_main_frame_navigation_and_each_hop_once() {
 
         assert_eq!(
             (
-                goto, click, back, reload, hops, refresh, script, request, total
+                goto,
+                click,
+                back,
+                reload,
+                hops,
+                refresh,
+                script,
+                request,
+                another_page,
+                total
             ),
             (
                 vec![document("/")],
@@ -131,7 +152,8 @@ fn the_gate_admits_each_main_frame_navigation_and_each_hop_once() {
                 vec![document("/refresh/meta/0"), document("/target")],
                 vec![document("/refresh/script"), document("/target")],
                 vec![("/b".to_owned(), NavigationKind::Request)],
-                12,
+                vec![document("/b")],
+                13,
             )
         );
     });

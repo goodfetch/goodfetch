@@ -32,6 +32,11 @@
 //! status 0 quit, which ends its Session. Closing a Session ends its calls
 //! in flight with `call_cancelled` naming the program; a crashed Session's
 //! close releases what is left and leaves it `Crashed`.
+//!
+//! Size: one table, the engine's Sessions with their opening, closing and
+//! reopening from run state, each of which reads and changes that table
+//! under its one lock; a page's end and the tables of states are in their
+//! own modules.
 
 mod ends;
 mod life;
@@ -53,6 +58,7 @@ use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
 use goodfetch_protocol::governor::WorkKind;
+use goodfetch_protocol::page::proxy::PROXY_PROVIDER;
 use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
 use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use goodfetch_protocol::run::{Lifecycle, RUN_ENDED, RUN_NOT_FOUND, RunDetails, RunId};
@@ -61,6 +67,7 @@ use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SESSION_SOURCE, SettingLimit,
     SettingsLayer, TIMEOUT_ACTION, TIMEOUT_NAVIGATION, TIMEOUT_WAIT,
 };
+use goodfetch_protocol::usage::PROXY_BYTES;
 use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
 
@@ -77,7 +84,7 @@ use crate::interception::{Interception, SESSION_KEYS};
 use crate::page_events::{self, PageEvents, Refusals};
 use crate::page_value::{HandlerPages, PageValue};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
-use crate::proxy::SessionProxy;
+use crate::proxy::{Opening, SessionProxy};
 
 /// What the page crate adds to every run file: each Session the Run opened,
 /// by its position among them, whether it is the Run's default Session,
@@ -155,6 +162,8 @@ struct Session {
     settings: Values,
     /// Where it is, through its table.
     life: SessionLife,
+    /// Its one proxy, if it has one.
+    proxy: Option<Arc<SessionProxy>>,
 }
 
 /// What every Session this engine opens is: a fresh one a program opened,
@@ -245,12 +254,18 @@ impl Sessions {
         let run = live(&params.run_id, context).await?;
         let settings = own_settings(&params.settings, &run, context)?;
         opening_source(&run, params.source)?;
-        let proxy = open_proxy(&run, &settings, context).await?;
+        // Its proxy is drawn for the position it is about to take, which a
+        // Session opening at the same moment may take first.
+        let next = {
+            let mut state = self.state.lock().await;
+            self.reach(&mut state, &run, context).await?.last + 1
+        };
+        let proxy = open_proxy(&run, &settings, context, next).await?;
         let (position, seat) = {
             let mut state = self.state.lock().await;
             let runs = self.reach(&mut state, &run, context).await?;
             runs.last += 1;
-            (runs.last, runs.pool.seat(Placement::Shared, proxy))
+            (runs.last, runs.pool.seat(Placement::Shared, proxy.clone()))
         };
         let session = session_id(run.id(), position);
         let life = SessionLife::new(session.clone(), FRESH, SessionState::Opening);
@@ -260,6 +275,7 @@ impl Sessions {
             seat,
             settings: settings.clone(),
             life: life.clone(),
+            proxy,
         });
         self.state
             .lock()
@@ -310,11 +326,12 @@ impl Sessions {
                 }
                 Some(position) => position,
                 None => {
-                    let proxy = open_proxy(&run, &Values::default(), context).await?;
+                    let proxy =
+                        open_proxy(&run, &Values::default(), context, runs.last + 1).await?;
                     runs.last += 1;
                     runs.default = Some(runs.last);
                     let position = runs.last;
-                    let seat = runs.pool.seat(Placement::Shared, proxy);
+                    let seat = runs.pool.seat(Placement::Shared, proxy.clone());
                     self.record(&run, position, true, &Values::default(), context)
                         .await?;
                     let session = session_id(run.id(), position);
@@ -326,6 +343,7 @@ impl Sessions {
                             seat,
                             settings: Values::default(),
                             life: SessionLife::new(session.clone(), FRESH, SessionState::Open),
+                            proxy,
                         }),
                     );
                     self.interception.open_session(&session);
@@ -348,6 +366,9 @@ impl Sessions {
         let open = self.session(session, context).await?;
         open.life.call().await?;
         let run = open.run.clone();
+        if let Some(proxy) = &open.proxy {
+            proxy.warn_if_outlived(&run, session).await;
+        }
         let (navigation_timeout, action_timeout) = timeouts(&run);
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
         let (driver, in_browser) = open.seat.new_page(navigation_timeout).await?;
@@ -449,6 +470,9 @@ impl Sessions {
             }
         };
         let effect = open.life.apply(SessionEvent::Close, None)?;
+        if let Some(proxy) = &open.proxy {
+            proxy.warn_if_outlived(&open.run, session).await;
+        }
         let crashed = match effect {
             // Already closing or closed: `close()` changes nothing (C).
             SessionEffect::Nothing => return Ok(()),
@@ -692,7 +716,7 @@ impl Sessions {
                     let settings = recorded_settings(&settings, run, context)?;
                     // A reopened Session keeps the proxy it opened with, so
                     // its address never changes under its cookies (SA-22).
-                    let proxy = open_proxy(run, &settings, context).await?;
+                    let proxy = open_proxy(run, &settings, context, position).await?;
                     let session = session_id(run.id(), position);
                     self.interception.open_session(&session);
                     state.sessions.insert(
@@ -700,9 +724,10 @@ impl Sessions {
                         Arc::new(Session {
                             run: run.clone(),
                             position,
-                            seat: pool.seat(Placement::Shared, proxy),
+                            seat: pool.seat(Placement::Shared, proxy.clone()),
                             settings,
                             life: SessionLife::new(session, FRESH, SessionState::Open),
+                            proxy,
                         }),
                     );
                 }
@@ -869,6 +894,7 @@ async fn open_proxy(
     run: &Run,
     own: &Values,
     context: &CallContext,
+    position: u32,
 ) -> Result<Option<Arc<SessionProxy>>, CallError> {
     let Some(settings) = run.settings() else {
         return match own.keys().next() {
@@ -891,7 +917,29 @@ async fn open_proxy(
             .beneath(own)
             .map_err(|error| settings_error(&error, context.identity()))?
     };
-    Ok(SessionProxy::open(&resolved, run).await?.map(Arc::new))
+    // A Proxy provider's price must be in the currency of each currency
+    // Limit on `proxy_bytes` that holds the Run (ADR 0101).
+    let currencies = if resolved.value(PROXY_PROVIDER.name).is_null() {
+        Vec::new()
+    } else {
+        run.usage()
+            .await
+            .map_err(|error| unavailable(run, &error, context))?
+            .limits
+            .into_iter()
+            .filter(|limit| limit.usage_kind == PROXY_BYTES)
+            .filter_map(|limit| limit.currency)
+            .collect()
+    };
+    let session = session_id(run.id(), position);
+    let opening = Opening {
+        session: &session,
+        ordinal: u64::from(position),
+        currencies: &currencies,
+    };
+    Ok(SessionProxy::open(&resolved, run, &opening)
+        .await?
+        .map(Arc::new))
 }
 
 /// The own settings `recorded`, as the run state of `run` holds them, of a

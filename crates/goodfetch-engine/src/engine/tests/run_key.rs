@@ -543,3 +543,66 @@ fn with_an_os_keychain_the_key_comes_from_it_and_a_paused_run_resumes_with_it() 
         )
     );
 }
+
+/// Discarding a Run overwrites its wrapped data key in its run file before
+/// the run folder goes (ADR 0015): a hard link to the run file, which keeps
+/// its bytes as a disk would keep a removed file's, holds the wrapped key
+/// before the discard and neither its row nor its bytes after, so what the
+/// Run sealed there no longer opens under any key-encryption key.
+/// Covers: story:3-39, operation:run.discard
+#[test]
+fn a_discarded_runs_wrapped_data_key_is_overwritten_in_its_run_file() {
+    let env = TestEnv::new();
+    let mut canaries = Canaries::new(env.seed());
+    let cookie = canaries.plant(SecretKind::SessionCookie).value().to_owned();
+    let linked = env.folder().join("linked run file.sqlite");
+    let link_to = linked.clone();
+    let folder = run_folder(&env, "sealed");
+    let run_file = folder.join("run.sqlite");
+
+    let (wrapped, discarded) = on(
+        || dependencies(&env),
+        |mut talk| async move {
+            talk.ok(2, "test.keep", json!({ "run_id": "sealed" })).await;
+            talk.ok(
+                3,
+                "test.seal",
+                json!({ "run_id": "sealed", "row": 1, "value": cookie }),
+            )
+            .await;
+            talk.ok(4, "run.finish", json!({ "run_id": "sealed" }))
+                .await;
+            std::fs::hard_link(&run_file, &link_to).unwrap();
+            let wrapped = wrapped_key(&link_to);
+            let discarded = talk
+                .ok(5, "run.discard", json!({ "run_id": "sealed" }))
+                .await;
+            (wrapped, discarded)
+        },
+    );
+
+    let kept = std::fs::read(&linked).unwrap();
+    assert_eq!(
+        (
+            discarded,
+            wrapped.is_some(),
+            rusqlite::Connection::open(&linked)
+                .unwrap()
+                .query_row("SELECT count(*) FROM run_key", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            wrapped
+                .is_some_and(|wrapped| kept.windows(wrapped.len()).any(|window| window == wrapped)),
+            folder.exists(),
+        ),
+        (json!({ "run_id": "sealed" }), true, 0, false, false)
+    );
+}
+
+/// The wrapped data key the run file at `path` holds.
+fn wrapped_key(path: &Path) -> Option<Vec<u8>> {
+    rusqlite::Connection::open(path)
+        .unwrap()
+        .query_row("SELECT wrapped FROM run_key", [], |row| row.get(0))
+        .ok()
+}

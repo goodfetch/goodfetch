@@ -171,6 +171,62 @@ impl InstallDatabase {
             .filter_map(|name| name.split_once('/').map(|(run, _)| run.to_owned()))
             .collect())
     }
+
+    /// Deletes every file of the run folder `run_id`, its run file and its
+    /// WAL, and makes the deletion durable, then truncates the database's
+    /// WAL with `wal_checkpoint(TRUNCATE)`: the database deletes with
+    /// `secure_delete` on, so neither it nor its `-wal` and `-shm` files
+    /// keep their bytes (ADR 0002). Answers whether it held any. It blocks:
+    /// run it under a blocking policy.
+    ///
+    /// # Errors
+    ///
+    /// `Sqlite` when a file of the run folder is open, or the database
+    /// cannot be written or its WAL truncated.
+    pub fn erase(&self, run_id: &str) -> Result<bool, RunStateError> {
+        let failed = |error: rusqlite::Error| sqlite_error(&self.install.path, &error);
+        let prefix = format!("{run_id}/");
+        let mut state = lock(&self.install.state);
+        if state
+            .locks
+            .keys()
+            .chain(state.shared_memory.keys())
+            .any(|name| name.starts_with(&prefix))
+        {
+            return Err(RunStateError::Sqlite {
+                path: self.install.path.clone(),
+                message: format!("a file of the run folder `{run_id}` is open"),
+            });
+        }
+        let mut erased = false;
+        state
+            .commit(|state| {
+                // `name` is compared on its first bytes, never with `LIKE`,
+                // whose `_` a Run ID may hold.
+                let below = "substr(name, 1, length(?1)) = ?1";
+                state
+                    .connection
+                    .execute(&format!("DELETE FROM chunks WHERE {below}"), [&prefix])?;
+                erased = state
+                    .connection
+                    .execute(&format!("DELETE FROM files WHERE {below}"), [&prefix])?
+                    > 0;
+                Ok(())
+            })
+            .map_err(failed)?;
+        state.sync().map_err(failed)?;
+        let busy: i64 = state
+            .connection
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))
+            .map_err(failed)?;
+        if busy != 0 {
+            return Err(RunStateError::Sqlite {
+                path: self.install.path.clone(),
+                message: "a reader held the WAL, so it was not truncated".to_owned(),
+            });
+        }
+        Ok(erased)
+    }
 }
 
 impl Drop for InstallDatabase {
@@ -211,6 +267,11 @@ fn open_database(path: &Path, vfs: Option<&str>) -> Result<Connection, RunStateE
         .map_err(failed)?;
     connection
         .pragma_update(None, "synchronous", "NORMAL")
+        .map_err(failed)?;
+    // Every page a Run's rewritten or deleted chunks free is zeroed, so a
+    // discarded Run's bytes are kept nowhere in the database (ADR 0002).
+    connection
+        .pragma_update(None, "secure_delete", "ON")
         .map_err(failed)?;
     if cfg!(target_os = "macos") {
         connection

@@ -3,15 +3,21 @@
 //! `proxy.username` and `proxy.password` as a Session's settings, one proxy
 //! per Session and none per page or request (ADRs 0021 and 0092; ADR 0037 /
 //! SA-22), against the Proving ground's forward proxies, whose connection
-//! record says which proxy each request went through.
+//! record says which proxy each request went through; and the `list`
+//! Proxy provider (spec #599, ticket #882): `proxy.provider`,
+//! `proxy.kind`, `proxy.country` and `proxy.providers`, one of the user's
+//! servers per Session for its life, and its bytes by proxy kind in Usage,
+//! priced under a currency Limit (ADRs 0021, 0041, 0101 and 0129).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 #![expect(
     clippy::disallowed_methods,
-    reason = "the SOCKS5 test reads the Goodfetch home's files on its own thread, never an async worker"
+    reason = "the SOCKS5 test reads the Goodfetch home's files, and the Usage test polls the Proving ground, on its own thread, never an async worker"
 )]
+
+use std::collections::BTreeSet;
 
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use rstest::rstest;
@@ -560,5 +566,454 @@ fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_rela
             Vec::<std::path::PathBuf>::new(),
         ),
         "{navigated}"
+    );
+}
+
+/// A `list` server: the Proving ground's proxy `name`, declared of `kind`,
+/// its exit in `country` if given.
+struct Listed<'a> {
+    name: &'a str,
+    kind: &'a str,
+    country: Option<&'a str>,
+}
+
+/// User configuration declaring the `list` provider of `servers`, with the
+/// Proving ground's proxy credentials and `price` per GB if given.
+fn list_configuration(
+    proving_ground: &ProvingGround,
+    servers: &[Listed<'_>],
+    price: Option<&str>,
+) -> String {
+    let credentials = &proving_ground.description().fixtures.proxy_credentials;
+    let servers: Vec<String> = servers
+        .iter()
+        .map(|listed| {
+            let country = listed
+                .country
+                .map(|country| format!(", country = \"{country}\""))
+                .unwrap_or_default();
+            format!(
+                "{{ server = \"http://{}\", kind = \"{}\"{country} }}",
+                proxy_address(proving_ground, listed.name),
+                listed.kind
+            )
+        })
+        .collect();
+    let price = price
+        .map(|price| format!("price = \"{price}\"\n"))
+        .unwrap_or_default();
+    format!(
+        "[settings.proxy.providers.list]\nusername = \"{}\"\npassword = \"env:{PASSWORD_VARIABLE}\"\n{price}servers = [{}]\n",
+        credentials.username,
+        servers.join(", ")
+    )
+}
+
+/// The Proving ground's datacenter proxy, then its isp proxy, then its open
+/// proxy, declared of the datacenter kind too.
+const THREE_SERVERS: [Listed<'static>; 3] = [
+    Listed {
+        name: "datacenter",
+        kind: "datacenter",
+        country: Some("US"),
+    },
+    Listed {
+        name: "isp",
+        kind: "isp",
+        country: None,
+    },
+    Listed {
+        name: "open",
+        kind: "datacenter",
+        country: Some("DE"),
+    },
+];
+
+/// Starts an engine whose user configuration is `configuration` and whose
+/// environment holds the Proving ground's proxy password, has it answer
+/// `before`, then starts a Run of `settings`.
+fn started_listing<'env>(
+    env: &'env TestEnv,
+    cache: &std::path::Path,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    configuration: &str,
+    settings: &Value,
+    before: &[(&str, Value)],
+) -> Attached<'env> {
+    env.user_configuration(configuration);
+    let password = proving_ground
+        .description()
+        .fixtures
+        .proxy_credentials
+        .password
+        .clone();
+    let settings = settings.as_object().cloned().unwrap_or_default();
+    crate::page::started_after(
+        env,
+        cache,
+        proving_ground,
+        run_id,
+        &settings,
+        |command| {
+            command.env(PASSWORD_VARIABLE, &password);
+        },
+        before,
+    )
+}
+
+/// Covers: story:8-88, setting:proxy.provider, setting:proxy.providers, setting:proxy.kind, operation:run.new_session
+#[cfg(unix)]
+#[test]
+fn each_session_of_a_list_provider_leaves_from_one_of_its_servers_for_its_life() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let configuration = list_configuration(&proving_ground, &THREE_SERVERS, None);
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "listed",
+        &configuration,
+        &json!({ "proxy": { "provider": "list" } }),
+        &[],
+    );
+    let url = |mark: &str| proving_ground.url("scope.test", &format!("/storage?mark={mark}"));
+    let mut id = 10;
+    let mut visit = |engine: &mut Attached, page: &str, mark: &str| {
+        id += 1;
+        let navigated = call(
+            engine,
+            id,
+            "page.goto",
+            &json!({ "page_id": page, "url": url(mark) }),
+        );
+        assert!(navigated.get("result").is_some(), "{navigated}");
+    };
+
+    let default = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "listed" }),
+    ));
+    let mut sessions = Vec::new();
+    for (position, own) in [(3, json!({})), (4, json!({ "proxy": { "kind": "isp" } }))] {
+        let session = call(
+            &mut engine,
+            position,
+            "run.new_session",
+            &json!({ "run_id": "listed", "settings": own }),
+        );
+        let session = session["result"]["session_id"].clone();
+        let page = call(
+            &mut engine,
+            position + 10,
+            "session.new_page",
+            &json!({ "session_id": session }),
+        );
+        sessions.push(opened(&page).page_id);
+    }
+    for round in ["first", "second"] {
+        visit(&mut engine, &default.page_id.0, &format!("default-{round}"));
+        visit(&mut engine, &sessions[0].0, &format!("second-{round}"));
+        visit(&mut engine, &sessions[1].0, &format!("third-{round}"));
+    }
+    let _ = call(
+        &mut engine,
+        50,
+        "run.finish",
+        &json!({ "run_id": "listed" }),
+    );
+    let _ = engine.finish();
+
+    // The proxies each Session's requests left from, and the rounds that
+    // reached the site through them.
+    let proxies_of = |marker: &str| -> (BTreeSet<String>, BTreeSet<String>) {
+        relays_to(&proving_ground, marker)
+            .into_iter()
+            .map(|(proxy, target)| {
+                let round = if target.contains("first") {
+                    "first"
+                } else {
+                    "second"
+                };
+                (proxy, round.to_owned())
+            })
+            .unzip()
+    };
+    let rounds = BTreeSet::from(["first".to_owned(), "second".to_owned()]);
+    let only = |proxy: &str| BTreeSet::from([proxy.to_owned()]);
+    assert_eq!(
+        (
+            proxies_of("mark=default-"),
+            proxies_of("mark=second-"),
+            proxies_of("mark=third-")
+        ),
+        (
+            (only("datacenter"), rounds.clone()),
+            (only("open"), rounds.clone()),
+            (only("isp"), rounds)
+        )
+    );
+}
+
+/// Covers: story:8-106, error:setting_invalid, setting:proxy.provider, setting:proxy.kind, setting:proxy.country, setting:proxy.server
+#[rstest]
+#[case::a_kind_the_list_lacks(json!({ "provider": "list" }), json!({ "proxy": { "kind": "mobile" } }), "proxy.kind")]
+#[case::a_country_the_kind_lacks(json!({ "provider": "list", "kind": "isp" }), json!({ "proxy": { "country": "FR" } }), "proxy.country")]
+#[case::a_server_beside_the_provider(json!({ "server": "http://127.0.0.1:3128" }), json!({ "proxy": { "provider": "list" } }), "proxy.provider")]
+#[case::an_unknown_provider(json!({ "provider": "nowhere" }), json!({}), "proxy.provider")]
+fn a_session_the_provider_cannot_serve_is_refused_with_setting_invalid(
+    #[case] runs: Value,
+    #[case] own: Value,
+    #[case] key: &str,
+) {
+    let env = TestEnv::new();
+    env.user_configuration(
+        "[settings.proxy.providers.list]\nservers = [{ server = \"http://127.0.0.1:3001\", kind = \"datacenter\" }, { server = \"socks5://127.0.0.1:3002\", kind = \"isp\", country = \"US\" }]\n",
+    );
+    let mut engine = Attached::start(&env);
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+
+    let started = call(
+        &mut engine,
+        1,
+        "run.start",
+        &json!({ "run_id": "refused", "settings": { "proxy": runs } }),
+    );
+    let opened = call(
+        &mut engine,
+        2,
+        "run.new_session",
+        &json!({ "run_id": "refused", "settings": own }),
+    );
+    let _ = call(
+        &mut engine,
+        3,
+        "run.finish",
+        &json!({ "run_id": "refused" }),
+    );
+    let _ = engine.finish();
+
+    let data = &opened["error"]["data"];
+    assert_eq!(
+        (started.get("result").is_some(), &data["code"], &data["key"]),
+        (true, &json!("setting_invalid"), &json!(key)),
+        "{opened}"
+    );
+}
+
+/// What the Proving ground's proxies of `kind` carried, in bytes, on every
+/// relay.
+fn carried_by(proving_ground: &ProvingGround, kind: &str) -> u64 {
+    proving_ground.observations().unwrap()["relays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|relay| relay["kind"] == json!(kind))
+        .map(|relay| {
+            relay["bytes"]["received"].as_u64().unwrap() + relay["bytes"]["sent"].as_u64().unwrap()
+        })
+        .sum()
+}
+
+/// Waits until the Proving ground's proxies have relayed `/storage`'s own
+/// request for `/storage/found`, which its script sends once loaded, so the
+/// page's every byte has gone through before the Run ends; a minute at
+/// most.
+fn storage_settled(proving_ground: &ProvingGround) {
+    for _ in 0..600 {
+        if !relays_to(proving_ground, "/storage/found").is_empty() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+/// Covers: story:8-92, setting:proxy.providers, operation:run.usage
+#[cfg(unix)]
+#[test]
+fn a_sessions_proxy_bytes_count_by_proxy_kind_at_the_providers_price() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    // A millionth of a dollar a byte, so the price is the bytes' count.
+    let configuration = list_configuration(&proving_ground, &THREE_SERVERS, Some("1000 USD"));
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "counted",
+        &configuration,
+        &json!({ "proxy": { "provider": "list", "kind": "isp" } }),
+        &[],
+    );
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "counted" }),
+    ));
+    let navigated = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=counted") }),
+    );
+    storage_settled(&proving_ground);
+    let finished = call(
+        &mut engine,
+        4,
+        "run.finish",
+        &json!({ "run_id": "counted" }),
+    );
+    let used = call(&mut engine, 5, "run.usage", &json!({ "run_id": "counted" }));
+    let _ = engine.finish();
+
+    let carried = carried_by(&proving_ground, "isp");
+    let usage = &used["result"];
+    assert_eq!(
+        (
+            navigated.get("result").is_some(),
+            carried > 0,
+            &usage["proxy_bytes"],
+            &usage["proxy_bytes_by_kind"],
+            &usage["proxy_price"],
+            &usage["uncapped"],
+            &finished["result"]["usage"]["proxy_bytes_by_kind"],
+        ),
+        (
+            true,
+            true,
+            &json!(carried),
+            &json!([{ "kind": "isp", "bytes": carried }]),
+            &json!([{ "currency": "USD", "amount": carried }]),
+            &json!(true),
+            &json!([{ "kind": "isp", "bytes": carried }]),
+        ),
+        "{used}"
+    );
+}
+
+/// An install Limit of `amount` millionths of a dollar on `proxy_bytes`.
+fn a_dollar_limit(amount: u64) -> (&'static str, Value) {
+    (
+        "usage.set",
+        json!({ "scope": "install", "usage_kind": "proxy_bytes", "currency": "USD", "amount": amount }),
+    )
+}
+
+/// Covers: story:8-92, setting:proxy.providers, error:limit_reached
+#[cfg(unix)]
+#[test]
+fn a_currency_limit_caps_the_bytes_of_a_priced_proxy_and_stops_the_run() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let configuration = list_configuration(&proving_ground, &THREE_SERVERS, Some("1000 USD"));
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "capped",
+        &configuration,
+        &json!({ "proxy": { "provider": "list" } }),
+        &[a_dollar_limit(100)],
+    );
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "capped" }),
+    ));
+    let navigated = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=capped") }),
+    );
+    let finished = call(&mut engine, 4, "run.finish", &json!({ "run_id": "capped" }));
+    let _ = engine.finish();
+
+    let report = &finished["result"];
+    let price = report["usage"]["proxy_price"][0]["amount"]
+        .as_u64()
+        .unwrap_or(0);
+    assert_eq!(
+        (
+            &navigated["error"]["data"]["code"],
+            &navigated["error"]["data"]["usage_kind"],
+            &report["stop_reason"]["kind"],
+            &report["stop_reason"]["usage_kind"],
+            &report["stop_reason"]["currency"],
+            price <= 100,
+        ),
+        (
+            &json!("limit_reached"),
+            &json!("proxy_bytes"),
+            &json!("limit"),
+            &json!("proxy_bytes"),
+            &json!("USD"),
+            true
+        ),
+        "{navigated} {finished}"
+    );
+}
+
+/// Covers: story:8-92, setting:proxy.providers, error:setting_invalid
+#[test]
+fn an_unpriced_provider_under_a_currency_limit_is_refused_naming_its_price() {
+    let env = TestEnv::new();
+    env.user_configuration(
+        "[settings.proxy.providers.list]\nservers = [{ server = \"http://127.0.0.1:3001\", kind = \"datacenter\" }]\n",
+    );
+    let mut engine = Attached::start(&env);
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+    let (method, limit) = a_dollar_limit(1_000_000);
+
+    let limited = call(&mut engine, 1, method, &limit);
+    let _ = call(
+        &mut engine,
+        2,
+        "run.start",
+        &json!({ "run_id": "unpriced", "settings": { "proxy": { "provider": "list" } } }),
+    );
+    let opened = call(
+        &mut engine,
+        3,
+        "run.new_session",
+        &json!({ "run_id": "unpriced" }),
+    );
+    let _ = call(
+        &mut engine,
+        4,
+        "run.finish",
+        &json!({ "run_id": "unpriced" }),
+    );
+    let _ = engine.finish();
+
+    let data = &opened["error"]["data"];
+    assert_eq!(
+        (
+            limited.get("result").is_some(),
+            &data["code"],
+            &data["key"],
+            data["reason"]
+                .as_str()
+                .is_some_and(|reason| reason.contains("proxy.providers.list.price")),
+        ),
+        (
+            true,
+            &json!("setting_invalid"),
+            &json!("proxy.providers"),
+            true
+        ),
+        "{opened}"
     );
 }

@@ -13,6 +13,7 @@
 
 mod checkpoint;
 mod daemon;
+mod discard;
 mod durability;
 mod events;
 mod governor;

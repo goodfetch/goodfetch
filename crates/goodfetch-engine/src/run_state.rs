@@ -75,6 +75,15 @@ const SCHEMA: &[&str] = &[
         amount INTEGER NOT NULL,
         PRIMARY KEY (usage_kind, currency)
     ) STRICT",
+    // What the Run used of each part of a Usage kind, such as the proxy
+    // kinds of `proxy_bytes` (ADR 0021), which its report and `run.usage`
+    // give beside the kind's total.
+    "CREATE TABLE IF NOT EXISTS usage_parts (
+        usage_kind TEXT NOT NULL,
+        part TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        PRIMARY KEY (usage_kind, part)
+    ) STRICT",
     // The Run's data key, wrapped by its key-encryption key, once it has
     // one (ADR 0015).
     crate::run_key::TABLE,
@@ -402,7 +411,7 @@ pub(crate) fn epoch_of(path: &Path) -> Option<u64> {
     u64::try_from(epoch).ok()
 }
 
-fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
+pub(crate) fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
     RunStateError::Sqlite {
         path: path.to_owned(),
         message: error.to_string(),

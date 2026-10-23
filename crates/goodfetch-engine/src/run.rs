@@ -25,11 +25,12 @@ use goodfetch_protocol::run::{
     Checkpoint, Lifecycle, RESOURCES_EXHAUSTED, Resource, ResourcesExhaustedDetails,
 };
 use goodfetch_protocol::run::{
-    RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN, RUN_IN_USE,
-    RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_SET_PROGRESS_MESSAGE, RUN_START, RUN_STATE_UNAVAILABLE,
-    RUN_STOP, RUN_USAGE, ReachedLimit, RunAbortParams, RunConflictDetails, RunDetails, RunId,
-    RunIdInvalidDetails, RunKind, RunParams, RunProgress, RunReport, RunSetProgressMessageParams,
-    RunStartParams, RunStarted, RunUsage, RunWaitParams, StartedAs, StopReason,
+    RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_DISCARD, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN,
+    RUN_IN_USE, RUN_LIVE, RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_SET_PROGRESS_MESSAGE, RUN_START,
+    RUN_STATE_UNAVAILABLE, RUN_STOP, RUN_USAGE, ReachedLimit, RunAbortParams, RunConflictDetails,
+    RunDetails, RunDiscarded, RunId, RunIdInvalidDetails, RunKind, RunParams, RunProgress,
+    RunReport, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams,
+    StartedAs, StopReason,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::usage::{
@@ -59,7 +60,7 @@ use crate::secrets::SecretError;
 use crate::settings::{Opening, Resolved, SettingsError};
 
 /// The `run.*` handlers.
-pub(crate) fn handlers() -> [Handler; 10] {
+pub(crate) fn handlers() -> [Handler; 11] {
     [
         Handler::new(&RUN_START, start),
         Handler::new(&RUN_FINISH, finish),
@@ -71,6 +72,7 @@ pub(crate) fn handlers() -> [Handler; 10] {
         Handler::new(&RUN_MIGRATE, migrate),
         Handler::new(&RUN_RESUME, resume),
         Handler::new(&RUN_SET_PROGRESS_MESSAGE, set_progress_message),
+        Handler::new(&RUN_DISCARD, discard),
     ]
 }
 
@@ -566,8 +568,20 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
             wrapped_by,
         } => key_mismatch(run_id, &reference, wrapped_by),
         RunError::ResourcesExhausted(exhausted) => storage_exhausted(&exhausted),
+        RunError::Live(run_id) => live(run_id),
         RunError::Stopped => stopped(),
     }
+}
+
+/// `run_live`: this engine still runs `run_id`, so it is not discarded.
+fn live(run_id: RunId) -> CallError {
+    CallError::new(
+        &RUN_LIVE,
+        format!(
+            "This engine still runs the Run `{run_id}`; stop it with `run.stop` or `run.abort`, or let it finish, then discard it."
+        ),
+        &RunDetails { run_id, path: None },
+    )
 }
 
 /// `run_key_mismatch`: the key-encryption key `reference` does not open
@@ -700,6 +714,16 @@ async fn usage(params: RunParams, context: CallContext) -> Result<RunUsage, Call
         .usage(params.run_id)
         .await
         .map_err(|error| run_error_of(error, context.identity(), RUN_USAGE.name))
+}
+
+async fn discard(params: RunParams, context: CallContext) -> Result<RunDiscarded, CallError> {
+    let run_id = params.run_id;
+    context
+        .runs()
+        .discard(run_id.clone())
+        .await
+        .map_err(|error| run_error_of(error, context.identity(), RUN_DISCARD.name))?;
+    Ok(RunDiscarded { run_id })
 }
 
 async fn set_progress_message(

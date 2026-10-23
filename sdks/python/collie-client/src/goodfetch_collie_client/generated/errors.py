@@ -442,6 +442,14 @@ class RunKeyMismatchError(UnavailableError):
         super().__init__(message, code="run_key_mismatch", group="unavailable", retryable=False)
 
 
+class RunLiveError(ProgramError):
+    """The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_live", group="program", retryable=False)
+
+
 class RunNotFoundError(ProgramError):
     """No Run has this Run ID: the Run index does not list it."""
 
@@ -635,6 +643,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "run_id_invalid": RunIdInvalidError,
     "run_in_use": RunInUseError,
     "run_key_mismatch": RunKeyMismatchError,
+    "run_live": RunLiveError,
     "run_not_found": RunNotFoundError,
     "run_not_owned": RunNotOwnedError,
     "run_state_unavailable": RunStateUnavailableError,

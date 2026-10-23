@@ -23,6 +23,7 @@ pub mod page_value;
 mod pages;
 mod pool;
 mod proxy;
+mod proxy_provider;
 pub mod robots_txt;
 mod sessions;
 mod trace;

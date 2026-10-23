@@ -1061,6 +1061,18 @@ class ProtocolVersion(RootModel[str]):
     """A version `major.minor` (ADR 0030)."""
 
 
+class ProxyKindBytes(BaseModel):
+    """The bytes a Run sent and received through proxies of one proxy kind."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    bytes: Annotated[int, Field(ge=0)]
+    """The bytes."""
+    kind: str
+    """The proxy kind, such as `residential`."""
+
+
 class RecordingReport(BaseModel):
     """What a Run did with the Response recording its start named (ADR 0105)."""
 
@@ -3013,6 +3025,16 @@ class RunCheckpointing(BaseModel):
     """The Run's ID."""
 
 
+class RunDiscarded(BaseModel):
+    """What `run.discard` answers: the Run it discarded (ADRs 0001 and 0036)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RunStartParams(BaseModel):
     """What `run.start` takes."""
 
@@ -3630,6 +3652,16 @@ class RunUsage(BaseModel):
     """Its paid solves, by currency (ADR 0035)."""
     proxy_bytes: Annotated[int, Field(ge=0)]
     """The bytes it sent and received through a proxy."""
+    proxy_bytes_by_kind: list[ProxyKindBytes] | None = None
+    """
+    The bytes it sent and received through a Proxy provider's proxies,
+    by proxy kind (ADR 0021), cheapest kind first.
+    """
+    proxy_price: list[UsageAmount] | None = None
+    """
+    The price of those bytes, by currency, at each provider's configured
+    price (ADR 0101).
+    """
     requests: Annotated[int, Field(ge=0)]
     """The requests it sent."""
     uncapped: bool | None = None

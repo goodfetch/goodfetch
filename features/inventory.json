@@ -1281,6 +1281,17 @@
       ]
     },
     {
+      "id": "error:run_live",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:run_not_found",
       "kind": "error",
       "area": 3,
@@ -2573,6 +2584,17 @@
     },
     {
       "id": "operation:run.checkpoint",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.discard",
       "kind": "operation",
       "area": 3,
       "milestone": null,
@@ -5556,6 +5578,28 @@
       ]
     },
     {
+      "id": "setting:proxy.country",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:proxy.kind",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:proxy.password",
       "kind": "setting",
       "area": 5,
@@ -5567,7 +5611,40 @@
       ]
     },
     {
+      "id": "setting:proxy.provider",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:proxy.providers",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:proxy.server",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:proxy.sticky_lifetime",
       "kind": "setting",
       "area": 5,
       "milestone": null,

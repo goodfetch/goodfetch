@@ -19,14 +19,18 @@ use std::time::Duration;
 use goodfetch_engine::CallError;
 use goodfetch_engine::transition::{InvalidTransition, Refusal};
 use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
+use goodfetch_protocol::governor::PAGE_MEMORY_EXCEEDED;
 use goodfetch_protocol::page::{BrowserExit, NAVIGATION_FAILED, PAGE_CRASHED, PageId, SessionId};
+use goodfetch_protocol::settings::SettingLimit;
 use serde_json::json;
 use tokio::sync::watch;
 
 use super::lifecycle::{
     self, Attributes, PageEffect, PageEvent, PageState, SessionEffect, SessionEvent, SessionState,
 };
-use crate::errors::{browser_crashed, cancelled, invalid_transition, renderer_crashed};
+use crate::errors::{
+    browser_crashed, cancelled, invalid_transition, page_memory_exceeded, renderer_crashed,
+};
 
 /// How long a call that failed as its page went waits for the page's end
 /// to be known, so it raises what ended the page rather than its own
@@ -56,6 +60,14 @@ pub(crate) enum Ending {
     BrowserQuit,
     /// Its browser crashed (`BrowserCrash`), with how it exited.
     BrowserCrash(Option<BrowserExit>),
+    /// The Resource governor ended it (`MemoryExceeded`): it held `memory`
+    /// past `limit`, `governor.browser.page_memory_cap`.
+    MemoryExceeded {
+        /// What it held, in bytes.
+        memory: u64,
+        /// The cap, with its value and layer.
+        limit: SettingLimit,
+    },
 }
 
 impl Ending {
@@ -66,6 +78,7 @@ impl Ending {
             Self::RendererCrash => PageEvent::RendererCrash,
             Self::BrowserQuit => PageEvent::BrowserQuit,
             Self::BrowserCrash(_) => PageEvent::BrowserCrash,
+            Self::MemoryExceeded { .. } => PageEvent::MemoryExceeded,
         }
     }
 }
@@ -80,8 +93,12 @@ struct PageShared {
     page_id: PageId,
     state: watch::Sender<PageState>,
     /// What its calls in flight raise once it ended under them, and its
-    /// later calls after a crash.
+    /// later calls after a crash or an end past its memory cap.
     ended: watch::Sender<Option<CallError>>,
+    /// How many calls on it are in flight.
+    calls: watch::Sender<usize>,
+    /// Set once it was found past its memory cap.
+    past_cap: OnceLock<()>,
 }
 
 impl PageLife {
@@ -92,6 +109,8 @@ impl PageLife {
                 page_id,
                 state: watch::Sender::new(PageState::Open),
                 ended: watch::Sender::new(None),
+                calls: watch::Sender::new(0),
+                past_cap: OnceLock::new(),
             }),
         }
     }
@@ -100,6 +119,23 @@ impl PageLife {
     #[cfg(test)]
     pub(crate) fn state(&self) -> PageState {
         *self.shared.state.borrow()
+    }
+
+    /// Whether the page is found past its memory cap for the first time:
+    /// only the first finding ends it.
+    pub(crate) fn past_cap(&self) -> bool {
+        self.shared.past_cap.set(()).is_ok()
+    }
+
+    /// Waits until no call on the page is in flight: its safe point, where
+    /// the Resource governor ends it (ADR 0040).
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future gives up the wait.
+    pub(crate) async fn idle(&self) {
+        let mut calls = self.shared.calls.subscribe();
+        let _ = calls.wait_for(|calls| *calls == 0).await;
     }
 
     /// What a later call on the crashed page raises: `page_crashed` again,
@@ -137,6 +173,7 @@ impl PageLife {
         event: PageEvent,
         work: impl Future<Output = Result<T, CallError>>,
     ) -> Result<T, CallError> {
+        let _in_flight = InFlight::new(&self.shared.calls);
         self.admit(event).await?;
         let mut ended = self.shared.ended.subscribe();
         let mut work = std::pin::pin!(work);
@@ -192,7 +229,13 @@ impl PageLife {
     /// What a call the table refused raises.
     fn refused(&self, invalid: InvalidTransition<PageState, PageEvent>) -> CallError {
         match invalid.refusal {
-            Refusal::Program(code) if code == CLOSED.name => page_closed(&self.shared.page_id),
+            Refusal::Program(code) if code == CLOSED.name => self
+                .shared
+                .ended
+                .borrow()
+                .clone()
+                .filter(|ended| ended.code() == PAGE_MEMORY_EXCEEDED.name)
+                .unwrap_or_else(|| page_closed(&self.shared.page_id)),
             Refusal::Program(code) if code == PAGE_CRASHED.name => self
                 .shared
                 .ended
@@ -255,6 +298,9 @@ impl PageLife {
             (PageEffect::Close, Ending::Closed(closed)) => {
                 Some(cancelled(StoppedBy::Program, *closed))
             }
+            (PageEffect::Close, Ending::MemoryExceeded { memory, limit }) => Some(
+                page_memory_exceeded(&self.shared.page_id, *memory, limit.clone()),
+            ),
             (PageEffect::Close, _) => Some(cancelled(StoppedBy::Program, ClosedValue::Page)),
             (PageEffect::ClosedInBrowser, _) => {
                 Some(cancelled(StoppedBy::Browser, ClosedValue::Page))
@@ -285,6 +331,22 @@ impl PageLife {
             self.shared.ended.send_replace(Some(raised));
         }
         Ok(effect)
+    }
+}
+
+/// A call on a page in flight, counted until the value drops.
+struct InFlight<'a>(&'a watch::Sender<usize>);
+
+impl<'a> InFlight<'a> {
+    fn new(calls: &'a watch::Sender<usize>) -> Self {
+        calls.send_modify(|calls| *calls += 1);
+        Self(calls)
+    }
+}
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        self.0.send_modify(|calls| *calls -= 1);
     }
 }
 

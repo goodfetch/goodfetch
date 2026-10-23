@@ -19,6 +19,13 @@
 //! the Live view or under a raw CDP attach is recycled only once that page
 //! is released. A Borrowed browser never enters the pool, so it is neither
 //! recycled nor counted.
+//!
+//! Once launched, each browser joins the engine's Resource governor, which
+//! counts its memory in its Run's footprint and, while memory is critical,
+//! sheds it (ADR 0040's shedding ladder): a browser it sheds is recycled,
+//! so one with no open page closes at once. A Session being seated or
+//! opening a page counts as an open page there, so the governor never
+//! sheds a browser under a Session that is opening its first page.
 #![expect(
     clippy::disallowed_types,
     reason = "the pool's lock guards its browsers for one change at a time, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -32,7 +39,7 @@ use std::time::Duration;
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::Pins;
-use goodfetch_engine::governor::footprint_of;
+use goodfetch_engine::governor::{BrowserUse, GovernedBrowser, PageHold, footprint_of};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
@@ -83,6 +90,10 @@ struct Pooled {
     open: BTreeMap<u64, usize>,
     /// How many of its pages are held.
     held: usize,
+    /// How many of its held pages a person controls in the Live view.
+    persons: usize,
+    /// Its place in the Resource governor, once launched.
+    governed: Option<GovernedBrowser>,
     /// How many Sessions are being seated in it or opening a page there,
     /// which keeps it from being idle or closing.
     opening: usize,
@@ -111,6 +122,25 @@ enum Stage {
 impl Pooled {
     fn open_pages(&self) -> usize {
         self.open.values().sum()
+    }
+
+    /// Reports its use to the Resource governor, which sheds it at
+    /// critical unless it is held.
+    fn report(&self) {
+        let Some(governed) = &self.governed else {
+            return;
+        };
+        let held = if self.persons > 0 {
+            PageHold::Person
+        } else if self.held > 0 {
+            PageHold::Held
+        } else {
+            PageHold::None
+        };
+        governed.report(BrowserUse {
+            open_pages: self.open_pages() + self.opening,
+            held,
+        });
     }
 }
 
@@ -194,6 +224,8 @@ impl Pool {
                     served: 0,
                     open: BTreeMap::new(),
                     held: 0,
+                    persons: 0,
+                    governed: None,
                     opening: 0,
                     warm_up: None,
                     stage: Stage::Serving,
@@ -226,6 +258,7 @@ impl Pool {
                 pooled.busy += 1;
             }
             pooled.opening += 1;
+            pooled.report();
         }
         Opening {
             pool: self.clone(),
@@ -292,6 +325,7 @@ impl Pool {
             }
             pooled.served += 1;
             *pooled.open.entry(seat).or_default() += 1;
+            pooled.report();
         }
         InBrowser {
             pool: self.clone(),
@@ -338,6 +372,7 @@ impl Pool {
         let Some(pooled) = browsers.list.get_mut(&number) else {
             return;
         };
+        pooled.report();
         if pooled.stage == Stage::Closing
             || pooled.open_pages() > 0
             || pooled.held > 0
@@ -363,6 +398,50 @@ impl Pool {
                 }
             });
         }
+    }
+
+    /// Has the Resource governor count and shed the browser `number`, once
+    /// launched: shed, it is recycled (ADR 0040).
+    fn govern(&self, number: u64) {
+        let mut browsers = lock(&self.shared.browsers);
+        let Some(pooled) = browsers.list.get_mut(&number) else {
+            return;
+        };
+        if pooled.governed.is_some() {
+            return;
+        }
+        let Some(process) = pooled.browser.process() else {
+            return;
+        };
+        let governed = self.shared.run.governor().browser(process);
+        let shed = governed.shed();
+        pooled.governed = Some(governed);
+        pooled.report();
+        let pool = self.clone();
+        let stopping = self.shared.run.cancellation().clone();
+        self.shared.run.spawn(async move {
+            tokio::select! {
+                () = stopping.cancelled() => {}
+                () = shed => pool.shed(number),
+            }
+        });
+    }
+
+    /// The Resource governor shed the browser `number` while memory is
+    /// critical: it is recycled, and closes at once with no open page.
+    fn shed(&self, number: u64) {
+        let mut browsers = lock(&self.shared.browsers);
+        let Some(pooled) = browsers.list.get_mut(&number) else {
+            return;
+        };
+        if pooled.stage == Stage::Serving {
+            tracing::info!(
+                browser = number,
+                "memory is critical: the governor recycles a browser of the Run"
+            );
+            pooled.stage = Stage::Retiring;
+        }
+        self.settle(&mut browsers, number);
     }
 
     /// The browser `number` held no open page for `idle` unless it was
@@ -414,21 +493,28 @@ impl InBrowser {
         self.number
     }
 
-    /// Holds the page's browser from being recycled until the value drops:
-    /// a Human pause, a person in the Live view, or a raw CDP attach bound
-    /// to its work item's lease, on the page.
+    /// Holds the page's browser from being recycled or shed until the
+    /// value drops: a Human pause or a raw CDP attach bound to its work
+    /// item's lease, held by `PageHold::Held`, or a person in the Live view,
+    /// by `PageHold::Person`, whose Run the governor's last resort stops
+    /// last (ADR 0040).
     #[expect(
         dead_code,
         reason = "the Human pause, the Live view and raw CDP attach hold a page once their tickets land (#978)"
     )]
-    pub(crate) fn hold(&self) -> Hold {
+    pub(crate) fn hold(&self, by: PageHold) -> Hold {
         let mut browsers = lock(&self.pool.shared.browsers);
         if let Some(pooled) = browsers.list.get_mut(&self.number) {
             pooled.held += 1;
+            if by == PageHold::Person {
+                pooled.persons += 1;
+            }
+            pooled.report();
         }
         Hold {
             pool: self.pool.clone(),
             number: self.number,
+            by,
         }
     }
 }
@@ -464,6 +550,7 @@ impl Drop for Opening {
 pub(crate) struct Hold {
     pool: Pool,
     number: u64,
+    by: PageHold,
 }
 
 impl Drop for Hold {
@@ -471,6 +558,9 @@ impl Drop for Hold {
         let mut browsers = lock(&self.pool.shared.browsers);
         if let Some(pooled) = browsers.list.get_mut(&self.number) {
             pooled.held -= 1;
+            if self.by == PageHold::Person {
+                pooled.persons -= 1;
+            }
         }
         self.pool.settle(&mut browsers, self.number);
     }
@@ -606,6 +696,7 @@ impl SeatShared {
         }
         place.carried = Carried::default();
         place.at = Some((number, Arc::clone(&driver)));
+        self.pool.govern(number);
         Ok((number, driver, opening))
     }
 

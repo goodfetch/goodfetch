@@ -13,7 +13,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::governor::{Governor, HostGovernor, System};
+use goodfetch_engine::governor::{
+    BrowserUse, GovernedBrowser, Governor, HostGovernor, PageHold, RunShare, System,
+    last_resort_run,
+};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::settings::{Settings, SettingsFiles};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
@@ -257,6 +260,143 @@ fn the_engine_and_its_children_past_the_pressure_share_halve_every_target() {
             Some(PressureSource::Memory),
             [100, 16, 8],
             [50, 8, 4],
+        )
+    );
+}
+
+/// At pressure nothing new is admitted (ADR 0040's shedding ladder): from
+/// the first sample under pressure, a Run takes no admission of a kind
+/// past its floor, though each target only halved.
+///
+/// Covers: story:3-59, setting:governor.pressure
+#[test]
+fn at_pressure_nothing_new_is_admitted_past_each_floor() {
+    let env = TestEnv::new();
+    env.user_configuration(SAMPLED);
+    let proc = Proc::new();
+    // 220 MiB of a 256 MiB allowance is 85.9 %, past `governor.pressure`.
+    proc.file("self/smaps_rollup", &rollup(220 * MIB));
+
+    let (target, admitted) = governed(&env, &proc, async |governor| {
+        let info = Samples::of(&governor).next().await;
+        let run = governor.join(100);
+        let admitted = (0..8)
+            .filter_map(|_| run.try_admit(WorkKind::BrowserPage).map(std::mem::forget))
+            .count();
+        (info.concurrency.browser_page.target, admitted)
+    });
+
+    assert_eq!((target, admitted), (16, 1));
+}
+
+/// At critical the governor sheds browsers (ADR 0040's shedding ladder):
+/// at each sample it closes every idle browser, then recycles the largest
+/// that has open pages, one at a time, measured again in between, never a
+/// held one; a browser it shed is not shed again.
+///
+/// Covers: story:3-59, story:3-60, setting:governor.critical
+#[test]
+fn at_critical_idle_browsers_close_then_the_largest_is_recycled_skipping_held_ones() {
+    let env = TestEnv::new();
+    env.user_configuration(SAMPLED);
+    let proc = Proc::new();
+    proc.file("self/smaps_rollup", &rollup(250 * MIB));
+    for (process, footprint) in [(70, 10), (71, 50), (72, 30), (73, 80)] {
+        proc.file(&format!("{process}/smaps_rollup"), &rollup(footprint * MIB));
+    }
+
+    let shed = governed(&env, &proc, async |governor| {
+        let run = governor.join(100);
+        let browsers: Vec<(u32, GovernedBrowser)> = [
+            (70, 0, PageHold::None),
+            (71, 1, PageHold::None),
+            (72, 2, PageHold::None),
+            (73, 1, PageHold::Held),
+        ]
+        .into_iter()
+        .map(|(process, open_pages, held)| {
+            let browser = run.browser(process);
+            browser.report(BrowserUse { open_pages, held });
+            (process, browser)
+        })
+        .collect();
+        let mut samples = Samples::of(&governor);
+        let mut shed = Vec::new();
+        for _ in 0..3 {
+            let _ = samples.next().await;
+            let mut now = Vec::new();
+            for (process, browser) in &browsers {
+                if tokio::time::timeout(Duration::ZERO, browser.shed())
+                    .await
+                    .is_ok()
+                {
+                    now.push(*process);
+                }
+            }
+            shed.push(now);
+        }
+        shed
+    });
+
+    assert_eq!(shed, [vec![70, 71], vec![70, 71, 72], vec![70, 71, 72]]);
+}
+
+/// The Run, of `runs` by their names, the last resort stops.
+fn pick(runs: Vec<(&'static str, &RunShare)>) -> Option<&'static str> {
+    last_resort_run(runs.into_iter().map(|(name, run)| (name, run.weight())))
+}
+
+/// The last resort stops the Run with the largest footprint, its browsers'
+/// memory as the governor last measured it; a Run whose page is under a
+/// person's control in the Live view is stopped last, and only once that
+/// person hands back.
+///
+/// Covers: story:3-59, story:3-60
+#[test]
+fn the_last_resort_picks_the_largest_run_and_a_persons_run_only_once_handed_back() {
+    let env = TestEnv::new();
+    env.user_configuration(SAMPLED);
+    let proc = Proc::new();
+    for (process, footprint) in [(70, 10), (71, 50), (72, 300)] {
+        proc.file(&format!("{process}/smaps_rollup"), &rollup(footprint * MIB));
+    }
+
+    let picks = governed(&env, &proc, async |governor| {
+        let (small, large, persons) = (governor.join(100), governor.join(100), governor.join(100));
+        let _small = small.browser(70);
+        let _large = large.browser(71);
+        let held = persons.browser(72);
+        held.report(BrowserUse {
+            open_pages: 1,
+            held: PageHold::Person,
+        });
+        let _ = Samples::of(&governor).next().await;
+        let first = pick(vec![
+            ("small", &small),
+            ("large", &large),
+            ("persons", &persons),
+        ]);
+        let alone = pick(vec![("persons", &persons)]);
+        held.report(BrowserUse {
+            open_pages: 1,
+            held: PageHold::None,
+        });
+        let handed_back = pick(vec![("small", &small), ("persons", &persons)]);
+        (
+            (first, alone, handed_back),
+            [
+                small.weight().footprint,
+                large.weight().footprint,
+                persons.weight().footprint,
+            ],
+        )
+    });
+
+    assert_eq!(
+        picks,
+        (
+            (Some("large"), None, Some("persons")),
+            [10 * MIB, 50 * MIB, 300 * MIB]
         )
     );
 }

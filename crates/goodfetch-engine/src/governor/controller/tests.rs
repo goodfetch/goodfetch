@@ -134,6 +134,22 @@ fn under_pressure_each_target_halves_down_to_its_floor() {
     );
 }
 
+/// At pressure nothing new is admitted past each kind's floor (ADR 0040's
+/// first step), while each target halves as before; at normal a kind
+/// admits up to its target.
+#[rstest]
+#[case::at_normal(memory(0, percent(10)), [200, 32, 16])]
+#[case::at_pressure(memory(0, percent(90)), [1, 1, 1])]
+#[case::at_critical(memory(0, percent(99)), [1, 1, 1])]
+fn above_normal_nothing_is_admitted_past_each_floor(
+    #[case] reading: Reading,
+    #[case] admits: [u32; 3],
+) {
+    let decision = Controller::new().step(&defaults(), &reading);
+
+    assert_eq!(decision.admits, admits);
+}
+
 #[test]
 fn with_headroom_a_full_target_rises_by_a_twentieth_of_its_ceiling() {
     let mut controller = Controller::new();

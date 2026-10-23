@@ -49,6 +49,7 @@ steps = []
 ends = ["life", "lifecycle"]
 life = ["lifecycle"]
 lifecycle = []
+memory = ["life", "lifecycle"]
 tabs = ["life", "lifecycle"]
 
 # Which of `pool`'s own modules may import which.

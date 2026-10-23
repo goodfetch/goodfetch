@@ -162,6 +162,27 @@ impl<'connection> Watch<'connection> {
         Ok(seen)
     }
 
+    /// Serves the engine until a `page.response` event arrived for each
+    /// URL ending in one of `suffixes`, or the wait runs out. The page
+    /// reports to the Proving ground on its own connection, so its report
+    /// can arrive before the engine's events of the calls it made before
+    /// it: only the events' arrival says they were all read.
+    fn until_responded(&mut self, suffixes: &[&str]) -> Result<(), Gone> {
+        let polls = BROWSER_DEADLINE.as_millis() / POLL.as_millis();
+        for _ in 0..polls {
+            let responses = self.data("page.response");
+            if suffixes.iter().all(|suffix| {
+                responses
+                    .iter()
+                    .any(|exchange| url_of(&exchange["response"]).ends_with(suffix))
+            }) {
+                break;
+            }
+            self.read(POLL)?;
+        }
+        Ok(())
+    }
+
     /// Subscribes to the event stream with credits to spare.
     fn subscribe(&mut self) -> Result<(), Gone> {
         let id = self.connection.request(EVENTS_SUBSCRIBE.name, &json!({}))?;
@@ -320,6 +341,7 @@ fn under_the_interception(
         "the call the worker answers from its cache reaches no network",
         received(site, IDENTITY_HOST, &cached) == 0,
     );
+    watch.until_responded(&[&cached, &network])?;
     let responses = watch.data("page.response");
     let from_worker = |suffix: &str| {
         responses.iter().any(|exchange| {

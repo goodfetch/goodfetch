@@ -29,8 +29,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::governor::{
-    CRITICAL, Concurrency, CpuReading, KindConcurrency, LAST_RESORT_AFTER, MEMORY_ALLOWANCE,
-    MemoryReading, PRESSURE, SAMPLE_INTERVAL, SystemInfo, WorkKind,
+    CRITICAL, Concurrency, CpuReading, GovernorLevel, KindConcurrency, LAST_RESORT_AFTER,
+    MEMORY_ALLOWANCE, MemoryReading, PRESSURE, SAMPLE_INTERVAL, SystemInfo, WorkKind,
 };
 use goodfetch_protocol::storage::StorageLevel;
 use tokio::sync::watch;
@@ -40,11 +40,15 @@ use crate::clock::Clock;
 use crate::settings::{Layers, Resolved, Settings, resolve};
 use crate::tasks::TaskOwner;
 
+mod browsers;
 mod controller;
+mod ladder;
 mod shares;
 mod storage;
 mod system;
 
+pub use browsers::{BrowserUse, GovernedBrowser, PageHold};
+pub use ladder::{Weight, last_resort_run};
 pub use shares::{Permit, RunShare};
 pub use storage::{Filesystem, Held, StorageSample};
 pub use system::{System, footprint_of};
@@ -67,6 +71,17 @@ pub struct Governor {
     folders: Folders,
     storage: watch::Receiver<Arc<StorageSample>>,
     settled: watch::Receiver<Settled>,
+    last_resort: watch::Receiver<LastResort>,
+}
+
+/// Whether a sample found the governor at its last resort (ADR 0040).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LastResort {
+    /// The sample's number, from 1 for the first.
+    pub sample: u64,
+    /// Whether memory stayed critical at the floor past
+    /// `governor.last_resort_after`.
+    pub reached: bool,
 }
 
 impl Governor {
@@ -80,6 +95,7 @@ impl Governor {
         let (sender, info) = watch::channel(None);
         let (stored, storage) = watch::channel(Arc::new(StorageSample::default()));
         let (settling, settled) = watch::channel(Settled::built_in());
+        let (resorting, last_resort) = watch::channel(LastResort::default());
         let folders = Folders::default();
         let disks = system.disks.clone();
         let sampler = Sampler {
@@ -92,6 +108,7 @@ impl Governor {
             folders: folders.clone(),
             stored,
             settling,
+            last_resort: resorting,
         };
         let token = owner.token().clone();
         owner.spawn(async move {
@@ -107,6 +124,7 @@ impl Governor {
             folders,
             storage,
             settled,
+            last_resort,
         }
     }
 
@@ -123,6 +141,7 @@ impl Governor {
             folders: Folders::default(),
             storage: watch::channel(Arc::new(StorageSample::default())).1,
             settled: watch::channel(Settled::built_in()).1,
+            last_resort: watch::channel(LastResort::default()).1,
         }
     }
 
@@ -158,6 +177,13 @@ impl Governor {
     /// sample; none before the first, or ever when it never samples.
     pub fn system_info(&self) -> watch::Receiver<Option<SystemInfo>> {
         self.info.clone()
+    }
+
+    /// Whether each sample found it at its last resort, which changes at
+    /// each sample; the Runs' registry stops one Run there, one at a time
+    /// (ADR 0040).
+    pub fn last_resort(&self) -> watch::Receiver<LastResort> {
+        self.last_resort.clone()
     }
 
     /// Whether it is at its last resort: memory stayed critical at the
@@ -246,6 +272,8 @@ struct Sampler {
     stored: watch::Sender<Arc<StorageSample>>,
     /// Where the storage settings of each sample go.
     settling: watch::Sender<Settled>,
+    /// Where each sample says whether it is at its last resort.
+    last_resort: watch::Sender<LastResort>,
 }
 
 /// What the previous sample read, which the next one's CPU and Tokio
@@ -272,7 +300,18 @@ impl Sampler {
                 critical: limits.critical,
             };
             let system = self.system.clone();
-            let read = self.blocking.blocking(move || system.read(&inputs)).await;
+            let processes = self.shares.browsers().processes();
+            let (read, footprints) = self
+                .blocking
+                .blocking(move || {
+                    let footprints: Vec<(u64, u64)> = processes
+                        .into_iter()
+                        .map(|(id, process)| (id, system.footprint(process)))
+                        .collect();
+                    (system.read(&inputs), footprints)
+                })
+                .await;
+            self.shares.browsers().measured(&footprints);
             let now = self.clock.now();
             let tokio_busy = tokio_busy();
             let parallelism = std::thread::available_parallelism().map_or(1, usize::from);
@@ -312,12 +351,22 @@ impl Sampler {
                     in_use: self.shares.in_use(),
                 },
             );
-            self.shares.set_targets(decision.targets);
+            self.shares.set_targets(decision.admits);
+            self.shares.sampled(decision.level);
+            if decision.level == GovernorLevel::Critical {
+                for process in self.shares.browsers().shed_at_critical() {
+                    tracing::info!(process, "memory is critical: the governor sheds a browser");
+                }
+            }
             let cpu = CpuReading {
                 parallelism: u32::try_from(parallelism).unwrap_or(u32::MAX),
                 busy: u32::try_from(cpu_busy).unwrap_or(u32::MAX),
                 tokio_busy: u32::try_from(tokio_share).unwrap_or(u32::MAX),
             };
+            self.last_resort.send_modify(|last_resort| {
+                last_resort.sample += 1;
+                last_resort.reached = decision.last_resort;
+            });
             self.sender.send_replace(Some(info(
                 &limits,
                 &read,

@@ -56,6 +56,8 @@ mod secrets;
 mod service_manager;
 mod sessions;
 mod settings_flags;
+#[cfg(unix)]
+mod shedding;
 mod sign_in;
 #[cfg(target_os = "linux")]
 mod storage;

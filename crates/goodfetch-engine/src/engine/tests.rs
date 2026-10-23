@@ -24,6 +24,7 @@ mod layout;
 mod lifecycle;
 mod log;
 mod ops;
+mod pauses;
 mod progress;
 mod refusals;
 mod report;

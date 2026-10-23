@@ -254,7 +254,7 @@ fn html(body: &str) -> Value {
 }
 
 /// How many requests to `host` for `target` the Proving ground received.
-fn received(site: &Site, host: &str, target: &str) -> usize {
+pub(super) fn received(site: &Site, host: &str, target: &str) -> usize {
     requests_to(site, host, target).len()
 }
 

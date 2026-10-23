@@ -64,7 +64,7 @@ fn reports_once(
     Some(seen)
 }
 
-fn reports(observations: &Value, path: &str) -> Vec<(String, String)> {
+pub(super) fn reports(observations: &Value, path: &str) -> Vec<(String, String)> {
     observations["reports"]
         .as_array()
         .into_iter()

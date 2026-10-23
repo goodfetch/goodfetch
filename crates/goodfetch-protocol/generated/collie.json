@@ -2071,7 +2071,7 @@
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "The Session's own settings, nested by key: `filter_lists.ads`,\n`.trackers`, `.annoyances`, `.first_party_scripts`,\n`browser.block_resources` and `live_view.hiding` choose its pages'\nClean-up rules over the Run's. `session.source` is refused here with `setting_not_applicable`,\nas the call's own `source` sets it, and so is any other key, which\nonly the Run sets.",
+          "description": "The Session's own settings, nested by key: `filter_lists.ads`,\n`.trackers`, `.annoyances`, `.first_party_scripts`,\n`browser.block_resources` and `live_view.hiding` choose its pages'\nClean-up rules over the Run's, and `browser.service_workers` whether\na site's service workers run in them. `session.source` is refused here with `setting_not_applicable`,\nas the call's own `source` sets it, and so is any other key, which\nonly the Run sets.",
           "type": "object"
         },
         "source": {
@@ -3247,9 +3247,16 @@
           "description": "The id of the `page.route` or `session.route` call whose handler is\nasked."
         },
         "page_id": {
-          "$ref": "#/$defs/PageId",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PageId"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "arrived_in": "0.1",
-          "description": "The page that sent the request."
+          "description": "The page that sent the request; none for a request a site's service\nworker sent itself, which belongs to no page and reaches only\nSession routes (ADR 0121)."
         },
         "request": {
           "$ref": "#/$defs/RouteRequest",
@@ -3265,7 +3272,6 @@
       "required": [
         "id",
         "route_id",
-        "page_id",
         "request"
       ],
       "type": "object"
@@ -8087,6 +8093,26 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "allow",
+      "description": "Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.",
+      "name": "browser.service_workers",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "allow",
+          "block"
+        ]
       },
       "weakens": false
     },

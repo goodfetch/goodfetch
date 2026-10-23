@@ -16,6 +16,7 @@ mod launch;
 mod navigation;
 mod proxies;
 mod routes;
+mod service_workers;
 mod sessions;
 
 use std::collections::BTreeMap;
@@ -85,6 +86,8 @@ pub(crate) enum Case {
     Session(sessions::Case),
     /// A page events or bodies case.
     Events(events::Case),
+    /// A service worker case.
+    ServiceWorker(service_workers::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -284,7 +287,8 @@ impl Case {
                     .or_else(|| sessions::Case::from_id(id).map(Self::Session))
                     .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp))
                     .or_else(|| events::Case::from_id(id).map(Self::Events))
-                    .or_else(|| consent::Case::from_id(id).map(Self::Consent));
+                    .or_else(|| consent::Case::from_id(id).map(Self::Consent))
+                    .or_else(|| service_workers::Case::from_id(id).map(Self::ServiceWorker));
             }
         })
     }
@@ -390,6 +394,7 @@ impl Case {
                 site,
                 checks,
             ),
+            Self::ServiceWorker(case) => case.run(connection, target, site, checks),
         }
     }
 }

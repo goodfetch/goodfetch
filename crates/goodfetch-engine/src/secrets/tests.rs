@@ -300,3 +300,42 @@ fn a_value_goes_only_to_a_domain_its_binding_allows(
     };
     assert_eq!(refused_for.as_deref(), refused);
 }
+
+/// Where the host has an OS keychain, the engine makes its own key there,
+/// as `keychain:goodfetch/run-state-key`, once: 32 random bytes in Base64,
+/// which resolve through `keychain:`; made again, the first key stays, and
+/// no encrypted local file is made. keyring-core's mock store stands in
+/// for the keychain, as its reads and writes are the real ones'.
+/// Covers: story:4-64, setting:run_state.key_reference
+#[test]
+fn with_an_os_keychain_the_engines_own_key_is_made_once_there() {
+    let env = TestEnv::new();
+    let keychain = Keychain::of(keyring_core::mock::Store::new().unwrap());
+    let key = reference("keychain:goodfetch/run-state-key");
+    let runtime = goodfetch_test_support::runtime();
+    let secrets = runtime.block_on(async { driver_with(&env, &[], keychain) });
+    let read = || {
+        let resolving = secrets.for_run(Duration::from_secs(30));
+        runtime
+            .block_on(resolving.resolve(&key, &for_the_key(None, &[])))
+            .unwrap()
+            .expose_secret()
+            .to_owned()
+    };
+
+    runtime.block_on(secrets.make_key(&key)).unwrap();
+    let first = read();
+    runtime.block_on(secrets.make_key(&key)).unwrap();
+    let second = read();
+
+    assert_eq!(
+        (
+            data_encoding::BASE64
+                .decode(first.as_bytes())
+                .map(|bytes| bytes.len()),
+            first == second,
+            env.home().join("secrets").exists()
+        ),
+        (Ok(32), true, false)
+    );
+}

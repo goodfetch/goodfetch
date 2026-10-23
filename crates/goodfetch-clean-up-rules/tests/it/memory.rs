@@ -11,7 +11,6 @@ use goodfetch_clean_up_rules::rules::FilterLists;
 const ADR_0057_SERIALIZED: usize = 9_060_000;
 
 /// Covers: story:5-94
-#[cfg(target_os = "linux")]
 #[test]
 fn loading_the_embedded_lists_keeps_resident_memory_under_adr_0057s_figure() {
     let before = resident();
@@ -29,7 +28,6 @@ fn loading_the_embedded_lists_keeps_resident_memory_under_adr_0057s_figure() {
 /// The process's own resident memory, from `/proc/self/statm`: its
 /// resident pages less those its files back, such as the executable's
 /// pages that hold the compressed lists, which the OS shares and drops.
-#[cfg(target_os = "linux")]
 #[expect(
     clippy::disallowed_methods,
     reason = "a synchronous test reads its own /proc file"

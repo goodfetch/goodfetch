@@ -1,9 +1,12 @@
 //! The `fix` a refused Client adds to a Daemon's refusal (spec #213's Seam
 //! 4, ADR 0098), and the Daemon's files: what names a running Daemon, and
 //! its runtime file's mode.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the tests read the Daemon's files themselves"
+#![cfg_attr(
+    unix,
+    expect(
+        clippy::disallowed_methods,
+        reason = "the tests read the Daemon's files themselves"
+    )
 )]
 
 use std::path::Path;

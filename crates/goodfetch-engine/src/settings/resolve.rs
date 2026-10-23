@@ -20,7 +20,7 @@ use serde_json::Value;
 
 use super::error::SettingsError;
 use super::keys::{self, Key};
-use super::values::Values;
+use super::values::{Given, Values};
 
 /// An Operator policy: what it sets, locks and caps.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -128,7 +128,7 @@ impl HostDefaults {
     }
 
     /// The default of `setting` on this host.
-    fn of(&self, setting: &Setting) -> Value {
+    pub fn of(&self, setting: &Setting) -> Value {
         self.0
             .get(setting.name)
             .cloned()
@@ -248,6 +248,54 @@ impl Resolved {
                 (host.clone(), addresses)
             })
             .collect()
+    }
+
+    /// The settings of a scope opened beneath these, such as one Session
+    /// of the Run: `own`, the scope's own values at the run layer, each
+    /// taken over the value here unless a lower layer locked or capped it,
+    /// and within its key's authority, so a Client acting for a model sets
+    /// none a model may not (ADRs 0028, 0083 and 0092).
+    ///
+    /// # Errors
+    ///
+    /// `setting_locked` for a value a lower layer locked or capped, or that
+    /// its key's authority refuses `own`; `setting_not_applicable` for a key
+    /// these settings' Product does not honour.
+    pub fn beneath(&self, own: &Values) -> Result<Self, SettingsError> {
+        let mut beneath = self.clone();
+        for (name, value) in &own.applied {
+            let (Some(key), Some(effective)) = (keys::find(name), self.settings.get(name)) else {
+                return Err(SettingsError::NotApplicable {
+                    key: (*name).to_owned(),
+                    layer: SettingsLayer::Run,
+                    fix: format!("`{name}` does not apply to this Run's Product; leave it out"),
+                });
+            };
+            let mut state = State {
+                effective: effective.clone(),
+                locked: effective
+                    .locked_by
+                    .map(|layer| limit(name, &effective.value, layer)),
+                cap: effective
+                    .cap
+                    .as_ref()
+                    .map(|cap| limit(name, cap, SettingsLayer::OperatorPolicy)),
+                exposure: None,
+            };
+            take(
+                &mut state,
+                key,
+                SettingsLayer::Run,
+                value,
+                Some(own.given()),
+            )?;
+            state.effective.weakens = key
+                .setting
+                .weakens
+                .is_some_and(|weakens| weakens(&state.effective.value));
+            beneath.settings.insert(name, state.effective);
+        }
+        Ok(beneath)
     }
 
     /// The version of the Operator policy it resolved under.
@@ -511,7 +559,7 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
             key,
             SettingsLayer::Run,
             value,
-            layers.run.origin,
+            Some(layers.run.given()),
         )?;
     }
     if let Some(cap) = &state.cap
@@ -545,14 +593,16 @@ fn above(value: &Value, bound: u64) -> bool {
     value.is_null() || value.as_u64().is_some_and(|value| value > bound)
 }
 
-/// Takes `value` from `layer` for `key` unless something holds the key.
+/// Takes `value` from `layer` for `key`, as `given` for the run layer,
+/// unless something holds the key.
 fn take(
     state: &mut State,
     key: Key,
     layer: SettingsLayer,
     value: &Value,
-    origin: Option<RunOrigin>,
+    given: Option<Given>,
 ) -> Result<(), SettingsError> {
+    let given = given.unwrap_or_default();
     let name = key.setting.name;
     let refused = |limit: SettingLimit, fix: String| SettingsError::Locked {
         key: name.to_owned(),
@@ -561,7 +611,7 @@ fn take(
         fix,
     };
     let current = limit(name, &state.effective.value, state.effective.layer);
-    authority(key, layer, value, &current, &refused)?;
+    authority(key, layer, value, given.for_model, &current, &refused)?;
     if let Some(locked) = &state.locked {
         let fix = match locked.layer {
             SettingsLayer::Default => format!("`{name}` is an honesty guarantee no layer changes"),
@@ -590,15 +640,17 @@ fn take(
     }
     state.effective.value = value.clone();
     state.effective.layer = layer;
-    state.effective.origin = origin;
+    state.effective.origin = given.origin;
     Ok(())
 }
 
-/// The key's own authority over `layer` (ADR 0028 and its amendments).
+/// The key's own authority over `layer` (ADR 0028 and its amendments);
+/// `for_model` when a Client acting for a model gave `value`.
 fn authority(
     key: Key,
     layer: SettingsLayer,
     value: &Value,
+    for_model: bool,
     current: &SettingLimit,
     refused: &dyn Fn(SettingLimit, String) -> SettingsError,
 ) -> Result<(), SettingsError> {
@@ -633,9 +685,19 @@ fn authority(
         Authority::ConfigurationExcept(allowed) if above_configuration && !allowed(value) => {
             Err(configuration_only())
         }
-        Authority::NotByRecipe if layer == SettingsLayer::Recipe => Err(refused(
+        Authority::NotByRecipe | Authority::NotByRecipeOrModel
+            if layer == SettingsLayer::Recipe =>
+        {
+            Err(refused(
+                current.clone(),
+                format!("a Recipe never sets `{name}`; it may only expose it"),
+            ))
+        }
+        Authority::NotByRecipeOrModel if for_model => Err(refused(
             current.clone(),
-            format!("a Recipe never sets `{name}`; it may only expose it"),
+            format!(
+                "a Client acting for a model never sets `{name}`: set it in the program's own code, in configuration or in an Operator policy"
+            ),
         )),
         Authority::Narrowed if above_configuration && !narrows(key, value, &current.value) => {
             Err(refused(
@@ -650,6 +712,7 @@ fn authority(
         | Authority::Configuration
         | Authority::ConfigurationExcept(_)
         | Authority::NotByRecipe
+        | Authority::NotByRecipeOrModel
         | Authority::Narrowed => Ok(()),
     }
 }

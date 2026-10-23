@@ -10,12 +10,14 @@
 //!
 //! An authenticated proxy takes Basic credentials (`407` without them); one
 //! may refuse every tunnel (`403`). A proxy's own refusal names its cause in
-//! `Proxy-Status` (RFC 9209).
+//! `Proxy-Status` (RFC 9209). The SOCKS5 proxy ([`socks5`]) takes the same
+//! credentials by RFC 1929 and relays one `CONNECT` per connection.
 #![expect(
     clippy::disallowed_types,
     reason = "the forward proxies open their own sockets, outside the engine's transport (ADR 0060)"
 )]
 
+mod socks5;
 mod username;
 
 use std::collections::BTreeMap;
@@ -57,6 +59,8 @@ pub(crate) enum Access {
     RefusingTunnels,
     /// Only a client with the reported credentials.
     Authenticated,
+    /// Only a SOCKS5 client with the reported credentials (RFC 1929).
+    Socks5,
 }
 
 /// The username and password the authenticated proxies take, derived from
@@ -203,8 +207,16 @@ impl ForwardProxy {
             let context = Arc::clone(&context);
             let stop = stop.clone();
             tracker.spawn(async move {
+                let relayed = async {
+                    match proxy.access {
+                        Access::Socks5 => socks5::relay(stream, source, &proxy, &context).await,
+                        Access::Open | Access::RefusingTunnels | Access::Authenticated => {
+                            relay(stream, source, &proxy, &context).await;
+                        }
+                    }
+                };
                 tokio::select! {
-                    () = relay(stream, source, &proxy, &context) => {}
+                    () = relayed => {}
                     () = stop.cancelled() => {}
                 }
             });
@@ -422,7 +434,7 @@ fn admit(
             let answer = failure("403 Forbidden", "http_request_denied");
             return Err(Refused::new(Outcome::TunnelRefused, answer));
         }
-        Access::Open | Access::RefusingTunnels => None,
+        Access::Open | Access::RefusingTunnels | Access::Socks5 => None,
     };
     let Some(destination) = destination(&head.method, &head.target) else {
         let answer = failure("400 Bad Request", "http_request_error");

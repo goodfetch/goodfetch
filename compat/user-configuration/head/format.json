@@ -745,6 +745,60 @@
             },
             "type": "object"
           },
+          "proxy": {
+            "additionalProperties": false,
+            "properties": {
+              "bypass": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The hosts the Session reaches without its proxy, as Playwright's `bypass`: a comma-separated list such as `.example.com, chromium.org`, a leading dot naming a domain's subdomains. None by default: every request goes through `proxy.server`. Set as `proxy.server` is."
+              },
+              "password": {
+                "anyOf": [
+                  {
+                    "description": "A Secret reference, such as `env:NAME`.",
+                    "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The Secret reference of the password the Session gives `proxy.server` with `proxy.username`, such as `env:PROXY_PASSWORD`: never a value, resolved when the Session opens and never written to a log, a trace, a process's arguments or a file. None by default. Set as `proxy.server` is."
+              },
+              "server": {
+                "anyOf": [
+                  {
+                    "description": "A proxy URL, `http://`, `https://`, `socks5://` or `socks5h://`, with a host and an optional port and never credentials, such as `http://proxy.example:3128`.",
+                    "pattern": "^(?i:https?|socks5h?)://[^@/?#]+/?$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The proxy every request of the Session goes through, as Playwright's `server`: an `http://`, `https://`, `socks5://` or `socks5h://` URL with a host and a port, such as `http://proxy.example:3128`. None by default: the machine's own address. Set on a Run, every Session of it takes it; set in `run.new_session`'s `settings`, that Session alone; a page or a request has no proxy of its own, so the address a site sees never changes under the same cookies. A URL carrying credentials and `socks4` are refused with `setting_invalid`: give the credentials as `proxy.username` and `proxy.password`. Set only by the program's own code, configuration and an Operator policy: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`, since whoever sets it receives `proxy.password`. On Chromium, a SOCKS5 proxy's credentials go through a loopback relay the engine opens for the Session."
+              },
+              "username": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The username the Session gives `proxy.server`, as Playwright's `username`. None by default. Set as `proxy.server` is."
+              }
+            },
+            "type": "object"
+          },
           "resolver": {
             "additionalProperties": false,
             "properties": {
@@ -782,7 +836,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "The Secret reference of the key-encryption key that wraps each Run's data key. One set in a layer is resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration. By default the OS keychain's `keychain:goodfetch/run-state-key`, or, on a host with no OS keychain, the encrypted local file's `secretfile:run-state-key`, which `config explain` shows as the default it chose. The encrypted local file, `secrets/<name>.age` in Goodfetch home encrypted with age to the X25519 identity in `secrets/identity.txt`, a file only its owner may read, protects copies and backups of the home, not the value from another process of the same user."
+                "description": "The Secret reference of the key-encryption key that wraps each Run's data key. One set in a layer is resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration. By default the OS keychain's `keychain:goodfetch/run-state-key`, or, on a host with no OS keychain, the encrypted local file's `secretfile:run-state-key`, which `config explain` shows as the default it chose; the engine makes the default's item, a random 256-bit key, where it is missing when a Run first seals a field. A Run's data key is stored only wrapped by this key, so a resume, such as of a Checkpoint moved to another machine, unwraps it with the key this setting names for the resume, which a Client may send in `run.resume`'s project configuration: one that gives no value fails the resume with `secret_unavailable`, one that does not open the data key with `run_key_mismatch`. The encrypted local file, `secrets/<name>.age` in Goodfetch home encrypted with age to the X25519 identity in `secrets/identity.txt`, a file only its owner may read, protects copies and backups of the home, not the value from another process of the same user."
               },
               "layout": {
                 "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",

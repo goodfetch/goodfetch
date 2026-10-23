@@ -31,6 +31,7 @@ use goodfetch_protocol::run::{
     RunIdInvalidDetails, RunKind, RunParams, RunProgress, RunReport, RunSetProgressMessageParams,
     RunStartParams, RunStarted, RunUsage, RunWaitParams, StartedAs, StopReason,
 };
+use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::usage::{
     LIMIT_NOT_UNDERSTOOD, LIMIT_REACHED, Limit, LimitNotUnderstoodDetails,
 };
@@ -38,8 +39,9 @@ use goodfetch_protocol::usage::{
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
 use goodfetch_protocol::secrets::{
-    SECRET_DOMAIN_NOT_ALLOWED, SECRET_INPUT_REFUSED, SECRET_UNAVAILABLE,
-    SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails,
+    RUN_KEY_MISMATCH, RUN_STATE_KEY_REFERENCE, RunKeyMismatchDetails, SECRET_DOMAIN_NOT_ALLOWED,
+    SECRET_INPUT_REFUSED, SECRET_UNAVAILABLE, SecretDomainNotAllowedDetails,
+    SecretInputRefusedDetails, SecretUnavailableDetails,
 };
 use goodfetch_protocol::settings::{
     RunOrigin, SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE, SETTING_UNKNOWN,
@@ -557,9 +559,36 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
         ),
         RunError::Internal { message, .. } => internal(message),
         RunError::Draining(run_id) => draining(Some(run_id)),
+        RunError::Secret { error, .. } => secret_error(&error),
+        RunError::KeyMismatch {
+            run_id,
+            reference,
+            wrapped_by,
+        } => key_mismatch(run_id, &reference, wrapped_by),
         RunError::ResourcesExhausted(exhausted) => storage_exhausted(&exhausted),
         RunError::Stopped => stopped(),
     }
+}
+
+/// `run_key_mismatch`: the key-encryption key `reference` does not open
+/// the data key of `run_id`, which the key `wrapped_by` names wrapped.
+fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) -> CallError {
+    CallError::new(
+        &RUN_KEY_MISMATCH,
+        format!(
+            "The key-encryption key `{reference}` does not open the data key of the Run `{run_id}`, which `{wrapped_by}` wrapped where the Run began."
+        ),
+        &RunKeyMismatchDetails {
+            run_id,
+            setting: RUN_STATE_KEY_REFERENCE.name.to_owned(),
+            reference: reference.to_string(),
+            wrapped_by,
+            fix: format!(
+                "Set `{}` to a Secret reference that gives the key that wrapped it, in project configuration or configuration, then resume again.",
+                RUN_STATE_KEY_REFERENCE.name
+            ),
+        },
+    )
 }
 
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
@@ -573,6 +602,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             recipe: None,
             settings: params.settings,
             origin: Some(RunOrigin::Settings),
+            acting_for_model: context.surface().acts_for_model(),
         })
         .await
         .map_err(|error| settings_error(&error, context.identity()))?;
@@ -727,6 +757,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             recipe: None,
             settings: params.settings,
             origin: Some(RunOrigin::Settings),
+            acting_for_model: context.surface().acts_for_model(),
         })
         .await
         .map_err(|error| settings_error(&error, context.identity()))?;

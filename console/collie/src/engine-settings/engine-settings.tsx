@@ -3,8 +3,9 @@
 // as `config explain` does, from `config.explain` on the engine the
 // Console reached. A person may explain with a project configuration and
 // run values, as the command's `--project` and `--set` do; the Console
-// edits neither. Later sections (the Operator policy, Usage, tokens,
-// people and the Daemon group) join this screen.
+// edits neither. Its second section shows Usage against each Limit, by
+// scope (story 99). Later sections (the Operator policy, tokens, people and
+// the Daemon group) join this screen.
 import type { SettingsExplanation } from "@goodfetch/collie-client/generated";
 import { Trans, useLingui } from "@lingui/react/macro";
 import {
@@ -16,6 +17,7 @@ import {
   type ReactNode,
 } from "react";
 import type { ConsoleClient } from "#client/client.ts";
+import { Usage } from "#usage/usage-section.tsx";
 import { EffectiveSettings } from "./effective-settings.tsx";
 import {
   explainWith,
@@ -218,12 +220,15 @@ export function EngineSettings({ client }: { readonly client: ConsoleClient }): 
   };
 
   return (
-    <EngineSettingsView
-      explained={explained}
-      refusal={refusal}
-      onExplain={(request) => {
-        void explain(request);
-      }}
-    />
+    <div className="flex flex-col gap-10">
+      <EngineSettingsView
+        explained={explained}
+        refusal={refusal}
+        onExplain={(request) => {
+          void explain(request);
+        }}
+      />
+      <Usage client={client} />
+    </div>
   );
 }

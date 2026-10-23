@@ -568,6 +568,17 @@ number = 5
 kind = "operation"
 prefix = "page.goto"
 
+# A Session's proxy (#708): `proxy.*` and its two Error codes.
+[[area]]
+number = 5
+kind = "setting"
+prefix = "proxy."
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "proxy_"
+
 # A Run's own Sessions (#697): `run.new_session`, `session.new_page` and
 # `session.close`.
 [[area]]

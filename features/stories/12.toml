@@ -38,6 +38,14 @@ journey = true
 status = "active"
 
 [[story]]
+id = 99
+title = "As a user, I want Usage against each Limit by scope (install, Daemon, person, named token, Client connection), each Limit showing who set it, and replayed responses counted apart from fetches, so that I see what is left (ADRs 0041, 0105)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 102
 title = "As a user, I want a setting only Foxhound honours listed as Foxhound's, never hidden, on a Collie engine, so that a shared configuration file reads honestly (ADR 0087)."
 milestone = "M1 Core"

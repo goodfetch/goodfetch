@@ -9,24 +9,31 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+#[cfg(unix)]
 use goodfetch_protocol::page::{PageOpened, SessionId};
-use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
+use goodfetch_test_support::TestEnv;
+#[cfg(unix)]
+use goodfetch_test_support::{ProvingGround, browser_cache};
 use serde_json::{Value, json};
 
 use crate::attached::Attached;
+#[cfg(unix)]
 use crate::page::{opened, started};
 use crate::run::call;
 
 /// The Proving ground's own seed for these tests.
+#[cfg(unix)]
 const SEED: u64 = 697;
 
 /// The Session `run.new_session` answered.
+#[cfg(unix)]
 fn session_of(answer: &Value) -> SessionId {
     serde_json::from_value(answer["result"]["session_id"].clone())
         .unwrap_or_else(|error| panic!("{error}: {answer}"))
 }
 
 /// Opens a page in the Session `session`.
+#[cfg(unix)]
 fn page_in(engine: &mut Attached, id: i64, session: &SessionId) -> PageOpened {
     opened(&call(
         engine,
@@ -37,6 +44,7 @@ fn page_in(engine: &mut Attached, id: i64, session: &SessionId) -> PageOpened {
 }
 
 /// Loads the storage page on `page` with `mark`, and answers its status.
+#[cfg(unix)]
 fn store(
     engine: &mut Attached,
     id: i64,
@@ -57,6 +65,7 @@ fn store(
 /// The requests the Proving ground received for targets on `scope.test`
 /// that start with `prefix`, in arrival order: each one's target and the
 /// cookies it sent.
+#[cfg(unix)]
 fn storage_requests(proving_ground: &ProvingGround, prefix: &str) -> Vec<(String, Value)> {
     proving_ground.observations().unwrap()["requests"]
         .as_array()
@@ -265,6 +274,7 @@ fn a_closed_session_closes_its_pages_gives_their_admissions_back_and_closes_agai
 
 /// The Error code of `answer`'s error and the details that name the key,
 /// its layer and the Session source's kind.
+#[cfg(unix)]
 fn refusal_of(answer: &Value) -> (Value, Value, Value, Value) {
     let data = &answer["error"]["data"];
     (
@@ -540,10 +550,12 @@ fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state
 }
 
 /// The ad of `clean-up.test`'s `/ads` page, which EasyList blocks.
+#[cfg(unix)]
 const AD: &str = "/img/top-ad-sidebar.gif";
 
 /// Loads `clean-up.test`'s `/ads` page on `page`, and answers how many
 /// requests for its ad the Proving ground has received since it started.
+#[cfg(unix)]
 fn ads_loaded(
     engine: &mut Attached,
     id: i64,

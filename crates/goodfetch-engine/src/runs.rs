@@ -67,11 +67,15 @@ use goodfetch_protocol::run::{
     RunProgress, RunReport, RunStarted, RunStorage, RunUsage, RunWarning, StartInput, StartedAs,
     StopReason, Tags,
 };
-use goodfetch_protocol::secrets::{RUN_STATE_KEY_REFERENCE, TIMEOUT_SECRET};
+use goodfetch_protocol::secret_reference::SecretReference;
+use goodfetch_protocol::secrets::{
+    KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure, TIMEOUT_SECRET,
+};
 use goodfetch_protocol::settings::{SettingsLayer, WeakenedSetting};
 use goodfetch_protocol::storage::StorageLevel;
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
+use secrecy::SecretString;
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
@@ -107,11 +111,12 @@ use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation
 use crate::metrics::Metrics;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::run_index;
+use crate::run_key::{self, KeyError, RunKey, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
     self, Durability, RunState, RunStateError, RunStateOptions, RunStateTables,
 };
-use crate::secrets::{Carried, Keychain, Purpose, RunSecrets, SecretError, Secrets};
+use crate::secrets::{Carried, Keychain, Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
 use crate::settings::{Resolved, RunSettings, Settings};
 use crate::tasks::TaskOwner;
 use crate::trace::Link;
@@ -443,6 +448,43 @@ pub enum ChargeError {
     State(#[from] RunStateError),
 }
 
+/// What a live Run resolves its Secret references through, and its data
+/// key once unwrapped.
+struct Keys {
+    secrets: RunSecrets,
+    key: Option<RunKey>,
+}
+
+/// A resumed Run's data key, unwrapped, with the wrapped key its file held.
+struct Unwrapped {
+    stored: StoredKey,
+    key: RunKey,
+}
+
+/// Whether a resolution of the key-encryption key makes the engine's own
+/// key where it is missing: a Run's first seal does, a resume never, as a
+/// new key would open no data key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Making {
+    Yes,
+    No,
+}
+
+/// Why a Run has no data key.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum RunKeyError {
+    /// The key-encryption key gave no value.
+    #[error(transparent)]
+    Secret(#[from] SecretError),
+    /// The data key could not be made.
+    #[error(transparent)]
+    Key(#[from] KeyError),
+    /// The wrapped data key could not be written.
+    #[error(transparent)]
+    State(#[from] RunStateError),
+}
+
 /// Why a Run could not be finished or aborted.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -535,6 +577,26 @@ pub enum RunError {
     /// The engine drains (ADR 0049): it resumes no Run.
     #[error("the engine drains and resumes no Run")]
     Draining(RunId),
+    /// The key-encryption key of a Run's data key gave no value, as a
+    /// resume resolved it.
+    #[error("the key-encryption key of `{run_id}` gave no value: {error}")]
+    Secret {
+        /// The Run ID.
+        run_id: RunId,
+        /// The resolution's failure.
+        error: Box<SecretError>,
+    },
+    /// The key-encryption key `run_state.key_reference` names does not
+    /// open the Run's data key.
+    #[error("the key-encryption key `{reference}` does not open the data key of `{run_id}`")]
+    KeyMismatch {
+        /// The Run ID.
+        run_id: RunId,
+        /// The reference the resume resolved.
+        reference: SecretReference,
+        /// The reference of the key that wrapped the data key.
+        wrapped_by: String,
+    },
     /// A filesystem the Run needs is at the `critical` storage level (ADR
     /// 0122).
     #[error("the filesystem of `{}` is at the critical storage level", .0.folder.display())]
@@ -729,9 +791,14 @@ enum Command {
         oneshot::Sender<Result<watch::Receiver<Option<Ended>>, RunError>>,
     ),
     Resume(
-        Box<(Resume, Link)>,
+        Box<(Resume, Link, Keys, Option<StoredKey>)>,
         Option<ConnectionId>,
         oneshot::Sender<Result<Resumed, RunError>>,
+    ),
+    StoredKey(
+        RunId,
+        Option<PathBuf>,
+        oneshot::Sender<Result<Option<StoredKey>, RunError>>,
     ),
     Machine(oneshot::Sender<Result<String, RunError>>),
     SafeStop(RunId, StoppedBy, oneshot::Sender<Result<Waiting, RunError>>),
@@ -828,6 +895,8 @@ struct Shared {
     span: tracing::Span,
     /// What it resolves its Secret references through.
     secrets: RunSecrets,
+    /// Its data key, once made or unwrapped.
+    key: tokio::sync::OnceCell<RunKey>,
     /// Its share of the Resource governor's admissions.
     governor: RunShare,
     /// Its folder, which the governor samples while the Run lives (ADR
@@ -885,6 +954,39 @@ impl Run {
     /// it resolved.
     pub fn secrets(&self) -> &RunSecrets {
         &self.shared.secrets
+    }
+
+    /// Its data key, which seals and opens the fields of its secret tables.
+    ///
+    /// # Errors
+    ///
+    /// As [`RunKeyError`] says.
+    pub async fn key(&self) -> Result<&RunKey, RunKeyError> {
+        self.shared.key.get_or_try_init(|| self.make_key()).await
+    }
+
+    /// Makes its data key, stored only wrapped by the key-encryption key
+    /// its settings name, which resolves now unless its start resolved it;
+    /// the engine's own default key is made where it is missing (#616).
+    async fn make_key(&self) -> Result<RunKey, RunKeyError> {
+        let (reference, layer) = self.runs.key_reference(self.settings()).await;
+        let kek = match self.secrets().held_for(RUN_STATE_KEY_REFERENCE.name).await {
+            Some(kek) => kek,
+            None => {
+                self.runs
+                    .key_encryption_key(self.secrets(), &reference, layer, &self.id, Making::Yes)
+                    .await?
+            }
+        };
+        let key = RunKey::generate(self.id.clone())?;
+        let stored = StoredKey {
+            wrapped: key.wrap(&kek)?,
+            key_reference: reference.to_string(),
+        };
+        self.state
+            .write(move |connection| run_key::store(connection, &stored))
+            .await?;
+        Ok(key)
     }
 
     /// The engine's clock.
@@ -1800,16 +1902,129 @@ impl Runs {
     ///
     /// Dropping the future after the resume was sent still resumes the Run.
     pub async fn resume(&self, resume: Resume) -> Result<Resumed, RunError> {
+        let secrets = self
+            .secrets
+            .for_run(secret_timeout(resume.settings.as_ref()));
+        let unwrapped = self.unwrapped_key(&resume, &secrets).await?;
+        let (stored, key) = match unwrapped {
+            Some(Unwrapped { stored, key }) => (Some(stored), Some(key)),
+            None => (None, None),
+        };
         let (answer, answered) = oneshot::channel();
         self.commands
             .send(Command::Resume(
-                Box::new((resume, Link::to_current())),
+                Box::new((resume, Link::to_current(), Keys { secrets, key }, stored)),
                 self.connection,
                 answer,
             ))
             .await
             .map_err(|_| RunError::Stopped)?;
         answered.await.map_err(|_| RunError::Stopped)?
+    }
+
+    /// The data key of the Run `resume` resumes, unwrapped by the
+    /// key-encryption key its settings name, resolved through `secrets`,
+    /// when its run file or Checkpoint holds one: the key comes from the
+    /// caller's reference, never from the file (ADR 0015). It resolves
+    /// before the registry takes the resume, so a slow provider holds no
+    /// other Run back.
+    async fn unwrapped_key(
+        &self,
+        resume: &Resume,
+        secrets: &RunSecrets,
+    ) -> Result<Option<Unwrapped>, RunError> {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::StoredKey(
+                resume.run_id.clone(),
+                resume.checkpoint.clone(),
+                answer,
+            ))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        let stored = answered.await.map_err(|_| RunError::Stopped)??;
+        let Some(stored) = stored else {
+            return Ok(None);
+        };
+        let run_id = &resume.run_id;
+        let (reference, layer) = self.key_reference(resume.settings.as_ref()).await;
+        let kek = self
+            .key_encryption_key(secrets, &reference, layer, run_id, Making::No)
+            .await
+            .map_err(|error| RunError::Secret {
+                run_id: run_id.clone(),
+                error: Box::new(error),
+            })?;
+        let key = RunKey::unwrap(run_id.clone(), &stored.wrapped, &kek).map_err(|_| {
+            RunError::KeyMismatch {
+                run_id: run_id.clone(),
+                reference,
+                wrapped_by: stored.key_reference.clone(),
+            }
+        })?;
+        Ok(Some(Unwrapped { stored, key }))
+    }
+
+    /// The Secret reference of the key-encryption key of a Run whose
+    /// settings resolved as `settings`, and the layer that set it: this
+    /// host's default where none did, or where a layer cleared it.
+    async fn key_reference(
+        &self,
+        settings: Option<&RunSettings>,
+    ) -> (SecretReference, SettingsLayer) {
+        if let Some((reference, layer)) = settings.and_then(|settings| {
+            let resolved = settings.resolved();
+            Some((
+                resolved.secret_reference(RUN_STATE_KEY_REFERENCE.name)?,
+                resolved.get(RUN_STATE_KEY_REFERENCE.name)?.layer,
+            ))
+        }) {
+            return (reference, layer);
+        }
+        let default = self
+            .settings
+            .host_defaults()
+            .await
+            .of(&RUN_STATE_KEY_REFERENCE);
+        let reference = default
+            .as_str()
+            .and_then(|text| SecretReference::parse(text).ok())
+            .unwrap_or_else(|| {
+                SecretReference::parse(KEY_REFERENCE_IN_KEYCHAIN)
+                    .expect("invariant: the keychain's default is a Secret reference")
+            });
+        (reference, SettingsLayer::Default)
+    }
+
+    /// The key-encryption key `reference`, set by `layer`, gives for the
+    /// Run `run_id`, resolved through `secrets`. With `Making::Yes`, the
+    /// engine's own key ([`is_engine_key`]) is made first where it is
+    /// missing.
+    async fn key_encryption_key(
+        &self,
+        secrets: &RunSecrets,
+        reference: &SecretReference,
+        layer: SettingsLayer,
+        run_id: &RunId,
+        making: Making,
+    ) -> Result<SecretString, SecretError> {
+        let purpose = Purpose {
+            placeholder: RUN_STATE_KEY_REFERENCE.name,
+            domain: None,
+            domains: &[],
+            layer: Some(layer),
+            run_id: Some(run_id),
+        };
+        match secrets.resolve(reference, &purpose).await {
+            Err(SecretError::Unavailable {
+                failure: SecretFailure::Missing | SecretFailure::NotConfigured,
+                ..
+            }) if making == Making::Yes && is_engine_key(reference) => {
+                self.secrets.make_key(reference).await?;
+                secrets.resolve(reference, &purpose).await
+            }
+            resolved => resolved,
+        }
     }
 
     /// The driver of Runs of `kind`, when the composition has one.
@@ -2105,7 +2320,7 @@ impl Registry {
                     }));
                 }
                 Command::Resume(resume, _, answer) if self.draining => {
-                    let (resume, _) = *resume;
+                    let (resume, _, _, _) = *resume;
                     let _ = answer.send(Err(RunError::Draining(resume.run_id)));
                 }
                 Command::Drain(answer) => {
@@ -2166,9 +2381,12 @@ impl Registry {
                 Command::Stop(run_id, reason, location, answer) => {
                     let _ = answer.send(self.stop(&run_id, reason, location).await);
                 }
+                Command::StoredKey(run_id, checkpoint, answer) => {
+                    let _ = answer.send(self.stored_key(&run_id, checkpoint.as_deref()).await);
+                }
                 Command::Resume(resume, connection, answer) => {
-                    let (resume, link) = *resume;
-                    let resumed = self.resume(resume, connection).await;
+                    let (resume, link, keys, stored) = *resume;
+                    let resumed = self.resume(resume, keys, stored, connection).await;
                     if let Ok(Resumed::New { run, .. }) = &resumed {
                         link.add_to(run.span());
                     }
@@ -2594,7 +2812,13 @@ impl Registry {
             })));
         }
         let started = self
-            .begin(run_id, start, inputs, secrets, connection)
+            .begin(
+                run_id,
+                start,
+                inputs,
+                Keys { secrets, key: None },
+                connection,
+            )
             .await?;
         if let Started::New(run) = &started {
             link.add_to(run.span());
@@ -2680,7 +2904,7 @@ impl Registry {
         run_id: RunId,
         start: Start,
         inputs: String,
-        secrets: RunSecrets,
+        keys: Keys,
         connection: Option<ConnectionId>,
     ) -> Result<Started, StartError> {
         let folder = self.folder(&run_id);
@@ -2737,7 +2961,7 @@ impl Registry {
             .map_err(|error| unavailable(error.to_string()))?;
         let live = Live {
             id: run_id.clone(),
-            run: Some(self.new_run(&run_id, &folder, state, connection, start.settings, secrets)),
+            run: Some(self.new_run(&run_id, &folder, state, connection, start.settings, keys)),
             folder,
             kind: start.kind,
             needs: start.needs,
@@ -2939,7 +3163,7 @@ impl Registry {
         state: RunState,
         connection: Option<ConnectionId>,
         settings: Option<RunSettings>,
-        secrets: RunSecrets,
+        keys: Keys,
     ) -> Run {
         let epoch = state.epoch();
         let share = settings
@@ -2963,7 +3187,8 @@ impl Registry {
                 ))),
                 metrics: self.setup.metrics.clone(),
                 span: tracing::info_span!(parent: None, "run", run_id = %run_id),
-                secrets,
+                secrets: keys.secrets,
+                key: tokio::sync::OnceCell::new_with(keys.key),
                 governor: self.setup.governor.join(share),
                 _sampled: self.setup.governor.sample(folder.to_owned()),
                 storage: self.setup.governor.storage(),
@@ -3279,10 +3504,44 @@ impl Registry {
         Ok(machine)
     }
 
+    /// The wrapped data key of the Run `run_id` that this engine does not
+    /// run, in the Checkpoint `checkpoint` or else its run file here.
+    async fn stored_key(
+        &self,
+        run_id: &RunId,
+        checkpoint: Option<&Path>,
+    ) -> Result<Option<StoredKey>, RunError> {
+        if self.live.contains_key(run_id) {
+            return Ok(None);
+        }
+        Ok(self.held(run_id, checkpoint).await?.key)
+    }
+
+    /// What [`Self::held`] reads, refused when its wrapped data key is not
+    /// `stored`, the one a resume unwrapped before the registry took it.
+    async fn held_with_key(
+        &self,
+        run_id: &RunId,
+        checkpoint: Option<&Path>,
+        stored: Option<StoredKey>,
+    ) -> Result<checkpoint::Held, RunError> {
+        let held = self.held(run_id, checkpoint).await?;
+        if held.key != stored {
+            return Err(RunError::Unavailable {
+                run_id: run_id.clone(),
+                folder: self.folder(run_id),
+                error: "its data key changed while it resumed; resume it again".to_owned(),
+            });
+        }
+        Ok(held)
+    }
+
     /// Resumes an interrupted Run, as [`Runs::resume`] says.
     async fn resume(
         &mut self,
         resume: Resume,
+        keys: Keys,
+        stored: Option<StoredKey>,
         connection: Option<ConnectionId>,
     ) -> Result<Resumed, RunError> {
         let Resume {
@@ -3301,7 +3560,9 @@ impl Registry {
                 needs: live.needs,
             }));
         }
-        let held = self.held(&run_id, checkpoint.as_deref()).await?;
+        let held = self
+            .held_with_key(&run_id, checkpoint.as_deref(), stored)
+            .await?;
         let folder = self.folder(&run_id);
         self.may_resume(&run_id, &held, &folder).await?;
         let lifecycle = match lifecycle::apply(held.lifecycle, RunEvent::Resume) {
@@ -3317,7 +3578,6 @@ impl Registry {
             Err(refused) => return Err(RunError::refused(&run_id, &folder, refused)),
         };
         let options = self.opened_with(settings.as_ref());
-        let secrets = self.secrets.for_run(secret_timeout(settings.as_ref()));
         let (lock, writer, state) = self
             .reopen(&run_id, held.lifecycle, checkpoint, &options)
             .await?;
@@ -3326,7 +3586,7 @@ impl Registry {
         self.unrecorded.remove(&run_id);
         let live = Live {
             id: run_id.clone(),
-            run: Some(self.new_run(&run_id, &folder, state, connection, settings, secrets)),
+            run: Some(self.new_run(&run_id, &folder, state, connection, settings, keys)),
             folder,
             kind: recorded.kind,
             needs: recorded.needs,

@@ -2,7 +2,8 @@
 //! a real one, never mocked): plain HTTP relayed in absolute form and
 //! `CONNECT` tunnels, open or behind Basic authentication, one that refuses
 //! tunnels, one that is down, and one per proxy kind with its own pool of
-//! exits, which a provider's sticky username pins per Session. Each relay is
+//! exits, which a provider's sticky username pins per Session, and a SOCKS5
+//! proxy behind the same credentials. Each relay is
 //! recorded in `GET /observations`'s `relays`, and the request it carries to
 //! a task's host is observed for that task like any other.
 //! Covers: story:2-82
@@ -322,4 +323,69 @@ fn a_proxy_relays_only_to_names_it_resolves_on_this_host(
     let observations = proving_ground.observations();
     assert_eq!(exchange.status(), status);
     assert_eq!(observations["relays"][0]["outcome"], outcome);
+}
+
+#[test]
+fn a_socks5_client_with_the_credentials_reaches_a_tasks_host_and_its_username_is_recorded() {
+    let proving_ground = ProvingGround::start(SEED);
+    let username = proving_ground.proxy_username();
+    let password = proving_ground.proxy_password();
+    let port: u16 = proving_ground.port().parse().unwrap();
+    let request = format!(
+        "GET /catalog/1 HTTP/1.1\r\nHost: 1.catalog.test:{port}\r\nConnection: close\r\n\r\n"
+    );
+
+    let exchange = clients::socks5(
+        &proving_ground.proxy("socks5"),
+        (&username, &password),
+        ("1.catalog.test", port),
+        request.as_bytes(),
+    )
+    .unwrap();
+
+    let observations = proving_ground.observations();
+    assert_eq!(exchange.status(), 200);
+    assert_eq!(
+        relay(
+            &observations["relays"][0],
+            &["proxy", "method", "target", "task", "username", "outcome"]
+        ),
+        json!({
+            "proxy": "socks5",
+            "method": "CONNECT",
+            "target": format!("1.catalog.test:{port}"),
+            "task": "catalog/1",
+            "username": username,
+            "outcome": "relayed",
+        })
+    );
+    assert_eq!(observations["requests"][0]["task"], "catalog/1");
+}
+
+#[test]
+fn the_socks5_proxy_refuses_a_wrong_password_and_records_the_username_alone() {
+    let proving_ground = ProvingGround::start(SEED);
+    let username = proving_ground.proxy_username();
+    let port: u16 = proving_ground.port().parse().unwrap();
+
+    let refused = clients::socks5(
+        &proving_ground.proxy("socks5"),
+        (&username, "wrong"),
+        ("1.catalog.test", port),
+        b"",
+    );
+
+    let observations = proving_ground.observations();
+    assert_eq!(refused.err(), Some(clients::Socks5Refusal::Credentials(1)));
+    assert_eq!(
+        relay(
+            &observations["relays"][0],
+            &["proxy", "username", "outcome"]
+        ),
+        json!({
+            "proxy": "socks5",
+            "username": username,
+            "outcome": "proxy_authentication_required",
+        })
+    );
 }

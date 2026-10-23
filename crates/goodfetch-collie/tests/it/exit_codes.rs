@@ -14,12 +14,9 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::io::{BufRead as _, BufReader, Read as _};
 use std::process::Stdio;
 
-use goodfetch_test_support::{
-    Process, TestEnv, cli, engine_script, record_command, reported_address, tools,
-};
+use goodfetch_test_support::{Process, TestEnv, cli, engine_script, reported_address, tools};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -225,6 +222,7 @@ fn a_stopped_run_exits_20_under_require_verified() {
     assert_eq!(finished.exit, Some(20), "{}", finished.stderr);
 }
 
+#[cfg(unix)]
 const SUBSCRIBE: [&str; 6] = [
     "events",
     "subscribe",
@@ -241,6 +239,10 @@ const SUBSCRIBE: [&str; 6] = [
 #[cfg(unix)]
 #[test]
 fn sigterm_cancels_the_call_and_exits_143() {
+    use std::io::{BufRead as _, BufReader, Read as _};
+
+    use goodfetch_test_support::record_command;
+
     let env = TestEnv::new();
     env.log_level("trace");
     let mut command = env.process_command(COLLIE);

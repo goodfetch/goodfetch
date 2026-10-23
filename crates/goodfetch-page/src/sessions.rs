@@ -42,7 +42,7 @@ use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use goodfetch_protocol::run::{Lifecycle, RUN_ENDED, RUN_NOT_FOUND, RunDetails, RunId};
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{
-    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SESSION_SOURCE, SettingLimit,
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SESSION_SOURCE, SettingLimit,
     SettingsLayer, TIMEOUT_ACTION, TIMEOUT_NAVIGATION, TIMEOUT_WAIT,
 };
 use serde_json::{Map, Value, json};
@@ -52,6 +52,7 @@ use crate::driver::PageDriver;
 use crate::interception::{Interception, SESSION_KEYS};
 use crate::page_events::{self, PageEvents, Refusals};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
+use crate::proxy::SessionProxy;
 
 /// What the page crate adds to every run file: each Session the Run opened,
 /// by its position among them, whether it is the Run's default Session,
@@ -210,11 +211,12 @@ impl Sessions {
         let run = live(&params.run_id, context).await?;
         let settings = own_settings(&params.settings, &run, context)?;
         opening_source(&run, params.source)?;
+        let proxy = open_proxy(&run, &settings, context).await?;
         let (position, seat) = {
             let mut state = self.state.lock().await;
             let runs = self.reach(&mut state, &run, context).await?;
             runs.last += 1;
-            (runs.last, runs.pool.seat(Placement::Shared))
+            (runs.last, runs.pool.seat(Placement::Shared, proxy))
         };
         seat.open().await?;
         self.record(&run, position, false, &settings, context)
@@ -260,10 +262,11 @@ impl Sessions {
                 }
                 Some(position) => position,
                 None => {
+                    let proxy = open_proxy(&run, &Values::default(), context).await?;
                     runs.last += 1;
                     runs.default = Some(runs.last);
                     let position = runs.last;
-                    let seat = runs.pool.seat(Placement::Shared);
+                    let seat = runs.pool.seat(Placement::Shared, proxy);
                     self.record(&run, position, true, &Values::default(), context)
                         .await?;
                     let session = session_id(run.id(), position);
@@ -502,6 +505,9 @@ impl Sessions {
                     runs.closed.insert(position);
                 } else {
                     let settings = recorded_settings(&settings, run, context)?;
+                    // A reopened Session keeps the proxy it opened with, so
+                    // its address never changes under its cookies (SA-22).
+                    let proxy = open_proxy(run, &settings, context).await?;
                     let session = session_id(run.id(), position);
                     self.interception.open_session(&session);
                     state.sessions.insert(
@@ -509,7 +515,7 @@ impl Sessions {
                         Arc::new(Session {
                             run: run.clone(),
                             position,
-                            seat: pool.seat(Placement::Shared),
+                            seat: pool.seat(Placement::Shared, proxy),
                             settings,
                         }),
                     );
@@ -597,11 +603,13 @@ impl Sessions {
 }
 
 /// Reads a Session's own `settings` (ADRs 0083 and 0092): the Clean-up
-/// rules' keys, which its pages take over the Run's (ADR 0047), and
-/// `setting_locked` for one the Run's layers lock. Any other key is
-/// refused with `setting_not_applicable`: `session.source`, which the
-/// call's own `source` sets, first; any other, since no other setting takes
-/// effect on one Session apart from the Run's yet, so none is ignored.
+/// rules' keys, which its pages take over the Run's (ADR 0047), and the
+/// `proxy.*` keys, its one proxy (ADR 0021; SA-22), which a Client acting
+/// for a model may not set; and `setting_locked` for one the Run's layers
+/// lock. Any other key is refused with `setting_not_applicable`:
+/// `session.source`, which the call's own `source` sets, first; any other,
+/// since no other setting takes effect on one Session apart from the Run's
+/// yet, so none is ignored.
 fn own_settings(
     settings: &Map<String, Value>,
     run: &Run,
@@ -610,8 +618,12 @@ fn own_settings(
     if settings.is_empty() {
         return Ok(Values::default());
     }
-    let values = Values::read(SettingsLayer::Run, settings, context.identity().product)
-        .map_err(|error| settings_error(&error, context.identity()))?;
+    let mut values = Values::read(SettingsLayer::Run, settings, context.identity().product)
+        .map_err(|error| settings_error(&error, context.identity()))?
+        .from_origin(RunOrigin::Settings);
+    if context.surface().acts_for_model() {
+        values = values.from_model();
+    }
     let refused = if values.get(SESSION_SOURCE.name).is_some() {
         Some((
             SESSION_SOURCE.name,
@@ -620,7 +632,7 @@ fn own_settings(
     } else {
         values
             .keys()
-            .find(|key| !SESSION_KEYS.contains(key))
+            .find(|key| !SESSION_KEYS.contains(key) && !key.starts_with(PROXY_PREFIX))
             .map(|key| (key, "set it on the Run, whose Sessions all take it"))
     };
     if let Some((key, fix)) = refused {
@@ -659,6 +671,41 @@ fn own_settings(
     }
 }
 
+/// What starts the `proxy.*` keys a Session's own `settings` may set.
+const PROXY_PREFIX: &str = "proxy.";
+
+/// The proxy a Session of `run` opens with: the one its own settings `own`
+/// name, beneath the Run's, within the Run's locks and each key's
+/// authority, or the Run's.
+async fn open_proxy(
+    run: &Run,
+    own: &Values,
+    context: &CallContext,
+) -> Result<Option<Arc<SessionProxy>>, CallError> {
+    let Some(settings) = run.settings() else {
+        return match own.keys().next() {
+            Some(key) => Err(settings_error(
+                &SettingsError::NotApplicable {
+                    key: key.to_owned(),
+                    layer: SettingsLayer::Run,
+                    fix: "start the Run with its settings".to_owned(),
+                },
+                context.identity(),
+            )),
+            None => Ok(None),
+        };
+    };
+    let resolved = if own.is_empty() {
+        settings.resolved().clone()
+    } else {
+        settings
+            .resolved()
+            .beneath(own)
+            .map_err(|error| settings_error(&error, context.identity()))?
+    };
+    Ok(SessionProxy::open(&resolved, run).await?.map(Arc::new))
+}
+
 /// The own settings `recorded`, as the run state of `run` holds them, of a
 /// Session reopened from it.
 fn recorded_settings(
@@ -669,6 +716,7 @@ fn recorded_settings(
     let nested: Map<String, Value> =
         serde_json::from_str(recorded).map_err(|error| unavailable(run, &error, context))?;
     Values::read(SettingsLayer::Run, &nested, context.identity().product)
+        .map(|values| values.from_origin(RunOrigin::Settings))
         .map_err(|error| unavailable(run, &error, context))
 }
 

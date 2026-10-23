@@ -118,6 +118,7 @@ async fn play(
 fn dependencies(home: &Path) -> Dependencies {
     Dependencies {
         environment: std::collections::BTreeMap::new(),
+        keychain: goodfetch_engine::secrets::Keychain::absent(),
         home: Home::new(home.to_owned()),
         // 2026-01-05T09:00:00Z, test support's `START_TIME`.
         clock: Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001)),

@@ -282,6 +282,7 @@ fn run_row(path: &Path) -> Value {
 fn another_machine(env: &TestEnv) -> crate::engine::Dependencies {
     crate::engine::Dependencies {
         environment: std::collections::BTreeMap::new(),
+        keychain: crate::secrets::Keychain::absent(),
         entropy: crate::entropy::Entropy::seeded(env.seed() ^ 1),
         ..dependencies(env)
     }

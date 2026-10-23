@@ -132,6 +132,12 @@ impl Step {
         matches!(self.reach(), Reach::Members)
     }
 
+    /// Whether the step runs Vitest, Playwright and pytest, which order
+    /// their tests by the head's seed (TESTING.md, Before merge).
+    const fn orders_by_the_head(self) -> bool {
+        matches!(self, Self::Quick | Self::PreMerge | Self::Stress)
+    }
+
     /// Whether the step compares the head with the change's base (the merge
     /// base with `origin/main`), so its result holds only for that base.
     const fn reads_the_base(self) -> bool {
@@ -253,6 +259,9 @@ pub(crate) struct Head<'a> {
     /// Every member of the head's workspaces, and [`UNOWNED`] when some
     /// test belongs to none.
     pub(crate) members: &'a BTreeSet<String>,
+    /// The members whose tests Vitest, Playwright or pytest run, which order
+    /// them by the head's seed, and [`UNOWNED`].
+    pub(crate) shuffled: &'a BTreeSet<String>,
     /// The fingerprint of this host and its tools.
     pub(crate) host: &'a str,
     /// Now, in seconds since the Unix epoch.
@@ -373,6 +382,13 @@ fn judge(
 ) -> Result<Outcome, String> {
     if matches!(step.reach(), Reach::Always) {
         return Err("every run reruns it".to_owned());
+    }
+    // A full run on the head orders these tests by the head's seed: a
+    // result from another tree's order would not be the same verdict.
+    if step.orders_by_the_head() && member.is_some_and(|member| head.shuffled.contains(member)) {
+        return Err(
+            "Vitest, Playwright and pytest rerun every member in the head's test order".to_owned(),
+        );
     }
     let Some(outcome) = previous.units.get(&unit(step, member)) else {
         return Err(format!("no result in the run on {}", short(&previous.head)));

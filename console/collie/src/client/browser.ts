@@ -45,10 +45,16 @@ export function webSocketTransport(url: string): Transport {
   };
 }
 
-/** Reads a body by its handle from the Console's origin, `GET /bodies/<handle>`. */
-export function httpBodyFetcher(origin: string): BodyFetcher {
+/**
+ * Reads a Run's file by its handle, `<run_id>/<body>`, from the Console's
+ * origin with `fetcher`: `GET /bodies/<run_id>/<body>`, which the sign-in
+ * cookie authorizes. The Console's origin answers it as an attachment it
+ * never shows; a file is shown only from the content origin.
+ */
+export function httpBodyFetcher(origin: string, fetcher: typeof fetch): BodyFetcher {
   return async (handle) => {
-    const response = await fetch(new URL(`/bodies/${encodeURIComponent(handle)}`, origin), {
+    const path = handle.split("/").map(encodeURIComponent).join("/");
+    const response = await fetcher(new URL(`/bodies/${path}`, origin), {
       credentials: "same-origin",
     });
     if (!response.ok) {

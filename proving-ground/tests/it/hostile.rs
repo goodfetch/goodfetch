@@ -219,7 +219,7 @@ fn a_chain_of_19_redirects_is_followed_to_its_record() {
 /// The chain a domain policy of `redirects.test` refuses at its third
 /// redirect: two within the family's host, then one to `catalog.test`.
 #[test]
-fn a_chain_leaves_the_familys_host_at_its_third_redirect() {
+fn a_chain_leaves_its_hosts_family_at_its_third_redirect() {
     let proving_ground = ProvingGround::start(SEED);
     let mut url = proving_ground.url("17.redirects.test", "/leaves/3");
     let mut locations = Vec::new();

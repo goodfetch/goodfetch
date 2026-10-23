@@ -61,6 +61,7 @@ accept_invalid_certs = { "example.test" = "example" }
 
 [settings.browser]
 headless = true
+block_resources = ["image"]
 
 [settings.run_state]
 location = "example"
@@ -95,6 +96,11 @@ refetch_domains = ["example"]
 denied_domains = ["example"]
 
 [settings.filter_lists]
+ads = true
+trackers = true
+annoyances = true
+first_party_scripts = true
+page_scriptlets = true
 extra = ["example"]
 
 [settings.session]

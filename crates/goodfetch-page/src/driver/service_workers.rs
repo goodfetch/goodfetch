@@ -105,6 +105,7 @@ impl PageDriver {
             navigation_timeout: Duration::ZERO,
             started: Arc::new(watch::Sender::new(0)),
             turn: Arc::new(tokio::sync::Mutex::new(None)),
+            gesture: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 

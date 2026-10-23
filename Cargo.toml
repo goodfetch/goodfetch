@@ -334,6 +334,14 @@ lto = "thin"
 inherits = "test"
 debug = "line-tables-only"
 
+# Their dependencies optimized once, as on 2026-10-23's hosted Release run the
+# Proving ground's tests spent most of the Rust step in unoptimized
+# dependencies (49 of 74 test-minutes): its slowest tests ran 4.5 times as
+# fast, for twice the dependencies' build time. Debug assertions and overflow
+# checks stay on; the workspace's own crates stay unoptimized.
+[profile.ci-test.package."*"]
+opt-level = 1
+
 # Benchmarks (gungraun needs the line tables in the binary): the release
 # settings with thin LTO and nothing split out or stripped.
 [profile.bench]

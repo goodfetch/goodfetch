@@ -1,5 +1,6 @@
 # Which of goodfetch-clean-up-rules's top-level modules may import which (ADR 0126).
 [modules]
+consent = []
 cosmetic = ["matching", "rules"]
 hiding = ["cosmetic"]
 matching = ["never_block", "rules"]

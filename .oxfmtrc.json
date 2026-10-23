@@ -12,6 +12,7 @@
     "crates/goodfetch-collie/src/block_detection/fixtures/**",
     "crates/goodfetch-extractor/src/formats/fixtures/**",
     "crates/goodfetch-clean-up-rules/stand-ins/**",
+    "crates/goodfetch-clean-up-rules/consent/autoconsent/**",
     "**/fuzz/*/seeds/**",
     "**/journeys/journey.schema.json",
     "**/compat/**",

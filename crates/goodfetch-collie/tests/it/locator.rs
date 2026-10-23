@@ -82,6 +82,27 @@ impl<'env> OnTask<'env> {
         surface: &str,
         action_timeout: u64,
     ) -> Self {
+        Self::open_with(
+            env,
+            cache,
+            proving_ground,
+            task,
+            surface,
+            action_timeout,
+            &Map::new(),
+        )
+    }
+
+    /// [`Self::open`], the Run's settings holding `settings` too.
+    fn open_with(
+        env: &'env TestEnv,
+        cache: &Path,
+        proving_ground: &ProvingGround,
+        task: &str,
+        surface: &str,
+        action_timeout: u64,
+        settings: &Map<String, Value>,
+    ) -> Self {
         let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
             command.env(BROWSERS_PATH_VARIABLE, cache);
         });
@@ -103,17 +124,14 @@ impl<'env> OnTask<'env> {
             .iter()
             .map(|(host, address)| (host.clone(), json!([address])))
             .collect();
+        let mut run_settings = settings.clone();
+        run_settings.insert("network".to_owned(), json!({ "resolve": resolve }));
+        run_settings.insert("timeout".to_owned(), json!({ "action": action_timeout }));
         let started = call(
             &mut engine,
             1,
             "run.start",
-            &json!({
-                "run_id": "locators",
-                "settings": {
-                    "network": { "resolve": resolve },
-                    "timeout": { "action": action_timeout },
-                },
-            }),
+            &json!({ "run_id": "locators", "settings": run_settings }),
         );
         assert!(started.get("result").is_some(), "{started}");
         let opened = call(
@@ -386,20 +404,24 @@ fn traced_counts(env: &TestEnv) -> BTreeMap<String, usize> {
 /// A click on a target with no animation or transition running checks and
 /// arms in one round trip into the guard's world, sends its three pointer
 /// events and disarms: no stability wait, no second check (ADR 0019's
-/// speed target).
+/// speed target). Live hiding is off, so that the Run trace holds the
+/// guard's commands alone: its reads of each document are no action's.
 /// Covers: story:5-2, operation:locator.click
 #[test]
 fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut page = OnTask::open(
+    let mut settings = Map::new();
+    settings.insert("live_view".to_owned(), json!({ "hiding": "off" }));
+    let mut page = OnTask::open_with(
         &env,
         &cache,
         &proving_ground,
         "actionability/1",
         "sdk_python",
         10_000,
+        &settings,
     );
 
     let clicked = page.act(Step::Click("#target"));

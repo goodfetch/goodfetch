@@ -708,6 +708,37 @@ number = 5
 kind = "operation"
 prefix = "page.wait_for_request_finished"
 
+# Dialogs, popups and the page's close (#719).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "dialog."
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "dialog_already_handled"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.close"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "session.on"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "session.pages"
+
+[[area]]
+number = 5
+kind = "event"
+prefix = "session.page"
+
 # The request API on a page's Session, through the browser-fetch tier
 # (#706).
 [[area]]

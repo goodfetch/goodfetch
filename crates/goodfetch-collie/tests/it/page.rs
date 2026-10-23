@@ -586,6 +586,17 @@ fn page_reload_of_a_page_no_engine_holds_fails_with_closed() {
     );
 }
 
+/// `page close` through the command generated from the catalog (#719): no
+/// engine holds the page it names, so the call fails with `closed`.
+/// Covers: command:page.close
+#[test]
+fn page_close_of_a_page_no_engine_holds_fails_with_closed() {
+    assert_eq!(
+        closed_page("close"),
+        (Some(3), json!("closed"), json!("page.close"))
+    );
+}
+
 /// `page go-back` through the command generated from the catalog (#698):
 /// no engine holds the page it names, so the call fails with `closed`.
 /// Covers: command:page.go-back

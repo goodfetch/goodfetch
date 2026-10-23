@@ -14,13 +14,17 @@ use goodfetch_engine::CallError;
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CallCancelledDetails, ClosedValue, INTERNAL, InternalDetails, StoppedBy,
 };
-use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
+use goodfetch_protocol::jsonrpc::{ErrorData, ProtocolFailure};
 use goodfetch_protocol::page::{
     BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails, NAVIGATION_FAILED,
     NAVIGATION_INTERRUPTED, NavigationFailedDetails, NavigationInterruptedDetails, PAGE_CRASHED,
     PageCrashedDetails, RESPONSE_TRUNCATED, RedirectLimit, ResponseTruncatedDetails,
-    TOO_MANY_REDIRECTS, TooManyRedirectsDetails,
+    SITE_PREFERENCES_REFUSED, SitePreferencesRefusedDetails, TOO_MANY_REDIRECTS,
+    TooManyRedirectsDetails,
 };
+
+use crate::page_value::Refusal as GateRefusal;
 
 /// The call a failure met.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,6 +55,9 @@ pub(crate) enum Call {
 /// The Error code `failure` raises from `call`; `exit` says how the browser
 /// ended, when it did.
 pub(crate) fn call_error(call: &Call, failure: &Failure, exit: Option<BrowserExit>) -> CallError {
+    if let Failure::Withheld { method } = failure {
+        return lease_ended(method);
+    }
     let lost = match failure {
         Failure::Disconnected => Some(exit.clone()),
         Failure::Refused {
@@ -104,6 +111,43 @@ pub(crate) fn call_error(call: &Call, failure: &Failure, exit: Option<BrowserExi
             ProtocolFailure::InternalError,
             format!("the browser failed `{operation}`'s command: {failure}"),
         ),
+    }
+}
+
+/// `attempt_ended` for a call on a page whose work item's lease ended: the
+/// page sent nothing more, `method` withheld (ADRs 0003 and 0087). Only a
+/// crawl handler's page has a lease.
+pub(crate) fn lease_ended(method: &str) -> CallError {
+    CallError::new(
+        &ATTEMPT_ENDED,
+        format!(
+            "the page's attempt ended with its lease, so it sent nothing more (`{method}` withheld)"
+        ),
+        &serde_json::json!({}),
+    )
+}
+
+/// `site_preferences_refused` for the navigation or request to `url` that
+/// `refusal` refused at the page's navigation gate (ADRs 0086 and 0093).
+pub(crate) fn site_preferences_refused(url: &str, refusal: &GateRefusal) -> CallError {
+    CallError::new(
+        &SITE_PREFERENCES_REFUSED,
+        format!("the site's preferences refused {url}: {}", refusal.message),
+        &SitePreferencesRefusedDetails {
+            url: url.to_owned(),
+            reason: refusal.reason,
+        },
+    )
+}
+
+/// `site_preferences_refused` as a failed request carries it, for the
+/// request to `url` that `refusal` refused.
+pub(crate) fn site_preferences_failure(url: &str, refusal: &GateRefusal) -> ErrorData {
+    let error = site_preferences_refused(url, refusal);
+    ErrorData {
+        code: SITE_PREFERENCES_REFUSED.name.to_owned(),
+        retryable: SITE_PREFERENCES_REFUSED.retryable,
+        details: error.details().cloned().unwrap_or_default(),
     }
 }
 

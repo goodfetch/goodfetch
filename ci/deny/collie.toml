@@ -57,6 +57,16 @@ crate = "btls-sys"
 wrappers = ["btls"]
 reason = "in Collie, only the TLS relay's crate takes BoringSSL (ADR 0124)"
 
+# reqwest, the HTTP fetch tier's transport, and the Brotli decoder the
+# fetch driver decodes `br` with: Foxhound's alone (spec #579, ADR 0088).
+[[bans.deny]]
+crate = "reqwest"
+reason = "only Foxhound's HTTP fetch tier uses reqwest (spec #579, ADR 0088)"
+
+[[bans.deny]]
+crate = "brotli-decompressor"
+reason = "only Foxhound's fetch driver decodes `br` itself (spec #579, ADR 0119)"
+
 # Paid fetches (ADR 0045), Foxhound's alone (ADR 0088).
 [[bans.deny]]
 crate = "x402-rs"
@@ -123,6 +133,10 @@ crate = "goodfetch-scripted-model"
 reason = "test-only adapter (ADR 0125)"
 
 [[bans.deny]]
+crate = "goodfetch-recording-gate"
+reason = "test-only adapter of the page's value and response observer (ADR 0125)"
+
+[[bans.deny]]
 crate = "goodfetch-scripted-engine"
 reason = "test-only executable (ADR 0069)"
 
@@ -133,6 +147,10 @@ reason = "test-only executable (ADR 0062)"
 # xtask codegen: begin, Foxhound's crates, which Collie's executable never ships (ADR 0087). Never edit by hand; run `xtask codegen`.
 [[bans.deny]]
 crate = "goodfetch-crawl"
+reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
+crate = "goodfetch-fetch-tier"
 reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]

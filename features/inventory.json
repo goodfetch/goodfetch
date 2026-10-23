@@ -1445,6 +1445,17 @@
       ]
     },
     {
+      "id": "error:site_preferences_refused",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:target_not_unique",
       "kind": "error",
       "area": 5,
@@ -2258,6 +2269,17 @@
       "id": "operation:daemon.stop",
       "kind": "operation",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:download.save_as",
+      "kind": "operation",
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [
@@ -5089,6 +5111,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:fetch.tier",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

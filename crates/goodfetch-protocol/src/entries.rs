@@ -4,13 +4,13 @@
 
 use crate::catalog::{Entries, ErrorCodeDefinition, Operation, Product, SharedType};
 use crate::{
-    audit, block, browser_cache, checkpoint, connection, console, daemon, dns, egress, engine,
-    events, executables, foxhound, governor, key_value_store, log, ops, page, people, politeness,
-    run, sample, secrets, settings, storage, tls, usage, versions,
+    audit, block, browser_cache, checkpoint, connection, console, daemon, dns, download, egress,
+    engine, events, executables, foxhound, governor, key_value_store, log, ops, page, people,
+    politeness, run, sample, secrets, settings, storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 37] = [
+pub const MODULES: [&Entries; 39] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &console::ENTRIES,
@@ -30,6 +30,7 @@ pub const MODULES: [&Entries; 37] = [
     &run::ENTRIES,
     &checkpoint::ENTRIES,
     &key_value_store::ENTRIES,
+    &download::ENTRIES,
     &audit::ENTRIES,
     &people::ENTRIES,
     &secrets::ENTRIES,
@@ -41,6 +42,7 @@ pub const MODULES: [&Entries; 37] = [
     &block::ENTRIES,
     &foxhound::ENTRIES,
     &foxhound::crawl::ENTRIES,
+    &foxhound::fetch::ENTRIES,
     &foxhound::frontier::ENTRIES,
     &foxhound::outcomes::ENTRIES,
     &foxhound::report::ENTRIES,
@@ -87,7 +89,7 @@ mod tests {
     use crate::catalog::Product;
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 57] = [
+    const COLLIE: [&str; 58] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -136,6 +138,7 @@ mod tests {
         "key_value_store.set",
         "key_value_store.delete",
         "key_value_store.keys",
+        "download.save_as",
         "audit.verify",
         "sign_in.list",
         "sign_in.revoke",

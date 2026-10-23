@@ -1203,6 +1203,38 @@
       "start_url": "https://7.content-coding.test/page"
     },
     {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled `Content-Encoding: gzip`.",
+      "digest": "7eaca2e9d5e8d3181abeba74246fa0a18c3ac40142159cf94470ef1a193d25ad",
+      "family": "content-coding",
+      "id": "content-coding/8",
+      "kind": "extract",
+      "start_url": "https://8.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is deflate with its zlib wrapper, labelled `Content-Encoding: deflate`.",
+      "digest": "dafa60acd8986f5c93a6600962f41bd8e61410ac1a416672161ef06f607c6c40",
+      "family": "content-coding",
+      "id": "content-coding/9",
+      "kind": "extract",
+      "start_url": "https://9.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled `Content-Encoding: br`.",
+      "digest": "e93caa20a5acbcd03252006988b61340b93a2d5d3515d447b5b369e49a13fb8c",
+      "family": "content-coding",
+      "id": "content-coding/10",
+      "kind": "extract",
+      "start_url": "https://10.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled `Content-Encoding: zstd`.",
+      "digest": "3705ad0eb125017bd04eb6bdf7f41d544d0e1624738535e8554076513a0198a5",
+      "family": "content-coding",
+      "id": "content-coding/11",
+      "kind": "extract",
+      "start_url": "https://11.content-coding.test/page"
+    },
+    {
       "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
       "digest": "d77a650e322771a5dfe83170c39214c1374134c7ba3567d3fed43cdd314795e3",
       "family": "redirects",

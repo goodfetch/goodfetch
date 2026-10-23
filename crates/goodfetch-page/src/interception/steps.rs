@@ -131,7 +131,9 @@ pub(crate) fn send_on(
     }
     // Step 5: the Response cache and a replaying Run's Response recording
     // (area 6).
-    // Step 6: the page's navigation gate, then its lease check (#720).
+    // Step 6: the page's navigation gate, which its caller asks once this
+    // answers, since it waits; the lease check is asked before the command
+    // goes.
     // Step 7: the engine's own additions, which no route read. The
     // Session's cookies are the browser's own: it puts them on the request
     // as it sends it on, whatever headers a route set, and the routes' view

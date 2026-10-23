@@ -247,7 +247,7 @@ pub(crate) fn engine() -> Engine {
         .with(goodfetch_engine::contribution())
         .with(goodfetch_frontier::contribution())
         .with(goodfetch_session_pool::contribution())
-        .with(super::contribution());
+        .with(super::contribution(goodfetch_fetch_tier::FetchTiers::new()));
     Engine::new(identity, &composition).unwrap()
 }
 
@@ -984,5 +984,49 @@ fn an_operator_policy_tightened_cap_reaches_a_crawl_already_going() {
             1,
             Some("retry_requested".to_owned())
         )]
+    );
+}
+
+/// A crawl whose `fetch.tier` forces a tier this engine does not build is
+/// refused before its Run begins, naming the setting and the tier (spec
+/// #579); the conformance fetch suite starts one under `http`.
+///
+/// Covers: story:5-128, setting:fetch.tier, error:capability_unavailable
+#[test]
+fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable() {
+    let env = TestEnv::new();
+
+    let forced = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "forced",
+                        "seeds": seeds(1),
+                        "settings": { "fetch": { "tier": "browser" } },
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await
+        },
+    );
+
+    let refusal = &forced["error"]["data"];
+    assert_eq!(
+        (
+            &refusal["code"],
+            &refusal["key"],
+            &refusal["kind"],
+            &refusal["layer"]
+        ),
+        (
+            &json!("capability_unavailable"),
+            &json!("fetch.tier"),
+            &json!("browser"),
+            &json!("run")
+        ),
+        "{forced}"
     );
 }

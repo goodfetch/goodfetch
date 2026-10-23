@@ -108,6 +108,15 @@ impl CallError {
         }
     }
 
+    /// Whether a retry may succeed, as its Error code says; never for a
+    /// protocol failure.
+    pub fn retryable(&self) -> bool {
+        match &*self.0 {
+            Failure::Code { definition, .. } => definition.retryable,
+            Failure::Protocol { .. } => false,
+        }
+    }
+
     /// Its numeric code on the wire: a predefined JSON-RPC code or its
     /// group's class.
     pub(crate) fn wire_code(&self) -> i32 {

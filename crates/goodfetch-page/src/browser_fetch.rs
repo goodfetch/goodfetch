@@ -31,8 +31,9 @@ use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use secrecy::ExposeSecret as _;
 
 use crate::driver::PageDriver;
-use crate::errors::network_error;
+use crate::errors::{network_error, site_preferences_refused};
 use crate::interception::{EngineRequests, Overrides};
+use crate::page_value::{Navigation, NavigationKind, Permit};
 
 /// The network error of a body whose content coding did not decode.
 const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
@@ -111,12 +112,14 @@ pub(crate) async fn send(
                 .then_some(true),
         })
         .await?;
-    let followed = tokio::time::timeout(
-        driver.navigation_timeout(),
-        Load::new(driver, sender, request).follow(events),
-    )
-    .await;
-    followed.unwrap_or_else(|_| {
+    // A wait for the navigation gate's permits counts against no timeout.
+    let followed = driver
+        .within(
+            driver.navigation_timeout(),
+            Load::new(driver, sender, request).follow(events),
+        )
+        .await;
+    followed.unwrap_or_else(|| {
         Err(network_error(
             request.url,
             &format!("no response within `{}`", TIMEOUT_NAVIGATION.name),
@@ -137,6 +140,9 @@ struct Load<'a> {
     authenticated: bool,
     /// The response, once it arrived, and its bytes, once read.
     answered: Option<(PageResponse, Vec<u8>)>,
+    /// The permit the page's navigation gate gave the hop under way, held
+    /// until its response arrives.
+    permit: Option<Permit>,
 }
 
 impl<'a> Load<'a> {
@@ -149,6 +155,7 @@ impl<'a> Load<'a> {
             chain: Vec::new(),
             authenticated: false,
             answered: None,
+            permit: None,
         }
     }
 
@@ -229,22 +236,45 @@ impl<'a> Load<'a> {
         let at_response =
             paused.response_status_code.is_some() || paused.response_error_reason.is_some();
         if at_response {
+            // The hop's response arrived: its permit is released.
+            self.permit = None;
             return self.responded(paused).await;
         }
-        let overrides = if self.network_id.is_none() {
+        let first = self.network_id.is_none();
+        let overrides = if first {
             self.network_id.clone_from(&paused.network_id);
             self.overrides(&paused)
         } else {
             Overrides::default()
         };
-        self.chain.push(
-            overrides
-                .url
-                .clone()
-                .unwrap_or_else(|| paused.request.url.clone()),
-        );
+        let url = overrides
+            .url
+            .clone()
+            .unwrap_or_else(|| paused.request.url.clone());
+        self.chain.push(url.clone());
         match self.sender.send_on(&paused, &overrides) {
             Ok(command) => {
+                // Step 6: the page's navigation gate, for each hop.
+                let navigation = Navigation {
+                    method: command
+                        .method
+                        .clone()
+                        .unwrap_or_else(|| paused.request.method.clone()),
+                    url,
+                    kind: if first {
+                        NavigationKind::Request
+                    } else {
+                        NavigationKind::Redirect
+                    },
+                };
+                match self.driver.admit(&navigation).await {
+                    Ok(permit) => self.permit = permit,
+                    Err(refusal) => {
+                        self.fail(&paused.request_id, network::ErrorReason::Aborted)
+                            .await;
+                        return Some(Err(site_preferences_refused(&navigation.url, &refusal)));
+                    }
+                }
                 self.send(&command).await;
                 None
             }

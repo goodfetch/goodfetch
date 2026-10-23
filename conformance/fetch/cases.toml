@@ -1,0 +1,21 @@
+# The fetch suite's case list (spec #579, #759): what a target that serves
+# a crawl must answer about the tier that fetches a crawl request's
+# document (ADRs 0020 and 0093). A crawl is Foxhound's, so the suite
+# announces Foxhound and runs on Foxhound's executable (ADR 0094), against
+# the Proving ground. `goodfetch-conformance` runs it as it runs the
+# delivery suite (`conformance/delivery/cases.toml`): every case in order
+# over one Connection it opens with `hello`. Bump the version whenever a
+# case changes.
+
+product = "foxhound"
+
+[suite]
+name = "fetch"
+version = "1"
+
+[[capability]]
+name = "fetch.tier.http"
+
+[[capability.case]]
+id = "a-request-fetched-over-http-hands-its-handler-the-document-on-a-page"
+covers = ["story:5-128"]

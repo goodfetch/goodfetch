@@ -12,7 +12,7 @@
 )]
 
 use std::io::{Read as _, Write as _};
-use std::net::{IpAddr, TcpStream, UdpSocket};
+use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -137,6 +137,12 @@ impl Counted {
 pub(crate) fn connection_refused(address: &str) -> bool {
     TcpStream::connect(address)
         .is_err_and(|error| error.kind() == std::io::ErrorKind::ConnectionRefused)
+}
+
+/// A listener on `address`, opened as any other program on the machine
+/// opens one (the standard library's, which reuses addresses on Unix).
+pub(crate) fn listen(address: &str) -> std::io::Result<TcpListener> {
+    TcpListener::bind(address)
 }
 
 /// Writes `request` as it is on a new plain connection and reads the

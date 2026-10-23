@@ -31,6 +31,8 @@ disallowed-methods = [
   { path = "std::io::stdin", reason = "stdin is opened only in the transport module (ADR 0060)" },
   { path = "tokio::io::stdin", reason = "stdin is opened only in the transport module (ADR 0060)", allow-invalid = true },
   { path = "tokio::io::stdout", reason = "stdout is opened only in the transport module (ADR 0060)", allow-invalid = true },
+  # A reqwest client opens its own sockets: only the HTTP fetch tier's transport builds one (ADR 0060).
+  { path = "reqwest::ClientBuilder::build", reason = "a reqwest client opens its own sockets: only the HTTP fetch tier's transport builds one (ADR 0060)", allow-invalid = true },
   # Time, randomness and the environment come from their handles (ADR 0059).
   { path = "std::time::SystemTime::now", reason = "read time through the Clock handle (ADR 0059)" },
   { path = "std::time::Instant::now", reason = "read time through the Clock handle (ADR 0059)" },

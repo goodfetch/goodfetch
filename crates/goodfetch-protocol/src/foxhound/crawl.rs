@@ -17,9 +17,11 @@ use crate::catalog::{
     Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting, Stability,
     ValueKind, schema_of,
 };
+use crate::foxhound::fetch::FetchTier;
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
 use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
+use crate::page::PageId;
 use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunStarted, Tags};
 use crate::settings::ProjectSettings;
 
@@ -193,6 +195,17 @@ pub struct CrawlRequestHandleParams {
     /// The Session of the crawl's Session pool that serves the attempt.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub session: ServingSession,
+    /// The tier that fetched the request's document, when the engine
+    /// fetched it (`fetch.tier`); none when the handler is given the
+    /// request alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub tier: Option<FetchTier>,
+    /// The page served from the fetched document, which the handler reads
+    /// as any page, when the engine fetched it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub page_id: Option<PageId>,
 }
 
 /// One Record a handler pushed into a Dataset (ADR 0103).

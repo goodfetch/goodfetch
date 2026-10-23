@@ -1,13 +1,12 @@
 //! The frames of one page as the Consent prompt runner knows them: each
 //! target's session (the page's, and each out-of-process iframe's, attached
-//! under its parent), each frame's guard world in its current document, and
-//! each document's hiding sheet. Pure, so the way up from a frame to the
-//! page, which a click's point is read along, is tested without a browser.
+//! under its parent) and each frame's guard world in its current document.
+//! Pure, so the way up from a frame to the page, which a click's point is
+//! read along, is tested without a browser.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use goodfetch_cdp::SessionId as TargetSession;
-use goodfetch_cdp::generated::dom::StyleSheetId;
 use goodfetch_cdp::generated::page::FrameId;
 use goodfetch_cdp::generated::runtime::ExecutionContextId;
 
@@ -24,7 +23,6 @@ pub(super) struct Frame {
 
 /// The page's frames.
 pub(super) struct Frames {
-    page: TargetSession,
     /// Each target's main frame: the page's own, and an iframe target's,
     /// whose ID is its target's.
     mains: BTreeMap<TargetSession, FrameId>,
@@ -32,10 +30,6 @@ pub(super) struct Frames {
     parents: BTreeMap<TargetSession, TargetSession>,
     /// Each frame's guard world in its current document.
     contexts: BTreeMap<(TargetSession, FrameId), ExecutionContextId>,
-    /// Each document's hiding sheet and its text.
-    sheets: BTreeMap<(TargetSession, FrameId), (StyleSheetId, String)>,
-    /// The targets whose DOM and CSS agents are on.
-    styled: BTreeSet<TargetSession>,
 }
 
 impl Frames {
@@ -43,12 +37,9 @@ impl Frames {
     /// `main`.
     pub(super) fn new(page: TargetSession, main: FrameId) -> Self {
         Self {
-            mains: BTreeMap::from([(page.clone(), main)]),
-            page,
+            mains: BTreeMap::from([(page, main)]),
             parents: BTreeMap::new(),
             contexts: BTreeMap::new(),
-            sheets: BTreeMap::new(),
-            styled: BTreeSet::new(),
         }
     }
 
@@ -60,16 +51,14 @@ impl Frames {
     }
 
     /// `frame` of `session` holds a new document, whose guard world is
-    /// `context`; its previous document's sheet went with it.
+    /// `context`.
     pub(super) fn document(
         &mut self,
         session: &TargetSession,
         frame: FrameId,
         context: ExecutionContextId,
     ) {
-        let key = (session.clone(), frame);
-        self.sheets.remove(&key);
-        self.contexts.insert(key, context);
+        self.contexts.insert((session.clone(), frame), context);
     }
 
     /// The guard's world in `frame`'s current document.
@@ -103,50 +92,12 @@ impl Frames {
     pub(super) fn forget_session(&mut self, session: &TargetSession) {
         self.mains.remove(session);
         self.parents.remove(session);
-        self.styled.remove(session);
         self.contexts.retain(|(owner, _), _| owner != session);
-        self.sheets.retain(|(owner, _), _| owner != session);
     }
 
     /// `frame` of `session` detached.
     pub(super) fn forget_frame(&mut self, session: &TargetSession, frame: &FrameId) {
-        let key = (session.clone(), frame.clone());
-        self.contexts.remove(&key);
-        self.sheets.remove(&key);
-    }
-
-    /// Whether `session`'s DOM and CSS agents are to be turned on now: true
-    /// once, the first time.
-    pub(super) fn style(&mut self, session: &TargetSession) -> bool {
-        self.styled.insert(session.clone())
-    }
-
-    /// The hiding sheet of `frame`'s current document, once made.
-    pub(super) fn sheet(&self, frame: &Frame) -> Option<StyleSheetId> {
-        self.sheets
-            .get(&(frame.session.clone(), frame.id.clone()))
-            .map(|(sheet, _)| sheet.clone())
-    }
-
-    /// `frame`'s current document's hiding sheet is `sheet`, holding `text`.
-    pub(super) fn set_sheet(&mut self, frame: &Frame, sheet: StyleSheetId, text: String) {
-        self.sheets
-            .insert((frame.session.clone(), frame.id.clone()), (sheet, text));
-    }
-
-    /// Every hiding sheet that holds a rule, but `frame`'s: none for the
-    /// page's own frame, whose click no other document's hiding reaches.
-    pub(super) fn sheets_but(&self, frame: &Frame) -> Vec<(TargetSession, StyleSheetId, String)> {
-        if frame.session == self.page && self.mains.get(&self.page) == Some(&frame.id) {
-            return Vec::new();
-        }
-        self.sheets
-            .iter()
-            .filter(|((session, owner), (_, text))| {
-                !text.is_empty() && (*session != frame.session || *owner != frame.id)
-            })
-            .map(|((session, _), (sheet, text))| (session.clone(), sheet.clone(), text.clone()))
-            .collect()
+        self.contexts.remove(&(session.clone(), frame.clone()));
     }
 
     /// The owners between `frame` and the page, innermost first: each

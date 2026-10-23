@@ -85,6 +85,16 @@ impl PageDriver {
         }
         Ok(())
     }
+
+    /// Moves the pointer to (`x`, `y`) in the page's viewport, as trusted
+    /// input, pressing nothing.
+    pub(crate) async fn move_pointer(&self, x: f64, y: f64) -> Result<(), Failure> {
+        let [moved, ..] = pointer_click(x, y);
+        self.browser
+            .try_send(Some(&self.session), &moved)
+            .await
+            .map(drop)
+    }
 }
 
 /// The mouse events of a left click at (`x`, `y`) in the page's viewport:

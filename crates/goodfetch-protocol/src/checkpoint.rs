@@ -278,6 +278,24 @@ pub struct FileWriteFailedDetails {
     pub side: WriteSide,
 }
 
+/// What `path_not_writable` details (ADR 0116).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PathNotWritableDetails {
+    /// Why, as Rust's `io::ErrorKind` name in `snake_case`, such as
+    /// `permission_denied` or `is_a_directory`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reason: String,
+    /// The OS's own name for the error, such as `EACCES`, or none.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub os_code: Option<String>,
+    /// The program's path, as given.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub path: String,
+    /// What to change in the path argument.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
 /// A file of a format version this engine cannot read (ADRs 0030 and 0066).
 pub const FORMAT_VERSION_UNSUPPORTED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "format_version_unsupported",

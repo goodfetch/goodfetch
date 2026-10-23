@@ -318,6 +318,10 @@ _Avoid_: account, organization, user (for a customer)
 
 ## Collection
 
+**Fetch tier**:
+One way a crawl request's document is fetched, from the cheapest up: an HTTP request, the site's own API, a request sent from a browser page, a browser without layout, or the full browser page; a crawl uses the cheapest whose results match the browser's, or the one its settings force.
+_Avoid_: fetch mode, fetcher, backend (for a tier)
+
 **Frontier**:
 The URLs a run has discovered but not yet visited, with the list of those already visited and the rules that decide when two URLs are the same page.
 _Avoid_: queue, request list, to-do list
@@ -727,6 +731,10 @@ _Avoid_: golden files, legacy fixtures, test data (for these files)
 **Scripted engine**:
 A stand-in for the engine used only in tests, which plays one script of protocol messages to a Client and fails on any message it did not expect or any step left unused.
 _Avoid_: fake engine, mock engine, mock server
+
+**Recording gate**:
+A stand-in, used only in the engine's own tests, for what Foxhound sets on a crawl handler's page: a navigation gate, lease check and response observer that record each call the page makes to them and refuse, hold or end as the test sets, so the page's call sites are tested without Foxhound.
+_Avoid_: mock gate, fake gate, spy
 
 **Testing kit**:
 The public module of each Product's SDK for testing a program written against it, holding a Scripted model and a test engine that reaches no site unless a test records.

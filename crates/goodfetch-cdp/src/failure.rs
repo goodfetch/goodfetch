@@ -72,6 +72,13 @@ pub enum Failure {
     /// its end of the pipe.
     #[error("the browser's connection ended")]
     Disconnected,
+    /// The command was never sent: its caller withheld it, as a page whose
+    /// work item's lease ended sends nothing more (ADR 0087).
+    #[error("`{method}` was withheld: the lease of the page's work item ended")]
+    Withheld {
+        /// The command's method.
+        method: &'static str,
+    },
     /// The browser's answer is not what the command returns.
     #[error("the browser's answer to `{method}` is not what it returns: {message}")]
     Unreadable {

@@ -16,9 +16,16 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use goodfetch_protocol::governor::WorkKind;
 use tokio::sync::Notify;
 
-/// Every live Run's share of the governor's targets.
+use super::browsers::{Browsers, GovernedBrowser};
+use super::ladder::Weight;
+
+/// Every live Run's share of the governor's targets, and the browsers
+/// their pools launched.
 #[derive(Clone, Debug)]
-pub(crate) struct Shares(Arc<Mutex<State>>);
+pub(crate) struct Shares {
+    state: Arc<Mutex<State>>,
+    browsers: Browsers,
+}
 
 #[derive(Debug)]
 struct State {
@@ -95,15 +102,18 @@ impl Shares {
             target,
             ..Kind::default()
         });
-        Self(Arc::new(Mutex::new(State {
-            kinds,
-            runs: BTreeMap::new(),
-            next_run: 0,
-        })))
+        Self {
+            state: Arc::new(Mutex::new(State {
+                kinds,
+                runs: BTreeMap::new(),
+                next_run: 0,
+            })),
+            browsers: Browsers::default(),
+        }
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// A Run joins with `share`, in percent of each kind's target.
@@ -139,6 +149,11 @@ impl Shares {
     /// Each kind's admissions held now.
     pub(crate) fn in_use(&self) -> [u32; 3] {
         self.state().kinds.each_ref().map(|kind| kind.in_use)
+    }
+
+    /// The browsers the Runs' pools launched.
+    pub(crate) fn browsers(&self) -> &Browsers {
+        &self.browsers
     }
 }
 
@@ -296,6 +311,21 @@ impl RunShare {
             }
             self.turn(kind).await;
         }
+    }
+}
+
+impl RunShare {
+    /// The browser running as `process`, which the Run's pool launched,
+    /// joins the governor, which counts it in the Run's weight and sheds it
+    /// at critical (ADR 0040).
+    pub fn browser(&self, process: u32) -> GovernedBrowser {
+        self.shares.browsers.join(self.run, process)
+    }
+
+    /// What the last resort weighs of the Run: its browsers' memory at the
+    /// governor's last sample, and whether a person holds one of its pages.
+    pub fn weight(&self) -> Weight {
+        self.shares.browsers.weight(self.run)
     }
 }
 

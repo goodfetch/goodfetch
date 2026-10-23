@@ -29,8 +29,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::governor::{
-    CRITICAL, Concurrency, CpuReading, KindConcurrency, LAST_RESORT_AFTER, MEMORY_ALLOWANCE,
-    MemoryReading, PRESSURE, SAMPLE_INTERVAL, SystemInfo, WorkKind,
+    CRITICAL, Concurrency, CpuReading, GovernorLevel, KindConcurrency, LAST_RESORT_AFTER,
+    MEMORY_ALLOWANCE, MemoryReading, PRESSURE, SAMPLE_INTERVAL, SystemInfo, WorkKind,
 };
 use goodfetch_protocol::storage::StorageLevel;
 use tokio::sync::watch;
@@ -40,11 +40,15 @@ use crate::clock::Clock;
 use crate::settings::{Layers, Resolved, Settings, resolve};
 use crate::tasks::TaskOwner;
 
+mod browsers;
 mod controller;
+mod ladder;
 mod shares;
 mod storage;
 mod system;
 
+pub use browsers::{BrowserUse, GovernedBrowser, PageHold};
+pub use ladder::{Weight, last_resort_run};
 pub use shares::{Permit, RunShare};
 pub use storage::{Filesystem, Held, StorageSample};
 pub use system::{System, footprint_of};
@@ -272,7 +276,18 @@ impl Sampler {
                 critical: limits.critical,
             };
             let system = self.system.clone();
-            let read = self.blocking.blocking(move || system.read(&inputs)).await;
+            let processes = self.shares.browsers().processes();
+            let (read, footprints) = self
+                .blocking
+                .blocking(move || {
+                    let footprints: Vec<(u64, u64)> = processes
+                        .into_iter()
+                        .map(|(id, process)| (id, system.footprint(process)))
+                        .collect();
+                    (system.read(&inputs), footprints)
+                })
+                .await;
+            self.shares.browsers().measured(&footprints);
             let now = self.clock.now();
             let tokio_busy = tokio_busy();
             let parallelism = std::thread::available_parallelism().map_or(1, usize::from);
@@ -313,6 +328,11 @@ impl Sampler {
                 },
             );
             self.shares.set_targets(decision.admits);
+            if decision.level == GovernorLevel::Critical {
+                for process in self.shares.browsers().shed_at_critical() {
+                    tracing::info!(process, "memory is critical: the governor sheds a browser");
+                }
+            }
             let cpu = CpuReading {
                 parallelism: u32::try_from(parallelism).unwrap_or(u32::MAX),
                 busy: u32::try_from(cpu_busy).unwrap_or(u32::MAX),

@@ -133,6 +133,9 @@ jobs:
       # namespaces, so `DnsNamespace` comes up through `sudo` (ADR 0067);
       # declared, a fallback to another way fails.
       GOODFETCH_TEST_DNS_NAMESPACE: sudo
+      # xtask's own `dev` build with line tables only, as the `ci-test`
+      # profile's: a third less of the runner's disk (3.0 to 2.1 GB).
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -141,6 +144,10 @@ jobs:
           persist-credentials: false
           # `xtask perf`'s base is the commit's first parent.
           fetch-depth: 2
+      # The runner's disk holds toolchains the suite never uses, and the
+      # cell's builds need the room (ci/host/free-disk.sh).
+      - name: Free the runner's disk
+        run: ci/host/free-disk.sh
       - name: Install the toolchains, tools and runtimes
         uses: ./.github/actions/host-tools
         with:
@@ -298,6 +305,9 @@ jobs:
       # namespaces, so `DnsNamespace` comes up through `sudo` (ADR 0067);
       # declared, a fallback to another way fails.
       GOODFETCH_TEST_DNS_NAMESPACE: sudo
+      # xtask's own `dev` build with line tables only, as the `ci-test`
+      # profile's: a third less of the runner's disk (3.0 to 2.1 GB).
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -306,6 +316,10 @@ jobs:
           persist-credentials: false
           # `xtask perf`'s base is the commit's first parent.
           fetch-depth: 2
+      # The runner's disk holds toolchains the suite never uses, and the
+      # cell's builds need the room (ci/host/free-disk.sh).
+      - name: Free the runner's disk
+        run: ci/host/free-disk.sh
       - name: Install the toolchains, tools and runtimes
         uses: ./.github/actions/host-tools
         with:
@@ -403,6 +417,8 @@ jobs:
       CELL: windows-x64
       TARGET: x86_64-pc-windows-msvc
       SHARD: 1/1
+      # xtask's own `dev` build with line tables only, as on Linux.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -419,6 +435,10 @@ jobs:
         with:
           shared-key: release-suite-windows-x64
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # `target` is a junction to the Dev Drive, a VHDX file on D: that
+      # host-tools creates; the toolchains and caches sit on C:.
+      - name: "Show the free space on C:, D: and the Dev Drive"
+        run: df -h
       - name: Build the tests and both executables once
         run: ci/release/cell.sh build
       - name: Measure both Products' sizes

@@ -55,7 +55,16 @@ maximum-db-staleness = "P36500D"
 unmaintained = "all"
 unsound = "all"
 yanked = "deny"
-ignore = []
+# `.cargo/audit.toml` lists the same IDs for cargo-audit.
+ignore = [
+  # basic-toml, unmaintained: only age's localization macro reads it, at build
+  # time (i18n-embed-fl through i18n-config), for the encrypted local file
+  # (spec #564). cargo-i18n replaced it with toml in
+  # https://github.com/kellpossible/cargo-i18n/pull/176 (merged 2026-09-26,
+  # unreleased); removed with the release that carries it. Agent decision of
+  # #616, pending owner review.
+  { id = "RUSTSEC-2026-0374", reason = "build-time only, through age's i18n-embed-fl; removed by cargo-i18n#176's release" },
+]
 
 # Only crates.io; a git or other registry source fails until it is listed
 # here with its reason (STYLE.md, Dependencies).

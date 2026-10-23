@@ -174,6 +174,7 @@ impl Client {
 fn dependencies(env: &TestEnv) -> Dependencies {
     Dependencies {
         environment: std::collections::BTreeMap::new(),
+        keychain: crate::secrets::Keychain::absent(),
         home: Home::new(env.home().to_owned()),
         clock: Clock::paused(env.start_time()),
         entropy: Entropy::seeded(env.seed()),

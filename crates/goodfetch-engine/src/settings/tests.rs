@@ -7,6 +7,7 @@
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::secrets::RUN_STATE_KEY_REFERENCE;
 use goodfetch_protocol::settings::{
     Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsLayer, WeakenedSetting,
 };
@@ -15,8 +16,8 @@ use rstest::rstest;
 use serde_json::{Map, Value, json};
 
 use super::{
-    Layers, Policy, Recipe, Resolved, SettingsError, Values, check_environment, configuration,
-    operator_policy, resolve, rewrite,
+    HostDefaults, Layers, Policy, Recipe, Resolved, SettingsError, Values, check_environment,
+    configuration, operator_policy, resolve, rewrite,
 };
 
 fn nested(value: Value) -> Map<String, Value> {
@@ -87,6 +88,7 @@ fn refusal(layers: &Layers) -> SettingsError {
 
 fn every_layer_sets_navigation() -> Layers {
     Layers {
+        host: HostDefaults::default(),
         operator_policy: policy(
             json!({ "timeout": { "navigation": 1_000 } }),
             json!({}),
@@ -1050,6 +1052,7 @@ proptest! {
     ) {
         let table = |value: Option<u64>| value.map_or_else(|| json!({}), |value| json!({ "timeout.run": value }));
         let layers = Layers {
+            host: HostDefaults::default(),
             operator_policy: if locked {
                 policy(json!({}), table(policy_value), json!({}))
             } else {
@@ -1076,3 +1079,34 @@ proptest! {
 }
 
 mod versions;
+
+/// Covers: setting:run_state.key_reference
+#[rstest]
+#[case::the_catalogs_where_the_host_gives_none(None, None, json!("keychain:goodfetch/run-state-key"), SettingsLayer::Default)]
+#[case::the_hosts_in_its_place(Some("secretfile:run-state-key"), None, json!("secretfile:run-state-key"), SettingsLayer::Default)]
+#[case::a_layers_over_the_hosts(Some("secretfile:run-state-key"), Some("env:SHOP_KEY"), json!("env:SHOP_KEY"), SettingsLayer::UserConfiguration)]
+fn a_default_is_the_hosts_where_it_gives_one_and_still_the_default_layers(
+    #[case] host: Option<&str>,
+    #[case] user: Option<&str>,
+    #[case] value: Value,
+    #[case] layer: SettingsLayer,
+) {
+    let layers = Layers {
+        host: host.map_or_else(HostDefaults::default, |host| {
+            HostDefaults::default().with(&RUN_STATE_KEY_REFERENCE, json!(host))
+        }),
+        user_configuration: values(
+            SettingsLayer::UserConfiguration,
+            user.map_or_else(
+                || json!({}),
+                |user| json!({ "run_state": { "key_reference": user } }),
+            ),
+        ),
+        ..Layers::default()
+    };
+
+    let resolved = resolve(&layers, Product::Collie, Product::Collie).unwrap();
+
+    let effective = resolved.get(RUN_STATE_KEY_REFERENCE.name).unwrap();
+    assert_eq!((&effective.value, effective.layer), (&value, layer));
+}

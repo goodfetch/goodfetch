@@ -442,6 +442,7 @@ fn after_a_restart_a_position_the_previous_engine_instance_gave_starts_with_a_re
         &engine,
         || Dependencies {
             environment: std::collections::BTreeMap::new(),
+            keychain: crate::secrets::Keychain::absent(),
             entropy: Entropy::seeded(env.seed().wrapping_add(1)),
             ..dependencies(&env)
         },

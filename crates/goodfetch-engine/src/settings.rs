@@ -36,7 +36,7 @@ pub use files::{
     load_project, operator_policy, policy_version, project_settings, rewrite, set,
     user_configuration,
 };
-pub use resolve::{Effective, Layers, Policy, Recipe, Resolved, Unapplied, resolve};
+pub use resolve::{Effective, HostDefaults, Layers, Policy, Recipe, Resolved, Unapplied, resolve};
 pub use values::Values;
 
 use crate::tasks::TaskOwner;
@@ -60,7 +60,18 @@ struct Inner {
     files: SettingsFiles,
     product: Product,
     owner: TaskOwner,
+    host: Host,
 }
+
+/// How the engine finds its host's defaults, and what it found: found once,
+/// on first use, since finding them may open the OS keychain.
+struct Host {
+    find: Box<dyn Fn() -> Finding + Send + Sync>,
+    found: tokio::sync::OnceCell<HostDefaults>,
+}
+
+/// A search for the host's defaults.
+pub type Finding = std::pin::Pin<Box<dyn std::future::Future<Output = HostDefaults> + Send>>;
 
 /// What a scope that opens gives the resolver beside the machine's layers.
 #[derive(Clone, Debug, Default)]
@@ -79,12 +90,30 @@ pub struct Opening {
 
 impl Settings {
     /// The settings of an engine of `product` whose layers are `files`,
-    /// reading them on `owner`'s blocking policy.
+    /// reading them on `owner`'s blocking policy, with the catalog's
+    /// defaults.
     pub fn new(files: SettingsFiles, product: Product, owner: TaskOwner) -> Self {
+        Self::with_host(files, product, owner, || {
+            Box::pin(std::future::ready(HostDefaults::default()))
+        })
+    }
+
+    /// The same, with the defaults `find` gives for this host, which it
+    /// calls once, on first use.
+    pub fn with_host(
+        files: SettingsFiles,
+        product: Product,
+        owner: TaskOwner,
+        find: impl Fn() -> Finding + Send + Sync + 'static,
+    ) -> Self {
         Self(Arc::new(Inner {
             files,
             product,
             owner,
+            host: Host {
+                find: Box::new(find),
+                found: tokio::sync::OnceCell::new(),
+            },
         }))
     }
 
@@ -111,6 +140,17 @@ impl Settings {
         let files = self.0.files.clone();
         let product = self.0.product;
         self.0.owner.blocking(move || files.load(product)).await
+    }
+
+    /// The defaults this host gives in place of the catalog's, found on the
+    /// first call.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves the search to the next call.
+    pub async fn host_defaults(&self) -> HostDefaults {
+        let host = &self.0.host;
+        host.found.get_or_init(|| (host.find)()).await.clone()
     }
 
     /// Resolves the settings of a scope that opens with `opening`, against
@@ -148,6 +188,7 @@ impl Settings {
             run = run.from_origin(origin);
         }
         let layers = Layers {
+            host: self.host_defaults().await,
             operator_policy: machine.operator_policy.clone(),
             user_configuration: machine.user_configuration.clone(),
             project_configuration: project,

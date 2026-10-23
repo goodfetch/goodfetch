@@ -30,7 +30,12 @@ impl SecretProvider for Environment {
             Some(value) => value
                 .to_str()
                 .map(|value| SecretString::from(value.to_owned()))
-                .ok_or(ProviderFailure::Unrecognized),
+                .ok_or_else(|| ProviderFailure::Refused {
+                    fix: format!(
+                        "The variable `{}` holds no UTF-8 text; set it to the value as text.",
+                        reference.rest()
+                    ),
+                }),
         };
         Box::pin(std::future::ready(value))
     }

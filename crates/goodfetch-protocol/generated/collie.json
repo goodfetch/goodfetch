@@ -7323,8 +7323,8 @@
       "arrived_in": "0.1",
       "authority": "configuration",
       "clearable": true,
-      "default": null,
-      "description": "The Secret reference of the key-encryption key that wraps each Run's data key, resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration; none by default.",
+      "default": "keychain:goodfetch/run-state-key",
+      "description": "The Secret reference of the key-encryption key that wraps each Run's data key. One set in a layer is resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration. By default the OS keychain's `keychain:goodfetch/run-state-key`, or, on a host with no OS keychain, the encrypted local file's `secretfile:run-state-key`, which `config explain` shows as the default it chose. The encrypted local file, `secrets/<name>.age` in Goodfetch home encrypted with age to the X25519 identity in `secrets/identity.txt`, a file only its owner may read, protects copies and backups of the home, not the value from another process of the same user.",
       "name": "run_state.key_reference",
       "product": "collie",
       "products": [

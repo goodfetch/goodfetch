@@ -910,7 +910,7 @@ fn a_dollar_limit(amount: u64) -> (&'static str, Value) {
 /// Covers: story:8-92, setting:proxy.providers, error:limit_reached
 #[cfg(unix)]
 #[test]
-fn a_currency_limit_caps_a_priced_proxys_bytes_and_stops_the_run() {
+fn a_currency_limit_caps_the_bytes_of_a_priced_proxy_and_stops_the_run() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();

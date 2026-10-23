@@ -315,6 +315,65 @@ fn run_usage_answers_what_the_run_used() {
     );
 }
 
+/// `run start` stops its Run when its engine exits with its Connection:
+/// no engine works it, and its progress is the last value, which says how
+/// it ended.
+///
+/// Covers: story:3-161, command:run.progress
+#[test]
+fn run_progress_answers_the_last_progress_of_a_run_that_ended() {
+    let env = TestEnv::new();
+    start(&env, "first");
+
+    let checked = cli(&env, COLLIE)
+        .args(["run", "progress", "first", "--json"])
+        .json("RunProgress")
+        .unwrap();
+
+    let progress = &checked.documents[0];
+    assert_eq!(
+        (
+            checked.output.exit,
+            [
+                &progress["writer"],
+                &progress["lifecycle"],
+                &progress["stop_reason"],
+                &progress["last"]
+            ]
+        ),
+        (
+            Some(0),
+            [
+                &json!("none"),
+                &json!("stopped"),
+                &json!({ "kind": "abort", "by": "client" }),
+                &json!(true)
+            ]
+        ),
+        "{}",
+        checked.output
+    );
+}
+
+/// Covers: story:3-165, command:run.report
+#[test]
+fn run_report_answers_the_report_of_a_run_that_ended_at_once() {
+    let env = TestEnv::new();
+    start(&env, "first");
+
+    let checked = cli(&env, COLLIE)
+        .args(["run", "report", "first", "--json"])
+        .json("RunReport")
+        .unwrap();
+
+    assert_eq!(
+        (checked.output.exit, &checked.documents[0]["lifecycle"]),
+        (Some(20), &json!("stopped")),
+        "{}",
+        checked.output
+    );
+}
+
 /// Covers: command:run.checkpoint
 #[test]
 fn run_checkpoint_writes_the_runs_checkpoint_and_answers_where() {

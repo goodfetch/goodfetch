@@ -492,19 +492,7 @@ impl BrowserCache {
             .map_err(CacheError::cache(&self.root))?;
         let folder = store::files(partial.path());
         let digest = blocking(|| {
-            for (path, bytes) in files {
-                if !path.split('/').all(store::is_segment) {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!("`{path}` is no path inside an artifact"),
-                    ));
-                }
-                let file = folder.join(path);
-                if let Some(parent) = file.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                std::fs::write(file, bytes)?;
-            }
+            store::write_files(&folder, files)?;
             content_digest(&folder)
         })
         .await

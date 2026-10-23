@@ -79,6 +79,14 @@ impl KeyHash {
     pub fn stored(&self) -> &[u8] {
         &self.0
     }
+
+    /// The hash `text` writes, as `sha256/` and its standard base64; none
+    /// for any other text.
+    pub fn from_text(text: &str) -> Option<Self> {
+        let encoded = text.strip_prefix("sha256/")?;
+        let bytes = data_encoding::BASE64.decode(encoded.as_bytes()).ok()?;
+        Self::from_stored(&bytes)
+    }
 }
 
 impl std::fmt::Display for KeyHash {

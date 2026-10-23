@@ -38,6 +38,11 @@ const ENDING_WAIT: Duration = Duration::from_secs(5);
 /// when the renderer crashes under it.
 const ABORTED: &str = "net::ERR_ABORTED";
 
+/// How long an abandoned navigation waits for a renderer's crash, which the
+/// pinned Chromium reports right after it: an abandoned navigation is
+/// also, more often, an answer with no document, such as a `204`.
+const ABORTED_WAIT: Duration = Duration::from_millis(500);
+
 /// How a page ended, as its table's event names it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Ending {
@@ -206,16 +211,19 @@ impl PageLife {
     /// when the failure was the page going and its end is known in time.
     async fn settled(&self, error: CallError) -> CallError {
         let mut ended = self.shared.ended.subscribe();
-        let page_gone = error.code() == PAGE_CRASHED.name
-            || (error.code() == NAVIGATION_FAILED.name
-                && error
-                    .details()
-                    .and_then(|details| details.get("error"))
-                    .is_some_and(|text| text == ABORTED));
-        if !page_gone {
+        let wait = if error.code() == PAGE_CRASHED.name {
+            ENDING_WAIT
+        } else if error.code() == NAVIGATION_FAILED.name
+            && error
+                .details()
+                .and_then(|details| details.get("error"))
+                .is_some_and(|text| text == ABORTED)
+        {
+            ABORTED_WAIT
+        } else {
             return error;
-        }
-        match tokio::time::timeout(ENDING_WAIT, ending(&mut ended)).await {
+        };
+        match tokio::time::timeout(wait, ending(&mut ended)).await {
             Ok(Some(ending)) => ending,
             Ok(None) | Err(_) => error,
         }

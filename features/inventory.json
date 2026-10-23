@@ -2266,6 +2266,17 @@
       ]
     },
     {
+      "id": "operation:download.save_as",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:engine.info",
       "kind": "operation",
       "area": 3,

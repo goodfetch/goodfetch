@@ -1042,6 +1042,10 @@
       ],
       "type": "object"
     },
+    "DownloadId": {
+      "description": "A Download of a Run, named by the engine when it keeps its file:\n`<run_id>.download-<position>`.",
+      "type": "string"
+    },
     "DownloadProgress": {
       "description": "What `browser_cache.download_progress` reports.",
       "properties": {
@@ -1077,6 +1081,61 @@
         "artifact",
         "host",
         "received_bytes"
+      ],
+      "type": "object"
+    },
+    "DownloadSaveAsParams": {
+      "additionalProperties": false,
+      "description": "What `download.save_as` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "download_id": {
+          "$ref": "#/$defs/DownloadId",
+          "arrived_in": "0.1",
+          "description": "The Download."
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The program's path, absolute, which an Attached engine writes\nitself; any other engine leaves it to the SDK and sends the file's\nbytes instead.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "download_id"
+      ],
+      "type": "object"
+    },
+    "DownloadSaved": {
+      "description": "What `download.save_as` answers once the file is whole.",
+      "properties": {
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written": {
+          "arrived_in": "0.1",
+          "description": "Whether the engine wrote the program's path itself; when not, the\n`$/chunk` notifications before this answer carried every byte, and\nthe SDK writes the path.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "size",
+        "sha256",
+        "written"
       ],
       "type": "object"
     },
@@ -7242,6 +7301,25 @@
         "$ref": "#/$defs/DaemonStopping"
       },
       "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Saves a Download's file, which the engine keeps with its Run, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "download.save_as",
+      "params": {
+        "$ref": "#/$defs/DownloadSaveAsParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/DownloadSaved"
+      },
+      "stability": "experimental"
     },
     {
       "arrived_in": "0.1",

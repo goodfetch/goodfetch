@@ -973,6 +973,13 @@ number = 6
 kind = "operation"
 prefix = "key_value_store."
 
+# A Download's file the engine keeps with its Run, saved under ADR 0116's
+# rule (#790).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "download."
+
 [[area]]
 number = 6
 kind = "error"

@@ -807,6 +807,53 @@ fn no_resources() -> serde_json::Value {
     serde_json::Value::Array(Vec::new())
 }
 
+/// The values `browser.service_workers` takes, Playwright's (ADR 0121).
+pub const SERVICE_WORKER_MODES: &[&str] = &["allow", "block"];
+
+/// `browser.service_workers` (ADRs 0083 and 0121; spec #577).
+pub const BROWSER_SERVICE_WORKERS: Setting = Setting {
+    name: "browser.service_workers",
+    description: "Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.",
+    kind: ValueKind::Choice(SERVICE_WORKER_MODES),
+    default: allow,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn allow() -> serde_json::Value {
+    serde_json::Value::String("allow".to_owned())
+}
+
+/// The name the Run trace's request log records a service worker's own
+/// request under, beside its pages' events (ADR 0121): no page sent it, so
+/// no page's event reports it.
+pub const SERVICE_WORKER_REQUEST: &str = "service_worker.request";
+
+/// What the Run trace records of a request a site's service worker sent
+/// itself, which the Session's interception sent on or refused (ADR 0121).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ServiceWorkerRequest {
+    /// The Session whose interception held it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub session_id: SessionId,
+    /// Its URL, as the last route sent it on.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// Its method, such as `GET`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub method: String,
+    /// What the worker loads with it, as the browser names it, such as
+    /// `Fetch`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub resource_type: String,
+    /// Why the interception refused it, when it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub failure: Option<events::RequestFailure>,
+}
+
 /// The values `live_view.hiding` takes (ADR 0047).
 pub const LIVE_HIDING_MODES: &[&str] = &["auto", "off", "always"];
 
@@ -1060,7 +1107,12 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[BROWSER_HEADLESS, BROWSER_BLOCK_RESOURCES, LIVE_VIEW_HIDING],
+    settings: &[
+        BROWSER_HEADLESS,
+        BROWSER_BLOCK_RESOURCES,
+        BROWSER_SERVICE_WORKERS,
+        LIVE_VIEW_HIDING,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

@@ -24,7 +24,16 @@
 //!    the page's navigation with `proxy_auth_failed` (ADR 0053).
 //!
 //! A route therefore sees exactly what the interception sees, and adding
-//! one changes neither caching nor which requests are intercepted. Routes
+//! one changes neither caching nor which requests are intercepted.
+//!
+//! A site's service worker on Chromium (ADR 0121) runs only once the
+//! interception holds it, as its Session's browser context chose when the
+//! Session's first page opened (`browser.service_workers`): under `allow`
+//! its own requests pass the same pipeline as a page's, under the Session's
+//! routes alone, since a worker belongs to no page, each recorded in the
+//! Run trace; under `block` none runs. A page request the worker's fetch
+//! handler answers never reaches the page's interception: what the worker
+//! sends on for it is its own request. Routes
 //! are armed when their call arrives ([`Interception::arm`]), and each
 //! answer is delivered to the request it names when its call arrives
 //! ([`Interception::answer`]), so a handler's answer is always read before
@@ -34,7 +43,7 @@
 //!
 //! A request the engine sends itself from a page's Session, as
 //! `page.request` does through the browser-fetch tier, passes steps 3 to 8
-//! as the page's Session chose them ([`Interception::sender`]), never a
+//! as the page's Session chose them ([`Interception::engine_requests`]), never a
 //! route.
 #![expect(
     clippy::disallowed_types,
@@ -56,28 +65,35 @@ use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::Policy;
+use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{RunSettings, Values};
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::route::{RouteId, UrlMatcher};
 use goodfetch_protocol::page::{
-    BROWSER_BLOCK_RESOURCES, NAVIGATION_FAILED, NavigationFailedDetails, PageId, SessionId,
+    BROWSER_BLOCK_RESOURCES, BROWSER_SERVICE_WORKERS, NAVIGATION_FAILED, NavigationFailedDetails,
+    PageId, SessionId,
 };
 use goodfetch_protocol::run::RunWarning;
 use goodfetch_protocol::run::warning::BLOCK_RESOURCES_VISIBLE;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails};
+use tokio_util::sync::CancellationToken;
 
 use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
 use self::clean_up::CleanUp;
 pub(crate) use self::clean_up::SESSION_KEYS;
-use self::pipeline::PageContext;
+use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
-use crate::driver::PageDriver;
+use crate::driver::{OnServiceWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
 use crate::proxy::SessionProxy;
 use crate::url_pattern::UrlPattern;
+
+/// `browser.service_workers`'s value that keeps every service worker from
+/// running.
+const BLOCK: &str = "block";
 
 /// Whose requests a route answers.
 #[derive(Clone, Copy, Debug)]
@@ -123,7 +139,7 @@ pub(super) struct PageState {
     cosmetic: Option<Cosmetic>,
     /// Steps 3 to 8 as its Session chose them, for the engine's own
     /// requests from the Session.
-    sender: Sender,
+    engine_requests: EngineRequests,
 }
 
 /// Steps 3 to 8 of a page's pipeline, as its Session chose them, for a
@@ -132,12 +148,12 @@ pub(super) struct PageState {
 /// No route sees such a request, as none sees Playwright's
 /// `APIRequestContext`'s.
 #[derive(Clone)]
-pub(crate) struct Sender {
+pub(crate) struct EngineRequests {
     policy: Policy,
     blocking: steps::Blocking,
 }
 
-impl Sender {
+impl EngineRequests {
     /// Steps 3 to 7 for the request `paused`, sent with `overrides`, and
     /// step 8's command, which pauses its response; its source is its own
     /// URL, since no document of the page sent it.
@@ -296,7 +312,7 @@ impl Interception {
                 session,
                 failure: Mutex::new(None),
                 cosmetic: clean_up.cosmetic.clone(),
-                sender: Sender {
+                engine_requests: EngineRequests {
                     policy: policy.clone(),
                     blocking: blocking.clone(),
                 },
@@ -320,9 +336,23 @@ impl Interception {
                     .then_some(true),
             })
             .await?;
+        let workers =
+            match clean_up::effective(resolved, own, BROWSER_SERVICE_WORKERS.name).as_str() {
+                Some(BLOCK) => ServiceWorkers::Block,
+                _ => ServiceWorkers::Allow(self.service_workers_of(
+                    session,
+                    driver,
+                    run,
+                    policy.clone(),
+                    blocking.clone(),
+                )),
+            };
+        // Chosen before the page loads anything, so no worker of its sites
+        // runs before the interception holds it.
+        driver.service_workers(workers).await?;
         let context = Arc::new(PageContext::new(
             driver.clone(),
-            page_id.clone(),
+            Sender::Page(page_id.clone()),
             state,
             self.shared.answers.clone(),
             policy,
@@ -332,6 +362,88 @@ impl Interception {
         ));
         run.spawn(pipeline::dispatch(events, context));
         Ok(clean_up)
+    }
+
+    /// What the Session `session`, whose page `page` of `run` its context
+    /// chose for, does with each service worker of its sites before it
+    /// runs (ADR 0121): its requests pause and pass the pipeline as a
+    /// page's do, under the Session's routes alone and the same domain
+    /// policy and Filter lists, each recorded in the Run trace, until the
+    /// worker goes.
+    fn service_workers_of(
+        &self,
+        session: &SessionId,
+        page: &PageDriver,
+        run: &Run,
+        policy: Policy,
+        blocking: steps::Blocking,
+    ) -> OnServiceWorker {
+        // The browser keeps this choice, so it holds no driver of the
+        // browser and nothing that must end with the Run before the
+        // browser does.
+        let shared = Arc::clone(&self.shared);
+        let (session, proxy, run) = (session.clone(), page.proxy_handle(), run.clone());
+        Arc::new(move |worker: PageDriver, gone: CancellationToken| {
+            let (shared, session, proxy, run) = (
+                Arc::clone(&shared),
+                session.clone(),
+                proxy.clone(),
+                run.clone(),
+            );
+            let (policy, blocking) = (policy.clone(), blocking.clone());
+            Box::pin(async move {
+                let Some(routes) = lock(&shared.tables).sessions.get(&session).cloned() else {
+                    return false;
+                };
+                let log = Arc::new(RequestLog::new(run.owner().child(), run.folder()));
+                let worker = worker.with_proxy(proxy);
+                let events = worker.events().await;
+                let enabled = worker
+                    .opening_command(&fetch::EnableParams {
+                        patterns: Some(vec![fetch::RequestPattern {
+                            url_pattern: Some("*".to_owned()),
+                            resource_type: None,
+                            request_stage: Some(fetch::RequestStage::Request),
+                        }]),
+                        handle_auth_requests: worker
+                            .proxy()
+                            .is_some_and(SessionProxy::answers_authentication)
+                            .then_some(true),
+                    })
+                    .await;
+                if let Err(error) = enabled {
+                    tracing::warn!(%error, "a service worker's requests could not be paused, so it does not run");
+                    return false;
+                }
+                let state = Arc::new(PageState {
+                    routes: Arc::default(),
+                    session: routes,
+                    failure: Mutex::new(None),
+                    cosmetic: None,
+                    engine_requests: EngineRequests {
+                        policy: policy.clone(),
+                        blocking: blocking.clone(),
+                    },
+                });
+                let context = Arc::new(PageContext::new(
+                    worker,
+                    Sender::ServiceWorker { session, log },
+                    state,
+                    shared.answers.clone(),
+                    policy,
+                    blocking,
+                    Refusals::default(),
+                    run.clone(),
+                ));
+                run.spawn(async move {
+                    tokio::select! {
+                        () = gone.cancelled() => {}
+                        () = pipeline::dispatch(events, context) => {}
+                    }
+                });
+                true
+            })
+        })
     }
 
     /// The cosmetic rules of the page `page_id`'s Session, when any of its
@@ -418,11 +530,11 @@ impl Interception {
     /// # Errors
     ///
     /// `closed` for a page the interception does not hold.
-    pub(crate) fn sender(&self, page_id: &PageId) -> Result<Sender, CallError> {
+    pub(crate) fn engine_requests(&self, page_id: &PageId) -> Result<EngineRequests, CallError> {
         lock(&self.shared.tables)
             .pages
             .get(page_id)
-            .map(|state| state.sender.clone())
+            .map(|state| state.engine_requests.clone())
             .ok_or_else(|| closed(Scope::Page(page_id)))
     }
 

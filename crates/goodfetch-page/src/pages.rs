@@ -591,7 +591,7 @@ impl Pages {
         let max_redirects = redirect_count(params.max_redirects, surface)?;
         let page = self.open(&params.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
-        let sender = self.interception.sender(&params.page_id)?;
+        let steps = self.interception.engine_requests(&params.page_id)?;
         let events = self.events.get(&params.page_id)?;
         let request = browser_fetch::Request {
             url: &params.url,
@@ -602,7 +602,7 @@ impl Pages {
             option: max_redirects_option(surface),
         };
         let (driver, in_browser) = self.sessions.engine_page(&page.session).await?;
-        let fetched = browser_fetch::send(&driver, &sender, &request).await;
+        let fetched = browser_fetch::send(&driver, &steps, &request).await;
         driver.close().await;
         drop(in_browser);
         let fetched = fetched?;

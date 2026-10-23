@@ -6,7 +6,7 @@
 //! worker controls (`Network.setBypassServiceWorker`), and whose every other
 //! request is failed, so no page script reads the request or its response
 //! and no service worker answers it. The load passes steps 3 to 8 of the
-//! page's interception at each hop (its [`Sender`]), the caller's method,
+//! page's interception at each hop (its [`EngineRequests`]), the caller's method,
 //! headers and body set over the browser's own on its first.
 //!
 //! Its response is paused once it arrives: a 3xx is counted against the
@@ -32,7 +32,7 @@ use secrecy::ExposeSecret as _;
 
 use crate::driver::PageDriver;
 use crate::errors::network_error;
-use crate::interception::{Overrides, Sender};
+use crate::interception::{EngineRequests, Overrides};
 
 /// The network error of a body whose content coding did not decode.
 const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
@@ -88,7 +88,7 @@ pub(crate) enum Body {
 /// decode; and the page's codes when the browser fails a command.
 pub(crate) async fn send(
     driver: &PageDriver,
-    sender: &Sender,
+    sender: &EngineRequests,
     request: &Request<'_>,
 ) -> Result<Fetched, CallError> {
     let events = driver.events().await;
@@ -127,7 +127,7 @@ pub(crate) async fn send(
 /// The document load that carries one request, as it goes.
 struct Load<'a> {
     driver: &'a PageDriver,
-    sender: &'a Sender,
+    sender: &'a EngineRequests,
     request: &'a Request<'a>,
     /// The browser's ID of the load, once its first hop paused.
     network_id: Option<String>,
@@ -140,7 +140,7 @@ struct Load<'a> {
 }
 
 impl<'a> Load<'a> {
-    fn new(driver: &'a PageDriver, sender: &'a Sender, request: &'a Request<'a>) -> Self {
+    fn new(driver: &'a PageDriver, sender: &'a EngineRequests, request: &'a Request<'a>) -> Self {
         Self {
             driver,
             sender,

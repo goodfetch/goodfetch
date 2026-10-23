@@ -1112,6 +1112,7 @@ dependencies = [
  "dom_query",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.21",
  "toml 1.1.8+spec-1.1.0",
  "zstd",

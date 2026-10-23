@@ -1,6 +1,6 @@
 {
-  "digest": "3d460db06f04beddf77c4c46f5475f79e2c5dc4567b4ea2533bdf8b170296c12",
-  "journal_position": 8,
+  "digest": "4b3c978faf746367fd92ca233e885efb52d0d8c52712ade243068771a7a11a3e",
+  "journal_position": 10,
   "location": "checkpoint.sqlite",
   "run_epoch": 1,
   "run_id": "paused",

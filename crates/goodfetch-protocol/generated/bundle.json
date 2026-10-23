@@ -1262,6 +1262,49 @@
       ],
       "type": "object"
     },
+    "CleanUpRulesManifest": {
+      "description": "One version of the Clean-up rules, as its `manifest.json` says.",
+      "properties": {
+        "expires_at": {
+          "arrived_in": "0.1",
+          "default": null,
+          "description": "When a newer version should replace it, in RFC 3339: a daily\nversion's 14 days, an upstream one's shortest declared expiry; none\nfor the embedded part and a release's.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "format_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The version of this format the manifest was written in."
+        },
+        "lists": {
+          "$ref": "#/$defs/RulesLists",
+          "arrived_in": "0.1",
+          "description": "The file of each Filter list, beside the manifest."
+        },
+        "published_at": {
+          "arrived_in": "0.1",
+          "description": "When its lists were taken from their authors, in RFC 3339: the date\nProvenance names, from which a Run report counts its 14 days.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/RulesSource",
+          "arrived_in": "0.1",
+          "description": "Where the version comes from."
+        }
+      },
+      "required": [
+        "format_version",
+        "source",
+        "published_at",
+        "lists"
+      ],
+      "type": "object"
+    },
     "ClickParams": {
       "additionalProperties": false,
       "description": "What `locator.click` takes: the locator whose element it clicks.",
@@ -4469,6 +4512,49 @@
       "const": "2.0",
       "description": "JSON-RPC's version, always \"2.0\"."
     },
+    "KeyValueStoreBytes": {
+      "description": "Bytes the store holds for a key, with their content type.",
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/KeyValueStoreContent",
+          "arrived_in": "0.1",
+          "description": "The bytes, in Base64."
+        },
+        "content_type": {
+          "arrived_in": "0.1",
+          "description": "Their content type, as `set_bytes` gave it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "content",
+        "content_type"
+      ],
+      "type": "object"
+    },
+    "KeyValueStoreBytesValue": {
+      "description": "What `key_value_store.get_bytes` answers: the key's committed bytes, or\nnull when the key is absent.",
+      "properties": {
+        "bytes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyValueStoreBytes"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The bytes and their content type, or null for an absent key."
+        }
+      },
+      "type": "object"
+    },
+    "KeyValueStoreContent": {
+      "contentEncoding": "base64",
+      "description": "Bytes the Key-value store keeps, in Base64 (RFC 4648, with padding).",
+      "type": "string"
+    },
     "KeyValueStoreDeleted": {
       "description": "What `key_value_store.delete` answers once the key is gone.",
       "properties": {
@@ -4574,6 +4660,43 @@
     },
     "KeyValueStoreSet": {
       "description": "What `key_value_store.set` answers once the value is committed.",
+      "type": "object"
+    },
+    "KeyValueStoreSetBytesParams": {
+      "additionalProperties": false,
+      "description": "What `key_value_store.set_bytes` takes: the Run, the key, and the bytes\nwith their content type.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "content": {
+          "$ref": "#/$defs/KeyValueStoreContent",
+          "arrived_in": "0.1",
+          "description": "The bytes, in Base64."
+        },
+        "content_type": {
+          "arrived_in": "0.1",
+          "description": "Their content type, such as `image/png`.",
+          "type": "string"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose store it is."
+        }
+      },
+      "required": [
+        "run_id",
+        "key",
+        "content",
+        "content_type"
+      ],
       "type": "object"
     },
     "KeyValueStoreSetParams": {
@@ -7580,6 +7703,63 @@
         "is_navigation_request"
       ],
       "type": "object"
+    },
+    "RulesLists": {
+      "description": "The file of each Filter list a version holds, by the setting that turns\nit on, with Brave's unbreak list, which applies whichever are on.",
+      "properties": {
+        "ads": {
+          "arrived_in": "0.1",
+          "description": "`filter_lists.ads`: EasyList.",
+          "type": "string"
+        },
+        "annoyances": {
+          "arrived_in": "0.1",
+          "description": "`filter_lists.annoyances`: Fanboy Annoyance, without its cookie\nsections.",
+          "type": "string"
+        },
+        "trackers": {
+          "arrived_in": "0.1",
+          "description": "`filter_lists.trackers`: EasyPrivacy.",
+          "type": "string"
+        },
+        "unbreak": {
+          "arrived_in": "0.1",
+          "description": "Brave's unbreak list.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ads",
+        "trackers",
+        "annoyances",
+        "unbreak"
+      ],
+      "type": "object"
+    },
+    "RulesSource": {
+      "description": "Where a version of the Clean-up rules comes from (ADR 0047).",
+      "oneOf": [
+        {
+          "const": "embedded",
+          "description": "The part every executable embeds.",
+          "type": "string"
+        },
+        {
+          "const": "release",
+          "description": "The full version a release pins by digest.",
+          "type": "string"
+        },
+        {
+          "const": "daily",
+          "description": "The opt-in daily channel.",
+          "type": "string"
+        },
+        {
+          "const": "upstream",
+          "description": "The Filter lists fetched from their authors' URLs.",
+          "type": "string"
+        }
+      ]
     },
     "RunAbortParams": {
       "additionalProperties": false,
@@ -11432,6 +11612,16 @@
     },
     {
       "hello_from": [],
+      "name": "clean-up-rules",
+      "rule": "newest_readable",
+      "schema": {
+        "$ref": "#/$defs/CleanUpRulesManifest"
+      },
+      "storage": "json",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
       "name": "run-index",
       "rule": "shared_store",
       "schema": {
@@ -12170,6 +12360,42 @@
                       }
                     ],
                     "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+                  }
+                },
+                "type": "object"
+              },
+              "clean_up": {
+                "additionalProperties": false,
+                "properties": {
+                  "channel": {
+                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+                    "type": "string"
+                  },
+                  "lists": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+                    "type": "object"
+                  },
+                  "update": {
+                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+                    "enum": [
+                      "release",
+                      "daily",
+                      "upstream"
+                    ]
+                  },
+                  "version": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The exact version of the Clean-up rules a new Run holds to, by its digest `sha256:<hex>` as Provenance names it, instead of the newest one `clean_up.update` gives: a daily version it names is fetched from the daily channel, and it is exempt from the channel's expiry and its refusal of older versions. None by default."
                   }
                 },
                 "type": "object"
@@ -13782,6 +14008,42 @@
                       }
                     ],
                     "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+                  }
+                },
+                "type": "object"
+              },
+              "clean_up": {
+                "additionalProperties": false,
+                "properties": {
+                  "channel": {
+                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+                    "type": "string"
+                  },
+                  "lists": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+                    "type": "object"
+                  },
+                  "update": {
+                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+                    "enum": [
+                      "release",
+                      "daily",
+                      "upstream"
+                    ]
+                  },
+                  "version": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The exact version of the Clean-up rules a new Run holds to, by its digest `sha256:<hex>` as Provenance names it, instead of the newest one `clean_up.update` gives: a daily version it names is fetched from the daily channel, and it is exempt from the channel's expiry and its refusal of older versions. None by default."
                   }
                 },
                 "type": "object"
@@ -15410,6 +15672,42 @@
                       }
                     ],
                     "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+                  }
+                },
+                "type": "object"
+              },
+              "clean_up": {
+                "additionalProperties": false,
+                "properties": {
+                  "channel": {
+                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+                    "type": "string"
+                  },
+                  "lists": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+                    "type": "object"
+                  },
+                  "update": {
+                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+                    "enum": [
+                      "release",
+                      "daily",
+                      "upstream"
+                    ]
+                  },
+                  "version": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The exact version of the Clean-up rules a new Run holds to, by its digest `sha256:<hex>` as Provenance names it, instead of the newest one `clean_up.update` gives: a daily version it names is fetched from the daily channel, and it is exempt from the channel's expiry and its refusal of older versions. None by default."
                   }
                 },
                 "type": "object"

@@ -3,6 +3,7 @@
 // its version, and holds the engine's answer; it starts Runs and closes them
 // before itself; and once closed, every call fails with `closed`. The only
 // check of the engine's answers is the protocol version's (STYLE.md).
+import { Buffer } from "node:buffer";
 import { AttachedEngine, type EngineExit } from "./attached-engine.ts";
 import { errorOfReply, type ErrorClasses } from "./errors.ts";
 import {
@@ -103,6 +104,25 @@ export class ClientConnection implements AsyncDisposable {
           // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the generated layer types a schemaless JSON value as an object; any JSON value but null is the engine's to take.
           const stored = value as KeyValueStoreSetParams["value"];
           await this.#operations.keyValueStoreSet({ run_id: runId, key, value: stored });
+        },
+        getBytes: async (runId, key) => {
+          const { bytes } = await this.#operations.keyValueStoreGetBytes({ run_id: runId, key });
+          return bytes
+            ? {
+                content: new Uint8Array(Buffer.from(bytes.content, "base64")),
+                contentType: bytes.content_type,
+              }
+            : null;
+        },
+        setBytes: async (runId, key, content, contentType) => {
+          await this.#operations.keyValueStoreSetBytes({
+            run_id: runId,
+            key,
+            content: Buffer.from(content.buffer, content.byteOffset, content.byteLength).toString(
+              "base64",
+            ),
+            content_type: contentType,
+          });
         },
         delete: async (runId, key) =>
           (await this.#operations.keyValueStoreDelete({ run_id: runId, key })).existed,

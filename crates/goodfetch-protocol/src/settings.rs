@@ -599,6 +599,92 @@ pub const FILTER_LISTS_EXTRA: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// The values `clean_up.update` takes (ADR 0047).
+pub const CLEAN_UP_UPDATES: &[&str] = &["release", "daily", "upstream"];
+
+/// `clean_up.update` (ADR 0047).
+pub const CLEAN_UP_UPDATE: Setting = Setting {
+    name: "clean_up.update",
+    description: "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+    kind: ValueKind::Choice(CLEAN_UP_UPDATES),
+    default: release,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `clean_up.version` (ADR 0047).
+pub const CLEAN_UP_VERSION: Setting = Setting {
+    name: "clean_up.version",
+    description: "The exact version of the Clean-up rules a new Run holds to, by its digest `sha256:<hex>` as Provenance names it, instead of the newest one `clean_up.update` gives: a daily version it names is fetched from the daily channel, and it is exempt from the channel's expiry and its refusal of older versions. None by default.",
+    kind: ValueKind::Text,
+    default: null,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn release() -> Value {
+    Value::String("release".to_owned())
+}
+
+/// `clean_up.channel` (ADR 0047).
+pub const CLEAN_UP_CHANNEL: Setting = Setting {
+    name: "clean_up.channel",
+    description: "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+    kind: ValueKind::Text,
+    default: daily_channel,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The daily channel's OCI repository by default.
+pub const DAILY_CHANNEL: &str = "ghcr.io/goodfetch/clean-up-rules";
+
+fn daily_channel() -> Value {
+    Value::String(DAILY_CHANNEL.to_owned())
+}
+
+/// `clean_up.lists` (ADR 0047).
+pub const CLEAN_UP_LISTS: Setting = Setting {
+    name: "clean_up.lists",
+    description: "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+    kind: ValueKind::Map(&ValueKind::Text),
+    default: upstream_lists,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The Filter lists' authors' own URLs, by list, which `clean_up.lists`
+/// holds by default.
+pub const UPSTREAM_LISTS: [(&str, &str); 4] = [
+    ("ads", "https://easylist.to/easylist/easylist.txt"),
+    ("trackers", "https://easylist.to/easylist/easyprivacy.txt"),
+    (
+        "annoyances",
+        "https://secure.fanboy.co.nz/fanboy-annoyance.txt",
+    ),
+    (
+        "unbreak",
+        "https://raw.githubusercontent.com/brave/adblock-lists/master/brave-unbreak.txt",
+    ),
+];
+
+fn upstream_lists() -> Value {
+    Value::Object(
+        UPSTREAM_LISTS
+            .iter()
+            .map(|(list, url)| ((*list).to_owned(), Value::String((*url).to_owned())))
+            .collect(),
+    )
+}
+
 /// `filter_lists.ads` (ADR 0047).
 pub const FILTER_LISTS_ADS: Setting = Setting {
     name: "filter_lists.ads",
@@ -807,6 +893,10 @@ pub const ENTRIES: Entries = Entries {
         FILTER_LISTS_FIRST_PARTY_SCRIPTS,
         FILTER_LISTS_PAGE_SCRIPTLETS,
         FILTER_LISTS_EXTRA,
+        CLEAN_UP_UPDATE,
+        CLEAN_UP_VERSION,
+        CLEAN_UP_CHANNEL,
+        CLEAN_UP_LISTS,
         SESSION_SOURCE,
         SECRETS_BY_REFERENCE,
         WEBHOOK_SIGNING,

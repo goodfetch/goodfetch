@@ -547,6 +547,18 @@ number = 5
 kind = "setting"
 prefix = "filter_lists."
 
+# The version of the Clean-up rules a Run holds to (#714, ADR 0047): its
+# settings and its manifest's format.
+[[area]]
+number = 5
+kind = "setting"
+prefix = "clean_up."
+
+[[area]]
+number = 5
+kind = "format"
+prefix = "clean-up-rules"
+
 [[area]]
 number = 5
 kind = "setting"

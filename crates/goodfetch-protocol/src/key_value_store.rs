@@ -1,8 +1,12 @@
 //! A Run's Key-value store (ADRs 0088, 0102 and 0103): every Run, a Collie
-//! Run included, keeps JSON values by key in its run state, so a program
-//! that resumes the Run, here or on another machine, finds them.
-//! `key_value_store.get` answers a value or null, `key_value_store.set`
-//! refuses null so that a null from `get` always means an absent key,
+//! Run included, keeps JSON values, and bytes with their content type, by
+//! key in its run state, so a program that resumes the Run, here or on
+//! another machine, finds them. `key_value_store.get` answers a value or
+//! null, `key_value_store.set` refuses null so that a null from `get`
+//! always means an absent key, `key_value_store.get_bytes` and
+//! `key_value_store.set_bytes` read and write bytes, and neither reader
+//! answers the other's type (S2): `get` on bytes and `get_bytes` on JSON
+//! fail with `value_invalid` naming the other,
 //! `key_value_store.delete` says whether the key existed, and
 //! `key_value_store.keys` sends the keys in `$/key` notifications, one per
 //! credit, in the order of their Unicode scalar values. Reads take no
@@ -10,7 +14,9 @@
 //! to 512 Unicode scalar values with no control character; any other key,
 //! and a null value, fail with `value_invalid`.
 
-use schemars::JsonSchema;
+use std::borrow::Cow;
+
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -56,6 +62,116 @@ pub struct KeyValueStoreSetParams {
     /// refuses; a nested null is kept.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub value: Value,
+}
+
+/// Bytes the store keeps: on the wire, in Base64 (RFC 4648, with padding).
+#[derive(Clone, PartialEq, Eq)]
+pub struct KeyValueStoreContent(Vec<u8>);
+
+/// Why a text is no content: it is no Base64 with padding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("content is its bytes in Base64 (RFC 4648, with padding)")]
+pub struct KeyValueStoreContentInvalid;
+
+impl KeyValueStoreContent {
+    /// The content `bytes`.
+    pub fn new(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+
+    /// Reads `text`, bytes in Base64.
+    ///
+    /// # Errors
+    ///
+    /// When `text` is no Base64 with padding.
+    pub fn from_base64(text: &str) -> Result<Self, KeyValueStoreContentInvalid> {
+        data_encoding::BASE64
+            .decode(text.as_bytes())
+            .map(Self)
+            .map_err(|_| KeyValueStoreContentInvalid)
+    }
+
+    /// Its bytes.
+    pub fn bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// Its bytes, owned.
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+}
+
+impl std::fmt::Debug for KeyValueStoreContent {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "KeyValueStoreContent({} bytes)", self.0.len())
+    }
+}
+
+impl Serialize for KeyValueStoreContent {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&data_encoding::BASE64.encode(&self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for KeyValueStoreContent {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = Cow::<str>::deserialize(deserializer)?;
+        Self::from_base64(&text).map_err(serde::de::Error::custom)
+    }
+}
+
+impl JsonSchema for KeyValueStoreContent {
+    fn schema_name() -> Cow<'static, str> {
+        "KeyValueStoreContent".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "Bytes the Key-value store keeps, in Base64 (RFC 4648, with padding).",
+            "type": "string",
+            "contentEncoding": "base64",
+        })
+    }
+}
+
+/// What `key_value_store.set_bytes` takes: the Run, the key, and the bytes
+/// with their content type.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct KeyValueStoreSetBytesParams {
+    /// The Run whose store it is.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The key.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key: String,
+    /// The bytes, in Base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub content: KeyValueStoreContent,
+    /// Their content type, such as `image/png`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub content_type: String,
+}
+
+/// Bytes the store holds for a key, with their content type.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct KeyValueStoreBytes {
+    /// The bytes, in Base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub content: KeyValueStoreContent,
+    /// Their content type, as `set_bytes` gave it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub content_type: String,
+}
+
+/// What `key_value_store.get_bytes` answers: the key's committed bytes, or
+/// null when the key is absent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct KeyValueStoreBytesValue {
+    /// The bytes and their content type, or null for an absent key.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub bytes: Option<KeyValueStoreBytes>,
 }
 
 /// What `key_value_store.keys` takes: the Run, and the prefix every key it
@@ -136,6 +252,10 @@ pub enum ValueInvalidReason {
     KeyControlCharacter,
     /// The value is null, which `get` answers for an absent key.
     ValueNull,
+    /// The key holds bytes, which `get_bytes` reads, not `get`.
+    ValueBytes,
+    /// The key holds JSON, which `get` reads, not `get_bytes`.
+    ValueJson,
 }
 
 /// What `value_invalid` details.
@@ -158,7 +278,7 @@ pub struct ValueInvalidDetails {
 /// A key or a value the Key-value store refuses (ADR 0103).
 pub const VALUE_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "value_invalid",
-    description: "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused.",
+    description: "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The details name the key and say which was refused.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,
@@ -168,7 +288,7 @@ pub const VALUE_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
 /// `key_value_store.get`.
 pub const KEY_VALUE_STORE_GET: Operation = Operation {
     name: "key_value_store.get",
-    description: "Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.",
+    description: "Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -189,6 +309,38 @@ pub const KEY_VALUE_STORE_SET: Operation = Operation {
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
     params: schema_of::<KeyValueStoreSetParams>,
+    result: schema_of::<KeyValueStoreSet>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `key_value_store.get_bytes`.
+pub const KEY_VALUE_STORE_GET_BYTES: Operation = Operation {
+    name: "key_value_store.get_bytes",
+    description: "Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock.",
+    class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<KeyValueStoreKeyParams>,
+    result: schema_of::<KeyValueStoreBytesValue>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `key_value_store.set_bytes`.
+pub const KEY_VALUE_STORE_SET_BYTES: Operation = Operation {
+    name: "key_value_store.set_bytes",
+    description: "Commits bytes with their content type for a key in a live Run's Key-value store, replacing what it held: the last commit wins. Bytes over 1 MiB are kept as a file in the Run's folder, which its Checkpoints carry.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<KeyValueStoreSetBytesParams>,
     result: schema_of::<KeyValueStoreSet>,
     events: &[],
     cancellable: false,
@@ -235,6 +387,8 @@ pub const ENTRIES: Entries = Entries {
     operations: &[
         KEY_VALUE_STORE_GET,
         KEY_VALUE_STORE_SET,
+        KEY_VALUE_STORE_GET_BYTES,
+        KEY_VALUE_STORE_SET_BYTES,
         KEY_VALUE_STORE_DELETE,
         KEY_VALUE_STORE_KEYS,
     ],

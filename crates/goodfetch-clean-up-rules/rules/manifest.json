@@ -1,0 +1,11 @@
+{
+  "format_version": "0.1",
+  "source": "embedded",
+  "published_at": "2026-10-22T23:42:37Z",
+  "lists": {
+    "ads": "easylist.txt",
+    "trackers": "easyprivacy.txt",
+    "annoyances": "fanboy-annoyance.txt",
+    "unbreak": "brave-unbreak.txt"
+  }
+}

@@ -28,9 +28,9 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::browser_cache::{
     ARTIFACT_DOWNLOAD_FAILED, ARTIFACT_UNAVAILABLE_OFFLINE, ArtifactDownloadFailedDetails,
-    ArtifactId, ArtifactUnavailableOfflineDetails, BROWSER_NOT_INSTALLED, BrowserCacheEntry,
-    BrowserNotInstalledDetails, DownloadFailure, DownloadProgress, InstallOutcome, MissingBrowser,
-    PinnedBy,
+    ArtifactId, ArtifactKind, ArtifactUnavailableOfflineDetails, BROWSER_NOT_INSTALLED,
+    BrowserCacheEntry, BrowserNotInstalledDetails, DownloadFailure, DownloadProgress,
+    InstallOutcome, MissingBrowser, PinnedBy,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
@@ -442,6 +442,87 @@ impl BrowserCache {
         );
         store::delete(&self.root, &folder).map_err(CacheError::cache(&folder))?;
         Ok(Present::Missing)
+    }
+
+    /// The artifact `id` when the cache holds it with files of `digest`,
+    /// held so the clean-up leaves it alone, its use recorded at `now`; a
+    /// copy of another digest is removed where the cache is writable.
+    ///
+    /// # Errors
+    ///
+    /// When the cache's files cannot be read or written.
+    pub async fn find(
+        &self,
+        id: &ArtifactId,
+        digest: Digest,
+        now: jiff::Timestamp,
+    ) -> Result<Option<HeldArtifact>, CacheError> {
+        let artifact = PinnedArtifact {
+            id: id.clone(),
+            platform: None,
+            url: String::new(),
+            archive_digest: None,
+            digest,
+        };
+        Ok(match blocking(|| self.present(&artifact, now)).await? {
+            Present::Held(held) => Some(held),
+            Present::Missing | Present::Refused => None,
+        })
+    }
+
+    /// Puts `files`, each a relative path with its bytes, in the cache as an
+    /// artifact of `kind` named `name` whose build is the hexadecimal digest
+    /// of those files, and answers that digest and the artifact, held: what
+    /// the engine fetched itself from a configured source, such as a
+    /// version of the Clean-up rules (ADR 0047). When the cache already
+    /// holds it, that copy is answered.
+    ///
+    /// # Errors
+    ///
+    /// When the cache cannot be written, or a path leaves its folder.
+    pub async fn keep(
+        &self,
+        kind: ArtifactKind,
+        name: &str,
+        files: &[(String, Vec<u8>)],
+        now: jiff::Timestamp,
+    ) -> Result<(Digest, HeldArtifact), CacheError> {
+        let partial = blocking(|| store::partial(&self.root))
+            .await
+            .map_err(CacheError::cache(&self.root))?;
+        let folder = store::files(partial.path());
+        let digest = blocking(|| {
+            store::write_files(&folder, files)?;
+            content_digest(&folder)
+        })
+        .await
+        .map_err(CacheError::cache(partial.path()))?;
+        let id = ArtifactId {
+            kind,
+            name: name.to_owned(),
+            build: digest.hex(),
+        };
+        let entry = BrowserCacheEntry {
+            format_version: BROWSER_CACHE.version,
+            artifact: id.clone(),
+            digest: digest.to_string(),
+            installed_at: now,
+            used_at: now,
+        };
+        let entry_folder = store::entry_folder(&self.root, &id);
+        blocking(|| store::install(&self.root, partial, &id, &entry))
+            .await
+            .map_err(CacheError::cache(&entry_folder))?;
+        match self.find(&id, digest, now).await? {
+            Some(held) => Ok((digest, held)),
+            None => Err(CacheError::Cache {
+                path: entry_folder,
+                source: io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "the artifact just put in the Browser cache is gone",
+                ),
+            }),
+        }
     }
 
     /// Downloads and installs `artifact`; `None` when another process put it

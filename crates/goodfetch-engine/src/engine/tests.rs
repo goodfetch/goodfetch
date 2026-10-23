@@ -18,6 +18,7 @@ mod durability;
 mod events;
 mod following;
 mod governor;
+mod key_value_bytes;
 mod key_value_store;
 mod layout;
 mod lifecycle;

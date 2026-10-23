@@ -37,6 +37,9 @@ pub const STORAGE_LOW: &str = "storage_low";
 pub const POLITENESS_STORE_DEGRADED: &str = "politeness_store_degraded";
 /// The Run's Clean-up rules are older than 14 days (ADR 0047).
 pub const CLEAN_UP_RULES_STALE: &str = "clean_up_rules_stale";
+/// The Run holds to other Clean-up rules than its settings ask for (ADR
+/// 0047).
+pub const CLEAN_UP_RULES_FALLBACK: &str = "clean_up_rules_fallback";
 /// A Session blocks resource kinds a site can see missing (ADRs 0047, 0117).
 pub const BLOCK_RESOURCES_VISIBLE: &str = "block_resources_visible";
 /// A file the Run writes at its end could not be written at its path (ADR
@@ -62,7 +65,7 @@ const fn warning(name: &'static str, description: &'static str) -> SharedTypeVal
 
 /// The warning codes both Products hand over to a Run's report (ADR
 /// 0102); Foxhound adds its own.
-pub const WARNING_CODES: [SharedTypeValue; 21] = [
+pub const WARNING_CODES: [SharedTypeValue; 22] = [
     warning(FINGERPRINT_NONE, "A Session ran with no fingerprint."),
     warning(
         FINGERPRINT_JS_INJECTION,
@@ -110,6 +113,10 @@ pub const WARNING_CODES: [SharedTypeValue; 21] = [
     warning(
         CLEAN_UP_RULES_STALE,
         "The Run's Clean-up rules are older than 14 days.",
+    ),
+    warning(
+        CLEAN_UP_RULES_FALLBACK,
+        "The Run holds to other Clean-up rules than `clean_up.update` or `clean_up.version` ask for, such as the embedded part when the daily channel cannot be reached; Provenance names both.",
     ),
     warning(
         BLOCK_RESOURCES_VISIBLE,

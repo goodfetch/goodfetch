@@ -55,6 +55,7 @@ pub mod politeness;
 mod product;
 pub mod retry_after;
 pub mod rpc;
+pub mod rule_sources;
 pub mod run;
 mod run_index;
 pub mod run_key;

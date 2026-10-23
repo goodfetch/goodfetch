@@ -8318,6 +8318,44 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "release",
+      "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+      "name": "clean_up.update",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "release",
+          "daily",
+          "upstream"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "The exact version of the Clean-up rules a new Run holds to, by its digest `sha256:<hex>` as Provenance names it, instead of the newest one `clean_up.update` gives: a daily version it names is fetched from the daily channel, and it is exempt from the channel's expiry and its refusal of older versions. None by default.",
+      "name": "clean_up.version",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "narrowed",
       "clearable": false,
       "default": [],
@@ -10326,6 +10364,13 @@
       "name": "challenge",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run holds to other Clean-up rules than `clean_up.update` or `clean_up.version` ask for, such as the embedded part when the daily channel cannot be reached; Provenance names both.",
+      "name": "clean_up_rules_fallback",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",

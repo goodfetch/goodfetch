@@ -66,6 +66,9 @@ serde_json.workspace = true
 # Its own executable, for the integration tests and the startup benchmarks
 # (CARGO_BIN_EXE_goodfetch-collie, ADRs 0059 and 0062).
 goodfetch-collie = { path = ".", features = ["executable"] }
+# The embedded Clean-up rules' digest and manifest, which a Run holds to by
+# default (tests/it/clean_up_rules.rs).
+goodfetch-clean-up-rules.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 # A stored body's ID, the SHA-256 of its bytes, for `page body --follow`.

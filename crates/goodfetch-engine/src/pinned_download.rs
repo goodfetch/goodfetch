@@ -53,6 +53,11 @@ impl Digest {
     pub(crate) fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
+
+    /// Its 64 lowercase hexadecimal digits, without the `sha256:` prefix.
+    pub fn hex(&self) -> String {
+        self.0.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
 }
 
 impl fmt::Display for Digest {

@@ -73,7 +73,9 @@ pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
         events,
     };
     let contribution = with_page_handlers(
-        Contribution::new("page").with_run_state_tables(sessions::TABLES),
+        Contribution::new("page")
+            .with_run_state_tables(sessions::TABLES)
+            .with_clean_up_versions(pages.interception.versions()),
         &pages,
     );
     let contribution = with_session_handlers(contribution, &pages.sessions);

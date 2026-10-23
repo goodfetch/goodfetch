@@ -80,6 +80,7 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
+pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Holding, RulesContext};
 pub use self::import::fuzz_run_state_import;
 pub use self::reader::RunReader;
 pub use self::reindex::{Reindexed, reindex};
@@ -192,6 +193,9 @@ pub(crate) struct RunsSetup {
     pub(crate) governor: Governor,
     /// What the composition's areas add to each Run's report (ADR 0102).
     pub(crate) report_parts: Vec<Arc<dyn ReportPart>>,
+    /// The composition's Clean-up rules, which choose the version each new
+    /// Run holds to (ADR 0047), if it has any.
+    pub(crate) clean_up: Option<Arc<dyn CleanUpVersions>>,
     /// The Console's address, when this engine serves one (ADR 0031): each
     /// Run's report names its page there.
     pub(crate) console: Option<String>,
@@ -854,6 +858,27 @@ pub struct Runs {
     /// The Secret-provider driver, which holds the user's Audit log.
     secrets: Secrets,
     drivers: Arc<BTreeMap<RunKind, Driver>>,
+    /// The composition's Clean-up rules, which choose the version each new
+    /// Run holds to (ADR 0047), if it has any.
+    clean_up: Option<Arc<CleanUpRules>>,
+}
+
+/// The composition's Clean-up rules, and the engine's Product version, the
+/// release whose code applies them.
+struct CleanUpRules {
+    versions: Arc<dyn CleanUpVersions>,
+    product_version: ProductVersion,
+}
+
+impl CleanUpRules {
+    /// Those of `setup`, if its composition has any.
+    fn of(setup: &RunsSetup) -> Option<Arc<Self>> {
+        let versions = setup.clean_up.clone()?;
+        Some(Arc::new(Self {
+            versions,
+            product_version: setup.version.clone(),
+        }))
+    }
 }
 
 impl std::fmt::Debug for Runs {
@@ -1099,6 +1124,24 @@ impl Run {
     pub async fn warn(&self, warning: RunWarning) -> Result<(), RunStateError> {
         self.state
             .write(move |connection| report::warn(connection, &warning))
+            .await
+    }
+
+    /// Hands `warning` over to the Run's report unless it holds a warning
+    /// of the same code already, such as one an earlier run epoch handed
+    /// over before a resume.
+    ///
+    /// # Errors
+    ///
+    /// When its run state cannot be written.
+    pub async fn warn_once(&self, warning: RunWarning) -> Result<(), RunStateError> {
+        self.state
+            .write(move |connection| {
+                if report::warned(connection, &warning.code)? {
+                    return Ok(());
+                }
+                report::warn(connection, &warning)
+            })
             .await
     }
 
@@ -1594,6 +1637,7 @@ impl Runs {
             limits: Arc::new(limits),
             secrets,
             drivers: Arc::new(setup.drivers.clone()),
+            clean_up: CleanUpRules::of(&setup),
         };
         let politeness = SharedPoliteness {
             file: Arc::new(tokio::sync::OnceCell::new()),
@@ -1694,7 +1738,52 @@ impl Runs {
     /// # Cancel safety
     ///
     /// Dropping the future after the start was sent still starts the Run.
-    pub async fn start(&self, start: Start) -> Result<Started, StartError> {
+    pub async fn start(&self, mut start: Start) -> Result<Started, StartError> {
+        let mut fallback = None;
+        if start.clean_up_digest.is_none()
+            && let Some(rules) = &self.clean_up
+        {
+            let chosen = rules
+                .versions
+                .choose(self.rules_context(rules, start.settings.as_ref()))
+                .await;
+            start.clean_up_digest = Some(chosen.digest);
+            fallback = chosen.fallback;
+        }
+        let settings = start.settings.clone();
+        let started = self.start_chosen(start).await;
+        if let (Ok(Started::New(run)), Some(rules)) = (&started, &self.clean_up) {
+            rules
+                .versions
+                .held(
+                    run,
+                    Holding::Started { fallback },
+                    self.rules_context(rules, settings.as_ref()),
+                )
+                .await;
+        }
+        started
+    }
+
+    /// What the Clean-up rules `rules` are told of a Run whose start
+    /// resolved `settings`.
+    fn rules_context<'a>(
+        &'a self,
+        rules: &'a CleanUpRules,
+        settings: Option<&'a RunSettings>,
+    ) -> RulesContext<'a> {
+        RulesContext {
+            settings,
+            home: self.home(),
+            clock: self.clock(),
+            product: self.limits.product,
+            product_version: &rules.product_version,
+            owner: &self.limits.owner,
+        }
+    }
+
+    /// [`Runs::start`] once its Clean-up rules are chosen.
+    async fn start_chosen(&self, start: Start) -> Result<Started, StartError> {
         let secrets = self
             .secrets
             .for_run(secret_timeout(start.settings.as_ref()));
@@ -1974,6 +2063,7 @@ impl Runs {
             Some(Unwrapped { stored, key }) => (Some(stored), Some(key)),
             None => (None, None),
         };
+        let settings = resume.settings.clone();
         let (answer, answered) = oneshot::channel();
         self.commands
             .send(Command::Resume(
@@ -1983,7 +2073,18 @@ impl Runs {
             ))
             .await
             .map_err(|_| RunError::Stopped)?;
-        answered.await.map_err(|_| RunError::Stopped)?
+        let resumed = answered.await.map_err(|_| RunError::Stopped)?;
+        if let (Ok(Resumed::New { run, .. }), Some(rules)) = (&resumed, &self.clean_up) {
+            rules
+                .versions
+                .held(
+                    run,
+                    Holding::Resumed,
+                    self.rules_context(rules, settings.as_ref()),
+                )
+                .await;
+        }
+        resumed
     }
 
     /// The data key of the Run `resume` resumes, unwrapped by the
@@ -3348,6 +3449,7 @@ impl Registry {
             limits: Arc::clone(&self.limits),
             secrets: self.secrets.clone(),
             drivers: Arc::clone(&self.drivers),
+            clean_up: CleanUpRules::of(&self.setup),
         }
     }
 
@@ -4371,6 +4473,7 @@ impl Closing {
     }
 }
 
+mod clean_up;
 mod discard;
 mod folder;
 mod import;

@@ -17,6 +17,7 @@ mod browsers;
 mod certs;
 #[cfg(target_os = "macos")]
 mod checkpoint;
+mod clean_up_rules;
 mod client_conformance;
 mod commands;
 mod config;

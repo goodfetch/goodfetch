@@ -36,7 +36,7 @@ use crate::people::SignInDriver;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
-use crate::runs::{Driver, ReportPart, Runs};
+use crate::runs::{CleanUpVersions, Driver, ReportPart, Runs};
 use goodfetch_protocol::run::RunKind;
 
 /// A failure a call answers with: an Error code of the catalog, with its
@@ -468,6 +468,7 @@ pub struct Contribution {
     drivers: Vec<(RunKind, Driver)>,
     admission_gates: Option<Arc<dyn Gates>>,
     report_parts: Vec<Arc<dyn ReportPart>>,
+    clean_up_versions: Option<Arc<dyn CleanUpVersions>>,
 }
 
 impl Contribution {
@@ -481,6 +482,7 @@ impl Contribution {
             drivers: Vec::new(),
             admission_gates: None,
             report_parts: Vec::new(),
+            clean_up_versions: None,
         }
     }
 
@@ -528,6 +530,14 @@ impl Contribution {
     #[must_use]
     pub fn with_report_part(mut self, part: Arc<dyn ReportPart>) -> Self {
         self.report_parts.push(part);
+        self
+    }
+
+    /// The same, passing in `versions` as the Clean-up rules that choose
+    /// the version each new Run holds to (ADR 0047).
+    #[must_use]
+    pub fn with_clean_up_versions(mut self, versions: Arc<dyn CleanUpVersions>) -> Self {
+        self.clean_up_versions = Some(versions);
         self
     }
 
@@ -605,6 +615,14 @@ pub enum CompositionError {
     #[error("both `{first}` and `{second}` pass in a gate in admission")]
     DuplicateGates {
         /// The first contribution that passes one in.
+        first: &'static str,
+        /// The second.
+        second: &'static str,
+    },
+    /// Two Clean-up rules.
+    #[error("both `{first}` and `{second}` pass in the Clean-up rules")]
+    DuplicateCleanUpVersions {
+        /// The first contribution that passes them in.
         first: &'static str,
         /// The second.
         second: &'static str,
@@ -689,6 +707,20 @@ impl Composition {
             return Err(CompositionError::DuplicateGates { first, second });
         }
         Ok(first.map(|(_, gates)| gates))
+    }
+
+    /// The one Clean-up rules the contributions pass in, if any.
+    pub(crate) fn clean_up_versions(
+        &self,
+    ) -> Result<Option<Arc<dyn CleanUpVersions>>, CompositionError> {
+        let mut passed = self.contributions.iter().filter_map(|contribution| {
+            Some((contribution.name, contribution.clean_up_versions.clone()?))
+        });
+        let first = passed.next();
+        if let (Some((first, _)), Some((second, _))) = (&first, passed.next()) {
+            return Err(CompositionError::DuplicateCleanUpVersions { first, second });
+        }
+        Ok(first.map(|(_, versions)| versions))
     }
 
     /// Each operation's one handler.

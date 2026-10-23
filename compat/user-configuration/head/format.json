@@ -107,6 +107,31 @@
             },
             "type": "object"
           },
+          "clean_up": {
+            "additionalProperties": false,
+            "properties": {
+              "update": {
+                "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+                "enum": [
+                  "release",
+                  "daily",
+                  "upstream"
+                ]
+              },
+              "version": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact version of the Clean-up rules a new Run holds to, by its digest `sha256:<hex>` as Provenance names it, instead of the newest one `clean_up.update` gives: a daily version it names is fetched from the daily channel, and it is exempt from the channel's expiry and its refusal of older versions. None by default."
+              }
+            },
+            "type": "object"
+          },
           "consent": {
             "additionalProperties": false,
             "properties": {

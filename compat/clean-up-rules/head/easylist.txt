@@ -1,0 +1,4 @@
+[Adblock Plus 2.0]
+! Title: EasyList
+! Expires: 4 days (update frequency)
+/banner-ad.

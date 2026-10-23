@@ -1,0 +1,4 @@
+[Adblock Plus 2.0]
+! Title: Brave Unbreak
+! Expires: 12 hours
+@@/beacon.js?keep=1

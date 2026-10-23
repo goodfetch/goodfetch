@@ -245,3 +245,150 @@ fn a_failing_proxy_is_the_proxys_failure_never_the_navigations(
         "{navigated}"
     );
 }
+
+/// The relays the Proving ground's proxies carried out for targets that
+/// hold `marker`, in arrival order: each one's proxy and target.
+fn relays_to(proving_ground: &ProvingGround, marker: &str) -> Vec<(String, String)> {
+    proving_ground.observations().unwrap()["relays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|relay| {
+            relay["outcome"] == json!("relayed")
+                && relay["target"]
+                    .as_str()
+                    .is_some_and(|target| target.contains(marker))
+        })
+        .map(|relay| {
+            let target = relay["target"].as_str().unwrap();
+            let marked = &target[target.find(marker).unwrap()..];
+            (
+                relay["proxy"].as_str().unwrap().to_owned(),
+                marked.to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// Covers: story:5-88, operation:run.new_session, setting:proxy.server, setting:proxy.username, setting:proxy.password
+#[cfg(unix)]
+#[test]
+fn two_sessions_of_one_run_reach_the_site_each_through_its_own_proxy() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let credentials = proving_ground
+        .description()
+        .fixtures
+        .proxy_credentials
+        .clone();
+    let username = Some(credentials.username.as_str());
+    let runs = proxy_settings(&proving_ground, "http", "datacenter", username);
+    let own = proxy_settings(&proving_ground, "http", "isp", username);
+    let mut engine = started_through(
+        &env,
+        &cache,
+        &proving_ground,
+        "two-proxies",
+        runs,
+        &credentials.password,
+    );
+    let url = |mark: &str| proving_ground.url("scope.test", &format!("/storage?mark={mark}"));
+
+    let default_page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "two-proxies" }),
+    ));
+    let session = call(
+        &mut engine,
+        3,
+        "run.new_session",
+        &json!({ "run_id": "two-proxies", "settings": { "proxy": own } }),
+    );
+    let own_page = opened(&call(
+        &mut engine,
+        4,
+        "session.new_page",
+        &json!({ "session_id": session["result"]["session_id"] }),
+    ));
+    let statuses = [
+        (5, &default_page, "default"),
+        (6, &own_page, "own"),
+        (7, &default_page, "default"),
+    ]
+    .map(|(id, page, mark)| {
+        call(
+            &mut engine,
+            id,
+            "page.goto",
+            &json!({ "page_id": page.page_id, "url": url(mark) }),
+        )["result"]["response"]["status"]
+            .clone()
+    });
+    let _ = call(
+        &mut engine,
+        8,
+        "run.finish",
+        &json!({ "run_id": "two-proxies" }),
+    );
+    let _ = engine.finish();
+
+    assert_eq!(
+        (
+            statuses.to_vec(),
+            relays_to(&proving_ground, "/storage?mark=")
+        ),
+        (
+            vec![json!(200), json!(200), json!(200)],
+            vec![
+                ("datacenter".to_owned(), "/storage?mark=default".to_owned()),
+                ("isp".to_owned(), "/storage?mark=own".to_owned()),
+                ("datacenter".to_owned(), "/storage?mark=default".to_owned()),
+            ]
+        )
+    );
+}
+
+/// Covers: story:5-89, operation:session.new_page, operation:run.new_page, operation:page.goto
+#[rstest]
+#[case::a_pages_own_proxy(
+    "session.new_page",
+    json!({ "session_id": "per-page.session-1", "proxy": { "server": "http://127.0.0.1:3128" } })
+)]
+#[case::a_pages_own_settings(
+    "run.new_page",
+    json!({ "run_id": "per-page", "settings": { "proxy": { "server": "http://127.0.0.1:3128" } } })
+)]
+#[case::a_requests_own_proxy(
+    "page.goto",
+    json!({ "page_id": "page-1", "url": "http://scope.test/", "proxy": { "server": "http://127.0.0.1:3128" } })
+)]
+fn a_proxy_per_page_or_per_request_is_refused(#[case] method: &str, #[case] params: Value) {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+    let _ = call(
+        &mut engine,
+        1,
+        "run.start",
+        &json!({ "run_id": "per-page" }),
+    );
+
+    let refused = call(&mut engine, 2, method, &params);
+    let _ = call(
+        &mut engine,
+        3,
+        "run.finish",
+        &json!({ "run_id": "per-page" }),
+    );
+    let _ = engine.finish();
+
+    assert_eq!(
+        &refused["error"]["data"]["code"],
+        &json!("invalid_params"),
+        "{refused}"
+    );
+}

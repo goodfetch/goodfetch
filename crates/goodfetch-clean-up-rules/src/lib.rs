@@ -4,9 +4,11 @@
 //! never-block list, and the redirect stand-ins with their alias table.
 //! [`matching::judge`] decides what the interception does with a request:
 //! the never-block list first, then the Filter lists, then
-//! `browser.block_resources`. No browser crate is a dependency: the page
-//! crate calls it from its interception.
+//! `browser.block_resources`. [`consent::Runner`] is the Consent prompt
+//! runner's bundle (ADR 0048). No browser crate is a dependency: the page
+//! crate calls it from its interception and its consent runner.
 
+pub mod consent;
 pub mod matching;
 pub mod never_block;
 pub mod rules;

@@ -6347,6 +6347,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The site's preferences refused the navigation or the request before it left, or refused the document once its response arrived, leaving the page on a blank document: its robots.txt disallows the URL (`robots_txt`), its `Crawl-delay` asks for more than the crawl allows (`crawl_delay`), or a use signal it sends refuses the crawl's Purpose (`use_signals`). Only a crawl handler's page asks a site's preferences; a page a program opens never raises it. The details name the URL and the reason.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "site_preferences_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.",
       "exit_code": null,
       "group": "page",

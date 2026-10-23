@@ -1445,6 +1445,17 @@
       ]
     },
     {
+      "id": "error:site_preferences_refused",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:target_not_unique",
       "kind": "error",
       "area": 5,

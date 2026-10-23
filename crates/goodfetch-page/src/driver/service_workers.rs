@@ -104,8 +104,11 @@ impl PageDriver {
             frame: worker,
             navigation_timeout: Duration::ZERO,
             started: Arc::new(watch::Sender::new(0)),
+            navigating: Arc::new(watch::Sender::new(0)),
             turn: Arc::new(tokio::sync::Mutex::new(None)),
             gesture: Arc::new(tokio::sync::Mutex::new(())),
+            value: crate::page_value::PageValue::empty(),
+            waits: None,
         }
     }
 

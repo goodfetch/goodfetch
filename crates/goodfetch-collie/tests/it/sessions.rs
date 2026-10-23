@@ -534,3 +534,57 @@ fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state
         )
     );
 }
+
+/// Runs Collie's command `args` with `--json`, which fails, and returns its
+/// exit status, Error code and operation.
+fn failed_command(env: &TestEnv, args: &[&str]) -> (Option<i32>, Value, Value) {
+    let checked = goodfetch_test_support::cli(env, env!("CARGO_BIN_EXE_goodfetch-collie"))
+        .args(args)
+        .arg("--json")
+        .json("CommandFailed")
+        .unwrap();
+    (
+        checked.output.exit,
+        checked.documents[0]["error"]["code"].clone(),
+        checked.documents[0]["error"]["operation"].clone(),
+    )
+}
+
+/// `run new-session` through the command generated from the catalog, on a
+/// Run the engine of an earlier command stopped as it exited: no live Run
+/// has its ID, so the call fails with `run_not_found`.
+/// Covers: command:run.new-session
+#[test]
+fn run_new_session_on_a_run_an_earlier_command_stopped_fails_with_run_not_found() {
+    let env = TestEnv::new();
+    let started = goodfetch_test_support::cli(&env, env!("CARGO_BIN_EXE_goodfetch-collie"))
+        .args(["run", "start", "--run-id", "first"])
+        .run()
+        .unwrap();
+    assert_eq!(started.exit, Some(0), "{started}");
+
+    assert_eq!(
+        failed_command(&env, &["run", "new-session", "first"]),
+        (Some(3), json!("run_not_found"), json!("run.new_session"))
+    );
+}
+
+/// `session new-page` and `session close` through the commands generated
+/// from the catalog: no engine holds the Session they name, so each fails
+/// with `closed`.
+/// Covers: command:session.new-page, command:session.close
+#[test]
+fn session_commands_on_a_session_no_engine_holds_fail_with_closed() {
+    let env = TestEnv::new();
+
+    assert_eq!(
+        (
+            failed_command(&env, &["session", "new-page", "gone.session-1"]),
+            failed_command(&env, &["session", "close", "gone.session-1"]),
+        ),
+        (
+            (Some(3), json!("closed"), json!("session.new_page")),
+            (Some(3), json!("closed"), json!("session.close")),
+        )
+    );
+}

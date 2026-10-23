@@ -193,6 +193,7 @@ fn each_preview_minor_counts_as_a_major(
 /// 0047): a reader reads a version's manifest of its own major up to its
 /// own minor, as the default rule does, and skips any other one for the
 /// newest version it can read.
+/// Covers: format:clean-up-rules
 #[rstest]
 #[case::same_version(version(1, 4), version(1, 4), Compatibility::Compatible)]
 #[case::older_minor(version(1, 4), version(1, 0), Compatibility::Compatible)]

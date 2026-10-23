@@ -9,12 +9,21 @@
     reason = "the tests read the Daemon's log files in their own Goodfetch home"
 )]
 
-use goodfetch_test_support::{TestEnv, cli};
+use goodfetch_test_support::{RuntimeFile, SnapshotValues, TestEnv, cli, snapshot_settings};
 use serde_json::{Value, json};
 
-use crate::daemon::{StopsTheDaemon, json_of, short_idle};
+use crate::daemon::{
+    StopsTheDaemon, json_of, regex_escape, runtime_file, scripted_daemon, short_idle,
+};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
+
+/// Snapshots a command's `stderr`, this executable's path as `[COLLIE]`.
+fn stderr_snapshot(env: &TestEnv, name: &str, stderr: &str) {
+    let mut settings = snapshot_settings(&SnapshotValues::of(env));
+    settings.add_filter(&regex_escape(COLLIE), "[COLLIE]");
+    settings.bind(|| insta::assert_snapshot!(name, stderr.trim()));
+}
 
 /// The running Daemon's status, `null` when none runs.
 fn daemon(env: &TestEnv) -> Value {
@@ -102,4 +111,116 @@ fn a_command_with_no_lasting_value_runs_attached_unless_a_daemon_runs() {
         (Some(0), true, Some(0), true, true),
         "{alone}\n{beside}"
     );
+}
+
+/// Under `--daemon`, a Daemon that refuses the command's protocol version
+/// and cannot hand over ends the command with exit `11` and a `fix` naming
+/// this executable's `daemon restart` by its path (ADR 0098), read from the
+/// Scripted engine playing the Daemon (ADR 0069).
+///
+/// Covers: story:11-213, command:run.start, error:protocol_version_unsupported
+#[test]
+fn under_daemon_a_daemon_refusing_the_version_fails_with_exit_11_and_its_daemon_restart() {
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-hello-refused.json");
+
+    let output = cli(&env, COLLIE)
+        .args(["run", "start", "--run-id", "first", "--daemon"])
+        .run()
+        .unwrap();
+    scripted.child().wait().unwrap();
+
+    assert_eq!(
+        (output.exit, output.stdout.as_str()),
+        (Some(11), ""),
+        "{output}"
+    );
+    stderr_snapshot(&env, "run_start_refused_version", &output.stderr);
+}
+
+/// With neither flag, a Daemon that refuses the command's protocol version
+/// and cannot hand over leaves it to an Attached engine, after a warning
+/// that names the refusal and its fix, as `engine: "auto"` does (ADR 0098).
+///
+/// Covers: story:11-199, command:run.start
+#[test]
+fn by_default_a_daemon_refusing_the_version_leaves_the_command_to_an_attached_engine() {
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-hello-refused.json");
+
+    let output = cli(&env, COLLIE)
+        .args(["run", "start", "--run-id", "first"])
+        .run()
+        .unwrap();
+    scripted.child().wait().unwrap();
+
+    let warning = output
+        .stderr
+        .lines()
+        .find(|line| line.starts_with("warning:"))
+        .unwrap_or_default()
+        .replace(COLLIE, "[COLLIE]");
+    assert_eq!(
+        (output.exit, output.stdout.as_str(), warning.as_str()),
+        (
+            Some(0),
+            "first\n",
+            "warning: the Daemon refused this command, which runs on an Attached engine instead: This Client speaks protocol 0.1, and this engine speaks 1.0: it accepts 1.0 to 1.0. Upgrade the Client to one that speaks protocol 1.x. Run `[COLLIE] daemon restart` to restart the Daemon on its major's pick."
+        ),
+        "{output}"
+    );
+}
+
+/// A runtime file whose Daemon died is replaced: a command whose value
+/// outlives it starts a new Daemon, where its Run goes on.
+///
+/// Covers: story:11-213, command:run.start
+#[test]
+fn a_dead_pid_in_the_runtime_file_is_replaced_by_the_daemon_a_command_starts() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let scripted = scripted_daemon(&env, "daemon/dead-pid.json");
+    scripted.child().wait().unwrap();
+    let dead = RuntimeFile::read(&runtime_file(&env)).unwrap();
+
+    let output = cli(&env, COLLIE)
+        .args(["run", "start", "--run-id", "first"])
+        .run()
+        .unwrap();
+    let running = daemon(&env);
+
+    assert_eq!(
+        (
+            output.exit,
+            output.stdout.as_str(),
+            running["pid"] == json!(dead.pid),
+            running["live_runs"].clone(),
+        ),
+        (Some(0), "first\n", false, json!(1)),
+        "{output}"
+    );
+}
+
+/// A Connection to the Daemon that drops before the call is answered fails
+/// the command with `connection_lost`, an `UnavailableError`: exit `8`.
+///
+/// Covers: story:11-213, command:run.start, error:connection_lost
+#[test]
+fn a_connection_dropped_mid_command_is_reported_and_exits_8() {
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-run-start-dropped.json");
+
+    let output = cli(&env, COLLIE)
+        .args(["run", "start", "--run-id", "first", "--daemon"])
+        .run()
+        .unwrap();
+    scripted.child().wait().unwrap();
+
+    assert_eq!(
+        (output.exit, output.stdout.as_str()),
+        (Some(8), ""),
+        "{output}"
+    );
+    stderr_snapshot(&env, "run_start_connection_dropped", &output.stderr);
 }

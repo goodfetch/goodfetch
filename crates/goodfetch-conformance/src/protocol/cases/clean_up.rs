@@ -5,9 +5,16 @@
 //! lists and over `browser.block_resources`; a redirect rule's stand-in
 //! keeps a page that calls a blocked tracker working; and
 //! `browser.block_resources` blocks its kinds before every navigation and
-//! warns once. Each is judged by the Proving ground's own record of the
-//! requests it received, by the Errors the engine answers, by the Run
-//! report and by the Run trace the engine writes.
+//! warns once. Live hiding (ticket #715) hides an ad in a page and in its
+//! frame through a sheet the page's own script never sees in
+//! `document.styleSheets`, lifts the rule for the Session when a click's
+//! target sits in a hidden ad, and follows `live_view.hiding`; and
+//! extraction-side removal leaves hidden text out of the Markdown, takes
+//! ads inside open and closed shadow roots, and flags a removal over a
+//! fifth of the main content. Each is judged by the Proving ground's own
+//! record of the requests it received, its pages' own reports among them,
+//! by the Errors the engine answers, by the Run report and by the Run
+//! trace the engine writes, its Provenance log included.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

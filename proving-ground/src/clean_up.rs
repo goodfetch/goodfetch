@@ -1,7 +1,8 @@
 //! The `clean-up` pages on `clean-up.test` (ADR 0047; spec #577's Clean-up
 //! conformance cases): an article with ads and trackers, a challenge page
-//! whose anti-bot sensors a tracker list blocks, and a page that relies on
-//! a redirect stand-in. Each subresource is served from the site's own host
+//! whose anti-bot sensors a tracker list blocks, a page that relies on a
+//! redirect stand-in, and the pages of live hiding and extraction-side
+//! removal. Each subresource is served from the site's own host
 //! under a path the embedded Filter lists judge, so the record of the
 //! requests the Proving ground received is the set a client loaded: what a
 //! blocker blocks never arrives. No task: a client's conformance case reads
@@ -21,6 +22,17 @@
 //!   `pSUPERFLY.virtualPage` it defines; then, before its `load`, shows
 //!   the image `/stand-in/worked.gif`, or `/stand-in/broken.gif` when the
 //!   call threw.
+//! - `/hiding`: an article whose ad (EasyList's `##.ad-slot`) holds a
+//!   button, with its own style sheet and a frame, `/hiding/frame`, with an
+//!   ad of its own; each page's script reports, once its ad is hidden or
+//!   2 s after `load`, what the site sees: `/hiding/seen` (the frame's
+//!   `/hiding/frame-seen`) with its `document.styleSheets` count and the
+//!   ad's computed `display`. The button's click requests
+//!   `/hiding/clicked`.
+//! - `/shadow`: ads in its light DOM, in an open shadow root it declares
+//!   and in a closed one its script attaches.
+//! - `/removal`: an article most of whose text sits in an `.ad-slot`
+//!   element.
 
 use hyper::{Method, StatusCode};
 

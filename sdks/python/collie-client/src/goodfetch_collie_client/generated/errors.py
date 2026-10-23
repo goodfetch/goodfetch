@@ -595,7 +595,7 @@ class UpgradeSourceUnsupportedError(RefusedError):
 
 
 class ValueInvalidError(ProgramError):
-    """The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused."""
+    """The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The details name the key and say which was refused."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""

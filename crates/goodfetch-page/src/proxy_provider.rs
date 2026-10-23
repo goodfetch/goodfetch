@@ -13,7 +13,7 @@ pub(crate) mod list;
 
 use std::time::Duration;
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::ledger::Refusal as LedgerRefusal;
@@ -24,7 +24,7 @@ use goodfetch_protocol::page::proxy::{CountryCode, ProxyKind, ProxyServer};
 use goodfetch_protocol::run::RunWarning;
 use goodfetch_protocol::run::warning::PROXY_EXIT_MAY_CHANGE;
 use goodfetch_protocol::usage::PROXY_BYTES;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, oneshot};
 
 /// A GB, the unit a metered proxy is priced in.
 const GB: u128 = 1_000_000_000;
@@ -371,9 +371,31 @@ impl ProxyUsage {
         let _ = self.refusal.set(refusal);
     }
 
+    /// Charges `bytes` the proxy carried on a task of the Run, which runs
+    /// to its end even when the caller stops waiting for its answer, as a
+    /// relayed connection does when its Session's proxy closes or its Run
+    /// ends: the provider bills those bytes all the same, and the Run waits
+    /// for its tasks before it writes its report. Answers whether the
+    /// connection may carry more, false once a Limit refused them, when it
+    /// must carry no more.
+    pub(crate) fn charge_to_the_end(self: &Arc<Self>, bytes: u64) -> oneshot::Receiver<bool> {
+        let (answer, answered) = oneshot::channel();
+        if bytes == 0 {
+            let _ = answer.send(true);
+            return answered;
+        }
+        let usage = Arc::clone(self);
+        self.run.spawn(async move {
+            let _ = answer.send(usage.charge(bytes).await);
+        });
+        answered
+    }
+
     /// Charges `bytes` the proxy carried: whether it may carry more, false
-    /// once a Limit refused them, when the connection must carry no more.
-    pub(crate) async fn charge(&self, bytes: u64) -> bool {
+    /// once a Limit refused them. Dropping the future may leave them
+    /// uncounted ([`Run::charge`]'s cancel safety), so only
+    /// [`ProxyUsage::charge_to_the_end`]'s task awaits it.
+    async fn charge(&self, bytes: u64) -> bool {
         if bytes == 0 {
             return true;
         }

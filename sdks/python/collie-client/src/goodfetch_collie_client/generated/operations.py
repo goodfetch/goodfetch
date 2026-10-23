@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRequestParams, PageResponse, PageRouteParams, PressParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForRequestFinishedParams
+from .models import Acted, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRequestParams, PageResponse, PageRouteParams, PressParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForRequestFinishedParams
 
 
 class AsyncCaller(Protocol):
@@ -118,11 +118,18 @@ class AsyncCollieOperations:
         return KeyValueStoreDeleted.model_construct(**_fields(await self._caller.call("key_value_store.delete", params)))
 
     async def key_value_store_get(self, params: KeyValueStoreKeyParams) -> KeyValueStoreValue:
-        """Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.
+        """Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return KeyValueStoreValue.model_construct(**_fields(await self._caller.call("key_value_store.get", params)))
+
+    async def key_value_store_get_bytes(self, params: KeyValueStoreKeyParams) -> KeyValueStoreBytesValue:
+        """Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreBytesValue.model_construct(**_fields(await self._caller.call("key_value_store.get_bytes", params)))
 
     async def key_value_store_keys(self, params: KeyValueStoreKeysParams) -> KeyValueStoreKeysEnded:
         """Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock.
@@ -137,6 +144,13 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return KeyValueStoreSet.model_construct(**_fields(await self._caller.call("key_value_store.set", params)))
+
+    async def key_value_store_set_bytes(self, params: KeyValueStoreSetBytesParams) -> KeyValueStoreSet:
+        """Commits bytes with their content type for a key in a live Run's Key-value store, replacing what it held: the last commit wins. Bytes over 1 MiB are kept as a file in the Run's folder, which its Checkpoints carry.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreSet.model_construct(**_fields(await self._caller.call("key_value_store.set_bytes", params)))
 
     async def locator_click(self, params: ClickParams) -> Acted:
         """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.
@@ -520,11 +534,18 @@ class CollieOperations:
         return KeyValueStoreDeleted.model_construct(**_fields(self._caller.call("key_value_store.delete", params)))
 
     def key_value_store_get(self, params: KeyValueStoreKeyParams) -> KeyValueStoreValue:
-        """Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.
+        """Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return KeyValueStoreValue.model_construct(**_fields(self._caller.call("key_value_store.get", params)))
+
+    def key_value_store_get_bytes(self, params: KeyValueStoreKeyParams) -> KeyValueStoreBytesValue:
+        """Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreBytesValue.model_construct(**_fields(self._caller.call("key_value_store.get_bytes", params)))
 
     def key_value_store_keys(self, params: KeyValueStoreKeysParams) -> KeyValueStoreKeysEnded:
         """Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock.
@@ -539,6 +560,13 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return KeyValueStoreSet.model_construct(**_fields(self._caller.call("key_value_store.set", params)))
+
+    def key_value_store_set_bytes(self, params: KeyValueStoreSetBytesParams) -> KeyValueStoreSet:
+        """Commits bytes with their content type for a key in a live Run's Key-value store, replacing what it held: the last commit wins. Bytes over 1 MiB are kept as a file in the Run's folder, which its Checkpoints carry.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return KeyValueStoreSet.model_construct(**_fields(self._caller.call("key_value_store.set_bytes", params)))
 
     def locator_click(self, params: ClickParams) -> Acted:
         """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.

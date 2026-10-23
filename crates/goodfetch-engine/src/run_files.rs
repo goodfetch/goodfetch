@@ -1,5 +1,6 @@
 //! A Run's files the engine holds for the program (ADRs 0001, 0002, 0085,
-//! 0116 and 0122): the files of its Downloads now, and through Foxhound's
+//! 0116 and 0122): the files of its Downloads and its Key-value store's
+//! bytes over 1 MiB now, and through Foxhound's
 //! crates its Exports and WARC files. Each is kept content-addressed in the
 //! Run's folder, under `files/`, named by the lowercase hex SHA-256 of its
 //! bytes and written whole before its name appears, and recorded in a table
@@ -8,7 +9,9 @@
 //! in chunks of a table of its own, and the file a Checkpoint becomes on
 //! another machine has them back in its Run's folder, so a kept file
 //! survives a resume there too. A file is deleted with its Run, when the
-//! Run is discarded, since it lives in the Run's folder.
+//! Run is discarded, since it lives in the Run's folder, and before then
+//! once no record of the Run names it, as when a key whose bytes it holds
+//! is deleted or replaced.
 //!
 //! A kept file reaches the program's path through [`save`], under ADR
 //! 0116's rule: a hidden temporary file beside the path,
@@ -24,7 +27,7 @@ mod store;
 pub(crate) use carry::{CarryError, drop_chunks, pack, unpack};
 pub(crate) use save::{SaveError, os_code, reason_of, save};
 pub use store::{FileKind, KeepError, Kept, Record};
-pub(crate) use store::{file, find, record, store};
+pub(crate) use store::{file, find, forget, read, record, store, unrecord};
 
 use crate::run_state::RunStateTables;
 

@@ -259,6 +259,13 @@ export type HttpBody = string;
  */
 export type HttpMethod = string;
 /**
+ * Bytes the Key-value store keeps, in Base64 (RFC 4648, with padding).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreContent".
+ */
+export type KeyValueStoreContent = string;
+/**
  * Where a Run is (ADR 0029).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2042,6 +2049,35 @@ export interface PrivateEndpoint {
   token_file: string;
 }
 /**
+ * Bytes the store holds for a key, with their content type.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreBytes".
+ */
+export interface KeyValueStoreBytes {
+  /**
+   * The bytes, in Base64.
+   */
+  content: string;
+  /**
+   * Their content type, as `set_bytes` gave it.
+   */
+  content_type: string;
+}
+/**
+ * What `key_value_store.get_bytes` answers: the key's committed bytes, or
+ * null when the key is absent.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreBytesValue".
+ */
+export interface KeyValueStoreBytesValue {
+  /**
+   * The bytes and their content type, or null for an absent key.
+   */
+  bytes?: KeyValueStoreBytes | null;
+}
+/**
  * What `key_value_store.delete` answers once the key is gone.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2122,6 +2158,31 @@ export interface KeyValueStoreKeysParams {
  * via the `definition` "KeyValueStoreSet".
  */
 export interface KeyValueStoreSet {}
+/**
+ * What `key_value_store.set_bytes` takes: the Run, the key, and the bytes
+ * with their content type.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyValueStoreSetBytesParams".
+ */
+export interface KeyValueStoreSetBytesParams {
+  /**
+   * The bytes, in Base64.
+   */
+  content: string;
+  /**
+   * Their content type, such as `image/png`.
+   */
+  content_type: string;
+  /**
+   * The key.
+   */
+  key: string;
+  /**
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   */
+  run_id: string;
+}
 /**
  * What `key_value_store.set` takes: the Run, the key and its value.
  *

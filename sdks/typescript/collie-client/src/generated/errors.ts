@@ -730,7 +730,7 @@ export class UpgradeSourceUnsupportedError extends RefusedError {
 }
 
 /**
- * The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused.
+ * The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The details name the key and say which was refused.
  */
 export class ValueInvalidError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {

@@ -762,7 +762,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused.",
+      "description": "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The details name the key and say which was refused.",
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1908,7 +1908,7 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
-      "description": "Answers the value a Run's Key-value store holds for a key, as committed, or null when the key is absent. Takes no writer lock, so it reads a Run no program holds without resuming it.",
+      "description": "Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it.",
       "events": [],
       "kind": "round_trip",
       "name": "key_value_store.get",
@@ -1919,6 +1919,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/KeyValueStoreValue"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.get_bytes",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreKeyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreBytesValue"
       },
       "stability": "experimental"
     },
@@ -1952,6 +1971,25 @@
       "name": "key_value_store.set",
       "params": {
         "$ref": "#/$defs/KeyValueStoreSetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/KeyValueStoreSet"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Commits bytes with their content type for a key in a live Run's Key-value store, replacing what it held: the last commit wins. Bytes over 1 MiB are kept as a file in the Run's folder, which its Checkpoints carry.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "key_value_store.set_bytes",
+      "params": {
+        "$ref": "#/$defs/KeyValueStoreSetBytesParams"
       },
       "product": "collie",
       "reach": "all_surfaces",

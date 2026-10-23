@@ -10,11 +10,15 @@ use proptest::prelude::*;
 use rusqlite::Connection;
 use serde_json::json;
 
-use super::{TABLES, get, key_refusal, keys, set};
+use super::{Stored, TABLES, get, key_refusal, keys, set};
 
 fn store() -> Connection {
     let connection = Connection::open_in_memory().unwrap();
-    for statement in TABLES.statements {
+    for statement in TABLES
+        .statements
+        .iter()
+        .chain(crate::run_files::TABLES.statements)
+    {
         connection.execute(statement, []).unwrap();
     }
     connection
@@ -77,5 +81,8 @@ fn a_value_comes_back_as_it_was_set_with_its_nested_nulls() {
 
     set(&connection, "state", &value).unwrap();
 
-    assert_eq!(get(&connection, "state").unwrap(), Some(value));
+    assert_eq!(
+        get(&connection, "state").unwrap(),
+        Some(Stored::Json(value))
+    );
 }

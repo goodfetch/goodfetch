@@ -208,9 +208,13 @@ impl Deadlines {
     }
 }
 
+/// The codings a fetch asks for, as Chrome asks for them.
+const ACCEPT_ENCODING: &str = "gzip, deflate, br, zstd";
+
 /// Fetches `hop` through `transport` under `deadlines` on `clock`: its head
 /// within `timeout.first_byte`, its whole body within `timeout.navigation`,
-/// then its content codings decoded.
+/// then its content codings decoded. A hop that names no
+/// `Accept-Encoding` asks for every coding Chrome decodes.
 ///
 /// # Errors
 ///
@@ -227,6 +231,21 @@ pub async fn fetch(
     clock: &Clock,
 ) -> Result<Fetched, CallError> {
     let url = hop.url.as_str();
+    let asked;
+    let hop = if hop
+        .headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("accept-encoding"))
+    {
+        hop
+    } else {
+        let mut with_codings = hop.clone();
+        with_codings
+            .headers
+            .push(("accept-encoding".to_owned(), ACCEPT_ENCODING.to_owned()));
+        asked = with_codings;
+        &asked
+    };
     let whole = async {
         let mut sent = deadlines
             .first_byte

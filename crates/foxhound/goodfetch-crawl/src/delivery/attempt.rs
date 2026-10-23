@@ -21,11 +21,13 @@ use goodfetch_protocol::foxhound::crawl::{
     LEASE_LOST, WORK_ITEM_LEASED,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
+use goodfetch_protocol::foxhound::progress::InFlightPhase;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_session_pool::Effect;
 use serde_json::{Map, Value};
 
 use crate::lease::{CommitError, WorkItemLease};
+use crate::progress::SharedInFlight;
 use crate::work_items::Leased;
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -75,6 +77,7 @@ pub(super) async fn attempt(
     (leased, session, counted): (Leased, ServingSession, Counted),
     lease: WorkItemLease,
     fetching: Option<(FetchTiers, HttpTier)>,
+    in_flight: SharedInFlight,
 ) -> Attempt {
     let fetched = match &fetching {
         None => Ok(None),
@@ -94,6 +97,13 @@ pub(super) async fn attempt(
     let answer = match fetched {
         Err(answer) => answer,
         Ok(document) => {
+            if document.is_some() {
+                in_flight.lock().await.went_on(
+                    &run,
+                    &leased.crawl_request.id,
+                    InFlightPhase::Handling,
+                );
+            }
             let params = CrawlRequestHandleParams {
                 run_id: run.id().clone(),
                 crawl_request: leased.crawl_request.clone(),

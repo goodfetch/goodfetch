@@ -34,7 +34,7 @@ use serde_json::Value;
 
 use crate::composition::{CallContext, CallError, Handler};
 use crate::rpc::notification_line;
-use crate::run::run_error;
+use crate::run::{run_error, through_owner};
 use crate::run_files::{self, FileKind};
 use crate::run_state::{RunStateError, RunStateTables};
 use crate::runs::{Run, RunError, RunReader};
@@ -432,6 +432,11 @@ async fn handle_get(
     params: KeyValueStoreKeyParams,
     context: CallContext,
 ) -> Result<KeyValueStoreValue, CallError> {
+    if let Some(answer) =
+        through_owner(&context, &KEY_VALUE_STORE_GET, &params.run_id, &params).await?
+    {
+        return Ok(answer);
+    }
     let key = checked(params.key)?;
     let failed = |error: RunError| run_error(error, context.identity());
     let mut reader = context.runs().reader(params.run_id).await.map_err(failed)?;
@@ -528,6 +533,16 @@ async fn handle_get_bytes(
     params: KeyValueStoreKeyParams,
     context: CallContext,
 ) -> Result<KeyValueStoreBytesValue, CallError> {
+    if let Some(answer) = through_owner(
+        &context,
+        &KEY_VALUE_STORE_GET_BYTES,
+        &params.run_id,
+        &params,
+    )
+    .await?
+    {
+        return Ok(answer);
+    }
     let key = checked(params.key)?;
     match read_bytes(params.run_id, &key, &context).await? {
         Read::Absent => Ok(KeyValueStoreBytesValue { bytes: None }),

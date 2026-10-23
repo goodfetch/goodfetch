@@ -140,6 +140,8 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("run.stop", Offer::Command),
             ("run.abort", Offer::Command),
             ("run.usage", Offer::Command),
+            ("run.progress", Offer::Command),
+            ("run.report", Offer::Command),
             ("run.checkpoint", Offer::Command),
             ("run.pause", Offer::Command),
             ("run.migrate", Offer::Command),

@@ -43,6 +43,7 @@ mod layout;
 mod lazyfs;
 mod locator;
 mod log;
+mod navigation_egress;
 mod ops;
 mod page;
 #[cfg(unix)]
@@ -65,6 +66,7 @@ mod storage;
 mod tmpfs;
 mod upgrade_files;
 mod usage;
+mod views;
 #[cfg(target_os = "linux")]
 mod virtual_display;
 mod websocket;

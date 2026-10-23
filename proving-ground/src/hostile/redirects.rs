@@ -4,7 +4,10 @@
 //! typed error; a redirect to the Proving ground's own loopback address,
 //! whose landing records that it was reached; and, around ADR 0118's limit
 //! of 19 redirects (20 requests), a chain of 19 a correct tool follows, a
-//! chain of 20 and a loop it refuses with `too_many_redirects`.
+//! chain of 20 and a loop it refuses with `too_many_redirects`; and, on
+//! every host of the family, a chain that leaves for `catalog.test` at its
+//! third redirect, which a domain policy of `redirects.test` refuses at
+//! that hop (`/leaves/3`).
 
 use std::sync::OnceLock;
 
@@ -60,6 +63,11 @@ const REDIRECT_LIMIT: u32 = 19;
 /// the site's loopback address.
 const OWN_LOOPBACK_PATH: &str = "/to_own_loopback";
 const LANDING_PATH: &str = "/redirects/landing";
+
+/// Where the chain that leaves the family's host lands: a page of another
+/// family, whose request the connection record shows.
+const LEFT_FOR_HOST: &str = "catalog.test";
+const LEFT_FOR_PATH: &str = "/catalog/1";
 
 /// The committed SSRF case table, of which the family reads each case's
 /// name, family, redirect and refusal.
@@ -147,6 +155,7 @@ pub(super) fn respond(seed: u64, port: u16, request: &Request<'_>) -> Reply {
             LANDED_ID,
             &word(seed, FAMILY_NUMBER, u64::from(CHAIN_OF_19)),
         )),
+        _ if path.starts_with("/leaves/") => leaves(port, path),
         _ => match path
             .strip_prefix("/hops/")
             .filter(|hops| !hops.starts_with('0'))
@@ -156,6 +165,22 @@ pub(super) fn respond(seed: u64, port: u16, request: &Request<'_>) -> Reply {
             Some(hops) => Reply::found(&format!("/hops/{}", hops - 1)),
             None => Reply::not_found(),
         },
+    }
+}
+
+/// `/leaves/<n>`: a redirect to `/leaves/<n - 1>`, and from `/leaves/1`
+/// to `catalog.test`, so the chain from `/leaves/<n>` leaves the family's
+/// host at its `n`th redirect.
+fn leaves(port: u16, path: &str) -> Reply {
+    match path
+        .strip_prefix("/leaves/")
+        .filter(|left| !left.starts_with('0'))
+        .and_then(|left| left.parse::<u32>().ok())
+        .filter(|left| *left <= REDIRECT_LIMIT)
+    {
+        Some(1) => Reply::found(&format!("http://{LEFT_FOR_HOST}:{port}{LEFT_FOR_PATH}")),
+        Some(left) => Reply::found(&format!("/leaves/{}", left - 1)),
+        None => Reply::not_found(),
     }
 }
 

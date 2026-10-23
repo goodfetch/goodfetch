@@ -21,6 +21,7 @@ mod enqueue;
 mod lease;
 mod outcomes;
 mod policy;
+mod progress;
 mod report;
 mod seeding;
 mod serving;

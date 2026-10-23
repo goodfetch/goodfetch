@@ -5,13 +5,16 @@
 //! `run.pause` and `run.migrate` checkpoint a Run and stop it, resumable;
 //! `run.resume` takes the next run epoch of an interrupted Run and starts
 //! its kind's driver again; `run.set_progress_message` sets the program's
-//! own status line about its Run. Also the one translation of a start's, a Run's
+//! own status line about its Run; `run.progress` and `run.report` read a
+//! Run, through the engine that works it when that is another (ADR 0102).
+//! Also the one translation of a start's, a Run's
 //! or a setting's failure into its Error code, which a Product's own start,
 //! such as Foxhound's `crawl.start`, answers with too.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use goodfetch_protocol::catalog::Operation;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::checkpoint::{
     CHECKPOINT_INTERVAL, FILE_WRITE_FAILED, FORMAT_VERSION_UNSUPPORTED, FileWriteFailedDetails,
@@ -20,6 +23,7 @@ use goodfetch_protocol::checkpoint::{
     WriteSide,
 };
 use goodfetch_protocol::connection::StoppedBy;
+use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::formats::{Compatibility, Format};
 use goodfetch_protocol::run::{
     Checkpoint, Lifecycle, RESOURCES_EXHAUSTED, Resource, ResourcesExhaustedDetails,
@@ -32,10 +36,15 @@ use goodfetch_protocol::run::{
     RunReport, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams,
     StartedAs, StopReason,
 };
+use goodfetch_protocol::run::{
+    RUN_INTERRUPTED, RUN_PROGRESS_READ, RUN_REPORT, RunInterruptedDetails, RunProgressParams,
+};
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::usage::{
     LIMIT_NOT_UNDERSTOOD, LIMIT_REACHED, Limit, LimitNotUnderstoodDetails,
 };
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
@@ -60,7 +69,7 @@ use crate::secrets::SecretError;
 use crate::settings::{Opening, Resolved, SettingsError};
 
 /// The `run.*` handlers.
-pub(crate) fn handlers() -> [Handler; 11] {
+pub(crate) fn handlers() -> [Handler; 13] {
     [
         Handler::new(&RUN_START, start),
         Handler::new(&RUN_FINISH, finish),
@@ -73,6 +82,8 @@ pub(crate) fn handlers() -> [Handler; 11] {
         Handler::new(&RUN_RESUME, resume),
         Handler::new(&RUN_SET_PROGRESS_MESSAGE, set_progress_message),
         Handler::new(&RUN_DISCARD, discard),
+        Handler::new(&RUN_PROGRESS_READ, progress),
+        Handler::new(&RUN_REPORT, report),
     ]
 }
 
@@ -551,14 +562,7 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
             run_id,
             folder,
             error,
-        } => CallError::new(
-            &RUN_STATE_UNAVAILABLE,
-            format!("The state of the Run `{run_id}` is unavailable: {error}"),
-            &RunDetails {
-                run_id,
-                path: Some(folder.display().to_string()),
-            },
-        ),
+        } => state_unavailable(run_id, &folder, &error),
         RunError::Internal { message, .. } => internal(message),
         RunError::Draining(run_id) => draining(Some(run_id)),
         RunError::Secret { error, .. } => secret_error(&error),
@@ -569,8 +573,107 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
         } => key_mismatch(run_id, &reference, wrapped_by),
         RunError::ResourcesExhausted(exhausted) => storage_exhausted(&exhausted),
         RunError::Live(run_id) => live(run_id),
+        RunError::Interrupted(run_id) => interrupted(run_id),
+        RunError::Forwarded(failure) => forwarded(*failure),
         RunError::Stopped => stopped(),
     }
+}
+
+/// `run_state_unavailable`: the state of `run_id` in `folder` failed with
+/// `error`.
+fn state_unavailable(run_id: RunId, folder: &std::path::Path, error: &str) -> CallError {
+    CallError::new(
+        &RUN_STATE_UNAVAILABLE,
+        format!("The state of the Run `{run_id}` is unavailable: {error}"),
+        &RunDetails {
+            run_id,
+            path: Some(folder.display().to_string()),
+        },
+    )
+}
+
+/// The failure the owner of a Run answered a forwarded read with.
+fn forwarded(failure: goodfetch_protocol::jsonrpc::ErrorObject) -> CallError {
+    match goodfetch_protocol::entries::error_code(&failure.data.code) {
+        Some(definition) => CallError::new(definition, failure.message, &failure.data.details),
+        None => internal(format!("{}: {}", failure.data.code, failure.message)),
+    }
+}
+
+/// `run_interrupted`: `run_id` has no live writer and has not ended.
+fn interrupted(run_id: RunId) -> CallError {
+    CallError::new(
+        &RUN_INTERRUPTED,
+        format!("The Run `{run_id}` has no live writer and has not ended, so it has no report."),
+        &RunInterruptedDetails {
+            fix: format!("Start the Run with its Run ID `{run_id}` to resume it."),
+            run_id,
+        },
+    )
+}
+
+/// Reads `operation` with `params` of the Run `run_id` through the engine
+/// that works it, when that is another engine (ADR 0102): its answer, or
+/// `None` for the read to go on here, from the Run's committed state. A
+/// read never takes the Run's writer lock.
+///
+/// # Errors
+///
+/// The failure the owner answered.
+pub async fn through_owner<R: DeserializeOwned>(
+    context: &CallContext,
+    operation: &'static Operation,
+    run_id: &RunId,
+    params: &impl Serialize,
+) -> Result<Option<R>, CallError> {
+    let needs = if operations_of(Product::Collie).any(|known| known.name == operation.name) {
+        Product::Collie
+    } else {
+        Product::Foxhound
+    };
+    let params = serde_json::to_value(params).expect("invariant: params encode");
+    let answer = context
+        .runs()
+        .through_owner(run_id, needs, operation.name, params)
+        .await
+        .map_err(|error| run_error_of(error, context.identity(), operation.name))?;
+    answer
+        .map(|answer| {
+            serde_json::from_value(answer).map_err(|error| {
+                internal(format!(
+                    "the Run's owner answered `{}` with no value of its result: {error}",
+                    operation.name
+                ))
+            })
+        })
+        .transpose()
+}
+
+async fn progress(
+    params: RunProgressParams,
+    context: CallContext,
+) -> Result<RunProgress, CallError> {
+    if let Some(answer) =
+        through_owner(&context, &RUN_PROGRESS_READ, &params.run_id, &params).await?
+    {
+        return Ok(answer);
+    }
+    context
+        .runs()
+        .progress(params.run_id, params.after)
+        .await
+        .map_err(|error| run_error_of(error, context.identity(), RUN_PROGRESS_READ.name))
+}
+
+async fn report(params: RunParams, context: CallContext) -> Result<RunReport, CallError> {
+    if let Some(answer) = through_owner(&context, &RUN_REPORT, &params.run_id, &params).await? {
+        return Ok(answer);
+    }
+    context
+        .runs()
+        .report(params.run_id)
+        .await
+        .map_err(|error| run_error_of(error, context.identity(), RUN_REPORT.name))
 }
 
 /// `run_live`: this engine still runs `run_id`, so it is not discarded.

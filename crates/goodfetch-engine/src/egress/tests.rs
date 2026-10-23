@@ -305,6 +305,7 @@ proptest! {
     }
 }
 
+mod navigations;
 mod ssrf;
 
 /// The socket addresses a connection to `addresses` on port 80 tries.

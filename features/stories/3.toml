@@ -1263,3 +1263,43 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 161
+title = "As a developer, I want `run.progress` to answer my Run's progress at once, with its writer, run epoch, last Checkpoint time, Human pauses and status message, then the latest value after each change, a flood of changes coalesced, until a last value that says how the Run ended, so that I follow a Run without polling or a periodic status line (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 162
+title = "As a crawl developer, I want my crawl's progress to say why due requests wait, one group per reason (`domain_concurrency`, `domain_delay`, `crawl_delay`, `backoff`, `robots_txt`, `handler_concurrency`, `governor`, `session`, `human_pause`) with its count, a fixed number of the domains it holds with when each is next admitted, and the setting behind the wait with its value and layer, a reason a newer engine sends kept, so that a slow crawl is never a count with no reason (ADRs 0102 and 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 163
+title = "As a developer, I want a Human pause beginning and ending each to give my Run's progress a new value, the pause showing its Session and page, its reason, its `until`, whether the program or the engine raised it (and the engine's step), since when and its deadline, so that a waiting person is never a silent hang (ADRs 0092 and 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 164
+title = "As a developer, I want the progress of a Run whose engine died to say `writer: none`, and a start with its Run ID to resume it, so that I know a Run waits for me rather than for its engine (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 165
+title = "As a developer holding only a Run's ID, I want its progress, its report, its Run trace, its Key-value store's reads and a crawl's outcomes and Records read through the engine the Run index names as its owner, or from its run state when no engine works it, never taking or blocking its writer lock, a live Run's report arriving at its end without ending it and an interrupted one's raising `run_interrupted`, so that a monitoring program or an export reads another program's Run safely (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

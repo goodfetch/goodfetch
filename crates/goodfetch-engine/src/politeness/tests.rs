@@ -93,7 +93,7 @@ async fn engine(env: &TestEnv, name: &str, owner: &TaskOwner) -> Politeness {
 fn granted(taken: Taken) -> Permit {
     match taken {
         Taken::Granted(permit) => permit,
-        Taken::Wait(until) => panic!("refused until {until:?}"),
+        Taken::Wait(until) => panic!("held until {until:?}"),
         Taken::Refused(until) => panic!("refused, unsent, until {until:?}"),
     }
 }

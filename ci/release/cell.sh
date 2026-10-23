@@ -140,8 +140,10 @@ case "$part" in
     skip_vitest=() skip_playwright=()
     while IFS= read -r argument; do skip_vitest+=("$argument"); done < <(skip vitest)
     while IFS= read -r argument; do skip_playwright+=("$argument"); done < <(skip playwright)
-    mapfile -t vitest_order < <(ci/order-arguments.sh vitest)
-    mapfile -t playwright_order < <(ci/order-arguments.sh playwright)
+    vitest_order=()
+    while IFS= read -r argument; do vitest_order+=("$argument"); done < <(ci/order-arguments.sh vitest)
+    playwright_order=()
+    while IFS= read -r argument; do playwright_order+=("$argument"); done < <(ci/order-arguments.sh playwright)
     for entry in ${GOODFETCH_NODE_LINES:?host-tools sets GOODFETCH_NODE_LINES}; do
       line=${entry%%=*}
       folder=${entry#*=}
@@ -159,7 +161,8 @@ case "$part" in
     status=0
     skip_pytest=()
     while IFS= read -r argument; do skip_pytest+=("$argument"); done < <(skip pytest)
-    mapfile -t pytest_order < <(ci/order-arguments.sh pytest)
+    pytest_order=()
+    while IFS= read -r argument; do pytest_order+=("$argument"); done < <(ci/order-arguments.sh pytest)
     for python in ${GOODFETCH_PYTHONS:?host-tools sets GOODFETCH_PYTHONS}; do
       echo "CPython $python"
       # pytest exits 5 when it collects no test, as before any Python test exists.

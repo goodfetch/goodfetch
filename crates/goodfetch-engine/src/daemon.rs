@@ -118,11 +118,26 @@ pub enum DaemonConsole {
         url: String,
         /// How long its sign-ins last and how often an address may try.
         sign_in: SignInPolicy,
+        /// Its content origin, or none when it did not start.
+        content: Option<ContentOrigin>,
     },
     /// The Console did not start; the Daemon still serves its Clients.
     Failed(ConsoleFailure),
     /// No Console, as for a Daemon a test runs in process.
     Absent,
+}
+
+/// The Console's content origin (ADR 0031): the second origin that shows
+/// scraped HTML, screenshots, DOM snapshots and page bodies by signed
+/// address, with no cookie.
+pub struct ContentOrigin {
+    /// Its own listener, at `console.content_address`; none when it shares
+    /// the Console's listener, which tells the two apart by the `Host` of
+    /// `url` (ADR 0049).
+    pub listener: Option<ConsoleListener>,
+    /// The origin its signed addresses name, such as
+    /// `http://127.0.0.1:51234` or `console.content_public_url`.
+    pub url: String,
 }
 
 /// Which executable is the Daemon's major's pick, and what a handover takes

@@ -65,7 +65,8 @@ fn reason(rule: Rule) -> Option<&'static str> {
         Rule::ProbesAnswerStatusOnly
         | Rule::CsrfTokenMissing
         | Rule::SignInRevoked
-        | Rule::SignInRateExceeded => return None,
+        | Rule::SignInRateExceeded
+        | Rule::TokenForAnotherFile => return None,
     })
 }
 
@@ -78,6 +79,7 @@ fn listener_name(kind: ListenerKind) -> &'static str {
         ListenerKind::PrivateEndpoint => "private_endpoint",
         ListenerKind::OpsListener => "ops_listener",
         ListenerKind::Console => "console",
+        ListenerKind::ContentOrigin => "content_origin",
     }
 }
 

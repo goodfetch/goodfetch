@@ -40,6 +40,7 @@ use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::runs::{Driver, ReportPart, Runs, RunsSetup};
+use crate::secrets::{self, Keychain};
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use crate::transition::{
@@ -87,6 +88,10 @@ pub struct Dependencies {
     /// The engine's environment map, which `main` reads once (ADR 0083)
     /// and `env:` Secret references resolve in.
     pub environment: BTreeMap<OsString, OsString>,
+    /// The OS keychain `keychain:` Secret references resolve in, whose
+    /// absence makes the encrypted local file `run_state.key_reference`'s
+    /// default: `Keychain::os()` in `main`, absent in most tests.
+    pub keychain: Keychain,
 }
 
 impl Engine {
@@ -224,6 +229,7 @@ impl Engine {
                     listener,
                     url,
                     sign_in,
+                    content,
                 },
             ) => {
                 let sign_ins = SignInDriver::new(SignIns {
@@ -246,6 +252,9 @@ impl Engine {
                             major_name(&self.identity().product_version)
                         ),
                         sockets: opened_sockets,
+                        runs: runs.clone(),
+                        clock,
+                        content,
                     },
                     owner.child(),
                 ));
@@ -299,10 +308,15 @@ impl Engine {
     ) -> (Runs, Events) {
         let instance = EngineInstance::new(format!("{:016x}", dependencies.entropy.next_u64()));
         let events = Events::start(self.events, instance, owner);
-        let settings = Settings::new(
+        let keychain = dependencies.keychain.clone();
+        let settings = Settings::with_host(
             SettingsFiles::of(&dependencies.home, &self.identity().product_version),
             self.identity().product,
             owner.child(),
+            move || {
+                let keychain = keychain.clone();
+                Box::pin(async move { secrets::host_defaults(&keychain).await })
+            },
         );
         let governor = match &self.system {
             Some(system) => {
@@ -325,6 +339,7 @@ impl Engine {
         });
         let runs = Runs::start_registry(
             RunsSetup {
+                keychain: dependencies.keychain,
                 settings,
                 product: self.identity().product,
                 reached_at,

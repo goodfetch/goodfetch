@@ -13,6 +13,7 @@ listeners.ops_listener = { expect = "status", status = 401 }
 listeners.daemon_websocket = { expect = "closed" }
 listeners.exposed_daemon = { expect = "closed" }
 listeners.console = { expect = "status", status = 401 }
+listeners.content_origin = { expect = "status", status = 401 }
 "#;
 
 #[test]
@@ -160,6 +161,34 @@ listeners.private_endpoint = { expect = "closed" }
     "ops_listener",
     r#"{ expect = "status", status = 401 }"#,
     Rule::SignInRevoked,
+    ListenerKind::OpsListener
+)]
+#[case::a_closed_connection_for_a_signed_address(
+    "token_wrong",
+    "content_origin",
+    r#"{ expect = "closed" }"#,
+    Rule::TokenWrong,
+    ListenerKind::ContentOrigin
+)]
+#[case::a_first_message_rule_on_a_signed_address(
+    "hello_not_first",
+    "content_origin",
+    r#"{ expect = "status", status = 400 }"#,
+    Rule::HelloNotFirst,
+    ListenerKind::ContentOrigin
+)]
+#[case::a_query_token_rule_on_a_signed_address(
+    "token_in_query_string",
+    "content_origin",
+    r#"{ expect = "status", status = 401 }"#,
+    Rule::TokenInQueryString,
+    ListenerKind::ContentOrigin
+)]
+#[case::another_files_signature_on_a_listener_without_files(
+    "token_for_another_file",
+    "ops_listener",
+    r#"{ expect = "status", status = 401 }"#,
+    Rule::TokenForAnotherFile,
     ListenerKind::OpsListener
 )]
 fn a_cell_its_listener_cannot_try_fails(

@@ -22,7 +22,9 @@ use std::time::Duration;
 
 use goodfetch_engine::browser_cache::{self, MaxUnusedAge};
 use goodfetch_engine::daemon::files::{DaemonFiles, FileLock, new_token};
-use goodfetch_engine::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Holds, Succession};
+use goodfetch_engine::daemon::{
+    ContentOrigin, DaemonConsole, DaemonEnd, DaemonOptions, Holds, Succession,
+};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, pick, stores_floor};
 use goodfetch_engine::ops::Ops;
@@ -34,7 +36,8 @@ use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::console::{
-    ADDRESS as CONSOLE_ADDRESS, CONSOLE_PORT_IN_USE, ConsoleFailure, ConsoleState, default_address,
+    ADDRESS as CONSOLE_ADDRESS, CONSOLE_PORT_IN_USE, CONTENT_ADDRESS, CONTENT_PUBLIC_URL,
+    ConsoleFailure, ConsoleState, default_address,
 };
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, IDLE_TIMEOUT};
 use goodfetch_protocol::people::{SIGN_IN_IDLE_EXPIRY, SIGN_IN_RATE};
@@ -176,7 +179,7 @@ pub(in crate::executable) fn launched(
         let (listener, endpoint, token, activated) =
             take_listener(machine, &files, &socket, service).await?;
         let (console, console_state) = if engine.serves_console() {
-            start_console(&console_address, sign_in_policy(settings.as_ref())).await
+            start_console(&console_address, settings.as_ref()).await
         } else {
             (DaemonConsole::Absent, ConsoleState::Absent)
         };
@@ -272,11 +275,99 @@ fn sign_in_policy(settings: Option<&Resolved>) -> SignInPolicy {
     }
 }
 
+/// Where the Console's content origin listens and the origin it is
+/// reached at: `console.content_address` and
+/// `console.content_public_url`, when set.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ContentSettings {
+    address: Option<String>,
+    public_url: Option<String>,
+}
+
+/// The content origin's settings, from user configuration and the
+/// Operator policy.
+fn content_settings(settings: Option<&Resolved>) -> ContentSettings {
+    let text = |name| {
+        settings
+            .and_then(|settings| settings.value(name).as_str().map(str::to_owned))
+            .filter(|value| !value.is_empty())
+    };
+    ContentSettings {
+        address: text(CONTENT_ADDRESS.name),
+        public_url: text(CONTENT_PUBLIC_URL.name),
+    }
+}
+
+/// The Console's content origin (ADR 0031), beside the Console listening
+/// at `console`: its own listener at `console.content_address` when set;
+/// else, with `console.content_public_url`, the Console's listener, which
+/// tells the two apart by `Host` (ADR 0049); else the Console's host on a
+/// free port. Its addresses name `console.content_public_url` when set.
+/// None, logged, when it cannot listen or its public URL is no origin: the
+/// Console then serves without it.
+async fn start_content(console: SocketAddr, settings: &ContentSettings) -> Option<ContentOrigin> {
+    let public = match settings.public_url.as_deref() {
+        Some(url) if url.starts_with("http://") || url.starts_with("https://") => {
+            Some(url.trim_end_matches('/').to_owned())
+        }
+        Some(url) => {
+            tracing::error!(
+                url,
+                "`console.content_public_url` is no `http` or `https` origin, so the Console shows no Run's files; set it to an origin such as `https://content.example.com`, then run `daemon restart`"
+            );
+            return None;
+        }
+        None => None,
+    };
+    let address = match (settings.address.as_deref(), &public) {
+        (Some(address), _) => {
+            let Ok(parsed) = address.parse::<SocketAddr>() else {
+                tracing::error!(
+                    address,
+                    "`console.content_address` is no `host:port`, so the Console shows no Run's files; set it to an address and port, then run `daemon restart`"
+                );
+                return None;
+            };
+            parsed
+        }
+        (None, Some(url)) => {
+            return Some(ContentOrigin {
+                listener: None,
+                url: url.clone(),
+            });
+        }
+        (None, None) => SocketAddr::new(console.ip(), 0),
+    };
+    let bound_to = listen_console(address).await.and_then(|opened| {
+        let bound = opened.local_address()?;
+        Ok((opened, bound))
+    });
+    match bound_to {
+        Ok((listener, bound)) => {
+            let url = public.unwrap_or_else(|| format!("http://{bound}"));
+            tracing::info!(%url, "the Console's content origin serves");
+            Some(ContentOrigin {
+                listener: Some(listener),
+                url,
+            })
+        }
+        Err(error) => {
+            tracing::error!(%error, %address, "the Console's content origin cannot listen, so the Console shows no Run's files; set `console.content_address` to a free port, then run `daemon restart`");
+            None
+        }
+    }
+}
+
 /// The Daemon's Console (ADR 0031): its listener at `address`, the
-/// `console.address` setting, and the URL it is reached at; or, when the
-/// address is no `host:port` or another program holds its port, why it did
-/// not start, which fails only the Console, never the Daemon's protocol.
-async fn start_console(address: &str, sign_in: SignInPolicy) -> (DaemonConsole, ConsoleState) {
+/// `console.address` setting, and the URL it is reached at, with its
+/// sign-in policy and its content origin from `settings`; or, when the address is no `host:port` or another
+/// program holds its port, why it did not start, which fails only the
+/// Console, never the Daemon's protocol.
+async fn start_console(
+    address: &str,
+    settings: Option<&Resolved>,
+) -> (DaemonConsole, ConsoleState) {
+    let sign_in = sign_in_policy(settings);
     let failed = |failure: ConsoleFailure| {
         tracing::error!(
             code = failure.code.as_str(),
@@ -301,11 +392,13 @@ async fn start_console(address: &str, sign_in: SignInPolicy) -> (DaemonConsole, 
             Ok(bound) => {
                 let url = format!("http://{bound}/");
                 tracing::info!(%url, "the Console serves");
+                let content = start_content(bound, &content_settings(settings)).await;
                 (
                     DaemonConsole::Listening {
                         listener,
                         url: url.clone(),
                         sign_in,
+                        content,
                     },
                     ConsoleState::Serving(url),
                 )
@@ -521,9 +614,7 @@ mod tests {
                 .await
                 .unwrap();
             let address = held.local_address().unwrap().to_string();
-            start_console(&address, goodfetch_engine::people::SignInPolicy::default())
-                .await
-                .1
+            start_console(&address, None).await.1
         });
 
         let code = match state {

@@ -96,6 +96,11 @@ tokio = { workspace = true, features = ["io-util", "macros"] }
 # A WebSocket Client of `daemon run` (tests/it/websocket.rs).
 tungstenite.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }
+# The Secret tests plant a value through each provider's real interface
+# (tests/it/secrets.rs): an age file for the encrypted local file, and the
+# engine's own keychain, whose values are `SecretString`s.
+age = { workspace = true, features = ["armor"] }
+secrecy.workspace = true
 
 [package.metadata.cargo-shear]
 # The dev-dependency on itself only turns its executable on for its tests.

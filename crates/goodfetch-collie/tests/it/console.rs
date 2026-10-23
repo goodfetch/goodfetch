@@ -26,6 +26,7 @@ use goodfetch_test_support::{ConsoleState, DAEMON_DEADLINE, Daemon, RuntimeFile,
 use rstest::rstest;
 use serde_json::Value;
 
+use crate::content_origin::Signed;
 use crate::daemon::{RawClient, StopsTheDaemon, validate};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -33,8 +34,14 @@ const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 /// This commit's Product version.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The production Content Security Policy every answer carries (ADR 0031).
-const POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'; report-uri /csp-report";
+/// The production Content Security Policy every answer carries (ADR 0031),
+/// which lets the Console frame its content origin `content` and show its
+/// images, and nothing else's.
+fn policy(content: &str) -> String {
+    format!(
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' {content}; font-src 'self'; connect-src 'self'; manifest-src 'self'; frame-src {content}; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'; report-uri /csp-report"
+    )
+}
 
 /// The Console build Collie's executable embeds.
 fn console_build() -> PathBuf {
@@ -152,6 +159,29 @@ enum Route {
 #[case::a_read_of_the_sign_in("GET", Route::Path("/sign-in"), 405, None, "no-store")]
 #[case::a_session_signed_out("GET", Route::Path("/session"), 401, None, "no-store")]
 #[case::a_websocket_from_no_page("GET", Route::Path("/protocol"), 403, None, "no-store")]
+#[case::a_file_by_handle_signed_out(
+    "GET",
+    Route::Path("/bodies/first/0000000000000000000000000000000000000000000000000000000000000000"),
+    401,
+    None,
+    "no-store"
+)]
+#[case::a_content_address_signed_out(
+    "GET",
+    Route::Path(
+        "/content-address/first/0000000000000000000000000000000000000000000000000000000000000000"
+    ),
+    401,
+    None,
+    "no-store"
+)]
+#[case::a_write_to_a_file_by_handle(
+    "POST",
+    Route::Path("/bodies/first/0000000000000000000000000000000000000000000000000000000000000000"),
+    405,
+    None,
+    "no-store"
+)]
 fn every_console_answer_carries_the_production_headers(
     #[case] method: &str,
     #[case] route: Route,
@@ -160,7 +190,8 @@ fn every_console_answer_carries_the_production_headers(
     #[case] cache: &str,
 ) {
     let env = TestEnv::new();
-    let daemon = Daemon::start_program(&env, Path::new(COLLIE), DAEMON_DEADLINE).unwrap();
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let content = Signed::started(&env).content();
     let path = match route {
         Route::Path(path) => path.to_owned(),
         Route::Asset(suffix) => served_path_ending_in(suffix),
@@ -185,7 +216,11 @@ fn every_console_answer_carries_the_production_headers(
             .map(|value| value.to_str().unwrap().to_owned())
     };
     assert_eq!(response.status().as_u16(), status);
-    assert_eq!(header("content-security-policy").as_deref(), Some(POLICY));
+    assert_eq!(
+        header("content-security-policy"),
+        Some(policy(&content)),
+        "the Console's policy names its content origin"
+    );
     assert_eq!(header("referrer-policy").as_deref(), Some("no-referrer"));
     assert_eq!(
         header("cross-origin-opener-policy").as_deref(),
@@ -200,7 +235,6 @@ fn every_console_answer_carries_the_production_headers(
     assert_eq!(header("content-type").as_deref(), content_type);
     let encoding = content_type.map(|_| "br");
     assert_eq!(header("content-encoding").as_deref(), encoding);
-    daemon.stop(&env).unwrap();
 }
 
 /// Covers: story:12-128

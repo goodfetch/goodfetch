@@ -104,6 +104,7 @@ pub(crate) fn dispatch(calls: &[u8], home: &Path) -> usize {
         };
         let dependencies = Dependencies {
             environment: std::collections::BTreeMap::new(),
+            keychain: goodfetch_engine::secrets::Keychain::absent(),
             home: Home::new(home.to_owned()),
             clock: Clock::paused(std::time::UNIX_EPOCH),
             entropy: Entropy::seeded(0),

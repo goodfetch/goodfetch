@@ -20,9 +20,16 @@ paths = [
 ]
 
 [[allowlists]]
-description = "The certificate_file fuzz target's seeds (ADR 0067): keys made once for the seeds, which sign nothing and guard nothing"
+description = "The certificate_file fuzz target's seeds and dictionary (ADR 0067): keys made once for the seeds, which sign nothing and guard nothing, and the PEM markers it mutates around"
 paths = [
   '''(^|/)crates/goodfetch-engine/fuzz/certificate_file/seeds/''',
+  '''(^|/)crates/goodfetch-engine/fuzz/certificate_file/dictionary\.dict$''',
+]
+
+[[allowlists]]
+description = "Third-party filter lists vendored as published (ADR 0047, #713): their comments cite upstream commit IDs, which match token rules"
+paths = [
+  '''(^|/)crates/goodfetch-clean-up-rules/rules/[^/]+\.txt$''',
 ]
 
 [[allowlists]]

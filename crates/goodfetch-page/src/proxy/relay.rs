@@ -17,7 +17,9 @@
 //! every byte on its connections to the proxy, the handshakes included, is
 //! charged to its Run, under its proxy kind, before the browser or the
 //! proxy is given it ([`ProxyUsage`]); once a Limit refuses a charge, the
-//! connection closes. The listener binds port 0 of loopback and reports its
+//! connection closes. A connection that closes while a charge is under way,
+//! or with bytes not yet charged, as when its Run ends mid-transfer, still
+//! has them charged in full: the provider bills every byte it carried. The listener binds port 0 of loopback and reports its
 //! address (ADR 0059), and it closes, with every connection it relays, when
 //! the Session's proxy is dropped or its Run stops.
 #![expect(
@@ -190,7 +192,7 @@ async fn as_it_is(mut browser: TcpStream, upstream: &Upstream, http: bool) {
         }
         return;
     };
-    let mut proxy = Tallied::new(proxy, upstream.usage.as_deref());
+    let mut proxy = Tallied::new(proxy, upstream.usage.clone());
     let _ = pass(&mut browser, &mut proxy).await;
 }
 
@@ -216,7 +218,7 @@ async fn socks5(
         let _ = browser.write_all(&reply(GENERAL_FAILURE)).await;
         return;
     };
-    let mut proxy = Tallied::new(proxy, upstream.usage.as_deref());
+    let mut proxy = Tallied::new(proxy, upstream.usage.clone());
     match authenticate(&mut proxy, username, password).await {
         Ok(true) => {}
         Ok(false) => {
@@ -245,16 +247,17 @@ async fn socks5(
 }
 
 /// The proxy's end of a relayed connection, which tallies every byte read
-/// from it or written to it; its owner charges them at [`Tallied::charged`].
-struct Tallied<'usage> {
+/// from it or written to it; its owner charges them at [`Tallied::charged`],
+/// and what is left uncharged when it is dropped is charged then.
+struct Tallied {
     stream: TcpStream,
-    usage: Option<&'usage ProxyUsage>,
+    usage: Option<Arc<ProxyUsage>>,
     /// The bytes carried since the last charge.
     uncharged: u64,
 }
 
-impl<'usage> Tallied<'usage> {
-    fn new(stream: TcpStream, usage: Option<&'usage ProxyUsage>) -> Self {
+impl Tallied {
+    fn new(stream: TcpStream, usage: Option<Arc<ProxyUsage>>) -> Self {
         Self {
             stream,
             usage,
@@ -262,12 +265,13 @@ impl<'usage> Tallied<'usage> {
         }
     }
 
-    /// Charges the bytes carried since the last charge: whether the
-    /// connection may carry more, false once a Limit refused them.
+    /// Charges the bytes carried since the last charge, to the end even if
+    /// the relay stops waiting: whether the connection may carry more,
+    /// false once a Limit refused them.
     async fn charged(&mut self) -> bool {
         let bytes = std::mem::take(&mut self.uncharged);
-        match self.usage {
-            Some(usage) => usage.charge(bytes).await,
+        match &self.usage {
+            Some(usage) => usage.charge_to_the_end(bytes).await.unwrap_or(false),
             None => true,
         }
     }
@@ -279,7 +283,17 @@ impl<'usage> Tallied<'usage> {
     }
 }
 
-impl AsyncRead for Tallied<'_> {
+impl Drop for Tallied {
+    /// Charges what the connection carried since its last charge: a write
+    /// its Run's end or a failure cut short.
+    fn drop(&mut self) {
+        if let Some(usage) = &self.usage {
+            drop(usage.charge_to_the_end(self.uncharged));
+        }
+    }
+}
+
+impl AsyncRead for Tallied {
     fn poll_read(
         self: std::pin::Pin<&mut Self>,
         context: &mut std::task::Context<'_>,
@@ -294,7 +308,7 @@ impl AsyncRead for Tallied<'_> {
     }
 }
 
-impl AsyncWrite for Tallied<'_> {
+impl AsyncWrite for Tallied {
     fn poll_write(
         self: std::pin::Pin<&mut Self>,
         context: &mut std::task::Context<'_>,
@@ -327,7 +341,7 @@ impl AsyncWrite for Tallied<'_> {
 /// ends close, charging what the proxy sends before the browser is given
 /// it and what the browser sends once the proxy took it; it stops at the
 /// first refused charge.
-async fn pass(browser: &mut TcpStream, proxy: &mut Tallied<'_>) -> std::io::Result<()> {
+async fn pass(browser: &mut TcpStream, proxy: &mut Tallied) -> std::io::Result<()> {
     let mut up = vec![0; CHUNK];
     let mut down = vec![0; CHUNK];
     let (mut browser_open, mut proxy_open) = (true, true);
@@ -403,7 +417,7 @@ async fn read_request(stream: &mut (impl AsyncRead + Unpin)) -> std::io::Result<
 /// Authenticates with the proxy as `username`: whether it took the
 /// credentials.
 async fn authenticate(
-    proxy: &mut Tallied<'_>,
+    proxy: &mut Tallied,
     username: &str,
     password: &SecretString,
 ) -> std::io::Result<bool> {

@@ -14,17 +14,18 @@
 )]
 #![expect(
     clippy::disallowed_methods,
-    reason = "the SOCKS5 test reads the Goodfetch home's files, and the Usage test polls the Proving ground, on its own thread, never an async worker"
+    reason = "the SOCKS5 test reads the Goodfetch home's files, the Usage tests poll the Proving ground and run a sink proxy, on their own threads, never an async worker"
 )]
 
 use std::collections::BTreeSet;
+use std::sync::mpsc;
 
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::attached::{Attached, hello};
-use crate::page::opened;
+use crate::page::{BROWSER_DEADLINE, opened};
 use crate::run::call;
 
 /// The Error code of `answer`'s error, the key it names and its layer.
@@ -895,6 +896,152 @@ fn a_sessions_proxy_bytes_count_by_proxy_kind_at_the_providers_price() {
             &json!(true),
             &json!([{ "kind": "isp", "bytes": carried }]),
         ),
+        "{used}"
+    );
+}
+
+/// What the sink proxy saw, as it saw it.
+enum Sunk {
+    /// It accepted a connection from this address.
+    Opened(std::net::SocketAddr),
+    /// It read this many bytes on one.
+    Read(u64),
+    /// One of its connections reached its end.
+    Ended,
+}
+
+/// A proxy stand-in on loopback, on threads of its own, that reads every
+/// byte each connection sends it to the connection's end and answers
+/// nothing: its address, and what it sees.
+#[expect(
+    clippy::disallowed_types,
+    reason = "the sink proxy is a loopback listener on the test's own threads, never an async worker"
+)]
+fn sink() -> (std::net::SocketAddr, mpsc::Receiver<Sunk>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (seen, sunk) = mpsc::channel();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().map_while(Result::ok) {
+            let _ = seen.send(Sunk::Opened(stream.peer_addr().unwrap()));
+            let seen = seen.clone();
+            std::thread::spawn(move || {
+                let mut buffer = vec![0; 64 * 1024];
+                while let Ok(read @ 1..) = std::io::Read::read(&mut stream, &mut buffer) {
+                    let _ = seen.send(Sunk::Read(read as u64));
+                }
+                let _ = seen.send(Sunk::Ended);
+            });
+        }
+    });
+    (address, sunk)
+}
+
+/// Every byte the sink proxy at `address` read, once each of its
+/// connections ended: a connection of the test's own, opened last, closes
+/// at once, so every earlier one was accepted by the time it is.
+#[expect(
+    clippy::disallowed_types,
+    reason = "the test's last connection to the sink proxy is a loopback socket on the test's own thread"
+)]
+fn sunk_once_ended(
+    address: std::net::SocketAddr,
+    sunk: &mpsc::Receiver<Sunk>,
+    mut read: u64,
+) -> u64 {
+    let last = std::net::TcpStream::connect(address).unwrap();
+    let last_address = last.local_addr().unwrap();
+    drop(last);
+    let (mut opened, mut ended, mut seen_last) = (0, 0, false);
+    while !(seen_last && opened == ended) {
+        match sunk.recv_timeout(BROWSER_DEADLINE).unwrap() {
+            Sunk::Opened(peer) => {
+                opened += 1;
+                seen_last |= peer == last_address;
+            }
+            Sunk::Read(bytes) => read += bytes,
+            Sunk::Ended => ended += 1,
+        }
+    }
+    read
+}
+
+/// The bytes a page uploads through its proxy: far more than it carries
+/// before the Run ends.
+const UPLOAD: u64 = 8 * 1024 * 1024;
+
+/// What the sink proxy must have read before the Run ends: the upload is
+/// under way.
+const UNDER_WAY: u64 = 1024 * 1024;
+
+/// Covers: story:8-92, setting:proxy.providers, operation:run.usage
+#[cfg(unix)]
+#[test]
+fn a_run_ending_mid_upload_counts_every_byte_its_proxy_took() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let (address, sunk) = sink();
+    let configuration = format!(
+        "[settings.proxy.providers.list]\nservers = [{{ server = \"http://{address}\", kind = \"isp\" }}]\n"
+    );
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "uploading",
+        &configuration,
+        &json!({ "proxy": { "provider": "list", "kind": "isp" } }),
+        &[],
+    );
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "uploading" }),
+    ));
+    // The sink never answers, so the request is still sending when the Run
+    // ends, which answers it.
+    let zeros = "A".repeat(usize::try_from(UPLOAD / 3 * 4).unwrap());
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 3, "method": "page.request",
+        "params": {
+            "page_id": page.page_id,
+            "url": proving_ground.url("scope.test", "/upload"),
+            "method": "POST",
+            "post_data": zeros,
+        },
+    }));
+    let mut read = 0;
+    while read < UNDER_WAY {
+        match sunk.recv_timeout(BROWSER_DEADLINE).unwrap() {
+            Sunk::Read(bytes) => read += bytes,
+            Sunk::Opened(_) | Sunk::Ended => {}
+        }
+    }
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 4, "method": "run.finish", "params": { "run_id": "uploading" },
+    }));
+    let finished = std::iter::from_fn(|| engine.next())
+        .find(|answer| answer["id"] == json!(4))
+        .unwrap();
+    let used = call(
+        &mut engine,
+        5,
+        "run.usage",
+        &json!({ "run_id": "uploading" }),
+    );
+    let _ = engine.finish();
+    let read = sunk_once_ended(address, &sunk, read);
+
+    assert_eq!(
+        (
+            finished.get("result").is_some(),
+            read < UPLOAD,
+            &used["result"]["proxy_bytes"],
+        ),
+        (true, true, &json!(read)),
         "{used}"
     );
 }

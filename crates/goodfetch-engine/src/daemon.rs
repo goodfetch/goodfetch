@@ -588,10 +588,11 @@ fn serve_connection(
         shared: Arc::clone(shared),
         connection: id,
     });
-    let (dispatch, runs, events) = (
+    let (dispatch, runs, events, clock) = (
         Arc::clone(&serving.dispatch),
         serving.runs.on_connection(id),
         serving.events.clone(),
+        serving.clock,
     );
     let websocket = shared.websocket.clone();
     let its_owner = connections.child();
@@ -611,12 +612,21 @@ fn serve_connection(
                         runs.clone(),
                         events,
                         access,
+                        clock,
                     )
                     .await;
                 }
                 Arriving::Console(socket) => {
-                    rpc::serve_console(dispatch, socket, &its_owner, runs.clone(), events, side)
-                        .await;
+                    rpc::serve_console(
+                        dispatch,
+                        socket,
+                        &its_owner,
+                        runs.clone(),
+                        events,
+                        side,
+                        clock,
+                    )
+                    .await;
                 }
             }
         };

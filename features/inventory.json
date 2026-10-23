@@ -431,7 +431,7 @@
     {
       "id": "command:response.body",
       "kind": "command",
-      "area": null,
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1578,7 +1578,7 @@
     {
       "id": "event:web_socket.close",
       "kind": "event",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1589,7 +1589,7 @@
     {
       "id": "event:web_socket.frame_received",
       "kind": "event",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1600,7 +1600,7 @@
     {
       "id": "event:web_socket.frame_sent",
       "kind": "event",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2235,7 +2235,7 @@
     {
       "id": "operation:page.on",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2268,7 +2268,7 @@
     {
       "id": "operation:page.wait_for_request_finished",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2279,7 +2279,7 @@
     {
       "id": "operation:response.body",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [

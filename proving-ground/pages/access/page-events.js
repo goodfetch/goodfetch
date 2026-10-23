@@ -12,16 +12,23 @@
   console.warn("page-events warning");
   console.error("page-events error");
 
-  const quietly = (request) => request.then((response) => response.text()).catch(() => "");
+  const requests = [
+    ["/page-events/data.json"],
+    ["/page-events/missing"],
+    ["/page-events/aborted"],
+    [`http://elsewhere.test:${location.port}/page-events/data.json`, { mode: "no-cors" }],
+    ["http://nowhere.invalid/page-events"],
+  ];
 
   const run = async () => {
-    await quietly(fetch("/page-events/data.json"));
-    await quietly(fetch("/page-events/missing"));
-    await quietly(fetch("/page-events/aborted"));
-    await quietly(
-      fetch(`http://elsewhere.test:${location.port}/page-events/data.json`, { mode: "no-cors" }),
-    );
-    await quietly(fetch("http://nowhere.invalid/page-events"));
+    for (const [url, init] of requests) {
+      try {
+        const response = await fetch(url, init);
+        await response.text();
+      } catch {
+        // A failed request is one of the events the page reports.
+      }
+    }
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${scheme}//${location.host}/page-events/socket`);
     socket.addEventListener("open", () => socket.send("page-events hello"));

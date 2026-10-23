@@ -7,7 +7,8 @@
 //! element a locator matches, through the guard (ADR 0019); and the Error
 //! codes a page's browser, its navigations, its locators and the URL
 //! patterns its calls pass fail with. Its `route` module holds the page's
-//! and the Session's routes.
+//! and the Session's routes, its `events` module the page's events and its
+//! responses' bodies.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -15,6 +16,10 @@
 //! `page.body`, which sends it in `$/chunk` notifications, one per credit
 //! the Client grants the call with `$/credit`, and answers once the last
 //! chunk is sent.
+//!
+//! Size: the page API's catalog module, whose `ENTRIES` lists every entry of
+//! its submodules, kept whole so a page's operations, events and Error
+//! codes are declared in one list (ADR 0099).
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;

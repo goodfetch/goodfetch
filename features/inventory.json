@@ -121,6 +121,28 @@
       ]
     },
     {
+      "id": "command:certs.accept",
+      "kind": "command",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:certs.forget",
+      "kind": "command",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:certs.list",
       "kind": "command",
       "area": 4,
@@ -761,6 +783,17 @@
       "id": "error:capability_unavailable",
       "kind": "error",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:certificate_changed",
+      "kind": "error",
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2017,6 +2050,28 @@
     },
     {
       "id": "operation:audit.verify",
+      "kind": "operation",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:certs.accept",
+      "kind": "operation",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:certs.forget",
       "kind": "operation",
       "area": 4,
       "milestone": null,
@@ -4581,6 +4636,17 @@
       ]
     },
     {
+      "id": "setting:browser.block_resources",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:browser.headless",
       "kind": "setting",
       "area": 5,
@@ -4906,7 +4972,62 @@
       ]
     },
     {
+      "id": "setting:filter_lists.ads",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:filter_lists.annoyances",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:filter_lists.extra",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:filter_lists.first_party_scripts",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:filter_lists.page_scriptlets",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:filter_lists.trackers",
       "kind": "setting",
       "area": 5,
       "milestone": null,

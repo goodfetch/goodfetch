@@ -34,11 +34,12 @@
 )]
 
 mod answers;
+mod clean_up;
 mod pipeline;
 mod routes;
 mod steps;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use goodfetch_cdp::generated::fetch;
@@ -46,13 +47,18 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
+use goodfetch_engine::settings::{RunSettings, Values};
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::route::{RouteId, UrlMatcher};
-use goodfetch_protocol::page::{PageId, SessionId};
+use goodfetch_protocol::page::{BROWSER_BLOCK_RESOURCES, PageId, SessionId};
+use goodfetch_protocol::run::RunWarning;
+use goodfetch_protocol::run::warning::BLOCK_RESOURCES_VISIBLE;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails};
 
 use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
+use self::clean_up::CleanUp;
+pub(crate) use self::clean_up::SESSION_KEYS;
 use self::pipeline::PageContext;
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
@@ -81,12 +87,17 @@ pub(crate) struct Interception {
 struct Shared {
     tables: Mutex<Tables>,
     answers: Answers,
+    /// The Clean-up rules step 4 matches, loaded once for every Session.
+    clean_up: CleanUp,
 }
 
 #[derive(Default)]
 struct Tables {
     pages: BTreeMap<PageId, Arc<PageState>>,
     sessions: BTreeMap<SessionId, Arc<RouteTable>>,
+    /// The Sessions whose Run was warned that `browser.block_resources`
+    /// shows.
+    warned: BTreeSet<SessionId>,
 }
 
 /// One page's side of the interception: its routes, its Session's, and the
@@ -123,8 +134,9 @@ impl Interception {
 
     /// Puts the page `page_id` of the Session `session`, which `driver`
     /// drives for `run`, under the interception: every request of its
-    /// target is paused and passes the pipeline from now on, each refusal
-    /// left in `refusals` for the request's failure to carry.
+    /// target is paused and passes the pipeline from now on, its Clean-up
+    /// rules chosen by `own`, the Session's own settings, over the Run's,
+    /// each refusal left in `refusals` for the request's failure to carry.
     ///
     /// # Errors
     ///
@@ -141,6 +153,7 @@ impl Interception {
         session: &SessionId,
         driver: &PageDriver,
         run: &Run,
+        own: &Values,
         refusals: Refusals,
     ) -> Result<(), CallError> {
         let policy = match run.settings() {
@@ -161,6 +174,14 @@ impl Interception {
                 },
             )
         })?;
+        let resolved = run.settings().map(RunSettings::resolved);
+        let choices = clean_up::choices(resolved, own);
+        let blocked = (!choices.block_resources.is_empty())
+            .then(|| clean_up::effective(resolved, own, BROWSER_BLOCK_RESOURCES.name).to_string());
+        let blocking = self.shared.clean_up.blocking(choices, run.owner()).await;
+        if let Some(blocked) = blocked {
+            self.warn_of_blocked_resources(session, run, &blocked).await;
+        }
         let state = {
             let mut tables = lock(&self.shared.tables);
             let session = Arc::clone(tables.sessions.entry(session.clone()).or_default());
@@ -189,11 +210,35 @@ impl Interception {
             state,
             self.shared.answers.clone(),
             policy,
+            blocking,
             refusals,
             run.clone(),
         ));
         run.spawn(pipeline::dispatch(events, context));
         Ok(())
+    }
+
+    /// Warns `run`, once for the Session `session`, that its
+    /// `browser.block_resources`, `blocked`, blocks loads the site can see missing,
+    /// since few people block images or fonts (ADRs 0047, 0117). It warns
+    /// in `standard` and `stealth`, never in `identified`; until area 8's
+    /// Access mode setting, every Session is `standard`.
+    async fn warn_of_blocked_resources(&self, session: &SessionId, run: &Run, blocked: &str) {
+        if !lock(&self.shared.tables).warned.insert(session.clone()) {
+            return;
+        }
+        let warning = RunWarning {
+            code: BLOCK_RESOURCES_VISIBLE.to_owned(),
+            message: format!(
+                "The Session's `{}` blocks {blocked}: a site can see the missing loads, which few people block.",
+                BROWSER_BLOCK_RESOURCES.name
+            ),
+            sessions: vec![session.0.clone()],
+            folder: None,
+        };
+        if let Err(error) = run.warn(warning).await {
+            tracing::warn!(%error, "the warning of `browser.block_resources` was not kept");
+        }
     }
 
     /// Arms a route of `scope` for the requests whose URL `matcher`

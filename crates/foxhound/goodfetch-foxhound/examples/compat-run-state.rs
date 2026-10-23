@@ -180,7 +180,7 @@ fn bound() -> Contribution {
                     .write(|connection| {
                         connection
                             .execute(
-                                "INSERT INTO page_sessions (position, is_default, closed) VALUES (1, 1, 0), (2, 0, 1)",
+                                r#"INSERT INTO page_sessions (position, is_default, closed, settings) VALUES (1, 1, 0, '{}'), (2, 0, 1, '{"filter_lists.ads":false}')"#,
                                 [],
                             )
                             .map(drop)

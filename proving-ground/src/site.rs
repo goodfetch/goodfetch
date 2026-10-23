@@ -23,6 +23,7 @@ use crate::agent;
 use crate::browser_pages;
 use crate::catalog;
 use crate::certificates;
+use crate::clean_up;
 use crate::crawl::{self, Families};
 use crate::encodings;
 use crate::exchange::{Reply, Request};
@@ -120,6 +121,7 @@ impl Site {
                 extraction::HOST,
                 files::HOST,
                 languages::HOST,
+                clean_up::HOST,
             ])
             .map(|host| (host.to_owned(), None))
             .collect();
@@ -291,6 +293,9 @@ impl Site {
             return reply;
         }
         if let Some(reply) = certificates::respond(&name) {
+            return reply;
+        }
+        if let Some(reply) = clean_up::respond(&name, request) {
             return reply;
         }
         if name == model::HOST {

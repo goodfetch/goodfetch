@@ -952,6 +952,14 @@
     "CertificatePin": {
       "description": "One pin of the known-certificates store, as `certs.list` answers it and\nas the store's rows hold it: a host whose certificate was accepted on\nfirst use, and the key it must keep presenting.",
       "properties": {
+        "changed_spki_sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the key the host presented instead, which stopped it\nwith `certificate_changed`, as `sha256/` and its standard base64: the\nkey `certs.accept` pins in its place. None while no change waits.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "host": {
           "arrived_in": "0.1",
           "description": "The host, as the URL parser leaves it.",
@@ -992,6 +1000,70 @@
       },
       "required": [
         "host"
+      ],
+      "type": "object"
+    },
+    "CertsAcceptParams": {
+      "additionalProperties": false,
+      "description": "What `certs.accept` takes: the host, and the changed key the person\naccepts, as `certs.list` shows it.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The pinned host, as the URL parser leaves it.",
+          "type": "string"
+        },
+        "spki_sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the changed key, as `sha256/` and its standard base64.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "spki_sha256"
+      ],
+      "type": "object"
+    },
+    "CertsForgetParams": {
+      "additionalProperties": false,
+      "description": "What `certs.forget` takes: the host.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The pinned host, as the URL parser leaves it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host"
+      ],
+      "type": "object"
+    },
+    "CertsForgotten": {
+      "description": "What `certs.forget` answers.",
+      "properties": {
+        "forgotten": {
+          "arrived_in": "0.1",
+          "description": "Whether the caller had a pin for it, now removed.",
+          "type": "boolean"
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The host.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "forgotten"
       ],
       "type": "object"
     },
@@ -4921,7 +4993,7 @@
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "The Session's own settings, nested by key; `session.source` is\nrefused here with `setting_not_applicable`, as the call's own\n`source` sets it.",
+          "description": "The Session's own settings, nested by key: `filter_lists.ads`,\n`.trackers`, `.annoyances`, `.first_party_scripts` and\n`browser.block_resources` choose its pages' Clean-up rules over the\nRun's. `session.source` is refused here with `setting_not_applicable`,\nas the call's own `source` sets it, and so is any other key, which\nonly the Run sets.",
           "type": "object"
         },
         "source": {
@@ -11122,6 +11194,18 @@
               "browser": {
                 "additionalProperties": false,
                 "properties": {
+                  "block_resources": {
+                    "description": "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
+                    "items": {
+                      "enum": [
+                        "image",
+                        "media",
+                        "font",
+                        "stylesheet"
+                      ]
+                    },
+                    "type": "array"
+                  },
                   "headless": {
                     "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
                     "type": "boolean"
@@ -11426,12 +11510,32 @@
               "filter_lists": {
                 "additionalProperties": false,
                 "properties": {
+                  "ads": {
+                    "description": "Whether a browser Session blocks ads by EasyList, as a blocker does: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                    "type": "boolean"
+                  },
+                  "annoyances": {
+                    "description": "Whether a browser Session blocks page annoyances (social widgets, newsletter and notification prompts) by Fanboy Annoyance, its cookie sections left to the Consent prompt runner: on by default in every Access mode.",
+                    "type": "boolean"
+                  },
                   "extra": {
                     "description": "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
                     "items": {
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "first_party_scripts": {
+                    "description": "Whether a site's own scripts load whatever the Filter lists say: off by default.",
+                    "type": "boolean"
+                  },
+                  "page_scriptlets": {
+                    "description": "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
+                    "type": "boolean"
+                  },
+                  "trackers": {
+                    "description": "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -12397,6 +12501,18 @@
               "browser": {
                 "additionalProperties": false,
                 "properties": {
+                  "block_resources": {
+                    "description": "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
+                    "items": {
+                      "enum": [
+                        "image",
+                        "media",
+                        "font",
+                        "stylesheet"
+                      ]
+                    },
+                    "type": "array"
+                  },
                   "headless": {
                     "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
                     "type": "boolean"
@@ -12701,12 +12817,32 @@
               "filter_lists": {
                 "additionalProperties": false,
                 "properties": {
+                  "ads": {
+                    "description": "Whether a browser Session blocks ads by EasyList, as a blocker does: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                    "type": "boolean"
+                  },
+                  "annoyances": {
+                    "description": "Whether a browser Session blocks page annoyances (social widgets, newsletter and notification prompts) by Fanboy Annoyance, its cookie sections left to the Consent prompt runner: on by default in every Access mode.",
+                    "type": "boolean"
+                  },
                   "extra": {
                     "description": "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
                     "items": {
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "first_party_scripts": {
+                    "description": "Whether a site's own scripts load whatever the Filter lists say: off by default.",
+                    "type": "boolean"
+                  },
+                  "page_scriptlets": {
+                    "description": "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
+                    "type": "boolean"
+                  },
+                  "trackers": {
+                    "description": "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -13688,6 +13824,18 @@
               "browser": {
                 "additionalProperties": false,
                 "properties": {
+                  "block_resources": {
+                    "description": "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
+                    "items": {
+                      "enum": [
+                        "image",
+                        "media",
+                        "font",
+                        "stylesheet"
+                      ]
+                    },
+                    "type": "array"
+                  },
                   "headless": {
                     "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
                     "type": "boolean"
@@ -13992,12 +14140,32 @@
               "filter_lists": {
                 "additionalProperties": false,
                 "properties": {
+                  "ads": {
+                    "description": "Whether a browser Session blocks ads by EasyList, as a blocker does: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                    "type": "boolean"
+                  },
+                  "annoyances": {
+                    "description": "Whether a browser Session blocks page annoyances (social widgets, newsletter and notification prompts) by Fanboy Annoyance, its cookie sections left to the Consent prompt runner: on by default in every Access mode.",
+                    "type": "boolean"
+                  },
                   "extra": {
                     "description": "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
                     "items": {
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "first_party_scripts": {
+                    "description": "Whether a site's own scripts load whatever the Filter lists say: off by default.",
+                    "type": "boolean"
+                  },
+                  "page_scriptlets": {
+                    "description": "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
+                    "type": "boolean"
+                  },
+                  "trackers": {
+                    "description": "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"

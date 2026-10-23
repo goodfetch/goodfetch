@@ -533,6 +533,11 @@ async fn send_to(
         let listed = network
             .exceptions
             .filter(|exceptions| exceptions.covers(server.host));
+        if let Some(exceptions) = listed
+            && let Some(stopped) = exceptions.stopped(server.host).await
+        {
+            return Err(Failure::CertificateChanged(stopped));
+        }
         let seen = listed.map(|_| Arc::new(tls::Seen::default()));
         let config = match &seen {
             Some(seen) => network.trust.client_config_presenting(Arc::clone(seen)),

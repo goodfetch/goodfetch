@@ -17,9 +17,9 @@
 //! the Client grants the call with `$/credit`, and answers once the last
 //! chunk is sent.
 //!
-//! Size: the page API's catalog module, whose `ENTRIES` lists every entry of
-//! its submodules, kept whole so a page's operations, events and Error
-//! codes are declared in one list (ADR 0099).
+//! Size: one catalog module, the contract of a Run's pages: their
+//! operations, Error codes and `browser.*` settings, kept whole so each
+//! entry sits beside the others it is listed with.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -783,6 +783,26 @@ fn headless() -> serde_json::Value {
     serde_json::Value::Bool(true)
 }
 
+/// The resource kinds `browser.block_resources` takes, a closed list (ADR
+/// 0117).
+pub const BLOCKABLE_RESOURCES: &[&str] = &["image", "media", "font", "stylesheet"];
+
+/// `browser.block_resources` (ADRs 0047 and 0117; spec #577).
+pub const BROWSER_BLOCK_RESOURCES: Setting = Setting {
+    name: "browser.block_resources",
+    description: "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
+    kind: ValueKind::List(&ValueKind::Choice(BLOCKABLE_RESOURCES)),
+    default: no_resources,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn no_resources() -> serde_json::Value {
+    serde_json::Value::Array(Vec::new())
+}
+
 /// A format asked for as `true`: with its default options.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Asked;
@@ -1013,7 +1033,7 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[BROWSER_HEADLESS],
+    settings: &[BROWSER_HEADLESS, BROWSER_BLOCK_RESOURCES],
     hook_stages: &[],
     shared_type_values: &[],
 };

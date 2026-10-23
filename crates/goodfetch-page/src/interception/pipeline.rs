@@ -17,16 +17,17 @@ use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::CLOSED;
-use goodfetch_protocol::page::PageId;
+use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::route::{
     AbortReason, PAGE_HANDLER_FAILED, PageHandler, PageHandlerFailedDetails, ROUTE_HANDLE,
     RouteFetched, RouteHandleParams, RouteHandled, RouteId, RouteRequest,
 };
+use goodfetch_protocol::page::{NAVIGATION_FAILED, NavigationFailedDetails, PageId};
 use tokio::sync::oneshot;
 
 use super::answers::{Answer, Answers, Fulfillment, Reply, already_handled};
 use super::routes::Route;
-use super::steps::{self, Overrides, entries};
+use super::steps::{self, Blocking, Overrides, Stopped, entries};
 use super::{PageState, lock};
 use crate::driver::PageDriver;
 use crate::page_events::Refusals;
@@ -38,21 +39,30 @@ pub(super) struct PageContext {
     state: Arc<PageState>,
     answers: Answers,
     policy: Policy,
+    blocking: Blocking,
     /// The refusals the page's requests then carry.
     refusals: Refusals,
     run: Run,
     /// The requests a `fetch` sent on, waiting for their response to be
     /// paused, by the interception's ID.
     responses: Mutex<BTreeMap<fetch::RequestId, oneshot::Sender<fetch::RequestPausedEvent>>>,
+    /// The URL of the main frame's document last sent on: the source the
+    /// Filter lists judge a request without a `Referer` by.
+    document: Mutex<String>,
 }
 
 impl PageContext {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one value per part of a page's pipeline, each its own owner's"
+    )]
     pub(super) fn new(
         driver: PageDriver,
         page_id: PageId,
         state: Arc<PageState>,
         answers: Answers,
         policy: Policy,
+        blocking: Blocking,
         refusals: Refusals,
         run: Run,
     ) -> Self {
@@ -62,9 +72,11 @@ impl PageContext {
             state,
             answers,
             policy,
+            blocking,
             refusals,
             run,
             responses: Mutex::new(BTreeMap::new()),
+            document: Mutex::new(String::new()),
         }
     }
 }
@@ -406,17 +418,37 @@ impl PageContext {
     /// it, or else the Run trace records it.
     async fn send_on(&self, held: &Held, fetch: bool) -> Result<(), CallError> {
         let id = &held.paused.request_id;
-        let command = match steps::send_on(id, held.url(), &held.overrides, &self.policy, fetch) {
-            Ok(command) => command,
-            Err(refused) => {
+        let source = if held.navigation {
+            held.url().to_owned()
+        } else {
+            referer(&held.paused.request.headers).unwrap_or_else(|| lock(&self.document).clone())
+        };
+        let paused = steps::Paused {
+            id,
+            url: held.url(),
+            method: held.method(),
+            overrides: &held.overrides,
+            kind: steps::kind(held.paused.resource_type, held.navigation),
+            source_url: &source,
+        };
+        let command = match steps::send_on(&paused, &self.policy, &self.blocking, fetch) {
+            Ok(steps::Sent::Continue(command)) => command,
+            Ok(steps::Sent::StandIn(stand_in)) => {
+                if let Err(failure) = self.driver.command(&stand_in).await {
+                    tracing::debug!(
+                        ?failure,
+                        "a paused request went before its stand-in answered it"
+                    );
+                }
+                return Ok(());
+            }
+            Err(Stopped::Blocked) => return Err(self.blocked(held).await),
+            Err(Stopped::Refused(refused)) => {
                 // The refusal waits before the request fails, so its
                 // failure carries it, and the navigation waiting on it
                 // raises it; no call waits on any other request, which the
                 // Run trace then records.
-                if let Some(network_id) = &held.paused.network_id {
-                    self.refusals
-                        .leave(network_id, refused.failure(), !held.navigation);
-                }
+                self.leave_refusal(held, refused.failure());
                 if held.navigation {
                     self.state.leave(refused.error());
                 }
@@ -424,10 +456,57 @@ impl PageContext {
                 return Err(refused.error());
             }
         };
+        if held.navigation {
+            held.url().clone_into(&mut lock(&self.document));
+        }
         if let Err(failure) = self.driver.command(&command).await {
             tracing::debug!(?failure, "a paused request went before it was sent on");
         }
         Ok(())
+    }
+
+    /// Fails `held`, which step 4 blocked, as `BlockedByClient`, as a
+    /// blocker does: a navigation's call raises the browser's
+    /// `navigation_failed`, and any other request's failure is recorded in
+    /// the Run trace. Answers the error a `fetch` of it raises.
+    async fn blocked(&self, held: &Held) -> CallError {
+        let url = held.url().to_owned();
+        let details = NavigationFailedDetails {
+            url: url.clone(),
+            error: Some(BLOCKED_BY_CLIENT.to_owned()),
+        };
+        let error = CallError::new(
+            &NAVIGATION_FAILED,
+            format!("{url} was blocked by the Session's Filter lists or `browser.block_resources`"),
+            &details,
+        );
+        let details = match serde_json::to_value(&details) {
+            Ok(serde_json::Value::Object(details)) => details,
+            _ => serde_json::Map::new(),
+        };
+        self.leave_refusal(
+            held,
+            ErrorData {
+                code: NAVIGATION_FAILED.name.to_owned(),
+                retryable: NAVIGATION_FAILED.retryable,
+                details,
+            },
+        );
+        self.fail(
+            &held.paused.request_id,
+            network::ErrorReason::BlockedByClient,
+        )
+        .await;
+        error
+    }
+
+    /// Leaves `refusal` for `held`'s failure to carry, before the browser
+    /// fails it: the Run trace records it unless the request is the
+    /// navigation's, which raises it.
+    fn leave_refusal(&self, held: &Held, refusal: ErrorData) {
+        if let Some(network_id) = &held.paused.network_id {
+            self.refusals.leave(network_id, refusal, !held.navigation);
+        }
     }
 
     /// Answers the request `id` with `fulfillment`.
@@ -478,6 +557,18 @@ impl PageContext {
             tracing::debug!(?failure, "a paused response went before it was sent on");
         }
     }
+}
+
+/// The browser's network error for a request a blocker failed.
+const BLOCKED_BY_CLIENT: &str = "net::ERR_BLOCKED_BY_CLIENT";
+
+/// The URL in `headers`' `Referer`, which names the document that sent the
+/// request.
+fn referer(headers: &network::Headers) -> Option<String> {
+    headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("referer"))
+        .and_then(|(_, value)| value.as_str().map(str::to_owned))
 }
 
 /// The browser's network error for `reason`.

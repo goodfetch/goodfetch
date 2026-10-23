@@ -67,6 +67,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 
 mod browsers;
+mod certs;
 mod config;
 mod console;
 mod daemon;
@@ -127,6 +128,14 @@ enum Command {
     Browsers {
         #[command(subcommand)]
         command: BrowsersCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
+    /// Lists, accepts and forgets the certificate pins of the user's
+    /// known-certificates store.
+    Certs {
+        #[command(subcommand)]
+        command: certs::CertsCommand,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -729,6 +738,7 @@ fn run(
             warn_of_a_temporary_ledger(&home, human);
             usage_command(command, engine, dependencies, human)
         }
+        Command::Certs { command, .. } => certs::run(command, engine, dependencies, human),
         Command::UpgradeFiles { from, json, .. } => {
             upgrade::upgrade(engine.identity(), &home, from.as_deref(), json)
         }

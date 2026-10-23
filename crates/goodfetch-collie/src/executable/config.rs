@@ -17,8 +17,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use goodfetch_engine::settings::{
-    Layers, SettingsError, SettingsFiles, Values, find_project, load_project, project_settings,
-    resolve,
+    HostDefaults, Layers, SettingsError, SettingsFiles, Values, find_project, load_project,
+    project_settings, resolve,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -31,6 +31,7 @@ use serde_json::{Map, Value};
 use super::daemon::{Failure, Machine};
 use goodfetch_cli::output;
 use goodfetch_engine::home::Home;
+use goodfetch_engine::secrets::Keychain;
 
 /// What `config explain` was asked.
 pub(super) struct Explain {
@@ -144,6 +145,7 @@ fn explanation(
     let run =
         Values::read(SettingsLayer::Run, &request.settings, product)?.from_origin(RunOrigin::Flag);
     let layers = Layers {
+        host: host_defaults(),
         operator_policy: machine.operator_policy,
         user_configuration: machine.user_configuration,
         project_configuration: project,
@@ -161,6 +163,20 @@ fn explanation(
     let resolved =
         resolve(&layers, product, product).map_err(|error| settings_files.named_in(error))?;
     Ok(resolved.explain(&request.keys, files))
+}
+
+/// The defaults this host gives in place of the catalog's, found as the
+/// engine finds them: the OS keychain opens over its own runtime.
+fn host_defaults() -> HostDefaults {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "main builds the runtime (ADR 0060)"
+    )]
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("invariant: the OS gives the runtime its thread");
+    runtime.block_on(goodfetch_engine::secrets::host_defaults(&Keychain::os()))
 }
 
 fn describe(setting: &ExplainedSetting) -> String {

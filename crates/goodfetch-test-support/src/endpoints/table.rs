@@ -46,17 +46,22 @@ pub enum ListenerKind {
     /// a sign-in's cookie and the Console's `Host` and `Origin` (ADRs
     /// 0024, 0031 and 0067).
     Console,
+    /// The Console's content origin, which serves a Run's file only to an
+    /// address signed for that one file, and reads no cookie (ADR 0031;
+    /// spec #592).
+    ContentOrigin,
 }
 
 impl ListenerKind {
     /// Every listener, each of which must have a row.
-    pub(super) const ALL: [Self; 6] = [
+    pub(super) const ALL: [Self; 7] = [
         Self::DaemonSocket,
         Self::PrivateEndpoint,
         Self::OpsListener,
         Self::DaemonWebsocket,
         Self::ExposedDaemon,
         Self::Console,
+        Self::ContentOrigin,
     ];
 
     /// How the runner reaches this listener.
@@ -77,6 +82,7 @@ impl ListenerKind {
                     sign_out: "/sign-out",
                 },
             },
+            Self::ContentOrigin => Transport::SignedAddress,
         }
     }
 }
@@ -101,6 +107,9 @@ pub(super) enum Transport {
         path: &'static str,
         sign_in: SignInRoutes,
     },
+    /// HTTP/1.1 `GET`s whose path and query, an address signed for one
+    /// file, are the only credential (spec #592).
+    SignedAddress,
 }
 
 /// The HTTP routes of a listener whose sign-ins are cookies (spec #592).
@@ -152,6 +161,8 @@ pub enum Rule {
     CsrfTokenMissing,
     /// The cookie is of a sign-in that has ended: signed out or revoked.
     SignInRevoked,
+    /// The address carries the valid signature of another file.
+    TokenForAnotherFile,
     /// The address tries to sign in more often than the listener's rate
     /// allows: the eleventh attempt in a minute. Last in the table, since
     /// the address's next attempts in that minute are refused too.
@@ -162,6 +173,7 @@ impl Rule {
     /// Whether the runner can try this rule over `transport`.
     fn tried_over(self, transport: Transport) -> bool {
         let http = matches!(transport, Transport::Http { .. });
+        let signed = transport == Transport::SignedAddress;
         let websocket = matches!(
             transport,
             Transport::WebSocket | Transport::SignedInWebSocket { .. }
@@ -170,10 +182,12 @@ impl Rule {
         match self {
             Self::TokenMissing | Self::TokenWrong | Self::TokenFromAnotherListener => true,
             Self::CsrfTokenMissing | Self::SignInRevoked | Self::SignInRateExceeded => sign_ins,
-            Self::TokenInQueryString | Self::HostForeign | Self::OriginForeign => http || websocket,
+            Self::TokenInQueryString => http || websocket,
+            Self::HostForeign | Self::OriginForeign => http || websocket || signed,
             Self::ProbesAnswerStatusOnly => http,
             Self::OriginMissing => websocket,
-            Self::HelloNotFirst => !http,
+            Self::HelloNotFirst => !http && !signed,
+            Self::TokenForAnotherFile => signed,
         }
     }
 
@@ -183,7 +197,10 @@ impl Rule {
     fn at_the_handshake(self, transport: Transport) -> bool {
         match transport {
             Transport::SignedInWebSocket { .. } => self != Self::HelloNotFirst,
-            Transport::JsonRpcStream | Transport::Http { .. } | Transport::WebSocket => matches!(
+            Transport::JsonRpcStream
+            | Transport::Http { .. }
+            | Transport::WebSocket
+            | Transport::SignedAddress => matches!(
                 self,
                 Self::HostForeign | Self::OriginForeign | Self::OriginMissing
             ),
@@ -224,7 +241,7 @@ impl Expected {
     /// Whether a listener reached over `transport` can give this answer to
     /// `rule`'s attempt.
     fn fits(self, rule: Rule, transport: Transport) -> bool {
-        let http = matches!(transport, Transport::Http { .. });
+        let http = matches!(transport, Transport::Http { .. } | Transport::SignedAddress);
         let websocket = matches!(
             transport,
             Transport::WebSocket | Transport::SignedInWebSocket { .. }

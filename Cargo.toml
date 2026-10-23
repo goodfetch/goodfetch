@@ -34,7 +34,19 @@ publish = false
 # lists' network and cosmetic rules. Without its `single-thread` feature, so
 # one `Engine` is `Send + Sync` and every Session shares it (ADR 0047).
 adblock = { version = "0.13.3", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
+# The encrypted local file, `secretfile:` (spec #564): an age file encrypted
+# to an X25519 identity, read binary or armored.
+age = { version = "0.12.1", default-features = false, features = ["armor"] }
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
+# The OS keychain, `keychain:` (ADR 0015): keyring-core's API and its
+# stores for the login keychain on macOS and the Credential Manager on
+# Windows; on Linux the Secret Service over zbus, pure Rust, which static
+# musl builds link (keyring-core's Secret Service stores still use zbus 5,
+# whose split crates are unmaintained).
+apple-native-keyring-store = { version = "1.0.2", default-features = false }
+keyring-core = { version = "1.0.1", default-features = false }
+windows-native-keyring-store = { version = "1.1.0", default-features = false }
+zbus = { version = "6.0.0", default-features = false }
 # Commands with a cleared environment in tests (goodfetch-test-support, ADR 0062).
 assert_cmd = { version = "2.2.2", default-features = false }
 # `xtask console build` compresses each file of a Console build, which the

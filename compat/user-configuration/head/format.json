@@ -120,6 +120,28 @@
                 "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
                 "type": "string"
               },
+              "content_address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the Daemon serves the Console's content origin, which shows scraped HTML, screenshots, DOM snapshots and page bodies, as `host:port`. None by default: the Console's host on a free port, or, when `console.content_public_url` is set, the Console's own listener, which tells the two origins apart by the `Host` each request names. Set in user configuration or an Operator policy only."
+              },
+              "content_public_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only."
+              },
               "sign_in": {
                 "additionalProperties": false,
                 "properties": {
@@ -692,7 +714,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "The Secret reference of the key-encryption key that wraps each Run's data key, resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration; none by default."
+                "description": "The Secret reference of the key-encryption key that wraps each Run's data key. One set in a layer is resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration. By default the OS keychain's `keychain:goodfetch/run-state-key`, or, on a host with no OS keychain, the encrypted local file's `secretfile:run-state-key`, which `config explain` shows as the default it chose. The encrypted local file, `secrets/<name>.age` in Goodfetch home encrypted with age to the X25519 identity in `secrets/identity.txt`, a file only its owner may read, protects copies and backups of the home, not the value from another process of the same user."
               },
               "layout": {
                 "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",

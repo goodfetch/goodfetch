@@ -260,7 +260,11 @@ fn a_token_flag_is_a_usage_error() {
 fn goodfetch_url_and_goodfetch_token_reach_a_remote_daemon() {
     let env = TestEnv::new();
     let address = free_address();
-    env.user_configuration(&format!("daemon.address = \"{address}\"\n"));
+    // A Daemon of the major started by mistake stops soon, and with the test.
+    env.user_configuration(&format!(
+        "daemon.address = \"{address}\"\ndaemon.idle_timeout = 60000\n"
+    ));
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
     let mut remote = Foreground::start(&env, COLLIE, &[]);
     remote.serving();
 
@@ -290,7 +294,11 @@ fn goodfetch_tokens_value_appears_in_no_output_log_or_error() {
     const WRONG: &str = "c0ffee-a-token-the-daemon-never-issued";
     let env = TestEnv::new();
     let address = free_address();
-    env.user_configuration(&format!("daemon.address = \"{address}\"\n"));
+    // A Daemon of the major started by mistake stops soon, and with the test.
+    env.user_configuration(&format!(
+        "daemon.address = \"{address}\"\ndaemon.idle_timeout = 60000\n"
+    ));
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
     let mut remote = Foreground::start(&env, COLLIE, &[]);
     remote.serving();
 

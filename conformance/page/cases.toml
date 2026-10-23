@@ -337,6 +337,18 @@ name = "page_request"
 id = "page-request-answers-a-429-as-a-response-and-keeps-its-body"
 covers = ["story:5-44", "operation:page.request", "operation:response.body"]
 
+[[capability.case]]
+id = "cookies-a-page-sets-are-sent-by-page-request-and-the-next-navigation-of-its-session-alone"
+covers = ["story:5-44", "operation:page.request", "operation:run.new_session", "operation:session.new_page"]
+
+[[capability.case]]
+id = "page-request-passes-the-pages-domain-policy"
+covers = ["story:5-44", "operation:page.request", "error:egress_refused"]
+
+[[capability.case]]
+id = "no-service-worker-answers-a-page-request"
+covers = ["story:5-44", "operation:page.request", "operation:response.body"]
+
 [[capability]]
 name = "page_request.fetch_edge"
 

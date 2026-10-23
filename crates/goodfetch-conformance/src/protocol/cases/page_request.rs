@@ -10,20 +10,29 @@
 //! decoding lines (ADR 0119): a body's bytes are kept as the site sent
 //! them, after any content coding, so a `Shift_JIS` text reads in its own
 //! encoding and JSON after a BOM reads, and a content coding that fails to
-//! decode raises `navigation_failed`.
+//! decode raises `navigation_failed`. Pitfall H20: a cookie a page sets
+//! is sent by `page.request` and the next navigation of its Session, never
+//! by another Session's. The request passes the page's domain policy, and
+//! no service worker answers it, on a page one controls.
 //!
 //! The fetch edge pages are reached over plain HTTP/1.1, since the browser
 //! does not trust the Proving ground's authority until the engine's TLS
 //! relay does (ADR 0042).
 
+use std::time::Duration;
+
+use goodfetch_protocol::egress::EGRESS_REFUSED;
+use goodfetch_protocol::page::PAGE_GOTO;
 use goodfetch_protocol::page::events::RESPONSE_BODY;
 use goodfetch_protocol::page::request::PAGE_REQUEST;
+use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
 use goodfetch_protocol::page::{RESPONSE_TRUNCATED, TOO_MANY_REDIRECTS};
 use goodfetch_protocol::settings::SETTING_INVALID;
 use serde_json::{Value, json};
 
+use super::launch::{IDENTITY_HOST, reports};
 use super::navigation::{call, failed_with, open, url_on};
-use super::{Checks, Site, finish_run};
+use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
 
 /// One `page.request` case of the page suite.
@@ -34,6 +43,9 @@ pub(crate) enum Case {
     CutBodyIsTruncated,
     BodiesKeepTheirBytes,
     FailedCodingFails,
+    CookiesStayInTheirSession,
+    DomainPolicyJudgesIt,
+    NoServiceWorkerAnswersIt,
 }
 
 impl Case {
@@ -53,6 +65,11 @@ impl Case {
             "a-page-request-whose-content-coding-fails-to-decode-raises-navigation-failed" => {
                 Self::FailedCodingFails
             }
+            "cookies-a-page-sets-are-sent-by-page-request-and-the-next-navigation-of-its-session-alone" => {
+                Self::CookiesStayInTheirSession
+            }
+            "page-request-passes-the-pages-domain-policy" => Self::DomainPolicyJudgesIt,
+            "no-service-worker-answers-a-page-request" => Self::NoServiceWorkerAnswersIt,
             _ => return None,
         })
     }
@@ -70,6 +87,9 @@ impl Case {
             Self::CutBodyIsTruncated => cut_body(connection, site, checks),
             Self::BodiesKeepTheirBytes => kept_bytes(connection, site, checks),
             Self::FailedCodingFails => failed_coding(connection, site, checks),
+            Self::CookiesStayInTheirSession => cookies(connection, site, checks),
+            Self::DomainPolicyJudgesIt => domain_policy(connection, site, checks),
+            Self::NoServiceWorkerAnswersIt => service_worker(connection, site, checks),
         }
     }
 }
@@ -394,4 +414,227 @@ const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
 /// trusting the Proving ground's authority.
 fn plain_http(url: &str) -> String {
     url.replacen("https://", "http://", 1)
+}
+
+/// Opens a Session of the Run `run_id` and a page in it, answering the
+/// page's ID.
+fn session_page(
+    connection: &mut Connection,
+    run_id: &str,
+    checks: &mut Checks,
+) -> Result<Option<Value>, Gone> {
+    let id = connection.request(RUN_NEW_SESSION.name, &json!({ "run_id": run_id }))?;
+    let opened = connection.browser_answer(id)?.message;
+    let session = opened["result"]["session_id"].clone();
+    let id = connection.request(SESSION_NEW_PAGE.name, &json!({ "session_id": session }))?;
+    let paged = connection.browser_answer(id)?.message;
+    let page = paged["result"]["page_id"].clone();
+    checks.check(
+        format!("`{}` opens a page of a new Session", SESSION_NEW_PAGE.name),
+        session.is_string() && page.is_string(),
+    );
+    Ok(page.is_string().then_some(page))
+}
+
+/// What the Proving ground received for each request to `host` whose
+/// target starts with `prefix`, in arrival order: its target and the
+/// cookies it sent.
+fn received(site: &Site, host: &str, prefix: &str) -> Vec<(Value, Value)> {
+    site.proving_ground
+        .observations()
+        .ok()
+        .and_then(|observations| observations["requests"].as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|request| {
+            request["host"] == json!(host)
+                && request["target"]
+                    .as_str()
+                    .is_some_and(|target| target.starts_with(prefix))
+        })
+        .map(|request| (request["target"].clone(), request["cookies"].clone()))
+        .collect()
+}
+
+/// Pitfall H20: a cookie a page sets is sent by `page.request` and by the
+/// next navigation in the same Session, and by no other Session of the
+/// Run; a cookie `page.request`'s response sets is the Session's too, sent
+/// by its next navigation, as the Proving ground's record of the cookies
+/// each request sent shows.
+fn cookies(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
+    let run_id = "conformance-page-request-cookies";
+    let url = |path: &str| site.named_url("scope.test", path).unwrap_or_default();
+    start_run(connection, site, run_id, &json!({}), checks)?;
+    let first = session_page(connection, run_id, checks)?;
+    let second = session_page(connection, run_id, checks)?;
+    let (Some(first), Some(second)) = (first, second) else {
+        return finish_run(connection, run_id);
+    };
+    call(
+        connection,
+        PAGE_GOTO.name,
+        &first,
+        &json!({ "url": url("/storage?mark=first") }),
+    )?;
+    let sent = request(
+        connection,
+        &first,
+        &json!({ "url": url("/about?by=first-request") }),
+    )?;
+    call(
+        connection,
+        PAGE_GOTO.name,
+        &first,
+        &json!({ "url": url("/about?by=first-navigation") }),
+    )?;
+    request(
+        connection,
+        &second,
+        &json!({ "url": url("/about?by=second-request") }),
+    )?;
+    request(
+        connection,
+        &second,
+        &json!({ "url": url("/storage?mark=second") }),
+    )?;
+    call(
+        connection,
+        PAGE_GOTO.name,
+        &second,
+        &json!({ "url": url("/about?by=second-navigation") }),
+    )?;
+    checks.check(
+        "`page.request` from the Session answers 200",
+        sent["result"]["status"] == json!(200),
+    );
+    let mark = |mark: &str| json!([["mark", mark]]);
+    checks.check(
+        "the cookie a page set is sent by `page.request` and the next navigation of its Session, never by another Session, which keeps the cookie its own `page.request` got",
+        received(site, "scope.test", "/about?by=")
+            == vec![
+                (json!("/about?by=first-request"), mark("first")),
+                (json!("/about?by=first-navigation"), mark("first")),
+                (json!("/about?by=second-request"), json!([])),
+                (json!("/about?by=second-navigation"), mark("second")),
+            ],
+    );
+    finish_run(connection, run_id)
+}
+
+/// `page.request` passes the page's interception: a host the Run's domain
+/// policy refuses raises `egress_refused`, and the site never receives it.
+fn domain_policy(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-page-request-domain-policy";
+    let allowed = site.named_url("fetch-edge.test", "/target");
+    let refused = site.named_url("scope.test", "/about?by=refused-request");
+    let settings = json!({ "egress": { "allowed_domains": ["fetch-edge.test"] } });
+    start_run(connection, site, run_id, &settings, checks)?;
+    let Some(page) = new_page(connection, run_id, checks)?.map(|page| json!(page.page_id)) else {
+        return finish_run(connection, run_id);
+    };
+    let answered = request(connection, &page, &json!({ "url": allowed }))?;
+    checks.check(
+        "`page.request` to a host the domain policy allows answers 200",
+        answered["result"]["status"] == json!(200),
+    );
+    let stopped = request(connection, &page, &json!({ "url": refused }))?;
+    checks.check(
+        format!(
+            "`page.request` to a host the domain policy refuses raises `{}`",
+            EGRESS_REFUSED.name
+        ),
+        code_of(&stopped) == &json!(EGRESS_REFUSED.name),
+    );
+    checks.check(
+        "the refused request never reaches the site",
+        received(site, "scope.test", "/about?by=refused-request").is_empty(),
+    );
+    finish_run(connection, run_id)
+}
+
+/// How often, and how many times, the harness reads the observations while
+/// it waits for the service worker page to report: 20 s in all.
+const POLL: Duration = Duration::from_millis(100);
+const POLLS: u32 = 200;
+
+/// The service worker page's reports, as `(check, observed)`, once it
+/// reported whether a worker controls it, or the polls run out.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the harness polls the Proving ground on its own thread, never an async worker"
+)]
+fn worker_reports(site: &Site, path: &str) -> Vec<(String, String)> {
+    let mut seen = Vec::new();
+    for _ in 0..POLLS {
+        seen = site
+            .proving_ground
+            .observations()
+            .map(|observations| reports(&observations, path))
+            .unwrap_or_default();
+        if seen.iter().any(|(check, _)| check == "controlled") {
+            break;
+        }
+        std::thread::sleep(POLL);
+    }
+    seen
+}
+
+/// No service worker answers `page.request`: on a page a worker controls,
+/// which answers `cached.json` from its own cache, the request reaches the
+/// site and answers the site's body (ADR 0121).
+fn service_worker(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-page-request-service-worker";
+    let path = "/service-worker/?case=page-request";
+    let origin = format!("http://{IDENTITY_HOST}:{}", site.port);
+    let cached = "/service-worker/cached.json?case=page-request";
+    start_run(connection, site, run_id, &json!({}), checks)?;
+    let Some(page) = new_page(connection, run_id, checks)?.map(|page| json!(page.page_id)) else {
+        return finish_run(connection, run_id);
+    };
+    call(
+        connection,
+        PAGE_GOTO.name,
+        &page,
+        &json!({ "url": format!("{origin}{path}") }),
+    )?;
+    let reports = worker_reports(site, path);
+    checks.check(
+        "a service worker registers and controls the page",
+        reports.contains(&("register".to_owned(), "registered".to_owned()))
+            && reports.contains(&("controlled".to_owned(), "true".to_owned())),
+    );
+    checks.check(
+        "the worker answered the page's own fetch of `cached.json`, which never reached the site",
+        received(site, IDENTITY_HOST, cached).is_empty(),
+    );
+    let answer = request(
+        connection,
+        &page,
+        &json!({ "url": format!("{origin}{cached}") }),
+    )?;
+    checks.check(
+        "`page.request` of `cached.json` answers the site's response, which no service worker supplied",
+        answer["result"]["status"] == json!(200)
+            && answer["result"]["from_service_worker"] == json!(false),
+    );
+    let body = body_of(connection, &page, &answer)?;
+    checks.check(
+        "its body is the site's, never the worker's cached one",
+        body.ok()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            == Some(json!({ "path": "/service-worker/cached.json" })),
+    );
+    checks.check(
+        "the request reached the site",
+        received(site, IDENTITY_HOST, cached).len() == 1,
+    );
+    finish_run(connection, run_id)
 }

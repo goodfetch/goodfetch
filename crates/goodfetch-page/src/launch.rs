@@ -302,13 +302,6 @@ type Driving = std::pin::Pin<Box<dyn Future<Output = goodfetch_cdp::Ended> + Sen
 
 /// The browser's process, started through the engine's `children` module
 /// in a process group of its own, which dies with the value (ADR 0024).
-#[cfg_attr(
-    not(unix),
-    expect(
-        dead_code,
-        reason = "the debugging pipe starts no browser on this OS yet"
-    )
-)]
 pub(crate) struct Process {
     child: Child,
     _group: Children,

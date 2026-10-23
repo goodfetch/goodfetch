@@ -15,6 +15,8 @@ use serde_json::{Value, json};
 use crate::daemon::{
     StopsTheDaemon, json_of, regex_escape, runtime_file, scripted_daemon, short_idle,
 };
+#[cfg(unix)]
+use crate::daemon_run::{Foreground, free_address, token};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -223,4 +225,100 @@ fn a_connection_dropped_mid_command_is_reported_and_exits_8() {
         "{output}"
     );
     stderr_snapshot(&env, "run_start_connection_dropped", &output.stderr);
+}
+
+/// No command takes the Daemon's token as a flag, so a token never sits in
+/// a process list: `--token` is a usage error, before any engine call.
+///
+/// Covers: story:11-199, command:run.start
+#[test]
+fn a_token_flag_is_a_usage_error() {
+    let env = TestEnv::new();
+
+    let output = cli(&env, COLLIE)
+        .args(["run", "start", "--run-id", "first", "--token", "a-token"])
+        .run()
+        .unwrap();
+
+    assert_eq!(
+        (
+            output.exit,
+            output.stderr.contains("unexpected argument '--token'")
+        ),
+        (Some(2), true),
+        "{output}"
+    );
+}
+
+/// The Exposed Daemon `GOODFETCH_URL` names, with `GOODFETCH_TOKEN`'s token:
+/// a command whose value outlives it runs there, and starts no Daemon of
+/// the major.
+///
+/// Covers: story:11-199, command:run.start
+#[cfg(unix)]
+#[test]
+fn goodfetch_url_and_goodfetch_token_reach_a_remote_daemon() {
+    let env = TestEnv::new();
+    let address = free_address();
+    env.user_configuration(&format!("daemon.address = \"{address}\"\n"));
+    let mut remote = Foreground::start(&env, COLLIE, &[]);
+    remote.serving();
+
+    let output = cli(&env, COLLIE)
+        .args(["run", "start", "--run-id", "first"])
+        .env("GOODFETCH_URL", format!("ws://{address}"))
+        .env("GOODFETCH_TOKEN", token(&env))
+        .run()
+        .unwrap();
+    let started_one = runtime_file(&env).exists();
+    let drained = remote.terminate();
+
+    assert_eq!(
+        (output.exit, output.stdout.as_str(), started_one, drained),
+        (Some(0), "first\n", false, true),
+        "{output}"
+    );
+}
+
+/// A token the remote Daemon refuses fails the command, and the token's
+/// value is in no output, log or error (ADR 0083).
+///
+/// Covers: story:11-199, command:engine.info
+#[cfg(unix)]
+#[test]
+fn goodfetch_tokens_value_appears_in_no_output_log_or_error() {
+    const WRONG: &str = "c0ffee-a-token-the-daemon-never-issued";
+    let env = TestEnv::new();
+    let address = free_address();
+    env.user_configuration(&format!("daemon.address = \"{address}\"\n"));
+    let mut remote = Foreground::start(&env, COLLIE, &[]);
+    remote.serving();
+
+    let output = cli(&env, COLLIE)
+        .args(["engine", "info"])
+        .env("GOODFETCH_URL", format!("ws://{address}"))
+        .env("GOODFETCH_TOKEN", WRONG)
+        .run()
+        .unwrap();
+    let drained = remote.terminate();
+    let logs: Vec<String> = std::fs::read_dir(env.home().join("logs"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|log| std::fs::read_to_string(log.path()).unwrap())
+        .chain(remote.logged.iter().cloned())
+        .collect();
+
+    assert_eq!(
+        (
+            output.exit,
+            output.stdout.contains(WRONG),
+            output.stderr.contains(WRONG),
+            logs.iter().any(|log| log.contains(WRONG)),
+            output.stderr.contains("GOODFETCH_TOKEN"),
+            drained,
+        ),
+        (Some(1), false, false, false, true, true),
+        "{output}"
+    );
 }

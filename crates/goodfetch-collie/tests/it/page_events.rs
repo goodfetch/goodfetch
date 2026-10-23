@@ -276,3 +276,70 @@ fn a_pages_network_and_load_events_carry_their_data_and_a_cancelled_listener_no_
         "{sockets:?} {sent:?}"
     );
 }
+
+/// The page's console messages carry their type, text and location, and an
+/// exception it did not catch its name, message and stack; a listener
+/// armed after the page wrote to its console gets none of what it wrote
+/// before (ADR 0081: armed when called).
+/// Covers: story:5-48, operation:page.on, event:page.console, event:page.page_error
+#[test]
+fn console_messages_and_uncaught_exceptions_carry_their_data_from_when_a_listener_is_armed() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let (mut exchange, page) = page_of(&env, &proving_ground, "console", &Map::new());
+    let url = proving_ground.url("access.test", "/page-events");
+
+    exchange.subscribe();
+    let went = exchange.call("page.goto", &json!({ "page_id": page, "url": url }));
+    exchange.listen(&page, "console");
+    exchange.listen(&page, "page_error");
+    exchange.call("page.reload", &json!({ "page_id": page }));
+    exchange.until("page.console", |message| {
+        message["text"] == json!("page-events error")
+    });
+    exchange.until("page.page_error", |_| true);
+    let messages = exchange.data("page.console");
+    let errors = exchange.data("page.page_error");
+    let _ = exchange.call("run.finish", &json!({ "run_id": "console" }));
+    let _ = exchange.engine.finish();
+
+    assert_eq!(went["result"]["response"]["status"], json!(200), "{went}");
+    assert_eq!(
+        (
+            messages
+                .iter()
+                .map(|message| (message["type"].clone(), message["text"].clone()))
+                .collect::<Vec<_>>(),
+            messages
+                .iter()
+                .all(|message| message["page_id"] == json!(page)
+                    && message["location"]["url"] == json!(url)
+                    && message["location"]["line_number"]
+                        .as_u64()
+                        .is_some_and(|line| line > 0)),
+            errors.first().map(|error| (
+                error["page_id"].clone(),
+                error["name"].clone(),
+                error["message"].clone(),
+                error["stack"]
+                    .as_str()
+                    .is_some_and(|stack| stack.starts_with("TypeError: page-events uncaught\n")),
+            )),
+        ),
+        (
+            vec![
+                (json!("log"), json!("page-events 1 true")),
+                (json!("warning"), json!("page-events warning")),
+                (json!("error"), json!("page-events error")),
+            ],
+            true,
+            Some((
+                json!(page),
+                json!("TypeError"),
+                json!("page-events uncaught"),
+                true
+            )),
+        ),
+        "{messages:?} {errors:?}"
+    );
+}

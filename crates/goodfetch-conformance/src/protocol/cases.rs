@@ -2,10 +2,12 @@
 //! against what `goodfetch-protocol` says the protocol is: its JSON-RPC
 //! failures, its Error codes and its operations' types. A crawl's delivery
 //! cases are `delivery`'s, a page's formats cases `formats`'s, its route
-//! cases `routes`'s and a Run's Session cases `sessions`'.
+//! cases `routes`'s, a Run's Session cases `sessions`' and its events and
+//! bodies cases `events`'s.
 
 mod clean_up;
 mod delivery;
+mod events;
 mod fetch_edge;
 mod formats;
 mod guard;
@@ -77,6 +79,8 @@ pub(crate) enum Case {
     Route(routes::Case),
     /// A Session case.
     Session(sessions::Case),
+    /// A page events or bodies case.
+    Events(events::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -256,7 +260,8 @@ impl Case {
                     .map(Self::FetchEdge)
                     .or_else(|| routes::Case::from_id(id).map(Self::Route))
                     .or_else(|| sessions::Case::from_id(id).map(Self::Session))
-                    .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp));
+                    .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp))
+                    .or_else(|| events::Case::from_id(id).map(Self::Events));
             }
         })
     }
@@ -355,6 +360,7 @@ impl Case {
             Self::Route(case) => case.run(connection, site, checks),
             Self::Session(case) => case.run(connection, site, checks),
             Self::CleanUp(case) => case.run(connection, target, site, checks),
+            Self::Events(case) => case.run(connection, site, checks),
         }
     }
 }

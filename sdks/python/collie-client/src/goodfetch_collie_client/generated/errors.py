@@ -90,6 +90,14 @@ class BodyNotFoundError(ProgramError):
         super().__init__(message, code="body_not_found", group="program", retryable=False)
 
 
+class BodyUnavailableError(UnavailableError):
+    """The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say "Request content was evicted from inspector cache". A retry finds the body gone all the same."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="body_unavailable", group="unavailable", retryable=False)
+
+
 class BrowserHostOutdatedError(UnavailableError):
     """The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command."""
 
@@ -551,6 +559,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "artifact_download_failed": ArtifactDownloadFailedError,
     "artifact_unavailable_offline": ArtifactUnavailableOfflineError,
     "body_not_found": BodyNotFoundError,
+    "body_unavailable": BodyUnavailableError,
     "browser_host_outdated": BrowserHostOutdatedError,
     "browser_launch_failed": BrowserLaunchFailedError,
     "browser_not_installed": BrowserNotInstalledError,

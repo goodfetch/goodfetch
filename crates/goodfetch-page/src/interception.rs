@@ -46,7 +46,6 @@ use goodfetch_cdp::generated::fetch;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::Policy;
-use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{RunSettings, Values};
 use goodfetch_protocol::jsonrpc::RequestId;
@@ -64,6 +63,7 @@ use self::pipeline::PageContext;
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
 use crate::driver::PageDriver;
+use crate::page_events::Refusals;
 use crate::url_pattern::UrlPattern;
 
 /// Whose requests a route answers.
@@ -135,7 +135,8 @@ impl Interception {
     /// Puts the page `page_id` of the Session `session`, which `driver`
     /// drives for `run`, under the interception: every request of its
     /// target is paused and passes the pipeline from now on, its Clean-up
-    /// rules chosen by `own`, the Session's own settings, over the Run's.
+    /// rules chosen by `own`, the Session's own settings, over the Run's,
+    /// each refusal left in `refusals` for the request's failure to carry.
     ///
     /// # Errors
     ///
@@ -153,6 +154,7 @@ impl Interception {
         driver: &PageDriver,
         run: &Run,
         own: &Values,
+        refusals: Refusals,
     ) -> Result<(), CallError> {
         let policy = match run.settings() {
             Some(settings) => Policy::of(settings.resolved()),
@@ -209,7 +211,7 @@ impl Interception {
             self.shared.answers.clone(),
             policy,
             blocking,
-            RequestLog::new(run.owner().child(), run.folder()),
+            refusals,
             run.clone(),
         ));
         run.spawn(pipeline::dispatch(events, context));

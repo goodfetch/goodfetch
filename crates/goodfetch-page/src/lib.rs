@@ -14,6 +14,7 @@ mod errors;
 mod guard;
 mod interception;
 mod launch;
+mod page_events;
 mod pages;
 mod pool;
 pub mod robots_txt;

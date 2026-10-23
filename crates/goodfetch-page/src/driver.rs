@@ -40,7 +40,7 @@ use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::carry::{Carried, Origins};
-pub(crate) use self::navigation::Arrived;
+pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
 use crate::errors::{
     Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects, truncated,

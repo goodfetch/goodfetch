@@ -1427,9 +1427,12 @@ impl Run {
             .politeness
             .get_or_try_init(|| async {
                 if own {
+                    // The engine's owner, not the Run's: the Run keeps this
+                    // handle while it ends, and its owner waits for its
+                    // tasks, the file's actor among them.
                     return Politeness::in_memory(
                         self.admitting.politeness.tables.clone(),
-                        &self.owner,
+                        &self.admitting.politeness.owner,
                     )
                     .await;
                 }

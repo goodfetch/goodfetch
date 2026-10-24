@@ -11802,6 +11802,11 @@
           "const": "governor_last_resort",
           "description": "Its Resource governor is at its last resort: memory stayed critical\nat the floor past `governor.last_resort_after` (ADR 0040).",
           "type": "string"
+        },
+        {
+          "const": "storage_critical",
+          "description": "The filesystem holding its run state is at the `critical` storage\nlevel, where a new Run's start is refused (ADR 0122).",
+          "type": "string"
         }
       ]
     },

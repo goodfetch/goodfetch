@@ -2401,6 +2401,11 @@ class Unready(StrEnum):
     Its Resource governor is at its last resort: memory stayed critical
     at the floor past `governor.last_resort_after` (ADR 0040).
     """
+    storage_critical = "storage_critical"
+    """
+    The filesystem holding its run state is at the `critical` storage
+    level, where a new Run's start is refused (ADR 0122).
+    """
 
 
 class UrlMatcher1(BaseModel):

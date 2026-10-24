@@ -18,9 +18,13 @@
 //!   refuses stops the Run; the commit recording the stop fails too, so its
 //!   waiting `run.finish` raises `resources_exhausted`, and once space is
 //!   freed a resume goes on as after a crash.
+//! - **`/readyz` and the metrics:** through a Daemon with its ops listener,
+//!   `/readyz` fails while the run folder's filesystem is at `critical`,
+//!   not at `low`, and succeeds once space is freed; the storage metrics
+//!   read its level, its free space and its free inodes, labelled by what
+//!   it holds.
 //!
-//! The `/readyz` and metrics line is #1255's, and the crawl and WARC lines
-//! are area 6's.
+//! The crawl and WARC lines are area 6's.
 #![expect(
     clippy::disallowed_methods,
     reason = "a test reads the Daemon's token through its mount namespace, outside any async worker"
@@ -30,15 +34,20 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Duration, Instant};
 
-use goodfetch_test_support::{MESSAGE_DEADLINE, TestEnv};
+use goodfetch_test_support::{MESSAGE_DEADLINE, TestEnv, browser_cache};
 use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::attached::{Attached, hello};
 use crate::daemon::RawClient;
 use crate::daemon_run::{Foreground, free_address};
+use crate::ops::{get, series};
 use crate::tmpfs::{fill, free, inside, mounted_home};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -370,5 +379,164 @@ fn a_write_the_full_disk_refuses_stops_the_run_and_its_waiting_call_raises_resou
             &json!("finished"),
         ),
         "{failed}\n{stopped}"
+    );
+}
+
+/// How long a test waits for the storage metrics to read what it set; a
+/// failure, never a measure.
+const METRICS_DEADLINE: Duration = Duration::from_secs(30);
+
+/// The storage series of a scrape: each value by the series' name and its
+/// `holds` label.
+type Storage = BTreeMap<(String, String), String>;
+
+/// A foreground Daemon on a tmpfs over the test's home, as
+/// [`Engine::start`]'s, with its ops listener on a free port and the
+/// pinned browser installed, so that only storage keeps it from being
+/// ready; and where its ops listener listens, and its ops token.
+fn daemon_with_ops(env: &TestEnv) -> (Foreground, SocketAddr, String) {
+    env.user_configuration(&format!(
+        "{LEVELS}daemon.address = \"{}\"\nops.address = \"127.0.0.1:0\"\n",
+        free_address()
+    ));
+    let mut command = mounted_home(env, SIZE, COLLIE);
+    command
+        .args(["daemon", "run"])
+        .env("GOODFETCH_BROWSERS_PATH", browser_cache(env).unwrap());
+    let mut daemon = Foreground::spawned(env, &mut command);
+    let address = daemon.record("the ops listener serves")["address"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let pid = daemon.process.child().id();
+    let token =
+        std::fs::read_to_string(inside(pid, &env.home().join("0.0").join("ops.token"))).unwrap();
+    (daemon, address, token)
+}
+
+/// What the filesystem holding `path` has left to an unprivileged user, as
+/// `stat --file-system` reads it: its bytes and its inodes.
+fn left(path: &Path) -> (String, String) {
+    let output = Command::new("stat")
+        .args(["--file-system", "--format", "%a %S %d"])
+        .arg(path)
+        .output()
+        .unwrap();
+    let read = String::from_utf8(output.stdout).unwrap();
+    let fields: Vec<u64> = read
+        .split_whitespace()
+        .map(|field| field.parse().unwrap())
+        .collect();
+    ((fields[0] * fields[1]).to_string(), fields[2].to_string())
+}
+
+/// The storage series of `/metrics` at `address`.
+fn scraped(address: SocketAddr, token: &str) -> Storage {
+    let (_, text) = get(address, "/metrics", Some(token));
+    series(&text)
+        .into_iter()
+        .filter(|(name, _, _)| name.starts_with("goodfetch_storage_"))
+        .map(|(name, labels, value)| {
+            let holds = labels.get("holds").cloned().unwrap_or_default();
+            ((name, holds), value)
+        })
+        .collect()
+}
+
+/// The storage series once run state's read `level` and what the
+/// filesystem holding `folder`, as `pid` sees it, has left; fails the test
+/// past the deadline with the last series read.
+fn storage_at(address: SocketAddr, token: &str, pid: u32, folder: &Path, level: &str) -> Storage {
+    let deadline = Instant::now() + METRICS_DEADLINE;
+    loop {
+        let read = scraped(address, token);
+        let (bytes, inodes) = left(&inside(pid, folder));
+        let of = |name: &str| {
+            read.get(&(name.to_owned(), "run_state".to_owned()))
+                .cloned()
+        };
+        if (
+            of("goodfetch_storage_level"),
+            of("goodfetch_storage_available_bytes"),
+            of("goodfetch_storage_inodes_available"),
+        ) == (Some(level.to_owned()), Some(bytes), Some(inodes))
+        {
+            return read;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the storage metrics never read level {level} and what the filesystem has left: {read:#?}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// The `holds` label of each series `name` of `read`.
+fn holds(read: &Storage, name: &str) -> Vec<String> {
+    read.keys()
+        .filter(|(series, _)| series == name)
+        .map(|(_, holds)| holds.clone())
+        .collect()
+}
+
+/// `/readyz` and the metrics: through a Daemon with its ops listener,
+/// `/readyz` answers 200 at `normal` and at `low`, fails at `critical`, and
+/// answers 200 again once space is freed; the storage metrics give run
+/// state's filesystem its level (0, 1, 2), its free space and its free
+/// inodes, the Goodfetch home on the same filesystem the same, and the
+/// temporary folder's filesystem a series of its own.
+///
+/// Covers: story:13-45, story:13-46, setting:storage.critical_free, setting:ops.address
+#[test]
+fn readyz_fails_while_run_states_filesystem_is_critical_and_the_metrics_read_its_level() {
+    let env = TestEnv::new();
+    let (mut daemon, address, token) = daemon_with_ops(&env);
+    let pid = daemon.process.child().id();
+
+    let normal = storage_at(address, &token, pid, env.home(), "0");
+    let ready_at_normal = get(address, "/readyz", None).0;
+    let filler = fill(pid, env.home(), LOW_ROOM);
+    storage_at(address, &token, pid, env.home(), "1");
+    let ready_at_low = get(address, "/readyz", None).0;
+    free(&filler);
+    let filler = fill(pid, env.home(), CRITICAL_ROOM);
+    let critical = storage_at(address, &token, pid, env.home(), "2");
+    let ready_at_critical = get(address, "/readyz", None).0;
+    free(&filler);
+    storage_at(address, &token, pid, env.home(), "0");
+    let ready_once_freed = get(address, "/readyz", None).0;
+    daemon.terminate();
+
+    let same = |name: &str| {
+        critical.get(&(name.to_owned(), "home".to_owned()))
+            == critical.get(&(name.to_owned(), "run_state".to_owned()))
+    };
+    let every = vec!["home".to_owned(), "run_state".to_owned(), "temp".to_owned()];
+    assert_eq!(
+        (
+            (
+                ready_at_normal,
+                ready_at_low,
+                ready_at_critical,
+                ready_once_freed
+            ),
+            [
+                holds(&normal, "goodfetch_storage_available_bytes"),
+                holds(&normal, "goodfetch_storage_inodes_available"),
+                holds(&normal, "goodfetch_storage_level"),
+            ],
+            [
+                same("goodfetch_storage_available_bytes"),
+                same("goodfetch_storage_inodes_available"),
+                same("goodfetch_storage_level"),
+            ],
+        ),
+        (
+            (200, 200, 503, 200),
+            [every.clone(), every.clone(), every],
+            [true; 3],
+        ),
+        "{critical:#?}"
     );
 }

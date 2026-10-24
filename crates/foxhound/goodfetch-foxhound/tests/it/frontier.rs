@@ -102,11 +102,29 @@ pub(crate) fn crawl_under(
     settings: &Value,
     handler: &mut impl FnMut(&mut Inside<'_>, &Value) -> Value,
 ) -> Value {
-    let mut crawl = settings.clone();
-    crawl["handler"] = json!({ "concurrency": 1 });
+    crawl_with(
+        engine,
+        run_id,
+        seeds,
+        &json!({ "crawl": settings }),
+        handler,
+    )
+}
+
+/// [`crawl`] under the Run's settings `settings`, every key and not only
+/// `crawl`'s, beside the handler's concurrency of 1.
+pub(crate) fn crawl_with(
+    engine: &mut Attached,
+    run_id: &str,
+    seeds: &[Value],
+    settings: &Value,
+    handler: &mut impl FnMut(&mut Inside<'_>, &Value) -> Value,
+) -> Value {
+    let mut settings = settings.clone();
+    settings["crawl"]["handler"] = json!({ "concurrency": 1 });
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": run_id, "seeds": seeds, "settings": { "crawl": crawl } },
+        "params": { "run_id": run_id, "seeds": seeds, "settings": settings },
     }));
     let mut calls = 0;
     loop {

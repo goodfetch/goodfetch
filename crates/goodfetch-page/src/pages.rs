@@ -93,6 +93,7 @@ use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, S
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Injections, Pending, Registered};
 use crate::page_value::{HandlerPages, ProgramPages};
+use crate::proxy;
 use crate::recovery;
 use crate::sessions::{self, OpenPage, PageEvent, Sessions};
 use crate::trace;
@@ -149,6 +150,7 @@ pub fn contribution_with(
     let contribution = with_page_handlers(
         Contribution::new("page")
             .with_run_state_tables(sessions::TABLES)
+            .with_politeness_tables(proxy::TABLES)
             .with_clean_up_versions(pages.interception.versions()),
         &pages,
     );

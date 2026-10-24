@@ -9,6 +9,10 @@
 //! refusal only as a network error of its own, so a request that failed is
 //! the proxy's when its error is one of those, and the site's otherwise.
 
+/// The header an intermediary names its own errors in (RFC 9209), as the
+/// browser gives a response's headers, lower-cased.
+pub(crate) const PROXY_STATUS: &str = "proxy-status";
+
 /// Who answered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Party {
@@ -42,6 +46,22 @@ pub(crate) fn party(answer: Answer<'_>) -> Party {
             proxy_status: Some(field),
         } if proxy_error(field).is_some() => Party::Proxy,
         Answer::Failure { .. } | Answer::Response { .. } => Party::Site,
+    }
+}
+
+/// Whether `answer` is the proxy refusing a request its plan does not
+/// admit, which lowers its learned ceiling (ADR 0053; spec #577): its own
+/// 429 or 502, or a tunnel it refused, which Chromium reports only as
+/// `ERR_TUNNEL_CONNECTION_FAILED`. Its 407, a site's answer of any status
+/// and a proxy that cannot be reached are no such refusal.
+pub(crate) fn refusal(answer: Answer<'_>, status: Option<u16>) -> bool {
+    match answer {
+        Answer::Failure { error } => {
+            error.strip_prefix("net::").unwrap_or(error) == "ERR_TUNNEL_CONNECTION_FAILED"
+        }
+        Answer::Response { .. } => {
+            matches!(status, Some(429 | 502)) && party(answer) == Party::Proxy
+        }
     }
 }
 

@@ -193,6 +193,9 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     }
     const state = { intercepted: null, reached: false };
     const listener = (event) => {
+      // The page's own synthetic events are not the gesture's: they go on
+      // as the page sent them, as Playwright's listener lets them.
+      if (!event.isTrusted) return;
       if (event.composedPath().includes(element)) {
         state.reached = true;
         return;

@@ -111,6 +111,16 @@ impl Sheets {
         }
     }
 
+    /// The selectors of the rules the Consent prompt runner hides prompts
+    /// with in the page's main document, which extraction removes too
+    /// (ADR 0048).
+    pub(crate) fn runner_hidden(&self) -> Vec<String> {
+        self.documents().consent_selectors(&(
+            self.driver.session().clone(),
+            self.driver.main_frame().clone(),
+        ))
+    }
+
     /// Empties every other document's sheet while a click in `frame` of
     /// `session` goes in, so no hidden owner swallows it, until
     /// [`Self::restore`]; nothing for a click in the page's own frame.

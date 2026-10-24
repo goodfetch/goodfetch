@@ -1104,7 +1104,7 @@ impl Pages {
             let (formats, _) = served
                 .run
                 .owner()
-                .blocking(move || clean_up::read(&document, request, None))
+                .blocking(move || clean_up::read(&document, request, None, &[]))
                 .await;
             return Ok(formats);
         }
@@ -1116,10 +1116,11 @@ impl Pages {
             .await?;
         let request = params.formats;
         let cosmetic = self.interception.cosmetic(&params.page_id);
+        let hidden = page.sheets.runner_hidden();
         let (formats, removed) = page
             .run
             .owner()
-            .blocking(move || clean_up::read(&document, request, cosmetic.as_ref()))
+            .blocking(move || clean_up::read(&document, request, cosmetic.as_ref(), &hidden))
             .await;
         if let Some(removed) = removed {
             trace::provenance(&page.run, &removed.entry(&params.page_id, &page.session)).await;

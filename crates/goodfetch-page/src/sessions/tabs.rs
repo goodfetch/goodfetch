@@ -105,7 +105,7 @@ impl Sessions {
         refusals: Refusals,
         observer: Option<Arc<dyn ResponseObserver>>,
         iframes: Iframes,
-    ) -> Result<Option<Arc<PageHiding>>, CallError> {
+    ) -> Result<(Option<Arc<PageHiding>>, Arc<Sheets>), CallError> {
         let run = &open.run;
         let clean_up = self
             .interception
@@ -131,7 +131,7 @@ impl Sessions {
             .start(page, driver, run, &sheets, &iframes)
             .await?;
         iframes.follow(driver, run).await?;
-        Ok(hiding)
+        Ok((hiding, sheets))
     }
 
     /// Takes in the page `adopting` describes as one of its Session's: it is
@@ -178,8 +178,8 @@ impl Sessions {
             observer,
             Iframes::default(),
         );
-        let hiding = match started.await {
-            Ok(hiding) => hiding,
+        let (hiding, sheets) = match started.await {
+            Ok(started) => started,
             Err(error) => {
                 self.events.close(pages);
                 self.dialogs.close(pages);
@@ -205,6 +205,7 @@ impl Sessions {
             life: PageLife::new(page.clone()),
             action_timeout,
             hiding,
+            sheets,
             page_check: Declared::of(&open.run, &open.settings).map(Arc::new),
             _admission: Arc::new(admission),
             in_browser: Arc::new(in_browser),

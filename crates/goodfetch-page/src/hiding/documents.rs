@@ -131,6 +131,26 @@ impl Documents {
         self.write(key)
     }
 
+    /// The selectors of the rules the Consent prompt runner hides prompts
+    /// with in `key`'s document: each rule of its part that sets
+    /// `display: none` or `opacity: 0`.
+    pub(super) fn consent_selectors(&self, key: &Key) -> Vec<String> {
+        let Some(document) = self.by_key.get(key) else {
+            return Vec::new();
+        };
+        document
+            .consent
+            .split('}')
+            .filter_map(|rule| rule.split_once('{'))
+            .filter(|(_, declarations)| {
+                let declarations = declarations.replace(' ', "");
+                declarations.contains("display:none") || declarations.contains("opacity:0")
+            })
+            .map(|(selector, _)| selector.trim().to_owned())
+            .filter(|selector| !selector.is_empty())
+            .collect()
+    }
+
     /// The write that brings `key`'s sheet to its whole text, if it differs.
     fn write(&mut self, key: &Key) -> Option<Write> {
         let document = self.by_key.get(key)?;

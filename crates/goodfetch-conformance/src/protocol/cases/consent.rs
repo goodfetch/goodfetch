@@ -17,7 +17,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use goodfetch_protocol::page::{PAGE_GOTO, PageOpened};
+use goodfetch_protocol::page::{PAGE_FORMATS, PAGE_GOTO, PageOpened};
 use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
 
@@ -366,6 +366,17 @@ fn notice(
     checks.check(
         "nothing answered the notice",
         count(site, "/consent/answered", &[("vendor", "notice")]) == 0,
+    );
+    let formats = call(
+        connection,
+        PAGE_FORMATS.name,
+        &json!(page.page_id),
+        &json!({ "formats": { "markdown": true } }),
+    )?;
+    let markdown = formats["result"]["markdown"].as_str().unwrap_or_default();
+    checks.check(
+        "the hidden notice's text is absent from the page's Markdown, and its own text is there",
+        !markdown.contains("This website uses cookies") && markdown.contains("The article's text"),
     );
     finish(connection, run_id)?;
     let made = trace(home, run_id, "cdp-commands.jsonl")

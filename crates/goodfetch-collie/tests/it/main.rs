@@ -27,6 +27,7 @@ mod daemon;
 mod daemon_log;
 mod daemon_run;
 mod engine_choice;
+mod event_stream;
 mod events;
 mod exit_codes;
 #[cfg(target_os = "linux")]

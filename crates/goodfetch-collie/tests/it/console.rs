@@ -162,6 +162,22 @@ enum Route {
 #[case::a_read_of_the_sign_in("GET", Route::Path("/sign-in"), 405, None, "no-store")]
 #[case::a_session_signed_out("GET", Route::Path("/session"), 401, None, "no-store")]
 #[case::a_websocket_from_no_page("GET", Route::Path("/protocol"), 403, None, "no-store")]
+#[case::an_event_stream_signed_out("GET", Route::Path("/protocol/events"), 401, None, "no-store")]
+#[case::a_write_to_the_event_stream("POST", Route::Path("/protocol/events"), 405, None, "no-store")]
+#[case::a_post_to_an_event_stream_from_no_page(
+    "POST",
+    Route::Path("/protocol/messages/0000000000000000"),
+    403,
+    None,
+    "no-store"
+)]
+#[case::a_read_of_an_event_streams_messages(
+    "GET",
+    Route::Path("/protocol/messages/0000000000000000"),
+    405,
+    None,
+    "no-store"
+)]
 #[case::a_file_by_handle_signed_out(
     "GET",
     Route::Path("/bodies/first/0000000000000000000000000000000000000000000000000000000000000000"),

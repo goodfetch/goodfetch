@@ -588,12 +588,20 @@ fn unavailable(url: &str, request_id: &str, surface: Surface) -> CallError {
 }
 
 /// `response_truncated` for the body of the response to `url`, which broke
-/// off after `received` of its `expected` bytes.
+/// off after `received` decoded bytes, its `Content-Length` declaring
+/// `expected` as sent.
 fn cut(url: &str, received: u64, expected: Option<u64>) -> CallError {
-    let of = expected.map_or_else(String::new, |expected| format!(" of {expected}"));
+    // `received` counts decoded bytes and `expected` the bytes as sent, so
+    // a compressed body's count can pass its `Content-Length`: the two are
+    // never read as a fraction.
+    let of = expected.map_or_else(String::new, |expected| {
+        format!("; its `Content-Length` declared {expected} as sent")
+    });
     CallError::new(
         &RESPONSE_TRUNCATED,
-        format!("the body of the response to {url} broke off after {received} bytes{of}"),
+        format!(
+            "the body of the response to {url} broke off after {received} bytes once decoded{of}"
+        ),
         &ResponseTruncatedDetails {
             url: url.to_owned(),
             received,

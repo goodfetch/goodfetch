@@ -120,11 +120,24 @@ pub(crate) fn crawl_with(
     settings: &Value,
     handler: &mut impl FnMut(&mut Inside<'_>, &Value) -> Value,
 ) -> Value {
+    crawl_declaring(engine, run_id, seeds, &json!({}), settings, handler)
+}
+
+/// [`crawl_with`] for a crawl that declares the Labels `labels`, each with
+/// its settings, as `crawl.start` takes them.
+pub(crate) fn crawl_declaring(
+    engine: &mut Attached,
+    run_id: &str,
+    seeds: &[Value],
+    labels: &Value,
+    settings: &Value,
+    handler: &mut impl FnMut(&mut Inside<'_>, &Value) -> Value,
+) -> Value {
     let mut settings = settings.clone();
     settings["crawl"]["handler"] = json!({ "concurrency": 1 });
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": run_id, "seeds": seeds, "settings": settings },
+        "params": { "run_id": run_id, "seeds": seeds, "labels": labels, "settings": settings },
     }));
     let mut calls = 0;
     loop {

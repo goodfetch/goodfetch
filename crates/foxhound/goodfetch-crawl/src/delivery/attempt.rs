@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 use std::collections::BTreeSet;
 
+use goodfetch_engine::CallContext;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
@@ -32,7 +33,9 @@ use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch};
 use goodfetch_engine::runs::Run;
-use goodfetch_fetch_tier::{FetchTiers, HandOver, HandedOver, HttpTier, Requester, RobotsTxtFetch};
+use goodfetch_fetch_tier::{
+    FetchTiers, HandOver, HandedOver, HttpTier, Requester, RobotsTxtFetch, TierChoice,
+};
 use goodfetch_frontier::{DomainKeys, EndMerged, PageSeen, SharedRobotsTxt};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
@@ -46,6 +49,7 @@ use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::foxhound::settings::{
     POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
 };
+use goodfetch_protocol::page::NAVIGATION_FAILED;
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_session_pool::Effect;
@@ -82,23 +86,36 @@ pub(super) enum Answer {
     ClientGone,
 }
 
-/// What an attempt fetches its request's document with under `fetch.tier:
-/// http`: the Run's HTTP tier, and the room its hedges take beside it.
-pub(super) struct DocumentFetch {
+/// The tier an attempt's request takes and what it is fetched with: the
+/// Run's HTTP tier, the room its hedges take beside it, and the browser's
+/// pages through the Run's `tiers`.
+pub(super) struct Tiering {
     tiers: FetchTiers,
-    http: HttpTier,
+    http: Option<HttpTier>,
+    choice: Option<TierChoice>,
     second_copies: SecondCopies,
 }
 
-impl DocumentFetch {
-    /// The Run's `tiers` and `http` tier, its hedges taking
-    /// `second_copies`.
-    pub(super) fn of(tiers: &FetchTiers, http: &HttpTier, second_copies: &SecondCopies) -> Self {
+impl Tiering {
+    /// `choice` on the Run's `tiers` and `http` tier, its hedges taking
+    /// `second_copies`; no choice hands the handler its request alone.
+    pub(super) fn of(
+        tiers: &FetchTiers,
+        http: Option<&HttpTier>,
+        choice: Option<TierChoice>,
+        second_copies: &SecondCopies,
+    ) -> Self {
         Self {
             tiers: tiers.clone(),
-            http: http.clone(),
+            http: http.cloned(),
+            choice,
             second_copies: second_copies.clone(),
         }
+    }
+
+    /// The tier the attempt starts on, if any.
+    pub(super) fn tier(&self) -> Option<FetchTier> {
+        self.choice.as_ref().map(|choice| choice.tier)
     }
 }
 
@@ -276,80 +293,57 @@ pub(super) struct Attempt {
     pub(super) merged: Vec<(String, String)>,
 }
 
-/// One attempt: the handler request, bounded by its lease. When the lease
-/// ends first, the request is cancelled and its answer left to [`late`].
+/// One attempt: the handler request, bounded by its lease, on the tier its
+/// request takes. On `http` the request's document is fetched first and
+/// the handler given a page served from it; a call that tier cannot serve
+/// exactly under `auto` escalates the request to the browser, where the
+/// handler runs again on Collie's page, neither a retry nor a failure, the
+/// first answer discarded. On `browser` the engine opens Collie's page
+/// for the handler, navigated to the request's URL through the gate. When
+/// the lease ends first, the request is cancelled and its answer left to
+/// [`late`].
 pub(super) async fn attempt(
     run: Run,
     server: usize,
-    client: Client,
+    context: CallContext,
     (leased, session, counted): (Leased, ServingSession, Counted),
     lease: WorkItemLease,
-    (fetching, gating): (Option<DocumentFetch>, Gating),
+    (tiering, gating): (Tiering, Gating),
     in_flight: SharedInFlight,
 ) -> Attempt {
-    let fetched = match &fetching {
-        None => Ok(None),
-        Some(fetch) => {
-            let requester = Requester {
-                request_id: &leased.crawl_request.id,
-                session: &session.id,
-                label: &leased.crawl_request.label,
-                domain_key: &leased.waiting.key,
-                second_copies: &fetch.second_copies,
-                // No work item declares an Effect before area 9's Effect
-                // journal (ADR 0106), and no crawl request is a Paid fetch
-                // before ADR 0045's.
-                declares_effect: false,
-                paid: false,
-            };
-            tokio::select! {
-            biased;
-            document = async {
-                read_robots_txt(&run, &fetch.http, &leased).await;
-                fetch.tiers.serve(&fetch.http, &run, &leased.crawl_request, &requester).await
-            } => document
-                .map(Some)
-                .map_err(|error| Answer::Failed {
-                    code: error.code().to_owned(),
-                    retryable: error.retryable(),
-                    message: error.message().to_owned(),
-                    details: error.details().cloned().unwrap_or_default(),
-                }),
-            _ = lease.ended() => Err(Answer::LeaseEnded),
-            }
-        }
+    let on = On {
+        run: &run,
+        context: &context,
+        leased: &leased,
+        session: &session,
+        lease: &lease,
+        gating: &gating,
+        in_flight: &in_flight,
     };
     let mut merged = Vec::new();
-    let answer = match fetched {
-        Err(answer) => answer,
-        Ok(document) => {
-            if let (Some(fetch), Some(page_id)) = (&fetching, &document) {
-                merged = learn(&run, &fetch.tiers, page_id, &leased).await;
-            }
-            if document.is_some() {
-                in_flight.lock().await.went_on(
-                    &run,
-                    &leased.crawl_request.id,
-                    InFlightPhase::Handling,
-                );
-            }
-            let params = CrawlRequestHandleParams {
-                run_id: run.id().clone(),
-                crawl_request: leased.crawl_request.clone(),
-                attempt: leased.attempt,
-                lease_epoch: leased.lease_epoch,
-                session: session.clone(),
-                tier: document.as_ref().map(|_| FetchTier::Http),
-                page_id: document.clone(),
-            };
+    let answer = match (&tiering.choice, &tiering.http) {
+        (None, _) => {
+            let params = on.params(None, None);
             let handed_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
-            let answer = handled(&run, &client, &params, &lease).await;
+            let answer = handled(&run, context.client(), &params, &lease).await;
             drop(handed_over);
-            if let (Some(fetch), Some(page_id)) = (&fetching, &document) {
-                fetch.tiers.close(page_id);
-            }
             answer
         }
+        (Some(choice), _) if choice.tier == FetchTier::Browser => {
+            on.browser(&tiering.tiers, choice, None).await
+        }
+        (Some(choice), Some(http)) => {
+            let (answer, learned) = on.http(&tiering, http, choice).await;
+            merged = learned;
+            answer
+        }
+        (Some(_), None) => Answer::Failed {
+            code: NAVIGATION_FAILED.name.to_owned(),
+            retryable: true,
+            message: "The crawl's HTTP tier could not be built, so the request was not fetched."
+                .to_owned(),
+            details: Map::new(),
+        },
     };
     Attempt {
         server,
@@ -360,6 +354,168 @@ pub(super) async fn attempt(
         answer,
         merged,
     }
+}
+
+/// What one attempt runs its handler with.
+struct On<'a> {
+    run: &'a Run,
+    context: &'a CallContext,
+    leased: &'a Leased,
+    session: &'a ServingSession,
+    lease: &'a WorkItemLease,
+    gating: &'a Gating,
+    in_flight: &'a SharedInFlight,
+}
+
+impl On<'_> {
+    /// The handler request of the attempt on `tier`, its page `page_id`.
+    fn params(&self, tier: Option<FetchTier>, page_id: Option<PageId>) -> CrawlRequestHandleParams {
+        CrawlRequestHandleParams {
+            run_id: self.run.id().clone(),
+            crawl_request: self.leased.crawl_request.clone(),
+            attempt: self.leased.attempt,
+            lease_epoch: self.leased.lease_epoch,
+            session: self.session.clone(),
+            tier,
+            page_id,
+        }
+    }
+
+    /// The attempt on the `http` tier: its origin's robots.txt read and its
+    /// document fetched under the lease, the Frontier taught its page, and
+    /// the handler given a page served from it, which a call the tier
+    /// cannot serve escalates under `auto`. Answers how it ended and the
+    /// pending requests the page's rules merged.
+    async fn http(
+        &self,
+        tiering: &Tiering,
+        http: &HttpTier,
+        choice: &TierChoice,
+    ) -> (Answer, Vec<(String, String)>) {
+        let (run, leased, lease) = (self.run, self.leased, self.lease);
+        let requester = Requester {
+            request_id: &leased.crawl_request.id,
+            session: &self.session.id,
+            label: &leased.crawl_request.label,
+            domain_key: &leased.waiting.key,
+            second_copies: &tiering.second_copies,
+            // No work item declares an Effect before area 9's Effect
+            // journal (ADR 0106), and no crawl request is a Paid fetch
+            // before ADR 0045's.
+            declares_effect: false,
+            paid: false,
+        };
+        let tiers = &tiering.tiers;
+        let fetched = tokio::select! {
+            biased;
+            document = async {
+                read_robots_txt(run, http, leased).await;
+                tiers.serve(http, run, &leased.crawl_request, &requester, choice).await
+            } => document.map_err(|error| failed(&error)),
+            _ = lease.ended() => Err(Answer::LeaseEnded),
+        };
+        let page_id = match fetched {
+            Ok(page_id) => page_id,
+            Err(answer) => return (answer, Vec::new()),
+        };
+        let merged = learn(run, tiers, &page_id, leased).await;
+        record_tier(run, leased, choice, None).await;
+        self.in_flight
+            .lock()
+            .await
+            .went_on(run, &leased.crawl_request.id, InFlightPhase::Handling);
+        let params = self.params(Some(FetchTier::Http), Some(page_id.clone()));
+        let handed_over = self
+            .gating
+            .hand_over(run, leased, lease, self.in_flight)
+            .await;
+        let answer = handled(run, self.context.client(), &params, lease).await;
+        drop(handed_over);
+        let escalated = tiers.escalated(&page_id);
+        tiers.close(&page_id);
+        let answer = match escalated {
+            // The first answer, whatever it says, is discarded.
+            Some(call) if !matches!(answer, Answer::LeaseEnded | Answer::ClientGone) => {
+                // The browser's run takes a whole lease of its own.
+                lease.renew(lease.length());
+                self.browser(tiers, choice, Some(call)).await
+            }
+            _ => answer,
+        };
+        (answer, merged)
+    }
+
+    /// The attempt on the `browser` tier: the Run's pages handed over,
+    /// Collie's page opened and navigated to the request's URL through the
+    /// gate under the lease, and the handler given it, closed once it
+    /// answered. `escalated` names the call that moved the request here
+    /// from a cheaper tier.
+    async fn browser(
+        &self,
+        tiers: &FetchTiers,
+        choice: &TierChoice,
+        escalated: Option<&'static str>,
+    ) -> Answer {
+        let (run, leased, lease) = (self.run, self.leased, self.lease);
+        let handed_over = self
+            .gating
+            .hand_over(run, leased, lease, self.in_flight)
+            .await;
+        let opened = tokio::select! {
+            biased;
+            opened = tiers.browser(run.id(), &leased.crawl_request.url, self.context) => {
+                opened.map_err(|error| failed(&error))
+            }
+            _ = lease.ended() => Err(Answer::LeaseEnded),
+        };
+        let page_id = match opened {
+            Ok((page_id, _)) => page_id,
+            Err(answer) => return answer,
+        };
+        let browser = TierChoice {
+            tier: FetchTier::Browser,
+            forced: choice.forced.clone().filter(|_| escalated.is_none()),
+        };
+        record_tier(run, leased, &browser, escalated).await;
+        self.in_flight
+            .lock()
+            .await
+            .went_on(run, &leased.crawl_request.id, InFlightPhase::Handling);
+        let params = self.params(Some(FetchTier::Browser), Some(page_id.clone()));
+        let answer = handled(run, self.context.client(), &params, lease).await;
+        drop(handed_over);
+        tiers.close_browser(&page_id).await;
+        answer
+    }
+}
+
+/// An attempt that ended with `error` before its handler was asked.
+fn failed(error: &CallError) -> Answer {
+    Answer::Failed {
+        code: error.code().to_owned(),
+        retryable: error.retryable(),
+        message: error.message().to_owned(),
+        details: error.details().cloned().unwrap_or_default(),
+    }
+}
+
+/// Records in the Run's Provenance the tier `choice` names for `leased`'s
+/// attempt, and whether it was forced, the engine's choice, or an
+/// escalation from a cheaper tier by the call `escalated` (ADR 0023).
+async fn record_tier(
+    run: &Run,
+    leased: &Leased,
+    choice: &TierChoice,
+    escalated: Option<&'static str>,
+) {
+    goodfetch_fetch_tier::record_tier(
+        run,
+        &leased.crawl_request.id,
+        &leased.crawl_request.label,
+        choice,
+        escalated,
+    )
+    .await;
 }
 
 /// Hands the Frontier the page `page_id` the tiers fetched for `leased`'s

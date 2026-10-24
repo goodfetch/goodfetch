@@ -173,6 +173,22 @@ class HttpMethod(RootModel[str]):
     """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
 
 
+class LabelDeclaration(BaseModel):
+    """
+    One Label a crawl declares (ADR 0093): the settings its requests take
+    over the Run's.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    settings: dict[str, Any] | None = None
+    """
+    Its settings, nested by key: today `fetch.tier` alone, any other key
+    refused with `setting_not_applicable`.
+    """
+
+
 class LearnedRuleKind(StrEnum):
     """What a learned URL rule learned (ADRs 0005 and 0120)."""
 
@@ -782,6 +798,11 @@ class CrawlStartParams(BaseModel):
         extra="forbid",
         arbitrary_types_allowed=True,
     )
+    labels: dict[str, LabelDeclaration] | None = None
+    """
+    The Labels the crawl declares, by name, each with its own settings
+    (ADR 0093): a scope between the Run and its requests.
+    """
     project: ProjectSettings | None = None
     """The project configuration the Client found, layer 3 (ADR 0083)."""
     run_id: Annotated[

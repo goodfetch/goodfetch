@@ -12,6 +12,7 @@ publish.workspace = true
 brotli-decompressor.workspace = true
 btls.workspace = true
 bytes.workspace = true
+data-encoding.workspace = true
 dom_query.workspace = true
 flate2.workspace = true
 http-body-util.workspace = true
@@ -26,6 +27,7 @@ http2.workspace = true
 hyper.workspace = true
 reqwest = { workspace = true, features = ["http2", "rustls-no-provider"] }
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }

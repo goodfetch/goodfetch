@@ -747,6 +747,13 @@ export interface SitemapReport {
  */
 export interface CrawlStartParams {
   /**
+   * The Labels the crawl declares, by name, each with its own settings
+   * (ADR 0093): a scope between the Run and its requests.
+   */
+  labels?: {
+    [k: string]: LabelDeclaration;
+  };
+  /**
    * The project configuration the Client found, layer 3 (ADR 0083).
    */
   project?: ProjectSettings | null;
@@ -765,6 +772,22 @@ export interface CrawlStartParams {
    * The Run's opaque tags.
    */
   tags?: Tags;
+}
+/**
+ * One Label a crawl declares (ADR 0093): the settings its requests take
+ * over the Run's.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "LabelDeclaration".
+ */
+export interface LabelDeclaration {
+  /**
+   * Its settings, nested by key: today `fetch.tier` alone, any other key
+   * refused with `setting_not_applicable`.
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
 }
 /**
  * One request a crawl starts from (ADR 0093): a URL, the Label that picks

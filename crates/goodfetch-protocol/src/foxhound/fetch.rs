@@ -2,14 +2,17 @@
 //! the tier that fetches a crawl request's document, and the tier
 //! `crawl_request.handle` names when the engine fetched it; and the HTTP
 //! tier's redundant requests (ADR 0040, RT-20): hedged requests,
-//! `fetch.hedge.*`, and coalescing, `fetch.coalesce`. Foxhound's own,
-//! since only a crawl's requests are fetched by a tier.
+//! `fetch.hedge.*`, and coalescing, `fetch.coalesce`; and `browser_required`,
+//! a call a forced tier cannot serve exactly. Foxhound's own, since only a
+//! crawl's requests are fetched by a tier.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::catalog::{Authority, Entries, ProtocolVersion, Setting, ValueKind};
+use crate::catalog::{
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion, Setting, ValueKind,
+};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -74,7 +77,7 @@ fn auto() -> Value {
 /// `fetch.tier` (ADRs 0020 and 0093; spec #579).
 pub const FETCH_TIER: Setting = Setting {
     name: "fetch.tier",
-    description: "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
+    description: "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose, and today fetches a declared Label's request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while an undeclared Label's handler is given its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
     kind: ValueKind::Choice(FETCH_TIERS),
     default: auto,
     clearable: false,
@@ -131,13 +134,45 @@ pub const FETCH_COALESCE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// What `browser_required` details (ADR 0093).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct BrowserRequiredDetails {
+    /// The setting that forced the tier: `fetch.tier`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key: String,
+    /// The tier it forced.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub tier: FetchTier,
+    /// The Label whose requests it forced, when it was set on one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub label: Option<String>,
+    /// The call the tier cannot serve exactly, by its operation's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub call: String,
+    /// What serves it: another tier, and for a wait also content the page
+    /// may simply lack.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
+/// A call a forced tier cannot serve exactly (ADR 0093).
+pub const BROWSER_REQUIRED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "browser_required",
+    description: "A handler's call on a page its forced fetch tier serves from a document, which that tier cannot serve exactly, such as a click, `evaluate` or a wait for content the document lacks: under a forced tier nothing escalates to the browser. The details name `fetch.tier`, the tier, the Label that forced it when one did, and the call; the fix names `fetch.tier: auto` or `browser`, and for a wait also content the page may simply lack.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[],
     events: &[],
     handler_requests: &[],
-    error_codes: &[],
+    error_codes: &[BROWSER_REQUIRED],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[

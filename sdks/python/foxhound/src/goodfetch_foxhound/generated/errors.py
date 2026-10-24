@@ -19,6 +19,14 @@ class AttemptEndedError(ProgramError):
         super().__init__(message, code="attempt_ended", group="program", retryable=False)
 
 
+class BrowserRequiredError(ProgramError):
+    """A handler's call on a page its forced fetch tier serves from a document, which that tier cannot serve exactly, such as a click, `evaluate` or a wait for content the document lacks: under a forced tier nothing escalates to the browser. The details name `fetch.tier`, the tier, the Label that forced it when one did, and the call; the fix names `fetch.tier: auto` or `browser`, and for a wait also content the page may simply lack."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="browser_required", group="program", retryable=False)
+
+
 class ClientGoneError(UnavailableError):
     """The Connection the attempt's request went on ended before its handler answered: the program or one of its `workers=N` handler processes ended, or its Connection dropped. Not the handler's own failure (`handler_failed`): the attempt committed nothing and is retried, on another Connection that serves the crawl, under `crawl.retry.max`."""
 
@@ -69,6 +77,7 @@ class SampleCrawlRefusedError(RefusedError):
 
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "attempt_ended": AttemptEndedError,
+    "browser_required": BrowserRequiredError,
     "client_gone": ClientGoneError,
     "handler_failed": HandlerFailedError,
     "handler_lost": HandlerLostError,

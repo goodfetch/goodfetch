@@ -7,6 +7,7 @@
 //! processes do. Foxhound's own.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
@@ -126,6 +127,18 @@ impl JsonSchema for Seeds {
     }
 }
 
+/// One Label a crawl declares (ADR 0093): the settings its requests take
+/// over the Run's.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LabelDeclaration {
+    /// Its settings, nested by key: today `fetch.tier` alone, any other key
+    /// refused with `setting_not_applicable`.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: serde_json::Map<String, Value>,
+}
+
 /// What `crawl.start` takes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -141,6 +154,11 @@ pub struct CrawlStartParams {
     /// The requests the crawl starts from.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub seeds: Seeds,
+    /// The Labels the crawl declares, by name, each with its own settings
+    /// (ADR 0093): a scope between the Run and its requests.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub labels: BTreeMap<String, LabelDeclaration>,
     /// The Run's settings, nested by key: the run layer (ADR 0083).
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]

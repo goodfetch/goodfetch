@@ -890,6 +890,16 @@
       ]
     },
     {
+      "id": "error:browser_required",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:call_cancelled",
       "kind": "error",
       "area": 3,

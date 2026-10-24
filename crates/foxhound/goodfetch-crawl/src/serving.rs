@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use goodfetch_engine::client::Client;
+use goodfetch_engine::CallContext;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::run::RunId;
@@ -19,8 +19,9 @@ use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 /// A Connection that joined a crawl, and the sign that it left: the
 /// sending half of `left` drops when its `crawl.serve` call ends.
 pub(crate) struct Server {
-    /// The Client its handler requests go to.
-    pub(crate) client: Client,
+    /// The context of its call, whose Connection's Client its handler
+    /// requests go to and its handlers' browser pages are opened for.
+    pub(crate) context: CallContext,
     /// Closed once it no longer takes new work items.
     pub(crate) left: oneshot::Receiver<()>,
 }
@@ -91,13 +92,18 @@ impl Crawls {
         self.0.lock().await.remove(run_id);
     }
 
-    /// Joins `client` to the live crawl `run_id`, until the answered
-    /// sender drops; `None` when no such crawl is open.
-    pub(crate) async fn join(&self, run_id: &RunId, client: Client) -> Option<oneshot::Sender<()>> {
+    /// Joins the Connection of the call `context` to the live crawl
+    /// `run_id`, until the answered sender drops; `None` when no such crawl
+    /// is open.
+    pub(crate) async fn join(
+        &self,
+        run_id: &RunId,
+        context: CallContext,
+    ) -> Option<oneshot::Sender<()>> {
         let (stays, left) = oneshot::channel();
         let crawls = self.0.lock().await;
         let live = crawls.get(run_id)?;
-        live.joining.send(Server { client, left }).ok()?;
+        live.joining.send(Server { context, left }).ok()?;
         Some(stays)
     }
 }

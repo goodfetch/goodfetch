@@ -16,6 +16,7 @@
 //! Collie's executable (STYLE.md, reason 2).
 
 mod canonical;
+mod choice;
 mod decoding;
 mod driver;
 mod gate;
@@ -25,11 +26,12 @@ mod redundant;
 mod tiers;
 mod transports;
 
+pub use choice::{Forced, LabelTiers, TierChoice};
 pub use driver::{
     Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
 };
 pub use gate::{HandOver, RobotsTxtFetch};
 pub use http_profile::HttpProfile;
 pub use redundant::Requester;
-pub use tiers::{FetchTiers, HandedOver, HttpTier, Signed};
+pub use tiers::{FetchTiers, HandedOver, HttpTier, Signed, record_tier};
 pub use transports::{Reqwest, TransportConfig, TransportUnavailable, Wreq};

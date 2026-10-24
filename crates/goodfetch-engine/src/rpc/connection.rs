@@ -64,7 +64,7 @@ use super::{
 use crate::client::{Client, Outgoing};
 use crate::clock::Clock;
 use crate::composition::{
-    CallContext, CallError, CallInput, CallStream, ConnectionContext, DaemonSide, Handler,
+    CallContext, CallError, CallInput, CallStream, ConnectionContext, DaemonSide, Driver, Handler,
 };
 use crate::events::{Credits, Events};
 use crate::log::{ConnectionLog, LogEvents};
@@ -77,6 +77,7 @@ use crate::transition::engine::{
 };
 use crate::transition::{self, Refusal};
 use crate::transport::{Connection, ConnectionWriter};
+use goodfetch_protocol::run::RunKind;
 
 /// How many bytes one read takes from the Connection.
 const READ_CHUNK: usize = 8 * 1024;
@@ -101,6 +102,9 @@ pub const REFUSAL_TARGET: &str = "goodfetch::rpc::refusal";
 pub(crate) struct Dispatch {
     pub(crate) identity: Arc<Identity>,
     pub(crate) handlers: BTreeMap<&'static str, Handler>,
+    /// The driver of each kind of Run that has one, which a resume starts
+    /// again.
+    pub(crate) drivers: Arc<BTreeMap<RunKind, Driver>>,
     /// The process's log events, which each Connection receives at its
     /// own level; `None` when the engine was given none, so no layer feeds
     /// them and no buffer is kept for them.
@@ -410,6 +414,7 @@ async fn serve_carried(
         identity: Arc::clone(&dispatch.identity),
         client,
         surface: OnceLock::new(),
+        drivers: Arc::clone(&dispatch.drivers),
         runs,
         events,
         daemon,

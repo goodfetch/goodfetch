@@ -156,7 +156,7 @@ struct Applying {
 
 impl Gate {
     /// Admits a request to `url`, or refuses it.
-    async fn admitted(&self, url: &Url) -> Result<Permit, Refusal> {
+    pub(crate) async fn admitted(&self, url: &Url) -> Result<Permit, Refusal> {
         let hand_over = &self.0;
         let run = &hand_over.run;
         let key = hand_over.keys.key(url.as_str());

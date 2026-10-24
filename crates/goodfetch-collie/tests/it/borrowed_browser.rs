@@ -411,6 +411,53 @@ fn a_loopback_cdp_url_opens_for_the_programs_own_code_alone() {
     );
 }
 
+/// The browsers the test's engine launched itself, beside the lent one.
+#[cfg(unix)]
+fn launched_by_the_engine(env: &TestEnv) -> usize {
+    crate::page::browser_command_lines(env)
+        .iter()
+        .filter(|line| !line.contains("--type=") && !line.contains("lent-browser-profile"))
+        .count()
+}
+
+/// A Run resumed after its engine was killed reopens a Session it opened on
+/// a Borrowed browser on that browser again: its next page opens there,
+/// and the engine launches no browser of its own in its place.
+///
+/// Covers: story:5-60, operation:run.resume, operation:session.new_page
+#[cfg(unix)]
+#[test]
+fn a_resumed_run_reopens_a_borrowed_session_on_its_browser() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let mut program = Program::start(&env, &cache, "sdk_typescript");
+    program.run("borrowed-resumed", &[]);
+    let session = program.borrow("borrowed-resumed", &lent.cdp_url)["result"]["session_id"].clone();
+    let _ = program.new_page(&session);
+    program.engine.kill();
+
+    let mut resumed = Program::start(&env, &cache, "sdk_typescript");
+    let resume = resumed.call(
+        "run.resume",
+        &json!({ "run_id": "borrowed-resumed", "settings": { "network": { "resolve": {} } } }),
+    );
+    let page = resumed.call("session.new_page", &json!({ "session_id": session }));
+    let launched = launched_by_the_engine(&env);
+    resumed.finish("borrowed-resumed");
+    lent.stop();
+
+    assert_eq!(
+        (
+            &resume["result"]["started_as"],
+            page["result"]["page_id"].is_string(),
+            launched,
+        ),
+        (&json!("resumed"), true, 0),
+        "{page}"
+    );
+}
+
 /// Writes an Operator policy whose `session.source` is the `cdp_url`
 /// `url`, and that sets `egress.no_private_endpoints` when `no_private`.
 fn operator_policy(env: &TestEnv, url: &str, no_private: bool) {

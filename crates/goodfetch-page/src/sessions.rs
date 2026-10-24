@@ -95,12 +95,14 @@ use crate::trace;
 
 /// What the page crate adds to every run file: each Session the Run opened,
 /// by its position among them, whether it is the Run's default Session,
-/// whether it is closed, its own settings, as a JSON object by key, and its
-/// identity seed, its 64 bits as SQLite's signed integer.
+/// whether it is closed, its own settings, as a JSON object by key, its
+/// identity seed, its 64 bits as SQLite's signed integer, and, for one on a
+/// Borrowed browser, its `cdp_url` and who gave it, so a resumed Run
+/// reopens it on that browser (`source`, null for a fresh Session).
 pub(crate) const TABLES: RunStateTables = RunStateTables {
     name: "page-sessions",
     statements: &[
-        "CREATE TABLE IF NOT EXISTS page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL) STRICT",
+        "CREATE TABLE IF NOT EXISTS page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source TEXT) STRICT",
     ],
 };
 
@@ -325,7 +327,7 @@ impl Sessions {
             // A `close()` while it opened abandoned the open (S3).
             _ => return Err(cancelled(StoppedBy::Program, ClosedValue::Session)),
         }
-        self.record(&run, position, false, &settings, context)
+        self.record(&run, position, false, &settings, borrowed.as_ref(), context)
             .await?;
         mark_interception_only(&open, &session).await;
         Ok(SessionOpened {
@@ -368,8 +370,15 @@ impl Sessions {
                         Some(cdp_url) => runs.pool.borrowed_seat(cdp_url.clone()),
                         None => runs.pool.seat(Placement::Shared, proxy.clone()),
                     };
-                    self.record(&run, position, true, &Values::default(), context)
-                        .await?;
+                    self.record(
+                        &run,
+                        position,
+                        true,
+                        &Values::default(),
+                        borrowed.as_ref(),
+                        context,
+                    )
+                    .await?;
                     let session = session_id(run.id(), position);
                     state.sessions.insert(
                         session.clone(),
@@ -658,7 +667,7 @@ impl Sessions {
                 .state()
                 .read(|connection| {
                     let mut statement = connection.prepare(
-                        "SELECT position, is_default, closed, settings FROM page_sessions ORDER BY position",
+                        "SELECT position, is_default, closed, settings, source FROM page_sessions ORDER BY position",
                     )?;
                     let rows = statement.query_map([], |row| {
                         Ok((
@@ -666,6 +675,7 @@ impl Sessions {
                             row.get::<_, bool>(1)?,
                             row.get::<_, bool>(2)?,
                             row.get::<_, String>(3)?,
+                            row.get::<_, Option<String>>(4)?,
                         ))
                     })?;
                     rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -689,7 +699,7 @@ impl Sessions {
                 default: None,
                 closed: BTreeSet::new(),
             };
-            for (position, is_default, closed, settings) in recorded {
+            for (position, is_default, closed, settings, source) in recorded {
                 runs.last = runs.last.max(position);
                 if is_default {
                     runs.default = Some(position);
@@ -698,22 +708,33 @@ impl Sessions {
                     runs.closed.insert(position);
                 } else {
                     let settings = recorded_settings(&settings, run, context)?;
+                    let borrowed = source
+                        .map(|source| recorded_source(&source, run, context))
+                        .transpose()?;
                     // A reopened Session keeps the proxy it opened with, so
-                    // its address never changes under its cookies (SA-22).
-                    let proxy = open_proxy(run, &settings, context, position).await?;
+                    // its address never changes under its cookies (SA-22);
+                    // one on a Borrowed browser has none (ADR 0056).
+                    let proxy = match borrowed {
+                        Some(_) => None,
+                        None => open_proxy(run, &settings, context, position).await?,
+                    };
                     let session = session_id(run.id(), position);
-                    self.interception.open_session(&session);
+                    self.open_in_interception(&session, run, borrowed.is_some());
+                    let (seat, attributes) = match &borrowed {
+                        Some(cdp_url) => (pool.borrowed_seat(cdp_url.clone()), BORROWED),
+                        None => (pool.seat(Placement::Shared, proxy.clone()), FRESH),
+                    };
                     state.sessions.insert(
                         session.clone(),
                         Arc::new(Session {
                             run: run.clone(),
                             position,
-                            seat: pool.seat(Placement::Shared, proxy.clone()),
+                            seat,
                             settings,
-                            life: SessionLife::new(session, FRESH, SessionState::Open),
+                            life: SessionLife::new(session, attributes, SessionState::Open),
                             proxy,
                             page_listeners: tabs::PageListeners::default(),
-                            interception_only: None,
+                            interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
                         }),
                     );
                 }
@@ -783,17 +804,27 @@ impl Sessions {
         }
     }
 
-    /// Records the Session at `position` of `run`, with its own `settings`
-    /// and the identity seed it draws from the Run's `Entropy`, in its run
-    /// state.
+    /// Records the Session at `position` of `run`, with its own `settings`,
+    /// the identity seed it draws from the Run's `Entropy` and the
+    /// `cdp_url` of the Borrowed browser it is on, `borrowed`, if it is, in
+    /// its run state.
     async fn record(
         &self,
         run: &Run,
         position: u32,
         is_default: bool,
         settings: &Values,
+        borrowed: Option<&CdpUrl>,
         context: &CallContext,
     ) -> Result<(), CallError> {
+        let source = borrowed.map(|cdp_url| {
+            json!({
+                "url": cdp_url.url,
+                "layer": cdp_url.origin.layer,
+                "acting_for_model": cdp_url.origin.acting_for_model,
+            })
+            .to_string()
+        });
         let settings = Value::Object(
             settings
                 .keys()
@@ -806,8 +837,8 @@ impl Sessions {
             .write(move |connection| {
                 connection
                     .execute(
-                        "INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed) VALUES (?1, ?2, 0, ?3, ?4)",
-                        rusqlite::params![position, is_default, settings, seed],
+                        "INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed, source) VALUES (?1, ?2, 0, ?3, ?4, ?5)",
+                        rusqlite::params![position, is_default, settings, seed, source],
                     )
                     .map(drop)
             })
@@ -946,6 +977,26 @@ async fn open_proxy(
     Ok(SessionProxy::open(&resolved, run, &opening)
         .await?
         .map(Arc::new))
+}
+
+/// The `cdp_url` `recorded`, as the run state of `run` holds it, of a
+/// Session on a Borrowed browser reopened from it.
+fn recorded_source(recorded: &str, run: &Run, context: &CallContext) -> Result<CdpUrl, CallError> {
+    #[derive(serde::Deserialize)]
+    struct Recorded {
+        url: String,
+        layer: SettingsLayer,
+        acting_for_model: bool,
+    }
+    let recorded: Recorded =
+        serde_json::from_str(recorded).map_err(|error| unavailable(run, &error, context))?;
+    Ok(CdpUrl {
+        url: recorded.url,
+        origin: CdpUrlOrigin {
+            layer: recorded.layer,
+            acting_for_model: recorded.acting_for_model,
+        },
+    })
 }
 
 /// The own settings `recorded`, as the run state of `run` holds them, of a

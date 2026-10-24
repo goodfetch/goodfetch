@@ -59,9 +59,10 @@ CREATE TABLE outcomes (
             attempts INTEGER NOT NULL,
             outcome TEXT NOT NULL
         ) STRICT;
-CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL) STRICT;
-INSERT INTO "page_sessions" VALUES(1,1,0,'{}',6178731391398722387);
-INSERT INTO "page_sessions" VALUES(2,0,1,'{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}',-2937466112876520115);
+CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source TEXT) STRICT;
+INSERT INTO "page_sessions" VALUES(1,1,0,'{}',6178731391398722387,NULL);
+INSERT INTO "page_sessions" VALUES(2,0,1,'{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}',-2937466112876520115,NULL);
+INSERT INTO "page_sessions" VALUES(3,0,1,'{}',4417291851073961183,'{"url":"ws://127.0.0.1:9222/devtools/browser/lent","layer":"run","acting_for_model":false}');
 CREATE TABLE pool_sessions (
             position INTEGER NOT NULL PRIMARY KEY,
             proxy_tier TEXT NOT NULL,

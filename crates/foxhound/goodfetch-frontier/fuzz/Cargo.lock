@@ -1257,6 +1257,7 @@ dependencies = [
  "serde_json_canonicalizer",
  "sha2 0.10.9",
  "sqlite-plugin",
+ "subtle",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

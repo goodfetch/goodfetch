@@ -50,11 +50,10 @@ use crate::clock::Clock;
 use crate::composition::ConsoleBuild;
 use crate::content_origin::{BODIES, ContentFile, ContentKey, Shown};
 use crate::daemon::ContentOrigin;
+use crate::endpoint::REFUSAL_TARGET;
 use crate::people::{SignInDriver, SignInFailure, SignInRefused, sign_in_id};
 use crate::rpc::event_stream::EventStreamBody;
-use crate::rpc::{
-    Authorities, CONSOLE_LISTENER, ConsoleConnection, ConsoleSocket, REFUSAL_TARGET, Refusal,
-};
+use crate::rpc::{Authorities, CONSOLE_LISTENER, ConsoleConnection, ConsoleSocket, Refusal};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
 use crate::transport::{ConsoleListener, ConsoleStream};

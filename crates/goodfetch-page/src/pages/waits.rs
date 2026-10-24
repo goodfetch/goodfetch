@@ -38,6 +38,7 @@ pub(super) fn with_wait_handlers(contribution: Contribution, pages: &Pages) -> C
         pages.events.clone(),
     );
     let (functioning, waiting, counting) = (pages.clone(), pages.clone(), pages.clone());
+    let judging = pages.clone();
     contribution
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_REQUEST,
@@ -66,7 +67,17 @@ pub(super) fn with_wait_handlers(contribution: Contribution, pages: &Pages) -> C
                     let pattern = pattern_of(&params.url)?;
                     Ok(events.wait_for_url(pattern, params.wait_until.unwrap_or_default()))
                 });
-                async move { armed?.await }
+                let pages = judging.clone();
+                // The document the navigation it waited for reached is
+                // judged for its Block cause, raised by this call (ADR
+                // 0092).
+                async move {
+                    let reached = armed?.await?;
+                    pages
+                        .judge_waited(&params.page_id, PAGE_WAIT_FOR_URL.name)
+                        .await?;
+                    Ok::<_, CallError>(reached)
+                }
             },
         ))
         .with_handler(Handler::new(

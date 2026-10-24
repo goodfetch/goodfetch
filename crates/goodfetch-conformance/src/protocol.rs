@@ -344,9 +344,20 @@ fn stop(connection: &mut Connection, mode: EngineMode) {
 /// Opens the Connection with `hello`, announcing `product`, and checks that
 /// the engine runs as that Product.
 fn hello(connection: &mut Connection, product: Product) -> Result<HelloResult, ProtocolSuiteError> {
+    hello_as(connection, product, Surface::Rust)
+}
+
+/// Opens the Connection with `hello`, announcing `product` from a Client of
+/// `surface`, such as an Agent's through the MCP server, and checks that
+/// the engine runs as that Product.
+pub(crate) fn hello_as(
+    connection: &mut Connection,
+    product: Product,
+    surface: Surface,
+) -> Result<HelloResult, ProtocolSuiteError> {
     let params = HelloParams {
         protocol_version: PROTOCOL_VERSION,
-        surface: Surface::Rust,
+        surface,
         form: None,
         token: connection.token().map(ToOwned::to_owned),
         needs: Some(product),

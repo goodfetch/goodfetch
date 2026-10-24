@@ -719,6 +719,13 @@ number = 5
 kind = "error"
 prefix = "logged_out"
 
+# A Block cause on a Session a program or an Agent opened (#711, ADRs 0088
+# and 0092).
+[[area]]
+number = 5
+kind = "error"
+prefix = "blocked"
+
 # The page's and the Session's routes, their answers and their Error codes
 # (#702).
 [[area]]

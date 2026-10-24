@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710 and #716;
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716 and #711;
 # spec #580, ticket #783): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "22"
+version = "23"
 
 [[capability]]
 name = "sessions.default"
@@ -53,6 +53,29 @@ covers = ["story:5-79", "setting:session.page_check", "operation:run.new_session
 [[capability.case]]
 id = "without-a-page-check-the-built-in-detector-judges-and-each-page-is-weakly-checked"
 covers = ["story:5-79", "error:logged_out", "operation:page.goto"]
+
+[[capability]]
+name = "sessions.blocked"
+
+[[capability.case]]
+id = "a-pages-429-raises-blocked-with-its-retry-after-and-the-session-keeps-its-cookies-for-the-next-navigation"
+covers = ["story:5-91", "story:8-63", "error:blocked", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-403-behind-a-block-cause-raises-blocked-from-the-goto-or-else-from-the-pages-next-call"
+covers = ["story:5-91", "story:8-63", "error:blocked", "operation:locator.click", "operation:page.wait_for_url", "operation:page.evaluate"]
+
+[[capability.case]]
+id = "each-page-of-the-block-detection-corpus-a-session-meets-raises-blocked-with-its-cause-or-answers-its-response"
+covers = ["story:8-58", "story:8-59", "error:blocked", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-block-never-replaces-the-programs-or-the-agents-session"
+covers = ["story:5-91", "story:8-63", "error:blocked", "operation:page.request", "operation:session.pages"]
+
+[[capability.case]]
+id = "the-access-policy-pages-open-no-second-session-and-write-no-domain-limit"
+covers = ["story:5-91", "operation:page.goto"]
 
 [[capability]]
 name = "sessions.proxy"

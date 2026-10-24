@@ -33,6 +33,16 @@ pub trait BlockClassifier: Send + Sync {
     /// The Block cause of `response`'s document, whose markup is `markup`;
     /// none for a document no rule classifies.
     fn classify(&self, response: &PageResponse, markup: &str) -> Option<Block>;
+
+    /// The markers, lowercase, its rules look for in the document of a
+    /// response with `status`, each once; none when no rule reads such a
+    /// document, which then needs no reading. Given as `markup` the markers
+    /// a document holds, each on a line of its own, it decides as on the
+    /// whole document, so a page's document is read for them alone (#711).
+    fn markers(&self, status: u16) -> Vec<&'static str> {
+        let _ = status;
+        Vec::new()
+    }
 }
 
 /// The classifier of a composition that holds no Block classification

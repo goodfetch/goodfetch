@@ -45,7 +45,7 @@ pub(crate) const RECOVERY: Duration = Duration::from_secs(10);
 const RECLAIM_CHECK: Duration = Duration::from_secs(30);
 
 /// The table the rule keeps each proxy key's shared state in.
-pub const TABLES: PolitenessTables = PolitenessTables {
+pub(crate) const TABLES: PolitenessTables = PolitenessTables {
     name: "goodfetch-page",
     statements: &["CREATE TABLE IF NOT EXISTS proxy_limits (
             key TEXT NOT NULL PRIMARY KEY,
@@ -105,7 +105,7 @@ impl Limits {
 
 /// A run's rule for its Sessions' proxies, under its own settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ProxyRule {
+pub(crate) struct ProxyRule {
     /// `politeness.proxy.concurrency`.
     concurrency: Option<u64>,
     /// The least time between two starts, from `politeness.proxy.rate`.
@@ -119,7 +119,7 @@ impl ProxyRule {
     ///
     /// Why `politeness.proxy.concurrency` is refused: `0` admits no
     /// request, so every navigation through the proxy would wait forever.
-    pub fn of(settings: &Resolved) -> Result<Self, String> {
+    pub(crate) fn of(settings: &Resolved) -> Result<Self, String> {
         let concurrency = settings.count(POLITENESS_PROXY_CONCURRENCY.name);
         if concurrency == Some(0) {
             return Err(
@@ -213,7 +213,7 @@ impl PermitRule for ProxyRule {
 
 /// The key a proxy's Permits count under: its endpoint and the credential
 /// it is used with, so two accounts with one vendor are two keys.
-pub fn key(server: &ProxyServer, username: Option<&str>) -> String {
+fn key(server: &ProxyServer, username: Option<&str>) -> String {
     format!("proxy {server} {}", username.unwrap_or_default())
 }
 

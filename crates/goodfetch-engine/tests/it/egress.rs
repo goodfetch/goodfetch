@@ -47,6 +47,7 @@ fn traffic(proving_ground: &ProvingGround, allowed: &[&str], blocked: &[&str]) -
             .with_private_ranges(&[proving_ground.address().ip().to_string()])
             .unwrap(),
         resolve,
+        proxy: None,
         trust: Trust::default_roots()
             .with_trusted_cas(
                 "scope.test",
@@ -281,6 +282,7 @@ fn run_case(proving_ground: &ProvingGround, case: &SsrfCase) -> Outcome {
             .with_private_ranges(&[target.ip().to_string()])
             .unwrap(),
         resolve,
+        proxy: None,
         trust: Trust::default_roots(),
         exceptions: CertificateExceptions::default(),
         cookies: Vec::new(),

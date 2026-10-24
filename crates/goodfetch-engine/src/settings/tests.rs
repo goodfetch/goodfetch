@@ -488,7 +488,7 @@ fn a_client_certificate_is_taken_from_a_recipe_and_the_run(#[case] layer: Settin
 fn a_raw_client_key_is_refused_with_setting_invalid_without_its_value(
     #[case] layer: SettingsLayer,
 ) {
-    let raw = "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEH\n-----END PRIVATE KEY-----";
+    let raw = "-----BEGIN PRIVATE KEY-----\nc4n4ryk3yAgEAMBMGByqGSM49AgEGCCqGSM49AwEH\n-----END PRIVATE KEY-----";
     let set = json!({
         "tls.client_certificates": { "mtls.example": { "certificate": "client.pem", "key": raw } },
     });
@@ -497,7 +497,7 @@ fn a_raw_client_key_is_refused_with_setting_invalid_without_its_value(
 
     let shown = format!("{refused} {refused:?}");
     assert_eq!(
-        (refused.code(), shown.contains("MIGHAgEA")),
+        (refused.code(), shown.contains("c4n4ryk3y")),
         ("setting_invalid", false),
         "{shown}"
     );

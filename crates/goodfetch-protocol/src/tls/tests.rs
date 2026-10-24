@@ -105,7 +105,7 @@ fn no_setting_or_deployment_variable_switches_certificate_verification_off() {
 
 /// A raw private key, as a person might paste one in place of its
 /// reference.
-const RAW_KEY: &str = "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgc4n4ryk3y\n-----END PRIVATE KEY-----\n";
+const RAW_KEY: &str = "-----BEGIN PRIVATE KEY-----\nc4n4ryk3yAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg\n-----END PRIVATE KEY-----\n";
 
 /// Story 4-34: a domain's client certificate is a certificate file and the
 /// Secret reference of its key, and nothing else.
@@ -156,7 +156,7 @@ fn a_client_certificate_that_is_no_file_and_reference_is_refused_without_its_val
 
     assert!(refused.contains(named), "{refused}");
     assert!(
-        !refused.contains("MIGHAgEA"),
+        !refused.contains("c4n4ryk3y"),
         "the refusal repeats the key: {refused}"
     );
 }

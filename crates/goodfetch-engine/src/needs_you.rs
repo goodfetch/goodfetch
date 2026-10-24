@@ -9,11 +9,15 @@
 //! dismisses an item whose source allows it, keeping the dismissal in the
 //! Run index so that every engine of the major hides it. The engine's own
 //! sources are the storage entries of ADR 0122, in [`storage`], the Runs
-//! stopped by a Limit a person may raise, in [`limits`], and the consent
-//! walls of ADR 0048, in [`consent`].
+//! stopped by a Limit a person may raise, in [`limits`], the consent
+//! walls of ADR 0048, in [`consent`], the stops of ADR 0052's refetch
+//! without the site's stored data, in [`refetch`], and the certificates
+//! whose key changed of ADR 0042, in [`certificates`].
 
+pub mod certificates;
 pub mod consent;
 pub mod limits;
+pub mod refetch;
 pub mod storage;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -35,6 +39,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use crate::clock::Clock;
 use crate::events::Events;
 use crate::governor::StorageSample;
+use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::run_index;
 use crate::run_state::RunStateError;
@@ -131,7 +136,8 @@ impl SourceError {
 
 /// What every source reads from: the engine's `Clock`, the Resource
 /// governor's storage samples, its major's Run index, the user's Usage
-/// ledger, the machine's settings and an owner for blocking reads.
+/// ledger, the machine's settings, the user's known-certificates store and
+/// an owner for blocking reads.
 #[derive(Clone)]
 pub struct SourceContext {
     pub(crate) clock: Clock,
@@ -140,6 +146,7 @@ pub struct SourceContext {
     pub(crate) version: ProductVersion,
     pub(crate) ledger: Ledger,
     pub(crate) settings: Settings,
+    pub(crate) known_certificates: KnownCertificates,
     pub(crate) owner: Arc<TaskOwner>,
 }
 

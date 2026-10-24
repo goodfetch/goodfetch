@@ -6,7 +6,8 @@
 //! Beside the Runs it keeps the items of "Needs you" a person dismissed,
 //! so every engine of the major hides them (spec #592), and the domains
 //! whose consent wall each Run met, which "Needs you" offers for
-//! `consent.domains` (ADR 0048).
+//! `consent.domains` (ADR 0048), and those on which a Run's refetch without
+//! the site's stored data stopped, which "Needs you" lists (ADR 0052).
 //! Several engines write it, each through its own short-lived connection;
 //! WAL and a busy timeout let them take turns. Its calls block: callers run
 //! them under their owner's blocking policy.
@@ -61,6 +62,14 @@ const SCHEMA: &[&str] = &[
         domain TEXT NOT NULL,
         run_id TEXT NOT NULL,
         seen_at TEXT NOT NULL,
+        PRIMARY KEY (domain, run_id)
+    ) STRICT",
+    "CREATE TABLE IF NOT EXISTS refetch_stops (
+        domain TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        cause TEXT NOT NULL,
+        project_file TEXT,
+        stopped_at TEXT NOT NULL,
         PRIMARY KEY (domain, run_id)
     ) STRICT",
 ];
@@ -339,7 +348,7 @@ pub(crate) fn replace(
 
 /// Marks the row of the discarded Run `run_id` in the Run index at `path`
 /// *erased*, without its owner, tags or status line, nor the domains whose
-/// consent walls it met, then truncates the
+/// consent walls it met or whose refetch stopped, then truncates the
 /// index's WAL with `wal_checkpoint(TRUNCATE)`, so that neither the index
 /// nor its `-wal` file keeps them (ADRs 0001 and 0036). Answers whether the
 /// index listed the Run.
@@ -357,6 +366,10 @@ pub(crate) fn erase(
     let listed = in_transaction(path, &opener, true, |transaction| {
         transaction.execute(
             "DELETE FROM consent_walls WHERE run_id = ?1",
+            [run_id.as_str()],
+        )?;
+        transaction.execute(
+            "DELETE FROM refetch_stops WHERE run_id = ?1",
             [run_id.as_str()],
         )?;
         transaction.execute(
@@ -573,6 +586,101 @@ pub(crate) fn consent_walls(
                             Box::new(error),
                         )
                     })?,
+                })
+            })
+            .and_then(Iterator::collect)
+    })
+}
+
+/// A domain on which the Runs' refetch without the site's stored data
+/// stopped, as the Run index keeps it (ADR 0052).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RefetchStopped {
+    /// The registrable domain.
+    pub(crate) domain: String,
+    /// When a Run's refetch first stopped there.
+    pub(crate) first_stopped: PointInTime,
+    /// The last Run whose refetch stopped there.
+    pub(crate) last_run: RunId,
+    /// What stopped that Run's refetch: the Block cause, the `401` or `403`
+    /// status, or the login page.
+    pub(crate) cause: String,
+    /// The project configuration file that Run's `wall.refetch_domains`
+    /// came from, if it did.
+    pub(crate) project_file: Option<String>,
+}
+
+/// Records that the refetch of the Run `stop.last_run` stopped on
+/// `stop.domain` at `at`, for its cause, keeping the Run's first stop.
+///
+/// # Errors
+///
+/// As [`write`].
+pub(crate) fn record_refetch_stop(
+    path: &Path,
+    engine: &ProductVersion,
+    stop: &RefetchStopped,
+    at: &PointInTime,
+) -> Result<(), RunStateError> {
+    in_transaction(path, &opener(engine), true, |transaction| {
+        transaction.execute(
+            "INSERT INTO refetch_stops (domain, run_id, cause, project_file, stopped_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT (domain, run_id) DO NOTHING",
+            (
+                stop.domain.as_str(),
+                stop.last_run.as_str(),
+                stop.cause.as_str(),
+                stop.project_file.as_deref(),
+                at.as_str(),
+            ),
+        )?;
+        Ok(())
+    })
+}
+
+/// Each domain on which a Run's refetch stopped in the Run index at
+/// `path`, in domain order, with when one first stopped there, and the
+/// last Run that did with its cause and project configuration file. An
+/// index not made yet keeps none, and is not made.
+///
+/// # Errors
+///
+/// As [`read`].
+pub(crate) fn refetch_stops(
+    path: &Path,
+    engine: &ProductVersion,
+) -> Result<Vec<RefetchStopped>, RunStateError> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    in_transaction(path, &opener(engine), false, |transaction| {
+        let mut statement = transaction.prepare(
+            "SELECT stops.domain,
+                    (SELECT MIN(first.stopped_at) FROM refetch_stops AS first
+                     WHERE first.domain = stops.domain),
+                    stops.run_id, stops.cause, stops.project_file
+             FROM refetch_stops AS stops
+             WHERE stops.run_id = (SELECT last.run_id FROM refetch_stops AS last
+                                   WHERE last.domain = stops.domain
+                                   ORDER BY last.stopped_at DESC, last.run_id DESC LIMIT 1)
+             ORDER BY stops.domain",
+        )?;
+        statement
+            .query_map([], |row| {
+                let run: String = row.get(2)?;
+                Ok(RefetchStopped {
+                    domain: row.get(0)?,
+                    first_stopped: PointInTime::from_rfc3339(row.get::<_, String>(1)?),
+                    last_run: RunId::parse(&run).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            2,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?,
+                    cause: row.get(3)?,
+                    project_file: row.get(4)?,
                 })
             })
             .and_then(Iterator::collect)

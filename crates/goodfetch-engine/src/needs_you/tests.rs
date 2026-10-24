@@ -29,6 +29,7 @@ use crate::clock::Clock;
 use crate::events::{Events, EventsOptions, Subscription};
 use crate::governor::StorageSample;
 use crate::home::Home;
+use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
@@ -109,6 +110,10 @@ async fn started(index: &Path, sources: Vec<NeedsYouSource>) -> Started {
             ),
             Product::Collie,
             owner.child(),
+        ),
+        known_certificates: KnownCertificates::of(
+            &Home::new(index.parent().unwrap().to_owned()),
+            None,
         ),
         owner: Arc::new(owner.child()),
     };

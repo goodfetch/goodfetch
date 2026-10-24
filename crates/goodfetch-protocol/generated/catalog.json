@@ -2341,6 +2341,27 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
+      "description": "Adds a registrable domain, with its required reason, to `wall.denied_domains` in the Operator policy, creating the file when there is none, so no run reads past its Walls or refetches its pages whatever another layer allows (ADR 0052), and records the denial and its reason in the Audit log; answers whether it added it. One call, no confirmation asked. A managed Operator policy refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `wall_refetch_stopped` item of the domain leaves the list with `needs_you.changed`.",
+      "events": [
+        "needs_you.changed"
+      ],
+      "kind": "round_trip",
+      "name": "needs_you.deny_wall_domain",
+      "params": {
+        "$ref": "#/$defs/NeedsYouDenyWallDomainParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/WallDomainDenied"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
       "description": "Hides an item of \"Needs you\" whose source lets a person dismiss it, for every Client, and answers whether it did; an item the list no longer holds, or one only resolving it removes, stays as it is. The item leaves the list with `needs_you.changed`.",
       "events": [
         "needs_you.changed"
@@ -2373,6 +2394,27 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/NeedsYouList"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Removes a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that lists it, user configuration or else the Operator policy, every other entry and byte of the file kept, and records the answer in the Audit log; answers whether it removed it. When only `*` covers the domain there, `instead_of_star` gives the registrable domains that replace `*`, and without it the call is refused with `invalid_params`. A domain only project configuration lists is changed in that file, never here. A managed Operator policy, or one that locks the key against user configuration, refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `wall_refetch_stopped` item leaves the list with `needs_you.changed`.",
+      "events": [
+        "needs_you.changed"
+      ],
+      "kind": "round_trip",
+      "name": "needs_you.remove_refetch_domain",
+      "params": {
+        "$ref": "#/$defs/NeedsYouRemoveRefetchDomainParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/RefetchDomainRemoved"
       },
       "stability": "experimental"
     },
@@ -7142,8 +7184,22 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A pinned host whose certificate presented another public key, stopped with `certificate_changed` (ADR 0042); `details` give the `host`, the `person` whose known-certificates store holds the pin, and both keys' SHA-256 as `pinned_spki_sha256` and `presented_spki_sha256`; `run` is the Run that met it. Its actions offer `certs.accept` and `certs.forget`, which that person alone answers. It leaves the list once they answer.",
+      "name": "certificate_changed",
+      "product": "collie",
+      "type": "needs_you_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The certificate exceptions a run used, once per run, by host and kind (ADR 0042).",
       "name": "certificate_exceptions_used",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person removed their pin of a host, and any change waiting for it, so its next connection under trust on first use pins again (ADR 0042).",
+      "name": "certificate_pin_forgotten",
       "product": "collie",
       "type": "audit_kind"
     },
@@ -7520,6 +7576,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A person removed a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that listed it, or replaced `*` there with a list (ADR 0052); `details` give the `domain` and the layer's `domains` after.",
+      "name": "refetch_domain_removed",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Requests a run sent: a crawl's Crawl requests, and a page's navigations.",
       "name": "requests",
       "product": "collie",
@@ -7650,6 +7713,20 @@
       "name": "trap_path",
       "product": "foxhound",
       "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person added a domain to `wall.denied_domains` in the Operator policy, so no run reads past its Walls or refetches its pages (ADR 0052); `details` give the `domain` and the `reason`.",
+      "name": "wall_domain_denied",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A domain on which a Run's refetch without the site's stored data stopped, at a Block cause, a 401 or 403 status or a login page (ADR 0052); `details` give the `domain`, the `cause`, and the `layer` of `wall.refetch_domains` that lists it with its `file`, and whether `only_star` covers it there; `run` is the last Run whose refetch stopped there. Its actions offer `needs_you.remove_refetch_domain`, except for a domain project configuration lists, which is changed in its file, and `needs_you.deny_wall_domain`. It leaves the list once no layer lists the domain, once `wall.denied_domains` denies it, or when a person dismisses it.",
+      "name": "wall_refetch_stopped",
+      "product": "collie",
+      "type": "needs_you_kind"
     }
   ]
 }

@@ -30,6 +30,7 @@ use goodfetch_protocol::page::{RESPONSE_TRUNCATED, TOO_MANY_REDIRECTS};
 use goodfetch_protocol::settings::SETTING_INVALID;
 use serde_json::{Value, json};
 
+use super::hostile_input;
 use super::launch::{IDENTITY_HOST, reports};
 use super::navigation::{call, failed_with, open, url_on};
 use super::{Checks, Site, finish_run, new_page, start_run};
@@ -46,6 +47,8 @@ pub(crate) enum Case {
     CookiesStayInTheirSession,
     DomainPolicyJudgesIt,
     NoServiceWorkerAnswersIt,
+    /// A hostile-input case, a route's among them.
+    HostileInput(hostile_input::Case),
 }
 
 impl Case {
@@ -70,7 +73,7 @@ impl Case {
             }
             "page-request-passes-the-pages-domain-policy" => Self::DomainPolicyJudgesIt,
             "no-service-worker-answers-a-page-request" => Self::NoServiceWorkerAnswersIt,
-            _ => return None,
+            _ => return hostile_input::Case::from_id(id).map(Self::HostileInput),
         })
     }
 
@@ -90,6 +93,7 @@ impl Case {
             Self::CookiesStayInTheirSession => cookies(connection, site, checks),
             Self::DomainPolicyJudgesIt => domain_policy(connection, site, checks),
             Self::NoServiceWorkerAnswersIt => service_worker(connection, site, checks),
+            Self::HostileInput(case) => case.run(connection, site, checks),
         }
     }
 }

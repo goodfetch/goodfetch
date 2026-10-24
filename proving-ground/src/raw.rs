@@ -11,7 +11,7 @@
 //! It speaks HTTP/1.1 and HTTP/2 (RFC 9112 and RFC 9113) only as far as the
 //! clients of the Proving ground need: every answer body fits HTTP/2's
 //! default initial window (65,535 bytes), so it never waits for a
-//! `WINDOW_UPDATE`.
+//! `WINDOW_UPDATE`, but a filler body, which HTTP/1.1 alone sends.
 
 mod http1;
 mod http2;
@@ -134,9 +134,18 @@ pub(crate) enum Answer {
     Cut { page: Page, sent: usize, cut: Cut },
     /// Answers nothing and refuses the request as `refusal` says.
     Refuse(Refusal),
+    /// Sends the page's head, then [`FILLER`] bytes as its body, `length`
+    /// of them or, with none, without end until the client goes, so no page
+    /// holds the body it sends (ADR 0067's endless and oversized bodies).
+    /// Only HTTP/1.1 sends it; over HTTP/2, whose window the raw server
+    /// never waits past, the stream is reset.
+    Filler { page: Page, length: Option<u64> },
     /// Waits, then answers.
     Later(Duration, Box<Self>),
 }
+
+/// The byte a [`Answer::Filler`] body repeats.
+pub(crate) const FILLER: u8 = b'a';
 
 /// How a body is broken off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -115,6 +115,78 @@ pub(crate) fn get_within(
     read_to_end(&mut stream)
 }
 
+/// A `GET` as [`get`] sends it, read until `at_least` bytes arrived or the
+/// connection ended, whichever is first: the start of a body that may never
+/// end. A body past what was read is counted, not kept.
+pub(crate) fn get_prefix(
+    proving_ground: &ProvingGround,
+    host: &str,
+    path: &str,
+    at_least: usize,
+) -> Arrived {
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: {host}:{}\r\nConnection: close\r\n\r\n",
+        proving_ground.port()
+    );
+    let mut stream = connect(
+        proving_ground,
+        host,
+        trusting(proving_ground, &["http/1.1"]),
+    );
+    stream
+        .write_all(request.as_bytes())
+        .expect("the request is written");
+    let mut bytes = Vec::new();
+    let mut chunk = [0; 16 * 1024];
+    while bytes.len() < at_least {
+        match stream.read(&mut chunk) {
+            Ok(0) => {
+                return Arrived {
+                    bytes,
+                    closed_cleanly: true,
+                };
+            }
+            Ok(read) => bytes.extend_from_slice(&chunk[..read]),
+            Err(_) => {
+                return Arrived {
+                    bytes,
+                    closed_cleanly: false,
+                };
+            }
+        }
+    }
+    Arrived {
+        bytes,
+        closed_cleanly: false,
+    }
+}
+
+/// How many bytes a `GET` as [`get`] sends gets until the connection ends,
+/// counted as they arrive, never kept: the length of a long body.
+pub(crate) fn count(proving_ground: &ProvingGround, host: &str, path: &str) -> usize {
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: {host}:{}\r\nConnection: close\r\n\r\n",
+        proving_ground.port()
+    );
+    let mut stream = connect(
+        proving_ground,
+        host,
+        trusting(proving_ground, &["http/1.1"]),
+    );
+    stream
+        .write_all(request.as_bytes())
+        .expect("the request is written");
+    let mut total = 0;
+    let mut chunk = vec![0; 256 * 1024];
+    while let Ok(read) = stream.read(&mut chunk) {
+        if read == 0 {
+            break;
+        }
+        total += read;
+    }
+    total
+}
+
 /// Everything the stream gives until it ends, and how it ended.
 fn read_to_end(stream: &mut StreamOwned<ClientConnection, TcpStream>) -> Arrived {
     let mut bytes = Vec::new();

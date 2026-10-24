@@ -301,6 +301,10 @@ covers = ["story:5-94"]
 id = "a-request-a-route-sends-on-passes-the-filter-lists"
 covers = ["story:5-42", "story:5-94", "operation:page.route", "operation:route.continue"]
 
+[[capability.case]]
+id = "requests-of-another-sites-frame-pass-the-filter-lists-and-block-resources"
+covers = ["story:5-94", "setting:browser.block_resources"]
+
 [[capability]]
 name = "clean_up.never_block"
 

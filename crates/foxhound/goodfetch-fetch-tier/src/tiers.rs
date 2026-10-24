@@ -22,6 +22,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use bytes::Bytes;
 use goodfetch_engine::CallError;
 use goodfetch_engine::egress::Policy;
+use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tls::Trust;
@@ -37,7 +38,7 @@ use goodfetch_protocol::settings::{
 };
 use url::Url;
 
-use crate::driver::{Deadlines, Hop};
+use crate::driver::{Deadlines, Hop, fetch};
 use crate::redundant::{Redundant, Requester};
 use crate::transports::{Reqwest, TransportConfig};
 
@@ -271,6 +272,60 @@ pub struct HttpTier {
     deadlines: Deadlines,
     /// Its Run's hedges and requests in flight, which no other Run shares.
     redundant: Arc<Redundant>,
+}
+
+/// How many redirects a robots.txt fetch follows: RFC 9309 §2.3.1.2's
+/// least.
+const ROBOTS_TXT_REDIRECTS: usize = 5;
+
+impl HttpTier {
+    /// Fetches the robots.txt at `location` for `run` (ADR 0086), following
+    /// up to five redirects as RFC 9309 §2.3.1.2 asks: a `3xx` past them,
+    /// or one naming no location, answers as itself, which disallows
+    /// everything until a later fetch; a failed fetch answers why.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes the fetch's connection.
+    pub async fn robots_txt(&self, run: &Run, location: &Url) -> Answer {
+        let mut url = location.clone();
+        let mut redirects = 0;
+        loop {
+            let fetched = match fetch(
+                self.transport.as_ref(),
+                &Hop::get(url.clone()),
+                &self.deadlines,
+                &run.clock(),
+            )
+            .await
+            {
+                Ok(fetched) => fetched,
+                Err(error) => return Answer::Unreachable(error.message().to_owned()),
+            };
+            let next = (300..400)
+                .contains(&fetched.status)
+                .then(|| {
+                    fetched
+                        .headers
+                        .iter()
+                        .find(|(name, _)| name == "location")
+                        .and_then(|(_, to)| url.join(to).ok())
+                })
+                .flatten();
+            match next {
+                Some(next) if redirects < ROBOTS_TXT_REDIRECTS => {
+                    redirects += 1;
+                    url = next;
+                }
+                _ => {
+                    return Answer::Response {
+                        status: fetched.status,
+                        body: fetched.body.into_iter().take(MAX_SIZE).collect(),
+                    };
+                }
+            }
+        }
+    }
 }
 
 /// The tier `fetch.tier` forces and the layer that set it; `None` under

@@ -612,6 +612,35 @@ impl Politeness {
         .await
     }
 
+    /// Runs `work` on the tables a contribution added to the file, in one
+    /// transaction committed when it returns `Ok` and rolled back
+    /// otherwise, such as Foxhound's shared robots.txt copy (ADR 0086).
+    ///
+    /// # Errors
+    ///
+    /// `Sqlite` or `Storage` when the transaction failed, `Closed` when the
+    /// file's actor stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future does not withdraw a transaction already queued.
+    pub async fn transact<T, F>(&self, work: F) -> Result<T, PolitenessError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.run(move |connection, context| {
+            let failed = |error: rusqlite::Error| sqlite_error(&context.path, &error);
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(failed)?;
+            let done = work(&transaction).map_err(failed)?;
+            transaction.commit().map_err(failed)?;
+            Ok(done)
+        })
+        .await
+    }
+
     /// Runs `work` on the file's actor and answers what it returned.
     async fn run<T, F>(&self, work: F) -> Result<T, PolitenessError>
     where

@@ -109,6 +109,9 @@ pub(super) struct PageContext {
     /// which the engine resolves each request's host itself and judges its
     /// answers, since no relay is under that browser (ADR 0056).
     lookups: Option<Arc<Resolve>>,
+    /// Whether its target is one of the page's out-of-process iframes, whose
+    /// `load` ends none of the page's navigations.
+    iframe: bool,
 }
 
 /// The latest requests the Session's proxy credentials were given for, so a
@@ -172,7 +175,49 @@ impl PageContext {
             permit: Mutex::new(None),
             proxy_permit: Mutex::new(None),
             lookups: None,
+            iframe: false,
         }
+    }
+
+    /// The pipeline of the out-of-process iframe of this page that `driver`
+    /// drives, under everything this one holds, its page's state and routes
+    /// included; `url`, the iframe's document as the browser named it when
+    /// it attached it, is the source the Filter lists judge its requests
+    /// without a `Referer` by.
+    pub(super) fn for_iframe(&self, driver: PageDriver, url: String) -> Self {
+        let sender = match &self.sender {
+            Sender::Page(page_id) => Sender::Page(page_id.clone()),
+            Sender::ServiceWorker { session, log } => Sender::ServiceWorker {
+                session: session.clone(),
+                log: Arc::clone(log),
+            },
+        };
+        Self {
+            document: Mutex::new(url),
+            iframe: true,
+            ..Self::new(
+                driver,
+                sender,
+                Arc::clone(&self.state),
+                self.answers.clone(),
+                self.policy.clone(),
+                self.blocking.clone(),
+                self.refusals.clone(),
+                self.observing.clone(),
+                self.run.clone(),
+            )
+            .with_lookups(self.lookups.clone())
+        }
+    }
+
+    /// Whether a response observer reads its responses.
+    pub(super) fn observes(&self) -> bool {
+        self.observing.is_some()
+    }
+
+    /// Its Run.
+    pub(super) fn run(&self) -> &Run {
+        &self.run
     }
 
     /// The same, on a Borrowed browser whose requests' hosts the engine
@@ -208,6 +253,9 @@ impl Observing {
 pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>) {
     while let Some(event) = events.next().await {
         if event.read::<page::LoadEventFiredEvent>().is_some() {
+            if context.iframe {
+                continue;
+            }
             // The navigation's last hop ends with the page's `load`.
             drop(lock(&context.permit).take());
             drop(lock(&context.proxy_permit).take());

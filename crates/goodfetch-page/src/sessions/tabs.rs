@@ -31,8 +31,8 @@ use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use super::life::{Ending, PageLife, session_closed};
 use super::lifecycle::PageEffect;
 use super::{OpenPage, Session, Sessions, timeouts, wait_deadline};
-use crate::driver::{OnPopup, PageDriver, PopupHandler};
-use crate::hiding::Sheets;
+use crate::driver::{Iframes, OnPopup, PageDriver, PopupHandler};
+use crate::hiding::{PageHiding, Sheets};
 use crate::page_events::{PageEvents, Refusals};
 use crate::page_value::ResponseObserver;
 use crate::pool::InBrowser;
@@ -132,6 +132,47 @@ impl Drop for Listening {
 }
 
 impl Sessions {
+    /// Puts the page `page` of the Session `session`, which `driver` drives
+    /// for `open`'s Run, under the interception, live hiding and the Consent
+    /// prompt runner, then follows its out-of-process `iframes`, once each
+    /// of those parts registered what it does to one.
+    async fn start_parts(
+        &self,
+        (page, session): (&PageId, &SessionId),
+        driver: &PageDriver,
+        open: &Session,
+        refusals: Refusals,
+        observer: Option<Arc<dyn ResponseObserver>>,
+        iframes: Iframes,
+    ) -> Result<Option<Arc<PageHiding>>, CallError> {
+        let run = &open.run;
+        let clean_up = self
+            .interception
+            .start(
+                page,
+                session,
+                driver,
+                run,
+                &open.settings,
+                refusals,
+                observer,
+                &iframes,
+            )
+            .await?;
+        // Live hiding and the Consent prompt runner share each document's
+        // one hiding sheet.
+        let sheets = Arc::new(Sheets::new(driver.clone()));
+        let hiding = self
+            .hiding
+            .start(page, session, driver, run, &clean_up, &sheets)
+            .await?;
+        self.consent
+            .start(page, driver, run, &sheets, &iframes)
+            .await?;
+        iframes.follow(driver, run).await?;
+        Ok(hiding)
+    }
+
     /// Takes in the page `adopting` describes as one of its Session's: it is
     /// named, followed and announced, and its Session's popups handed back
     /// to it; `closed` when its Session closed meanwhile.
@@ -168,29 +209,14 @@ impl Sessions {
         self.dialogs
             .start(page.clone(), driver.clone(), &run, driver.events().await);
         let pages = std::slice::from_ref(&page);
-        let started = async {
-            let clean_up = self
-                .interception
-                .start(
-                    &page,
-                    session,
-                    &driver,
-                    &run,
-                    &open.settings,
-                    refusals,
-                    observer,
-                )
-                .await?;
-            // Live hiding and the Consent prompt runner share each
-            // document's one hiding sheet.
-            let sheets = Arc::new(Sheets::new(driver.clone()));
-            let hiding = self
-                .hiding
-                .start(&page, session, &driver, &run, &clean_up, &sheets)
-                .await?;
-            self.consent.start(&page, &driver, &run, &sheets).await?;
-            Ok::<_, CallError>(hiding)
-        };
+        let started = self.start_parts(
+            (&page, session),
+            &driver,
+            &open,
+            refusals,
+            observer,
+            Iframes::default(),
+        );
         let hiding = match started.await {
             Ok(hiding) => hiding,
             Err(error) => {

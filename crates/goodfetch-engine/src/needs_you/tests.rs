@@ -29,6 +29,7 @@ use crate::clock::Clock;
 use crate::events::{Events, EventsOptions, Subscription};
 use crate::governor::StorageSample;
 use crate::home::Home;
+use crate::ledger::Ledger;
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -100,6 +101,7 @@ async fn started(index: &Path, sources: Vec<NeedsYouSource>) -> Started {
         storage: watch::channel(Arc::new(StorageSample::default())).1,
         run_index: index.to_owned(),
         version: ProductVersion::parse("1.0.0").unwrap(),
+        ledger: Ledger::at(index.with_file_name("usage.sqlite"), None),
         settings: Settings::new(
             SettingsFiles::of(
                 &Home::new(index.parent().unwrap().to_owned()),

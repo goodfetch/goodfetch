@@ -3794,7 +3794,7 @@
         "details": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`; for `consent_wall`, `domain`.",
+          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,\n`limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for\n`consent_wall`, `domain`.",
           "type": "object"
         },
         "id": {
@@ -11513,7 +11513,7 @@
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
-      "description": "Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.",
+      "description": "Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes. A click that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).",
       "events": [],
       "kind": "round_trip",
       "name": "locator.click",
@@ -11551,7 +11551,7 @@
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
-      "description": "Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.",
+      "description": "Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes. A press that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).",
       "events": [],
       "kind": "round_trip",
       "name": "locator.press",
@@ -16250,6 +16250,13 @@
       "name": "requests",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run stopped by a Limit that still holds it (ADR 0041): the Limit's period has not started again since the stop, and it was not set again since then with something left. `details` give the `limit` as `limit_reached` names it, the `amount` it allows now, the Product the Run `needs` and, for a Recipe's Run, its `recipe`. Its actions offer `usage.raise`, a person's answer, and for a Recipe's Run `run.resume`, which resumes it in the Daemon once the Limit is raised; an SDK script's Run then waits for its script, which resumes it by its Run ID (ADR 0031). It leaves the list once a person raises the Limit or its period starts again, once the Run runs again, or when a person dismisses it.",
+      "name": "run_stopped_by_limit",
+      "product": "collie",
+      "type": "needs_you_kind"
     },
     {
       "arrived_in": "0.1",

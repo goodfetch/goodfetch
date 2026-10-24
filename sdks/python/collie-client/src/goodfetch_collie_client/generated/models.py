@@ -3475,7 +3475,9 @@ class NeedsYouItem(BaseModel):
     """
     Its kind's own fields, which the kind's value in the catalog names:
     for `storage_level`, `level` and `folder`; for
-    `run_stopped_by_storage`, `folder`; for `consent_wall`, `domain`.
+    `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
+    `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for
+    `consent_wall`, `domain`.
     """
     id: str
     """

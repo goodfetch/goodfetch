@@ -124,16 +124,6 @@ export class NeedsYouStore {
     return dismissed;
   }
 
-  /**
-   * Answers a `consent_wall` item: asks the engine to add `domain`, or `*`, to
-   * `consent.domains` in user configuration; the change it publishes takes
-   * each item it covers off the list.
-   */
-  async allowConsentDomain(domain: string): Promise<boolean> {
-    const { added } = await this.#client.call("needs_you.allow_consent_domain", { domain });
-    return added;
-  }
-
   #replace(items: Iterable<NeedsYouItem>): void {
     this.#items.clear();
     for (const item of items) {

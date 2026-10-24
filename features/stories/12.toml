@@ -148,6 +148,13 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 100
+title = "As a user, I want to raise a Limit only in the Console or an interactive CLI prompt, raising a run's Limit resuming a Recipe run in the Daemon or marking an SDK script's run as waiting for its script, with **Copy resume command**, so that an agent stopped by a cap cannot lift it (ADRs 0029, 0041, 0102)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
 id = 102
 title = "As a user, I want a setting only Foxhound honours listed as Foxhound's, never hidden, on a Collie engine, so that a shared configuration file reads honestly (ADR 0087)."
 milestone = "M1 Core"

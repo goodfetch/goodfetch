@@ -35,6 +35,7 @@ pub fn contribution() -> Contribution {
                 .with_run_state_tables(run_files::TABLES)
                 .with_needs_you_source(needs_you::storage::levels())
                 .with_needs_you_source(needs_you::storage::runs_stopped())
+                .with_needs_you_source(needs_you::limits::runs_stopped())
                 .with_needs_you_source(needs_you::consent::walls()),
             Contribution::with_handler,
         )

@@ -6,7 +6,9 @@
 //! and each leaves the list with `needs_you.changed` once it is resolved:
 //! the level once space is freed, the Run once it runs again or a person
 //! dismisses it. A subscription that cannot resume gets every item in its
-//! `events.resync`.
+//! `events.resync`. A Run a Limit stopped is listed, offering a person's
+//! `usage.raise` (and `run.resume` for a Recipe's Run), until a person
+//! raises the Limit from the Console (ADRs 0031 and 0041).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -22,7 +24,8 @@ use serde_json::{Value, json};
 use super::events::credit;
 use super::run::{call, run_folder};
 use super::storage::configure;
-use super::{Client, attached_on, engine, hello};
+use super::usage::{charging, install_month, monthly_install_limit};
+use super::{Client, attached_on, engine, engine_with, hello};
 use crate::engine::Engine;
 use crate::governor::{DiskView, System};
 
@@ -337,5 +340,111 @@ fn a_person_dismisses_a_stopped_run_but_not_a_storage_level() {
             vec![json!("storage_level")],
             Some(json!("dismissed")),
         )
+    );
+}
+
+/// A Run that `test.charge` stops on the install's monthly Limit of 2
+/// requests, tagged with `tags`, on a disk with room: "Needs you" as it
+/// lists the Run, then as a person's `usage.raise` from the Console leaves
+/// it, with the reasons of the items removed meanwhile.
+fn stopped_by_limit_then_raised(tags: Value) -> (Vec<Value>, Vec<Value>, Vec<Value>) {
+    let env = TestEnv::new();
+    let view = DiskView::default();
+    view.mount(env.home(), 1_000_000 * MB, 500_000 * MB);
+    let engine = engine_with(Product::Collie, Some(charging()))
+        .with_governor(System::os().with_disks(view.clone()));
+
+    attached_on(&engine, &env, |mut client| async move {
+        let mut opening = hello("collie", "0.1");
+        opening["params"]["surface"] = json!("console");
+        client.send(&[opening]).await;
+        client.next().await.unwrap();
+        client
+            .send(&[
+                json!({ "jsonrpc": "2.0", "id": SUBSCRIPTION, "method": "events.subscribe", "params": {} }),
+                credit(SUBSCRIPTION, 10_000),
+            ])
+            .await;
+        let mut seen = Seen::default();
+        seen.call(&mut client, 2, "usage.set", monthly_install_limit(2))
+            .await;
+        seen.call(
+            &mut client,
+            3,
+            "test.charge",
+            json!({ "run_id": "capped", "amount": 3, "tags": tags }),
+        )
+        .await;
+        seen.call(&mut client, 4, "run.finish", json!({ "run_id": "capped" }))
+            .await;
+        seen.until(&mut client, |items| {
+            !of_kind(items, "run_stopped_by_limit").is_empty()
+        })
+        .await;
+        let stopped = seen.call(&mut client, 5, "needs_you.list", json!({})).await;
+
+        seen.call(&mut client, 6, "usage.raise", monthly_install_limit(10))
+            .await;
+        seen.until(&mut client, |items| {
+            of_kind(items, "run_stopped_by_limit").is_empty()
+        })
+        .await;
+        let raised = seen.call(&mut client, 7, "needs_you.list", json!({})).await;
+        let removed = seen
+            .changes
+            .iter()
+            .filter(|change| change["change"] == "removed")
+            .map(|change| change["reason"].clone())
+            .collect();
+        (shown(&listed(&stopped)), listed(&raised), removed)
+    })
+}
+
+/// An SDK script's Run stopped by a Limit is listed with the Limit as
+/// `limit_reached` names it, what it allows now and the Product the Run
+/// needs, offering the person's `usage.raise`; once a person raises the
+/// Limit it leaves the list, resolved, to wait for its script.
+///
+/// Covers: story:12-100, story:12-32, operation:usage.raise
+#[test]
+fn a_run_stopped_by_a_limit_is_listed_until_a_person_raises_the_limit() {
+    let listed = stopped_by_limit_then_raised(json!([]));
+
+    assert_eq!(
+        listed,
+        (
+            vec![json!({
+                "kind": "run_stopped_by_limit",
+                "run": "capped",
+                "details": { "limit": install_month(), "amount": 2, "needs": "collie" },
+                "actions": ["usage.raise", "needs_you.dismiss"],
+            })],
+            Vec::new(),
+            vec![json!("resolved")],
+        )
+    );
+}
+
+/// A Recipe's Run stopped by a Limit names its Recipe and also offers
+/// `run.resume`, which resumes it in the Daemon once the Limit is raised.
+///
+/// Covers: story:12-100
+#[test]
+fn a_recipes_run_stopped_by_a_limit_offers_its_resume_in_the_daemon() {
+    let listed = stopped_by_limit_then_raised(json!(["goodfetch.recipe:nightly-prices"]));
+
+    assert_eq!(
+        listed.0,
+        vec![json!({
+            "kind": "run_stopped_by_limit",
+            "run": "capped",
+            "details": {
+                "limit": install_month(),
+                "amount": 2,
+                "needs": "collie",
+                "recipe": "nightly-prices",
+            },
+            "actions": ["usage.raise", "run.resume", "needs_you.dismiss"],
+        })]
     );
 }

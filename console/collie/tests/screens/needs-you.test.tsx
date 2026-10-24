@@ -2,23 +2,26 @@
 // 1; ADRs 0031 and 0122): the side menu counts what waits for a person and
 // follows the list live, as `needs_you.changed` reports each item appearing
 // and leaving; the screen shows each storage entry with its folder; a
-// person dismisses a stopped run; a tab that reconnects misses no item,
+// person dismisses a stopped run; and a tab that reconnects misses no item,
 // resuming after the last event it read or replacing the list with a
-// resync's snapshot; and a domain that showed a consent wall is offered for
-// `consent.domains`, alone or as `*`, each with the warning of what the
-// person takes on, answered in one click.
-import type { NeedsYouItem } from "@goodfetch/collie-client/generated";
+// resync's snapshot. A person raises the Limit that stopped a run (ADRs
+// 0031 and 0041): an SDK script's run then waits for its script, with its
+// resume command to copy, and a Recipe's run resumes in the Daemon. A
+// domain that showed a consent wall is offered for `consent.domains`, alone
+// or as `*`, each with the warning of what the person takes on, answered in
+// one click.
+import type { LimitUsage, NeedsYouItem } from "@goodfetch/collie-client/generated";
 import {
   createProtocolAdapter,
   failure,
   type ProtocolAdapter,
 } from "@goodfetch/test-support/protocol-adapter";
 import { expect, test } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { createConsoleClient, type ConsoleClient, type PageVisibility } from "#client/client.ts";
-import { ConsoleI18n } from "#i18n.tsx";
 import type { ConsoleOperations } from "#generated/operations.ts";
+import { ConsoleI18n } from "#i18n.tsx";
 import { Shell } from "#shell.tsx";
 
 /** A page that stays visible. */
@@ -180,6 +183,184 @@ test(
     await expect.element(menuLink()).toHaveTextContent("Needs you1");
     await expect.poll(() => items().elements().length).toBe(1);
     await expect.element(items().nth(0)).toMatchTextContent("critical");
+    client.close();
+  },
+);
+
+/** The install's monthly Limit on requests, as `limit_reached` names it. */
+const MONTHLY = {
+  scope: { kind: "install", id: "" },
+  usage_kind: "requests",
+  period: { every: "month", time_zone: "Europe/Paris" },
+  resets_at: "2026-10-31T23:00:00Z",
+} as const;
+
+/** The run `capped`, stopped by the install's monthly Limit of 1,000 requests; a Recipe's run when `recipe` names one. */
+function stoppedByLimit(recipe?: string): NeedsYouItem {
+  return {
+    id: "run_stopped_by_limit:capped:2026-10-24T09:10:00Z",
+    kind: "run_stopped_by_limit",
+    since: "2026-10-24T09:10:00Z",
+    run: "capped",
+    summary: "The Run capped stopped: a Limit on requests has nothing left.",
+    actions:
+      recipe === undefined
+        ? ["usage.raise", "needs_you.dismiss"]
+        : ["usage.raise", "run.resume", "needs_you.dismiss"],
+    details: {
+      limit: MONTHLY,
+      amount: 1000,
+      needs: "collie",
+      ...(recipe === undefined ? {} : { recipe }),
+    },
+  };
+}
+
+/** What `usage.raise` answers for the install's monthly Limit raised to `amount`. */
+function raisedTo(amount: number): LimitUsage {
+  return {
+    limit: {
+      scope: MONTHLY.scope,
+      usage_kind: MONTHLY.usage_kind,
+      period: MONTHLY.period,
+      amount,
+      must_understand: true,
+      set_by: "person",
+    },
+    charged: 1000,
+    held: 0,
+    left: amount - 1000,
+    period_started_at: "2026-09-30T22:00:00Z",
+    resets_at: MONTHLY.resets_at,
+    standing: "held",
+  };
+}
+
+/** An engine listing `item` that raises its Limit, then takes it off the list as resolved. */
+function raising(item: NeedsYouItem): ProtocolAdapter {
+  const adapter = createProtocolAdapter();
+  adapter.answer("needs_you.list", { items: [item] });
+  adapter.answer("usage.raise", ({ amount }) => {
+    adapter.push(
+      { event: "needs_you.changed", data: { change: "removed", id: item.id, reason: "resolved" } },
+      1,
+    );
+    return raisedTo(amount);
+  });
+  return adapter;
+}
+
+/** Raises the shown item's Limit to `amount`, as a person types it. */
+async function raise(amount: string): Promise<void> {
+  const field = page.getByRole("textbox", { name: "New amount per period" });
+  await userEvent.clear(field);
+  await userEvent.type(field, amount);
+  await userEvent.click(page.getByRole("button", { name: "Raise the Limit" }));
+}
+
+/** The calls of `method` the Console made, by their params. */
+function calls(adapter: ProtocolAdapter, method: string): unknown[] {
+  return adapter.requests
+    .filter((request) => request.method === method)
+    .map((request) => request.params);
+}
+
+test(
+  "a person raises the Limit that stopped an SDK script's run, which then waits for its script with its resume command to copy",
+  { tags: ["story:12-100", "story:12-32", "screen:/needs-you"] },
+  async () => {
+    const adapter = raising(stoppedByLimit());
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+
+    await expect.element(items().nth(0)).toMatchTextContent("The run capped stopped");
+    await expect.element(items().nth(0)).toMatchTextContent("requests");
+    await expect.element(items().nth(0)).toMatchTextContent("Europe/Paris");
+    await raise("900");
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent("Enter an amount above the 1,000 it allows now.");
+    expect(calls(adapter, "usage.raise")).toEqual([]);
+
+    await raise("5000");
+
+    await expect.poll(() => items().elements().length).toBe(0);
+    await expect.element(menuLink()).not.toHaveTextContent(/\d/);
+    expect(calls(adapter, "usage.raise")).toEqual([
+      {
+        scope: "install",
+        scope_id: "",
+        usage_kind: "requests",
+        period: MONTHLY.period,
+        amount: 5000,
+      },
+    ]);
+    expect(calls(adapter, "run.resume")).toEqual([]);
+    await expect
+      .element(page.getByRole("status").filter({ hasText: "raised" }))
+      .toHaveTextContent(
+        "You raised the Limit. The run capped waits for its script: start the program again with its Run ID to resume it.",
+      );
+    await expect
+      .element(page.getByText("goodfetch-collie run resume capped", { exact: true }))
+      .toBeVisible();
+    // The component project's browser grants no clipboard permission, so the
+    // copy is refused here and the screen says how to copy it by hand.
+    await userEvent.click(page.getByRole("button", { name: "Copy resume command" }));
+    await expect
+      .element(page.getByRole("status").filter({ hasText: "copy" }))
+      .toHaveTextContent("The browser refused to copy the resume command: select it and copy it.");
+    client.close();
+  },
+);
+
+test(
+  "a person raises the Limit that stopped a Recipe's run, which then resumes in the Daemon",
+  { tags: ["story:12-100", "screen:/needs-you"] },
+  async () => {
+    const adapter = raising(stoppedByLimit("nightly-prices"));
+    adapter.answer("run.resume", {
+      run_id: "capped",
+      started_as: "resumed",
+      lifecycle: "running",
+      needs: "collie",
+    });
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+    await expect.element(items().nth(0)).toMatchTextContent("nightly-prices");
+
+    await raise("5000");
+
+    await expect.poll(() => calls(adapter, "run.resume")).toEqual([{ run_id: "capped" }]);
+    await expect
+      .element(page.getByRole("status").filter({ hasText: "raised" }))
+      .toHaveTextContent("You raised the Limit, and the run capped resumes in the Daemon.");
+    expect(page.getByRole("button", { name: "Copy resume command" }).elements()).toHaveLength(0);
+    client.close();
+  },
+);
+
+test(
+  "the engine's refusal to raise a Limit is shown, and the run stays listed",
+  { tags: ["story:12-100", "screen:/needs-you"] },
+  async () => {
+    const adapter = createProtocolAdapter();
+    adapter.answer("needs_you.list", { items: [stoppedByLimit()] });
+    adapter.answer("usage.raise", failure("person_required", {}));
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+
+    await raise("5000");
+
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent(
+        "The engine did not raise the Limit: The test answered usage.raise with person_required.",
+      );
+    await expect.poll(() => items().elements().length).toBe(1);
     client.close();
   },
 );

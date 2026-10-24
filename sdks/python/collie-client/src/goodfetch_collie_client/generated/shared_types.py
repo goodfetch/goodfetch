@@ -61,13 +61,14 @@ received (ADR 0079).
 - `token`: Every run a Connection holding a named token starts.
 """
 
-NeedsYouKind: TypeAlias = Literal["consent_wall", "run_stopped_by_storage", "storage_level"] | str
+NeedsYouKind: TypeAlias = Literal["consent_wall", "run_stopped_by_limit", "run_stopped_by_storage", "storage_level"] | str
 """A `needs_you_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
 received (ADR 0079).
 
 - `consent_wall`: A domain whose consent wall a Run met and left at `consent_required` (ADR 0048), offered for `consent.domains` with `needs_you.allow_consent_domain`, a domain in `wall.denied_domains` too (ADR 0052); `details` give the `domain`, and `run` the last Run that met it. It leaves the list once `consent.domains` in the Operator policy or user configuration covers the domain, or when a person dismisses it.
+- `run_stopped_by_limit`: A Run stopped by a Limit that still holds it (ADR 0041): the Limit's period has not started again since the stop, and it was not set again since then with something left. `details` give the `limit` as `limit_reached` names it, the `amount` it allows now, the Product the Run `needs` and, for a Recipe's Run, its `recipe`. Its actions offer `usage.raise`, a person's answer, and for a Recipe's Run `run.resume`, which resumes it in the Daemon once the Limit is raised; an SDK script's Run then waits for its script, which resumes it by its Run ID (ADR 0031). It leaves the list once a person raises the Limit or its period starts again, once the Run runs again, or when a person dismisses it.
 - `run_stopped_by_storage`: A Run stopped by storage, resumable once space is freed by a start with its Run ID (ADR 0122); `details` give the `folder` whose filesystem filled. It leaves the list once the Run runs again, or when a person dismisses it.
 - `storage_level`: A filesystem a Run writes to is at the `low` or `critical` storage level (ADR 0122); `details` give its `level` and a `folder` on it. It leaves the list at the first sample that finds the space again.
 """

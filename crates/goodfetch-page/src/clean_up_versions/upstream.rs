@@ -17,6 +17,7 @@ use goodfetch_protocol::clean_up_rules::{
 use goodfetch_protocol::formats::CLEAN_UP_RULES;
 use serde_json::json;
 
+use super::failures::Unobtained;
 use super::{FILE_LIMIT, Sources, Version};
 
 /// Each list: its key in `clean_up.lists` and in the manifest, and its file
@@ -34,7 +35,7 @@ const DEFAULT_EXPIRY: Duration = Duration::from_hours(24);
 /// The newest version from the lists' URLs: the last one fetched from the
 /// same URLs while none of its lists expired, otherwise a new one; the
 /// last one when the fetch fails.
-pub(super) async fn newest(sources: &Sources, now: jiff::Timestamp) -> Result<Version, String> {
+pub(super) async fn newest(sources: &Sources, now: jiff::Timestamp) -> Result<Version, Unobtained> {
     let state = sources.read_state().await;
     let last = match state["upstream"]["version"].as_str() {
         Some(digest) => sources
@@ -70,25 +71,30 @@ pub(super) async fn newest(sources: &Sources, now: jiff::Timestamp) -> Result<Ve
 }
 
 /// A new version of the lists, fetched now.
-async fn fetched(sources: &Sources, now: jiff::Timestamp) -> Result<Version, String> {
+async fn fetched(sources: &Sources, now: jiff::Timestamp) -> Result<Version, Unobtained> {
     let mut files = Vec::new();
     let mut expiry = None::<Duration>;
     for (list, file) in LISTS {
-        let url = sources
-            .lists
-            .get(list)
-            .ok_or_else(|| format!("`clean_up.lists` names no URL for the `{list}` Filter list"))?;
+        let url = sources.lists.get(list).ok_or_else(|| {
+            Unobtained::Unreadable(format!(
+                "`clean_up.lists` names no URL for the `{list}` Filter list"
+            ))
+        })?;
         let answer = rule_sources::get(url, &[], &sources.fetching, FILE_LIMIT)
             .await
-            .map_err(|failure| format!("the `{list}` Filter list cannot be fetched: {failure}"))?;
+            .map_err(|failure| Unobtained::of(failure, &sources.fetching))?;
         if answer.status != 200 {
-            return Err(format!(
-                "the `{list}` Filter list's author answered {}",
-                answer.status
-            ));
+            return Err(Unobtained::Refused {
+                host: url::Url::parse(url)
+                    .ok()
+                    .and_then(|url| url.host_str().map(str::to_owned))
+                    .unwrap_or_default(),
+                status: answer.status,
+            });
         }
-        let text = String::from_utf8(answer.body)
-            .map_err(|_| format!("the `{list}` Filter list is not UTF-8 text"))?;
+        let text = String::from_utf8(answer.body).map_err(|_| {
+            Unobtained::Unreadable(format!("the `{list}` Filter list is not UTF-8 text"))
+        })?;
         let declared = expires_in(&text).unwrap_or(DEFAULT_EXPIRY);
         expiry = Some(expiry.map_or(declared, |shortest| shortest.min(declared)));
         let kept = if list == "unbreak" {
@@ -113,9 +119,9 @@ async fn fetched(sources: &Sources, now: jiff::Timestamp) -> Result<Version, Str
     files.push((MANIFEST_FILE.to_owned(), super::manifest_file(&manifest)));
     sources
         .kept
-        .keep(RulesSource::Upstream, &files, now)
+        .keep(RulesSource::Upstream, files, now)
         .await
-        .map_err(|why| format!("the Filter lists fetched from their authors {why}"))
+        .map(|(version, _)| version)
 }
 
 /// The expiry `text`, a Filter list, declares in its header's

@@ -446,12 +446,13 @@ impl BrowserCache {
 
     /// The artifact `id` when the cache holds it with files of `digest`,
     /// held so the clean-up leaves it alone, its use recorded at `now`; a
-    /// copy of another digest is removed where the cache is writable.
+    /// copy of another digest is removed where the cache is writable. It
+    /// reads and hashes the artifact's files: run it on a blocking task.
     ///
     /// # Errors
     ///
     /// When the cache's files cannot be read or written.
-    pub async fn find(
+    pub fn find(
         &self,
         id: &ArtifactId,
         digest: Digest,
@@ -464,7 +465,7 @@ impl BrowserCache {
             archive_digest: None,
             digest,
         };
-        Ok(match blocking(|| self.present(&artifact, now)).await? {
+        Ok(match self.present(&artifact, now)? {
             Present::Held(held) => Some(held),
             Present::Missing | Present::Refused => None,
         })
@@ -475,28 +476,24 @@ impl BrowserCache {
     /// of those files, and answers that digest and the artifact, held: what
     /// the engine fetched itself from a configured source, such as a
     /// version of the Clean-up rules (ADR 0047). When the cache already
-    /// holds it, that copy is answered.
+    /// holds it, that copy is answered. It writes and hashes the files: run
+    /// it on a blocking task.
     ///
     /// # Errors
     ///
     /// When the cache cannot be written, or a path leaves its folder.
-    pub async fn keep(
+    pub fn keep(
         &self,
         kind: ArtifactKind,
         name: &str,
         files: &[(String, Vec<u8>)],
         now: jiff::Timestamp,
     ) -> Result<(Digest, HeldArtifact), CacheError> {
-        let partial = blocking(|| store::partial(&self.root))
-            .await
-            .map_err(CacheError::cache(&self.root))?;
+        let partial = store::partial(&self.root).map_err(CacheError::cache(&self.root))?;
         let folder = store::files(partial.path());
-        let digest = blocking(|| {
-            store::write_files(&folder, files)?;
-            content_digest(&folder)
-        })
-        .await
-        .map_err(CacheError::cache(partial.path()))?;
+        let digest = store::write_files(&folder, files)
+            .and_then(|()| content_digest(&folder))
+            .map_err(CacheError::cache(partial.path()))?;
         let id = ArtifactId {
             kind,
             name: name.to_owned(),
@@ -510,10 +507,9 @@ impl BrowserCache {
             used_at: now,
         };
         let entry_folder = store::entry_folder(&self.root, &id);
-        blocking(|| store::install(&self.root, partial, &id, &entry))
-            .await
+        store::install(&self.root, partial, &id, &entry)
             .map_err(CacheError::cache(&entry_folder))?;
-        match self.find(&id, digest, now).await? {
+        match self.find(&id, digest, now)? {
             Some(held) => Ok((digest, held)),
             None => Err(CacheError::Cache {
                 path: entry_folder,

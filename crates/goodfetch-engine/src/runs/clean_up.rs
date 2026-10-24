@@ -11,6 +11,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 
 use super::Run;
+use crate::CallError;
 use crate::clock::Clock;
 use crate::home::Home;
 use crate::settings::RunSettings;
@@ -41,7 +42,16 @@ pub struct Chosen {
     pub digest: String,
     /// Why it is not the version the Run's settings ask for, when it is not:
     /// what [`CleanUpVersions::held`] records in Provenance and warns of.
-    pub fallback: Option<String>,
+    pub fallback: Option<Fallback>,
+}
+
+/// Why a Run holds to another version than the one its settings ask for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fallback {
+    /// The stable name of the reason, which Provenance records.
+    pub reason: &'static str,
+    /// What happened, in words.
+    pub message: String,
 }
 
 /// How a live Run came to hold its version.
@@ -51,7 +61,7 @@ pub enum Holding {
     /// the fallback that choice gave, if any.
     Started {
         /// Why it is not the version its settings ask for, when it is not.
-        fallback: Option<String>,
+        fallback: Option<Fallback>,
     },
     /// It resumed, keeping the version its run state records.
     Resumed,
@@ -64,9 +74,15 @@ pub type Answering<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// each Run holds to (ADR 0047).
 pub trait CleanUpVersions: Send + Sync {
     /// The version a new Run holds to, chosen under its settings before it
-    /// starts: never a failure, since a version that cannot be had leaves
-    /// the newest one the engine has, and says why.
-    fn choose<'a>(&'a self, context: RulesContext<'a>) -> Answering<'a, Chosen>;
+    /// starts: a version `clean_up.update` asks for that cannot be had
+    /// leaves the newest one the engine has, and says why.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of a start whose settings ask for what the engine cannot
+    /// give, such as a `clean_up.version` it cannot have, which the start
+    /// answers.
+    fn choose<'a>(&'a self, context: RulesContext<'a>) -> Answering<'a, Result<Chosen, CallError>>;
 
     /// Records, once `run` started or resumed, the version it holds to, as
     /// its run state names it: in its Provenance, and in its report's

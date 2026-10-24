@@ -102,5 +102,7 @@ waits = []
 
 # Which of `clean_up_versions' own modules may import which.
 [submodules.clean_up_versions]
-daily = []
-upstream = []
+daily = ["failures"]
+failures = []
+unbuilt = []
+upstream = ["failures"]

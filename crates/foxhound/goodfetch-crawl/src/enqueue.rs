@@ -2,11 +2,13 @@
 //! one request to a live crawl from inside an attempt, while its lease
 //! holds, through the Frontier, which resolves a relative URL against the
 //! document's base URL, measures it against the crawl's scope the run file
-//! holds, and answers added or not added with its reason. The
+//! holds, then the Run's domain policy, and answers added or not added
+//! with its reason. The
 //! request is one level deeper than the attempt's, and is committed at once
 //! in the Run's state; the crawl's delivery keys it and queues it under its
 //! domain once the attempt settles.
 
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_frontier::{Candidate, Declared, Narrowing, Scope, admit, document_base};
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
@@ -17,7 +19,7 @@ use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::{RUN_STATE_UNAVAILABLE, RunDetails};
 use rusqlite::Connection;
 
-use crate::serving::Crawls;
+use crate::serving::{Crawls, LiveCrawl};
 use crate::work_items::{self, Adding};
 
 /// The handler of `crawl_request.enqueue` on the live crawls of `crawls`.
@@ -42,7 +44,7 @@ async fn enqueue(
             &(),
         )
     };
-    let Some(run) = crawls.run(&params.run_id).await else {
+    let Some(LiveCrawl { run, egress, .. }) = crawls.live(&params.run_id).await else {
         return Err(ended());
     };
     let document = params
@@ -60,7 +62,7 @@ async fn enqueue(
     let request = params.clone();
     let answered = run
         .state()
-        .write(move |connection| add(connection, &request, document.as_ref()))
+        .write(move |connection| add(connection, &egress, &request, document.as_ref()))
         .await;
     match answered {
         Ok(Some(enqueued)) => Ok(enqueued),
@@ -79,11 +81,13 @@ async fn enqueue(
     }
 }
 
-/// Adds `params`'s request through the Frontier while its attempt holds
-/// its lease, against `document`'s base URL, else the attempt's own URL;
-/// `None` once the attempt ended.
+/// Adds `params`'s request through the Frontier, under the Run's domain
+/// policy `egress`, while its attempt holds its lease, against
+/// `document`'s base URL, else the attempt's own URL; `None` once the
+/// attempt ended.
 fn add(
     connection: &Connection,
+    egress: &Policy,
     params: &CrawlRequestEnqueueParams,
     document: Option<&goodfetch_frontier::Url>,
 ) -> rusqlite::Result<Option<Enqueued>> {
@@ -108,21 +112,27 @@ fn add(
         narrowing: Narrowing::none(),
         depth: depth + 1,
     };
-    admit(connection, &Scope::read(connection)?, candidate, |url| {
-        work_items::add(
-            connection,
-            url,
-            Adding {
-                method: &params.method,
-                body: params.body.as_ref(),
-                label: &params.label,
-                payload: params.payload.as_ref(),
-                priority: params.priority,
-                forefront: params.forefront,
-                depth: depth + 1,
-            },
-        )
-    })
+    admit(
+        connection,
+        &Scope::read(connection)?,
+        egress,
+        candidate,
+        |url| {
+            work_items::add(
+                connection,
+                url,
+                Adding {
+                    method: &params.method,
+                    body: params.body.as_ref(),
+                    label: &params.label,
+                    payload: params.payload.as_ref(),
+                    priority: params.priority,
+                    forefront: params.forefront,
+                    depth: depth + 1,
+                },
+            )
+        },
+    )
     .map(Some)
 }
 

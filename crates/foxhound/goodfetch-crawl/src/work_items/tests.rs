@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 
 use goodfetch_engine::admission::{Ended, Gate as _};
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::run_state::{RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
@@ -163,6 +164,7 @@ impl Subject {
             admit(
                 connection,
                 &Scope::default(),
+                &Policy::new(&["*"], &[] as &[&str]).unwrap(),
                 Candidate::Seed {
                     url: &url,
                     declared,

@@ -245,6 +245,8 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
             let merged = goodfetch_frontier::admit(
                 connection,
                 &goodfetch_frontier::Scope::read(connection)?,
+                &goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str])
+                    .expect("every host is a policy"),
                 goodfetch_frontier::Candidate::Seed {
                     url: "https://list.test/items?n=1&ref=z",
                     declared: goodfetch_frontier::Declared {

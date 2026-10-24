@@ -3,6 +3,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
 use goodfetch_protocol::run::{AxisReason, Completeness};
@@ -19,12 +20,27 @@ use crate::scope::{self, Narrowing, Patterns, Scope, Strategy};
 struct Frontier {
     connection: Connection,
     scope: Scope,
+    policy: Policy,
     added: u32,
+}
+
+/// The domain policy that allows every host: the settings' defaults.
+fn every_host() -> Policy {
+    Policy::new(&["*"], &[] as &[&str]).unwrap()
 }
 
 impl Frontier {
     fn new() -> Self {
         Self::of(Strategy::SameHostname)
+    }
+
+    /// A Frontier of `strategy` under the domain policy allowing `allowed`
+    /// and blocking `blocked`.
+    fn policed(strategy: Strategy, allowed: &[&str], blocked: &[&str]) -> Self {
+        Self {
+            policy: Policy::new(allowed, blocked).unwrap(),
+            ..Self::of(strategy)
+        }
     }
 
     fn of(strategy: Strategy) -> Self {
@@ -41,16 +57,23 @@ impl Frontier {
         Self {
             connection,
             scope: Scope::new(strategy, Patterns::default(), Patterns::default()),
+            policy: every_host(),
             added: 0,
         }
     }
 
     fn admit(&mut self, candidate: Candidate<'_>) -> Enqueued {
         let added = &mut self.added;
-        admit(&self.connection, &self.scope, candidate, |_| {
-            *added += 1;
-            Ok(added.to_string())
-        })
+        admit(
+            &self.connection,
+            &self.scope,
+            &self.policy,
+            candidate,
+            |_| {
+                *added += 1;
+                Ok(added.to_string())
+            },
+        )
         .unwrap()
     }
 
@@ -499,6 +522,117 @@ fn bounds_recorded_again_apply_to_the_requests_already_admitted() {
             ],
             bounded(2)
         )
+    );
+}
+
+/// A seed and an enqueue whose host the domain policy refuses, or a
+/// subdomain of it, are not added with `domain_policy`, under a scope that
+/// reaches every host; another host is added (ADRs 0093 and 0102).
+///
+/// Covers: story:4-96, setting:egress.blocked_domains
+#[test]
+fn a_seed_and_an_enqueue_the_domain_policy_refuses_are_not_added_with_domain_policy() {
+    let mut frontier = Frontier::policed(Strategy::All, &["*"], &["elsewhere.test"]);
+
+    let answers = [
+        frontier.seed("http://shop.test/"),
+        frontier.seed("http://elsewhere.test/a"),
+        frontier.seed("http://news.elsewhere.test/"),
+        frontier.enqueue("http://elsewhere.test/b", 1),
+        frontier.enqueue("http://outlet.test/", 1),
+    ];
+
+    assert_eq!(
+        answers.to_vec(),
+        vec![
+            added("1", "http://shop.test/"),
+            not_added(NotAddedReason::DomainPolicy, "http://elsewhere.test/a"),
+            not_added(NotAddedReason::DomainPolicy, "http://news.elsewhere.test/"),
+            not_added(NotAddedReason::DomainPolicy, "http://elsewhere.test/b"),
+            added("2", "http://outlet.test/"),
+        ]
+    );
+}
+
+/// A URL is judged by the scope, then the domain policy, then the caps on
+/// its shape (ADR 0120): a link off the site that the policy refuses too
+/// is `out_of_scope`, a refused seed widening nothing; an over-long link in
+/// scope that the policy refuses is `domain_policy`, and an allowed one
+/// `max_url_length`. The scope ignores one leading `www.` and the policy
+/// does not: under a policy allowing `www.shop.test` alone, its bare host
+/// is in scope and refused.
+///
+/// Covers: story:4-95, story:4-96, setting:egress.allowed_domains
+#[test]
+fn the_scope_judges_first_then_the_domain_policy_then_the_caps() {
+    let mut frontier = Frontier::policed(Strategy::SameHostname, &["www.shop.test"], &[]);
+    let long_bare = format!("http://shop.test/{}", "a".repeat(3_000));
+    let long_www = format!("http://www.shop.test/{}", "a".repeat(3_000));
+
+    let answers = [
+        frontier.seed("http://www.shop.test/"),
+        frontier.seed("http://elsewhere.test/"),
+        frontier.enqueue("http://elsewhere.test/c", 1),
+        frontier.enqueue(&long_bare, 1),
+        frontier.enqueue(&long_www, 1),
+        frontier.enqueue("http://shop.test/a", 1),
+        frontier.enqueue("http://www.shop.test/a", 1),
+    ];
+
+    assert_eq!(
+        answers.to_vec(),
+        vec![
+            added("1", "http://www.shop.test/"),
+            not_added(NotAddedReason::DomainPolicy, "http://elsewhere.test/"),
+            not_added(NotAddedReason::OutOfScope, "http://elsewhere.test/c"),
+            not_added(NotAddedReason::DomainPolicy, &long_bare),
+            not_added(NotAddedReason::MaxUrlLength, &long_www),
+            not_added(NotAddedReason::DomainPolicy, "http://shop.test/a"),
+            added("2", "http://www.shop.test/a"),
+        ]
+    );
+}
+
+/// The domain policy reads the host as the WHATWG parser leaves it (ADR
+/// 0120): a refused name in Unicode, in capitals or in punycode, and a
+/// refused address in hex, decimal, octal or shortened form, are each
+/// refused; a neighbouring name and address are added.
+///
+/// Covers: story:4-95, setting:egress.blocked_domains
+#[test]
+fn every_spelling_of_a_refused_host_is_refused() {
+    let mut frontier = Frontier::policed(
+        Strategy::All,
+        &["*"],
+        &["bücher.test", "127.0.0.1", "192.0.2.1"],
+    );
+
+    let answers: Vec<Enqueued> = [
+        "http://xn--bcher-kva.test/",
+        "http://BÜCHER.test/",
+        "http://0x7f000001/",
+        "http://2130706433/",
+        "http://127.1/",
+        "http://0300.0.2.1/",
+        "http://127.0.0.2/",
+        "http://buecher.test/",
+    ]
+    .into_iter()
+    .map(|url| frontier.seed(url))
+    .collect();
+
+    assert_eq!(
+        answers,
+        vec![
+            not_added(NotAddedReason::DomainPolicy, "http://xn--bcher-kva.test/"),
+            not_added(NotAddedReason::DomainPolicy, "http://BÜCHER.test/"),
+            not_added(NotAddedReason::DomainPolicy, "http://0x7f000001/"),
+            not_added(NotAddedReason::DomainPolicy, "http://2130706433/"),
+            not_added(NotAddedReason::DomainPolicy, "http://127.1/"),
+            not_added(NotAddedReason::DomainPolicy, "http://0300.0.2.1/"),
+            added("1", "http://127.0.0.2/"),
+            added("2", "http://buecher.test/"),
+        ]
     );
 }
 

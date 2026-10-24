@@ -1,3 +1,4 @@
+use goodfetch_engine::egress::Policy;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
 use proptest::prelude::*;
 use rstest::rstest;
@@ -8,6 +9,11 @@ use super::{Declared, Hop, TABLES, redirect_hop, redirect_reached, url_key};
 use crate::admit::{Candidate, admit};
 use crate::bounds;
 use crate::scope::{self, Patterns, Scope, Strategy as ScopeStrategy};
+
+/// The domain policy that allows every host: the settings' defaults.
+fn every_host() -> Policy {
+    Policy::new(&["*"], &[] as &[&str]).unwrap()
+}
 
 /// A run file holding the visited set and the scope, in memory.
 fn run_file() -> Connection {
@@ -169,6 +175,7 @@ fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
         admit(
             &connection,
             &scope,
+            &every_host(),
             Candidate::Seed {
                 url,
                 declared: Declared {
@@ -258,7 +265,7 @@ fn a_redirect_hop_leaving_the_scope_is_out_of_scope() {
                 key: None,
             },
         };
-        admit(&connection, &scope, candidate, |_| {
+        admit(&connection, &scope, &every_host(), candidate, |_| {
             added += 1;
             Ok(added.to_string())
         })

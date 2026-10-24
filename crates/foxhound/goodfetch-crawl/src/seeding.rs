@@ -4,7 +4,8 @@
 //! answers it as an enqueue is answered; named by a handler's attempt, it
 //! is bound to that attempt and fails with `attempt_ended` once the attempt
 //! ended. Each seed added widens the crawl's scope, which the run file
-//! holds, by its host, as the start's seeds do. `run.add_seeds` takes a
+//! holds, by its host, as the start's seeds do; a seed whose host the
+//! Run's domain policy refuses is not added, with `domain_policy`. `run.add_seeds` takes a
 //! stream of seeds under credits it grants its Client, at most
 //! [`SEED_CREDITS`] seeds unanswered at a time, commits each batch in one
 //! write and answers its seeds in order, so a million seeds never sit in
@@ -12,6 +13,9 @@
 //! keys it and queues it under its domain, an idle `crawl.keep_alive`
 //! crawl included.
 
+use std::sync::Arc;
+
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_frontier::Scope;
@@ -25,7 +29,7 @@ use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::{RUN_NOT_FOUND, RUN_STATE_UNAVAILABLE, RunDetails, RunId};
 use rusqlite::Connection;
 
-use crate::serving::Crawls;
+use crate::serving::{Crawls, LiveCrawl};
 use crate::work_items;
 
 /// The handlers of `run.add_seed` and `run.add_seeds` on the live crawls of
@@ -75,7 +79,12 @@ async fn add_seed(
     _context: CallContext,
     crawls: Crawls,
 ) -> Result<Enqueued, CallError> {
-    let Some((run, seeded)) = crawls.seeding(&params.run_id).await else {
+    let Some(LiveCrawl {
+        run,
+        egress,
+        seeded,
+    }) = crawls.live(&params.run_id).await
+    else {
         return Err(not_live(&params.run_id));
     };
     let RunAddSeedParams {
@@ -86,7 +95,7 @@ async fn add_seed(
     let bound = attempt.clone();
     let answered = run
         .state()
-        .write(move |connection| admit_within(connection, &seed, bound.as_ref()))
+        .write(move |connection| admit_within(connection, &egress, &seed, bound.as_ref()))
         .await
         .map_err(|error| unwritten(&run_id, &error))?;
     if let Some(answer) = answered {
@@ -104,10 +113,11 @@ async fn add_seed(
     ))
 }
 
-/// Admits `seed`, while `attempt`, when given, holds its lease; `None`
-/// once that attempt ended.
+/// Admits `seed` under the Run's domain policy `egress`, while `attempt`,
+/// when given, holds its lease; `None` once that attempt ended.
 fn admit_within(
     connection: &Connection,
+    egress: &Policy,
     seed: &Seed,
     attempt: Option<&SeedAttempt>,
 ) -> rusqlite::Result<Option<Enqueued>> {
@@ -120,6 +130,7 @@ fn admit_within(
     let mut answers = work_items::admit_seeds(
         connection,
         &Scope::read(connection)?,
+        egress,
         std::slice::from_ref(seed),
     )?;
     Ok(Some(
@@ -134,7 +145,12 @@ async fn add_seeds(
     context: CallContext,
     crawls: Crawls,
 ) -> Result<RunSeedsAdded, CallError> {
-    let Some((run, seeded)) = crawls.seeding(&params.run_id).await else {
+    let Some(LiveCrawl {
+        run,
+        egress,
+        seeded,
+    }) = crawls.live(&params.run_id).await
+    else {
         return Err(not_live(&params.run_id));
     };
     let input = context.input();
@@ -163,7 +179,7 @@ async fn add_seeds(
             ));
         }
         credits -= taken;
-        let answers = admit_batch(&run, &params.run_id, batch.seeds).await?;
+        let answers = admit_batch(&run, &egress, &params.run_id, batch.seeds).await?;
         seeded.notify_one();
         for answer in &answers {
             match answer {
@@ -207,19 +223,21 @@ async fn grant(context: &CallContext, credits: u32) -> bool {
         .await
 }
 
-/// Admits each of `seeds` in one write of `run`'s state, and answers each
-/// one's answer in order.
+/// Admits each of `seeds` under the Run's domain policy `egress` in one
+/// write of `run`'s state, and answers each one's answer in order.
 async fn admit_batch(
     run: &Run,
+    egress: &Arc<Policy>,
     run_id: &RunId,
     seeds: Vec<Seed>,
 ) -> Result<Vec<Enqueued>, CallError> {
     if seeds.is_empty() {
         return Ok(Vec::new());
     }
+    let egress = Arc::clone(egress);
     run.state()
         .write(move |connection| {
-            work_items::admit_seeds(connection, &Scope::read(connection)?, &seeds)
+            work_items::admit_seeds(connection, &Scope::read(connection)?, &egress, &seeds)
         })
         .await
         .map_err(|error| unwritten(run_id, &error))

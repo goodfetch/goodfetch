@@ -111,8 +111,8 @@ pub(crate) fn crawl_under(
     )
 }
 
-/// [`crawl`] under the Run's settings `settings`, its `crawl` settings
-/// given the handler's concurrency of 1.
+/// [`crawl`] under the Run's settings `settings`, every key and not only
+/// `crawl`'s, beside the handler's concurrency of 1.
 pub(crate) fn crawl_with(
     engine: &mut Attached,
     run_id: &str,

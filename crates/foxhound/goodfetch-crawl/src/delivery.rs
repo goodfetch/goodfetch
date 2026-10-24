@@ -77,7 +77,7 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::lease::{CommitError, Leases};
-use crate::policy::CrawlPolicy;
+use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::serving::{Crawls, Opened, Server};
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
@@ -325,7 +325,8 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
 /// state shows in flight, whose engine stopped without settling it, counts
 /// as `handler_lost` against `crawl.retry.max` and is retried or failed,
 /// then delivery goes on from the committed state, so the work since that
-/// state is redone.
+/// state is redone. Its domain policy is read again from its settings; one
+/// that cannot be read admits no seed or enqueue.
 ///
 /// # Cancel safety
 ///
@@ -361,7 +362,8 @@ pub(crate) async fn resume(
         }
         Ok(_) => {}
     }
-    let opened = crawls.open(&run).await;
+    let egress = resumed_domain_policy(settings.resolved(), run.id());
+    let opened = crawls.open(&run, egress).await;
     drive(run, client, opened, crawls, settings, tiers).await;
 }
 

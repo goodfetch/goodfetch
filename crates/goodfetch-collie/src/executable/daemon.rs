@@ -908,6 +908,9 @@ pub(super) fn health(machine: &Machine<'_>, live: bool, json: bool) -> ExitCode 
                         Unready::GovernorLastResort => {
                             "its memory stayed critical at the governor's floor"
                         }
+                        Unready::StorageCritical => {
+                            "the filesystem holding its run state is at the critical storage level"
+                        }
                     })
                     .collect::<Vec<_>>()
                     .join(", ")

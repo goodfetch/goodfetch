@@ -14,6 +14,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run_state::{RunState, RunStateOptions, RunStateTables};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
@@ -272,14 +273,21 @@ fn admit_seed(connection: &Connection, asked: Asked) -> rusqlite::Result<Enqueue
             key: None,
         },
     };
-    admit(connection, &Scope::read(connection)?, candidate, |url| {
-        connection.query_row(
-            "INSERT INTO requests (id, url)
+    let every_host = Policy::new(&["*"], &[] as &[&str]).unwrap();
+    admit(
+        connection,
+        &Scope::read(connection)?,
+        &every_host,
+        candidate,
+        |url| {
+            connection.query_row(
+                "INSERT INTO requests (id, url)
              SELECT coalesce(max(id), 0) + 1, ?1 FROM requests RETURNING id",
-            [url.as_str()],
-            |row| Ok(row.get::<_, i64>(0)?.to_string()),
-        )
-    })
+                [url.as_str()],
+                |row| Ok(row.get::<_, i64>(0)?.to_string()),
+            )
+        },
+    )
 }
 
 /// Learns from request `id`'s page at `asked`, read with `text`.

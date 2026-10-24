@@ -10,8 +10,13 @@
 //!
 //! An enqueue outside the crawl's scope, measured against every seed, is
 //! `out_of_scope`; a seed is never, since seeds define the scope, and each
-//! seed added widens it. One the crawl would otherwise admit is then
-//! measured against its bounds, `crawl.max_depth` (seeds at depth 0) and
+//! seed added widens it. A seed or an enqueue whose host the Run's domain
+//! policy refuses (`egress.allowed_domains`, `egress.blocked_domains`,
+//! through the engine's `egress::judge`) is then `domain_policy`, so an
+//! off-site link the policy refuses too stays `out_of_scope` (ADRs 0017,
+//! 0093 and 0120); both read the host as the WHATWG parser leaves it, the
+//! scope alone ignoring one leading `www.`. One the crawl would otherwise
+//! admit is then measured against its bounds, `crawl.max_depth` (seeds at depth 0) and
 //! `crawl.max_requests`, and the caps on a URL's shape, each refusal
 //! counted by its setting. The learned rules join behind this one
 //! interface: a candidate that differs from an admitted request only by
@@ -22,6 +27,7 @@
 //! integer parameters and the page that linked it, teaches the rules in
 //! turn.
 
+use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, NotAddedReason};
 use rusqlite::Connection;
 use url::Url;
@@ -62,7 +68,8 @@ pub enum Candidate<'a> {
 }
 
 /// Admits `candidate` into the run file `connection` holds, within
-/// `scope`, which an added seed widens, through `add`, which adds it as a
+/// `scope`, which an added seed widens, and under the Run's domain policy
+/// `policy`, through `add`, which adds it as a
 /// crawl request at its URL as parsed, the URL it is fetched at, and
 /// answers its ID.
 ///
@@ -72,6 +79,7 @@ pub enum Candidate<'a> {
 pub fn admit(
     connection: &Connection,
     scope: &Scope,
+    policy: &Policy,
     candidate: Candidate<'_>,
     add: impl FnOnce(&Url) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<Enqueued> {
@@ -105,6 +113,13 @@ pub fn admit(
         && !scope.admits(connection, &url, narrowing)?
     {
         return Ok(not_added(NotAddedReason::OutOfScope));
+    }
+    let request = Request {
+        url: url.as_str(),
+        kind: RequestKind::Fetch,
+    };
+    if let Judgment::Refused(_) = judge(&request, policy) {
+        return Ok(not_added(NotAddedReason::DomainPolicy));
     }
     let identities = identities(connection, &url, declared)?;
     match seen(connection, &identities)? {

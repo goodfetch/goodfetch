@@ -333,6 +333,7 @@ impl StateMachineTest for Subject {
                     work_items::admit_seeds(
                         connection,
                         &goodfetch_frontier::Scope::default(),
+                        &goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap(),
                         &seeds,
                     )
                     .map(drop)

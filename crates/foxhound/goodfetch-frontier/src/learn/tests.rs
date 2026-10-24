@@ -7,6 +7,7 @@ mod model;
 
 use std::collections::BTreeMap;
 
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
 use goodfetch_protocol::foxhound::report::{LearnedRule, LearnedRuleKind};
@@ -55,9 +56,14 @@ impl Crawl {
 
     fn admit(&mut self, candidate: Candidate<'_>) -> Enqueued {
         let next = (self.ids.len() + 1).to_string();
-        let answer = admit(&self.connection, &self.scope, candidate, |_| {
-            Ok(next.clone())
-        })
+        let every_host = Policy::new(&["*"], &[] as &[&str]).unwrap();
+        let answer = admit(
+            &self.connection,
+            &self.scope,
+            &every_host,
+            candidate,
+            |_| Ok(next.clone()),
+        )
         .unwrap();
         if let Enqueued::Added { id, url } = &answer {
             self.ids.insert(url.clone(), id.clone());

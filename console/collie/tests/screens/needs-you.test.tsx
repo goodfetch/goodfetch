@@ -6,7 +6,10 @@
 // resuming after the last event it read or replacing the list with a
 // resync's snapshot. A person raises the Limit that stopped a run (ADRs
 // 0031 and 0041): an SDK script's run then waits for its script, with its
-// resume command to copy, and a Recipe's run resumes in the Daemon.
+// resume command to copy, and a Recipe's run resumes in the Daemon. A
+// domain that showed a consent wall is offered for `consent.domains`, alone
+// or as `*`, each with the warning of what the person takes on, answered in
+// one click.
 import type { LimitUsage, NeedsYouItem } from "@goodfetch/collie-client/generated";
 import {
   createProtocolAdapter,
@@ -16,9 +19,26 @@ import {
 import { expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
-import { createConsoleClient, type ConsoleClient, type PageVisibility } from "#client/client.ts";
+import {
+  createConsoleClient,
+  type ConsoleClient,
+  type ConsoleOperations,
+  type PageVisibility,
+} from "#client/client.ts";
 import { ConsoleI18n } from "#i18n.tsx";
 import { Shell } from "#shell.tsx";
+
+/**
+ * The adapter over every operation the Console calls, those kept off the
+ * SDKs' layer such as the person-only `usage.raise` included: its default,
+ * the SDK's operation table, leaves them out.
+ */
+type ConsoleAdapter = ProtocolAdapter<ConsoleOperations>;
+
+/** An adapter standing for Collie's engine, as the Console reaches it. */
+function consoleAdapter(): ConsoleAdapter {
+  return createProtocolAdapter<ConsoleOperations>();
+}
 
 /** A page that stays visible. */
 const visible: PageVisibility = { visible: true, watch: () => () => {} };
@@ -45,7 +65,7 @@ const STOPPED: NeedsYouItem = {
 };
 
 /** The Console's Client over `adapter`. */
-function clientOf(adapter: ProtocolAdapter): ConsoleClient {
+function clientOf(adapter: ConsoleAdapter): ConsoleClient {
   return createConsoleClient({
     transport: adapter.transport,
     bodyFetcher: adapter.bodyFetcher,
@@ -72,7 +92,7 @@ function items() {
   return page.getByRole("list", { name: "Needs you" }).getByRole("listitem");
 }
 
-async function subscribed(adapter: ProtocolAdapter): Promise<void> {
+async function subscribed(adapter: ConsoleAdapter): Promise<void> {
   await expect
     .poll(() => adapter.requests.some((request) => request.method === "events.subscribe"))
     .toBe(true);
@@ -82,7 +102,7 @@ test(
   "the side menu counts what needs you and follows the list live, each storage entry shown with its folder",
   { tags: ["story:12-23", "story:12-25", "story:12-32", "screen:/needs-you"] },
   async () => {
-    const adapter = createProtocolAdapter();
+    const adapter = consoleAdapter();
     adapter.answer("needs_you.list", { items: [LOW] });
     const client = clientOf(adapter);
     await shown(client);
@@ -117,7 +137,7 @@ test(
   "a person dismisses a stopped run, and the change the engine publishes takes it off the list",
   { tags: ["story:12-32", "screen:/needs-you"] },
   async () => {
-    const adapter = createProtocolAdapter();
+    const adapter = consoleAdapter();
     adapter.answer("needs_you.list", { items: [LOW, STOPPED] });
     adapter.answer("needs_you.dismiss", ({ item }) => {
       adapter.push(
@@ -150,7 +170,7 @@ test(
   "a tab that reconnects misses no item: it resumes after its last event, or takes a resync's snapshot",
   { tags: ["story:12-23", "screen:/needs-you"] },
   async () => {
-    const adapter = createProtocolAdapter();
+    const adapter = consoleAdapter();
     adapter.answer("needs_you.list", { items: [] });
     const client = clientOf(adapter);
     await shown(client);
@@ -233,8 +253,8 @@ function raisedTo(amount: number): LimitUsage {
 }
 
 /** An engine listing `item` that raises its Limit, then takes it off the list as resolved. */
-function raising(item: NeedsYouItem): ProtocolAdapter {
-  const adapter = createProtocolAdapter();
+function raising(item: NeedsYouItem): ConsoleAdapter {
+  const adapter = consoleAdapter();
   adapter.answer("needs_you.list", { items: [item] });
   adapter.answer("usage.raise", ({ amount }) => {
     adapter.push(
@@ -255,7 +275,7 @@ async function raise(amount: string): Promise<void> {
 }
 
 /** The calls of `method` the Console made, by their params. */
-function calls(adapter: ProtocolAdapter, method: string): unknown[] {
+function calls(adapter: ConsoleAdapter, method: string): unknown[] {
   return adapter.requests
     .filter((request) => request.method === method)
     .map((request) => request.params);
@@ -282,7 +302,7 @@ test(
     await raise("5000");
 
     await expect.poll(() => items().elements().length).toBe(0);
-    await expect.element(menuLink()).not.toHaveTextContent(/\d/);
+    await expect.element(menuLink()).not.toMatchTextContent(/\d/);
     expect(calls(adapter, "usage.raise")).toEqual([
       {
         scope: "install",
@@ -342,7 +362,7 @@ test(
   "the engine's refusal to raise a Limit is shown, and the run stays listed",
   { tags: ["story:12-100", "screen:/needs-you"] },
   async () => {
-    const adapter = createProtocolAdapter();
+    const adapter = consoleAdapter();
     adapter.answer("needs_you.list", { items: [stoppedByLimit()] });
     adapter.answer("usage.raise", failure("person_required", {}));
     const client = clientOf(adapter);
@@ -356,6 +376,113 @@ test(
       .toHaveTextContent(
         "The engine did not raise the Limit: The test answered usage.raise with person_required.",
       );
+    await expect.poll(() => items().elements().length).toBe(1);
+    client.close();
+  },
+);
+
+const WALL: NeedsYouItem = {
+  id: "consent_wall:walled.test",
+  kind: "consent_wall",
+  since: "2026-10-24T09:10:00Z",
+  run: "nightly",
+  summary: "walled.test showed a consent wall.",
+  actions: ["needs_you.allow_consent_domain", "needs_you.dismiss"],
+  details: { domain: "walled.test" },
+};
+
+/** Answers `needs_you.allow_consent_domain`, taking the wall off the list as the engine does. */
+function allowing(adapter: ConsoleAdapter): void {
+  adapter.answer("needs_you.allow_consent_domain", ({ domain }) => {
+    adapter.push(
+      { event: "needs_you.changed", data: { change: "removed", id: WALL.id, reason: "resolved" } },
+      1,
+    );
+    return { domain, added: true, layer: "user_configuration", warning: "" };
+  });
+}
+
+/** The params of each `needs_you.allow_consent_domain` call. */
+function allowed(adapter: ConsoleAdapter): unknown[] {
+  return adapter.requests
+    .filter((request) => request.method === "needs_you.allow_consent_domain")
+    .map((request) => request.params);
+}
+
+test(
+  "a domain that showed a consent wall is offered for consent.domains with what the person takes on, answered in one click",
+  { tags: ["story:12-26", "screen:/needs-you", "operation:needs_you.allow_consent_domain"] },
+  async () => {
+    const adapter = consoleAdapter();
+    adapter.answer("needs_you.list", { items: [WALL] });
+    allowing(adapter);
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+
+    const wall = items().nth(0);
+    await expect
+      .element(wall.getByRole("heading"))
+      .toHaveTextContent("walled.test showed a consent wall");
+    await expect.element(wall).toMatchTextContent(/consent in your name/);
+    await wall
+      .getByRole("button", { name: "Accept walled.test's consent walls in later runs" })
+      .click();
+
+    await expect.poll(() => items().elements().length).toBe(0);
+    await expect.element(page.getByText("Nothing needs you now.")).toBeVisible();
+    expect(page.getByRole("alertdialog").elements()).toHaveLength(0);
+    expect(allowed(adapter)).toEqual([{ domain: "walled.test" }]);
+    client.close();
+  },
+);
+
+test(
+  "accepting consent walls on every domain shows its own warning before the one click that writes *",
+  { tags: ["story:12-26", "screen:/needs-you"] },
+  async () => {
+    const adapter = consoleAdapter();
+    adapter.answer("needs_you.list", { items: [WALL] });
+    allowing(adapter);
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+
+    const wall = items().nth(0);
+    await expect.element(wall).toMatchTextContent(/every site that shows one/);
+    await expect.element(wall).toMatchTextContent(/no longer asks you/);
+    await wall.getByRole("button", { name: "Accept consent walls on every domain" }).click();
+
+    await expect.poll(() => items().elements().length).toBe(0);
+    expect(allowed(adapter)).toEqual([{ domain: "*" }]);
+    client.close();
+  },
+);
+
+test(
+  "an answer the engine refuses, such as under an Operator policy's lock, is said and leaves the item listed",
+  { tags: ["story:12-26", "screen:/needs-you"] },
+  async () => {
+    const adapter = consoleAdapter();
+    adapter.answer("needs_you.list", { items: [WALL] });
+    adapter.answer(
+      "needs_you.allow_consent_domain",
+      failure("setting_locked", {
+        key: "consent.domains",
+        layer: "user_configuration",
+        limit: { key: "consent.domains", value: [], layer: "operator_policy" },
+      }),
+    );
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+
+    await items()
+      .nth(0)
+      .getByRole("button", { name: "Accept walled.test's consent walls in later runs" })
+      .click();
+
+    await expect.element(page.getByRole("alert")).toMatchTextContent(/could not add the domain/);
     await expect.poll(() => items().elements().length).toBe(1);
     client.close();
   },

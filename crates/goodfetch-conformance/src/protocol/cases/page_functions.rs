@@ -140,8 +140,9 @@ fn details<T: serde::de::DeserializeOwned>(answer: &Value, code: &str) -> Option
 
 /// A function's JSON comes back as `JSON.stringify` gives it, from the main
 /// world, where the page's global is; an expression answers its value; a
-/// function that returns nothing answers no value; and an isolated world
-/// reads the page's document but not its global.
+/// function that returns nothing answers no value; an isolated world reads
+/// the page's document but not its global; and a page that replaced the
+/// built-ins a walk could call still gets its result whole.
 fn answers_json(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-page-function-json";
     let Some((page, _)) = on_the_page(connection, site, run_id, checks, |_, _| Ok(None))? else {
@@ -186,8 +187,38 @@ fn answers_json(connection: &mut Connection, site: &Site, checks: &mut Checks) -
         "an isolated-world function reads the page's document but not its global",
         answer["result"] == json!({ "value": ["undefined", "page-functions"] }),
     );
+    evaluate(connection, &page, REPLACED_BUILT_INS, None, "main")?;
+    let answer = evaluate(
+        connection,
+        &page,
+        "() => ({ rows: [1, 2, 3], nested: [{ cell: 'a', gone: undefined }], ['__proto__']: 'kept' })",
+        None,
+        "main",
+    )?;
+    checks.check(
+        "a main-world result keeps its arrays and objects on a page that replaced `Array.from` as Prototype.js does, and `Object.fromEntries`, `Set` and `Array.prototype.push`",
+        answer["result"]
+            == json!({ "value": { "rows": [1, 2, 3], "nested": [{ "cell": "a" }], "__proto__": "kept" } }),
+    );
     finish_run(connection, run_id)
 }
+
+/// A page script replacing built-ins a walk of a result could call:
+/// `Array.from` as Prototype.js 1.7.3 does (its `$A`, which ignores a map
+/// function), and `Object.fromEntries`, `Set` and `Array.prototype.push`
+/// with ones that lose what they are given.
+const REPLACED_BUILT_INS: &str = "() => {
+  Array.from = function $A(iterable) {
+    if (!iterable) return [];
+    if ('toArray' in Object(iterable)) return iterable.toArray();
+    var length = iterable.length || 0, results = new Array(length);
+    while (length--) results[length] = iterable[length];
+    return results;
+  };
+  Object.fromEntries = () => ({});
+  window.Set = function Set() { return { add() {}, delete() {}, has() { return true; } }; };
+  Array.prototype.push = function push() { return 0; };
+}";
 
 /// A DOM node, `NaN` and a cycle each raise `page_value_invalid` naming
 /// the first such value's path and its kind, in either world.

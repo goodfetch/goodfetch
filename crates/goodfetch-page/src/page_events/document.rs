@@ -174,16 +174,18 @@ pub(super) fn take_in(shared: &Shared, state: &mut State, event: &goodfetch_cdp:
             .0
             .retain(|_, loader| *loader == frame.loader_id);
         let blank = state.url == BLANK;
+        // A blank document may report no lifecycle: it has loaded, and is
+        // quiet from now when nothing is in flight.
+        let quiet_since = (blank && state.in_flight.0.is_empty()).then(|| shared.clock.now());
         let mut generation = 0;
         shared.document.send_modify(|document| {
             document.generation += 1;
             generation = document.generation;
             document.loader = Some(frame.loader_id.clone());
-            // A blank document may report no lifecycle: it has loaded.
             document.dom_content_loaded = blank;
             document.load = blank;
             document.network_idle = false;
-            document.quiet_since = None;
+            document.quiet_since = quiet_since;
         });
         answer_url_waiters(state, UrlReached::Committed(generation));
     } else if let Some(within) = event.read::<page::NavigatedWithinDocumentEvent>() {

@@ -273,7 +273,8 @@ fn url_within_the_document(
 
 /// B03: `networkidle` comes on the live board, whose WebSocket and
 /// server-sent events stay open, once its periodic requests stopped, and
-/// on the late board only once its request 400 ms after `load` finished.
+/// on the late board only once its request 400 ms after `load` finished,
+/// and at once on a committed `about:blank`.
 fn network_idle(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-waits-network-idle";
     let Some(live) = task_url(site, "live/1", checks) else {
@@ -308,6 +309,18 @@ fn network_idle(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -
             );
         }
     }
+    let blank = exchange.call(
+        PAGE_GOTO.name,
+        &json!({ "page_id": page, "url": "about:blank" }),
+    )?;
+    let idle = exchange.call(
+        PAGE_WAIT_FOR_LOAD_STATE.name,
+        &json!({ "page_id": page, "state": "networkidle" }),
+    )?;
+    checks.check(
+        "`networkidle` comes on a committed `about:blank`",
+        blank.get("result").is_some() && idle.get("result").is_some(),
+    );
     exchange.finish(run_id)
 }
 

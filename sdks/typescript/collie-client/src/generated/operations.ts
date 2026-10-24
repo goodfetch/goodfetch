@@ -265,7 +265,7 @@ export class CollieOperations {
   }
 
   /**
-   * Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.
+   * Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes. A click that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).
    *
    * @experimental
    */
@@ -283,7 +283,7 @@ export class CollieOperations {
   }
 
   /**
-   * Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.
+   * Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes. A press that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).
    *
    * @experimental
    */

@@ -3,7 +3,10 @@
 //! gesture that landed elsewhere, until its window, `timeout.action`,
 //! passes. The conditions are uniqueness, visibility, enabled, stable and
 //! receiving the event for a pointer action; visible and enabled for a text
-//! action; and editable too for `fill`. Each check and the arming of the
+//! action; and editable too for `fill`. A click or a key press that starts
+//! a navigation of the page answers once that navigation's document
+//! committed, or once it ended without one (ADR 0085), within
+//! `timeout.navigation`, the page's turn and pointer let go of meanwhile. Each check and the arming of the
 //! interception listener are one round trip into the guard's isolated
 //! world, and stability is waited for only while an animation or a
 //! transition runs. The locator is resolved again at every check, so a
@@ -42,6 +45,10 @@ use crate::hiding::PageHiding;
 
 /// The disarm, which says where the gesture landed.
 const DISARM: &str = include_str!("guard/disarm.js");
+
+/// A function that does nothing, called in the guard's world once a key
+/// press's input was sent.
+const SETTLED: &str = "function settled() {}";
 
 /// The longest one check waits in the page before it answers, so that a
 /// navigation that replaced the document, or the call's cancellation, is
@@ -168,10 +175,22 @@ pub(crate) async fn act(
         match seen {
             Seen::Ready { x, y, .. } => match &request.action {
                 Action::Click => {
-                    turn.click(x.unwrap_or_default(), y.unwrap_or_default())
-                        .await?;
-                    match landed(&mut turn).await? {
-                        Landed::Landed => return Ok(()),
+                    let mut watch = page.watch_gesture().await;
+                    // The disarm is the round trip into the renderer after
+                    // the input that a key press makes with `settled`.
+                    // Boxed, as the wait below: the action's future stays small.
+                    let landed = Box::pin(watch.during(async {
+                        turn.click(x.unwrap_or_default(), y.unwrap_or_default())
+                            .await?;
+                        landed(&mut turn).await
+                    }))
+                    .await?;
+                    match landed {
+                        Landed::Landed => {
+                            drop((gesture, turn));
+                            Box::pin(page.settle_gesture(watch)).await;
+                            return Ok(());
+                        }
                         Landed::Intercepted { observed } => {
                             last = Seen::Waiting {
                                 step: "receives_events".to_owned(),
@@ -183,9 +202,16 @@ pub(crate) async fn act(
                 }
                 Action::Fill(value) => return fill(&mut turn, value).await,
                 Action::Press(events) => {
-                    for event in events {
-                        turn.key(event).await?;
-                    }
+                    let mut watch = page.watch_gesture().await;
+                    Box::pin(watch.during(async {
+                        for event in events {
+                            turn.key(event).await?;
+                        }
+                        settled(&mut turn).await
+                    }))
+                    .await?;
+                    drop((gesture, turn));
+                    Box::pin(page.settle_gesture(watch)).await;
                     return Ok(());
                 }
             },
@@ -284,6 +310,18 @@ pub(crate) async fn landed_on(page: &PageDriver, element: &Element<'_>) -> bool 
         Ok(value) => matches!(Landed::deserialize(&value), Ok(Landed::Landed)),
         Err(Unanswered::WorldGone) => true,
         Err(Unanswered::Failed(_)) => false,
+    }
+}
+
+/// Waits for one round trip into the page's renderer once a key press's
+/// input was sent, as the click's disarm does: the browser acknowledges
+/// input before the events its handling sent, such as the main frame's
+/// request to navigate, so those arrive before this answer (Playwright's
+/// input epilogue). A document gone with the input sent them already.
+async fn settled(turn: &mut Turn<'_>) -> Result<(), CallError> {
+    match turn.call(SETTLED, serde_json::Value::Null).await {
+        Ok(_) | Err(Unanswered::WorldGone) => Ok(()),
+        Err(Unanswered::Failed(error)) => Err(error),
     }
 }
 

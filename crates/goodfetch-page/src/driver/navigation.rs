@@ -110,10 +110,10 @@ pub(super) struct Navigation {
     requested: Option<String>,
     /// Whether the main frame stopped loading.
     stopped: bool,
-    /// Whether the back/forward cache restored the main frame's document,
+    /// The document the back/forward cache restored in the main frame,
     /// which fires no `load` and has no response: only a Borrowed browser,
     /// whose launch the engine never chose, keeps the cache on (ADR 0121).
-    restored: bool,
+    restored: Option<LoaderId>,
     crashed: bool,
 }
 
@@ -137,7 +137,7 @@ impl Navigation {
             download: None,
             requested: None,
             stopped: false,
-            restored: false,
+            restored: None,
             crashed: false,
         }
     }
@@ -203,7 +203,7 @@ impl Navigation {
                         url.origin = goodfetch_engine::log::origin(&navigated.frame.url),
                         "the browser's back/forward cache restored the page's document"
                     );
-                    self.restored = true;
+                    self.restored = Some(navigated.frame.loader_id.clone());
                 }
                 self.committed.push(navigated.frame.loader_id);
             }
@@ -291,7 +291,7 @@ impl Navigation {
             Expected::Failed(loader, error) => (self.place(loader), loader, Some(error)),
             // A history navigation the back/forward cache answered: the
             // restored document arrived as it was, with no response.
-            Expected::FirstStarted if self.restored => {
+            Expected::FirstStarted if self.restored.is_some() => {
                 return Some(Ok(Arrived::Document(None)));
             }
             Expected::FirstStarted => {

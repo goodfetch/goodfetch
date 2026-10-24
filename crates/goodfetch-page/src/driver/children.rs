@@ -9,6 +9,7 @@
 //! the engine lets it run. A child a handler could not hold is never let
 //! run: the domain policy fails closed (ADR 0014).
 
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -16,6 +17,7 @@ use goodfetch_cdp::generated::{runtime, target};
 use goodfetch_cdp::{SessionId as TargetSession, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::runs::Run;
+use tokio_util::sync::CancellationToken;
 
 use super::PageDriver;
 
@@ -45,6 +47,8 @@ pub(crate) struct Child {
     pub(crate) target: target::TargetID,
     /// The URL the browser named when it attached it.
     pub(crate) url: String,
+    /// Cancelled once the browser detached it, or its Run ended.
+    pub(crate) gone: CancellationToken,
 }
 
 /// What one of a page's parts does with each child before it runs: it
@@ -111,8 +115,9 @@ fn auto_attach() -> target::SetAutoAttachParams {
 }
 
 /// Reads the events of `parent`, the page's or a frame's target, until it
-/// goes: each child attached is handed on as a task of its own. Boxed, as a
-/// frame's own children are followed in turn.
+/// goes: each child attached is handed on as a task of its own, and marked
+/// gone once the browser detaches it. Boxed, as a frame's own children are
+/// followed in turn.
 fn follow(
     driver: PageDriver,
     parent: TargetSession,
@@ -121,7 +126,14 @@ fn follow(
     run: Run,
 ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
     Box::pin(async move {
+        let mut attached_children: HashMap<String, CancellationToken> = HashMap::new();
         while let Some(event) = events.next().await {
+            if let Some(detached) = event.read::<target::DetachedFromTargetEvent>() {
+                if let Some(gone) = attached_children.remove(&detached.session_id) {
+                    gone.cancel();
+                }
+                continue;
+            }
             let Some(attached) = event.read::<target::AttachedToTargetEvent>() else {
                 continue;
             };
@@ -130,12 +142,15 @@ fn follow(
                 WORKER => ChildKind::Worker,
                 _ => continue,
             };
+            let gone = run.cancellation().child_token();
+            attached_children.insert(attached.session_id.clone(), gone.clone());
             let child = Child {
                 kind,
                 parent: parent.clone(),
                 session: TargetSession(attached.session_id),
                 target: attached.target_info.target_id,
                 url: attached.target_info.url,
+                gone,
             };
             let waiting = attached.waiting_for_debugger;
             run.spawn(attach(

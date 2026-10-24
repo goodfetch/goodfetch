@@ -51,7 +51,7 @@ pub mod proxy;
 pub mod request;
 pub mod route;
 pub mod session;
-pub mod tabs;
+pub mod session_pages;
 pub mod waits;
 
 use self::dialog::{
@@ -71,13 +71,27 @@ use self::route::{
     ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL, ROUTE_HANDLE, SESSION_ROUTE,
 };
 use self::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
-use self::tabs::{PAGE_POPUP, SESSION_ON, SESSION_PAGE, SESSION_PAGES};
+use self::session_pages::{PAGE_POPUP, SESSION_ON, SESSION_PAGE, SESSION_PAGES};
 use self::waits::{
     LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_LOAD_STATE,
     PAGE_WAIT_FOR_REQUEST, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
+
+/// A field that is present, `null` included, as `Some`; one left out stays
+/// `None` through `#[serde(default)]`.
+#[expect(
+    clippy::option_option,
+    reason = "three states (ADRs 0080 and 0083): left out inherits, `null` clears, a value sets"
+)]
+fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
 
 /// The notification that carries one chunk of a body `page.body` reads.
 pub const CHUNK: &str = "$/chunk";
@@ -1225,7 +1239,7 @@ pub const ENTRIES: Entries = Entries {
         DIALOG_DISMISS,
         SESSION_ON,
         SESSION_PAGES,
-        tabs::PAGE_CLOSE,
+        session_pages::PAGE_CLOSE,
         PAGE_EVALUATE,
         PAGE_ADD_INIT_SCRIPT,
         PAGE_WAIT_FOR_URL,

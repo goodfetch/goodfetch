@@ -17,10 +17,11 @@ use goodfetch_protocol::page::functions::{
     PageFunctionFailedDetails, PageValueInvalidDetails,
 };
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
+use goodfetch_protocol::page::waits::PAGE_WAIT_FOR_FUNCTION;
 use goodfetch_protocol::page::{PAGE_GOTO, PAGE_RELOAD};
 use serde_json::{Value, json};
 
-use super::clean_up::provenance;
+use super::clean_up::{FRAME_HOST, provenance};
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::EngineTarget;
@@ -140,8 +141,9 @@ fn details<T: serde::de::DeserializeOwned>(answer: &Value, code: &str) -> Option
 
 /// A function's JSON comes back as `JSON.stringify` gives it, from the main
 /// world, where the page's global is; an expression answers its value; a
-/// function that returns nothing answers no value; and an isolated world
-/// reads the page's document but not its global.
+/// function that returns nothing answers no value; an isolated world reads
+/// the page's document but not its global; and a page that replaced the
+/// built-ins a walk could call still gets its result whole.
 fn answers_json(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-page-function-json";
     let Some((page, _)) = on_the_page(connection, site, run_id, checks, |_, _| Ok(None))? else {
@@ -186,8 +188,38 @@ fn answers_json(connection: &mut Connection, site: &Site, checks: &mut Checks) -
         "an isolated-world function reads the page's document but not its global",
         answer["result"] == json!({ "value": ["undefined", "page-functions"] }),
     );
+    evaluate(connection, &page, REPLACED_BUILT_INS, None, "main")?;
+    let answer = evaluate(
+        connection,
+        &page,
+        "() => ({ rows: [1, 2, 3], nested: [{ cell: 'a', gone: undefined }], ['__proto__']: 'kept' })",
+        None,
+        "main",
+    )?;
+    checks.check(
+        "a main-world result keeps its arrays and objects on a page that replaced `Array.from` as Prototype.js does, and `Object.fromEntries`, `Set` and `Array.prototype.push`",
+        answer["result"]
+            == json!({ "value": { "rows": [1, 2, 3], "nested": [{ "cell": "a" }], "__proto__": "kept" } }),
+    );
     finish_run(connection, run_id)
 }
+
+/// A page script replacing built-ins a walk of a result could call:
+/// `Array.from` as Prototype.js 1.7.3 does (its `$A`, which ignores a map
+/// function), and `Object.fromEntries`, `Set` and `Array.prototype.push`
+/// with ones that lose what they are given.
+const REPLACED_BUILT_INS: &str = "() => {
+  Array.from = function $A(iterable) {
+    if (!iterable) return [];
+    if ('toArray' in Object(iterable)) return iterable.toArray();
+    var length = iterable.length || 0, results = new Array(length);
+    while (length--) results[length] = iterable[length];
+    return results;
+  };
+  Object.fromEntries = () => ({});
+  window.Set = function Set() { return { add() {}, delete() {}, has() { return true; } }; };
+  Array.prototype.push = function push() { return 0; };
+}";
 
 /// A DOM node, `NaN` and a cycle each raise `page_value_invalid` naming
 /// the first such value's path and its kind, in either world.
@@ -271,6 +303,22 @@ fn thrown(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
             },
         ),
     );
+    let answer = evaluate(
+        connection,
+        &page,
+        "() => { const frame = document.createElement('iframe'); document.body.append(frame); const Thrown = frame.contentWindow.RangeError; return { get read() { throw new Thrown('another realm said no'); } }; }",
+        None,
+        "main",
+    )?;
+    checks.check(
+        "an error of another realm thrown while the result is read keeps its name",
+        details::<PageFunctionFailedDetails>(&answer, PAGE_FUNCTION_FAILED.name).is_some_and(
+            |details| {
+                details.name.as_deref() == Some("RangeError")
+                    && details.message == "another realm said no"
+            },
+        ),
+    );
     let answer = evaluate(connection, &page, "document.title", Some(json!(1)), "main")?;
     checks.check(
         format!(
@@ -293,7 +341,8 @@ fn injections(target: &EngineTarget, run_id: &str) -> Vec<(Value, Value)> {
 }
 
 /// An init script registered before a navigation runs before the page's
-/// own script and in a frame added afterwards, its call staying in flight,
+/// own script and in a frame added afterwards, of the page's site or of
+/// another site in a process of its own, its call staying in flight,
 /// and Provenance marks the Session; once its call is cancelled, the next
 /// document runs without it; and a second Session of the Run, whose page
 /// has no init script and only isolated calls, records no injection.
@@ -304,19 +353,24 @@ fn init_script(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-page-function-init-script";
-    let Some((page, Some(script))) =
-        on_the_page(connection, site, run_id, checks, |connection, page| {
+    let Some((page, Some(script))) = on_the_page(
+        connection,
+        site,
+        run_id,
+        checks,
+        |connection, page| {
             connection
                 .request(
                     PAGE_ADD_INIT_SCRIPT.name,
                     &json!({
                         "page_id": page,
-                        "function": "(mark) => { window.initScriptMark = mark; }",
+                        "function": "(mark) => { window.initScriptMark = mark; if (window !== window.top) { window.top.postMessage({ initScriptMark: mark }, '*'); } }",
                         "arg": MARK,
                     }),
                 )
                 .map(Some)
-        })?
+        },
+    )?
     else {
         return Ok(());
     };
@@ -342,6 +396,19 @@ fn init_script(
         "the init script ran in a frame added afterwards, before its document's own script",
         answer["result"] == json!({ "value": MARK }),
     );
+    let answer = evaluate(
+        connection,
+        &page,
+        "async (src) => { const marked = new Promise((resolve) => { window.addEventListener('message', (event) => { if (event.data && event.data.initScriptMark !== undefined) { resolve(event.data.initScriptMark); } }); setTimeout(() => resolve(null), 5000); }); const frame = document.createElement('iframe'); frame.src = src; document.body.append(frame); return await marked; }",
+        Some(json!(
+            site.named_url(FRAME_HOST, "/framed").unwrap_or_default()
+        )),
+        "main",
+    )?;
+    checks.check(
+        "the init script ran in a frame of another site, which the browser loads in a process of its own",
+        answer["result"] == json!({ "value": MARK }),
+    );
     connection.notify(CANCEL, &json!({ "id": script }))?;
     let ended = connection.answer(script)?.message;
     checks.check(
@@ -361,6 +428,7 @@ fn init_script(
         "a document loaded after the call was cancelled runs without the init script",
         answer["result"] == json!({ "value": null }),
     );
+    registered_or_not(connection, &page, checks)?;
     let plain = plain_session(connection, site, run_id, checks)?;
     finish_run(connection, run_id)?;
     let marked = injections(target, run_id);
@@ -374,6 +442,64 @@ fn init_script(
         "a Session whose page had no init script and no main-world call records no injection",
         plain.is_some_and(|plain| marked.iter().all(|(_, session)| *session != plain)),
     );
+    Ok(())
+}
+
+/// An init script whose call is cancelled as soon as it is sent is never
+/// left registered: the next document runs without it; and a page function
+/// sent right after another init script's call, which reloads the page,
+/// meets the script registered.
+fn registered_or_not(
+    connection: &mut Connection,
+    page: &Value,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let script = |mark: &str| {
+        json!({
+            "page_id": page,
+            "function": "(mark) => { window.initScriptMark = mark; }",
+            "arg": mark,
+        })
+    };
+    let cancelled = connection.request(PAGE_ADD_INIT_SCRIPT.name, &script("cancelled at once"))?;
+    connection.notify(CANCEL, &json!({ "id": cancelled }))?;
+    connection.answer(cancelled)?;
+    let id = connection.request(PAGE_RELOAD.name, &json!({ "page_id": page }))?;
+    connection.browser_answer(id)?;
+    let answer = evaluate(
+        connection,
+        page,
+        "() => window.initScriptSeenByPage",
+        None,
+        "main",
+    )?;
+    checks.check(
+        "an init script whose call was cancelled as it was sent is not left registered",
+        answer["result"] == json!({ "value": null }),
+    );
+    let kept = connection.request(PAGE_ADD_INIT_SCRIPT.name, &script("before the reload"))?;
+    let reloaded = evaluate(
+        connection,
+        page,
+        "() => { window.beforeTheReload = true; location.reload(); return true; }",
+        None,
+        "main",
+    )?;
+    let id = connection.request(
+        PAGE_WAIT_FOR_FUNCTION.name,
+        &json!({
+            "page_id": page,
+            "function": "() => window.beforeTheReload === undefined && document.readyState === 'complete' && (window.initScriptSeenByPage ?? 'none')",
+        }),
+    )?;
+    let seen = connection.browser_answer(id)?.message;
+    checks.check(
+        "a page function sent right after an init script's call meets the script registered",
+        reloaded["result"] == json!({ "value": true })
+            && seen["result"] == json!({ "value": "before the reload" }),
+    );
+    connection.notify(CANCEL, &json!({ "id": kept }))?;
+    connection.answer(kept)?;
     Ok(())
 }
 

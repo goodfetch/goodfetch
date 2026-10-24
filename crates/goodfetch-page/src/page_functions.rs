@@ -477,11 +477,11 @@ impl Injection {
     }
 }
 
-/// The Sessions already marked in Provenance, each once per kind of
-/// injection.
+/// The kinds of injection a Session already marked in Provenance, each
+/// once; it lives as long as the Session. Clones share them.
 #[derive(Clone)]
 pub(crate) struct Injections {
-    marked: Arc<watch::Sender<HashSet<(SessionId, Injection)>>>,
+    marked: Arc<watch::Sender<HashSet<Injection>>>,
 }
 
 impl Default for Injections {
@@ -494,8 +494,8 @@ impl Default for Injections {
 
 impl Injections {
     /// Records in `run`'s Provenance that the page `page_id` of the
-    /// Session `session` made a main-world injection by `injection`, the
-    /// first time its Session does.
+    /// Session `session`, whose marks these are, made a main-world
+    /// injection by `injection`, the first time its Session does.
     ///
     /// # Cancel safety
     ///
@@ -509,7 +509,7 @@ impl Injections {
     ) {
         let first = self
             .marked
-            .send_if_modified(|marked| marked.insert((session.clone(), injection)));
+            .send_if_modified(|marked| marked.insert(injection));
         if first {
             trace::provenance(
                 run,

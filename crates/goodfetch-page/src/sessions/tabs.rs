@@ -264,6 +264,7 @@ impl Sessions {
             hiding,
             page_check: Declared::of(&open.run, &open.settings).map(Arc::new),
             frame_scripts,
+            injections: open.injections.clone(),
             _admission: Arc::new(admission),
             in_browser: Arc::new(in_browser),
         };

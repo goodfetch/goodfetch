@@ -95,7 +95,7 @@ use crate::driver::{Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events::{self, Requested};
-use crate::page_functions::{self, InitScripts, Injection, Injections, Pending, Registered};
+use crate::page_functions::{self, InitScripts, Injection, Pending, Registered};
 use crate::page_value::{HandlerPages, ProgramPages};
 use crate::proxy;
 use crate::recovery;
@@ -150,7 +150,6 @@ pub fn contribution_with(
         hooks,
         blocks,
         init_scripts: InitScripts::default(),
-        injections: Injections::default(),
     };
     let contribution = with_page_handlers(
         Contribution::new("page")
@@ -714,8 +713,6 @@ struct Pages {
     /// Each page's init scripts on their way in or out, which its
     /// navigations wait for.
     init_scripts: InitScripts,
-    /// The Sessions Provenance marks as injecting in the main world.
-    injections: Injections,
 }
 
 impl Pages {
@@ -954,7 +951,7 @@ impl Pages {
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let world = params.world.unwrap_or_default();
         if world == World::Main {
-            self.injections
+            page.injections
                 .mark(
                     &page.run,
                     &page.session,
@@ -1025,7 +1022,7 @@ impl Pages {
                 }
             })
             .await?;
-        self.injections
+        page.injections
             .mark(
                 &page.run,
                 &page.session,

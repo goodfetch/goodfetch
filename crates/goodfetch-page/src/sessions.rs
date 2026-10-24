@@ -87,7 +87,7 @@ use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
 use crate::interception::{Interception, SESSION_KEYS};
 use crate::page_events;
-use crate::page_functions::FrameScripts;
+use crate::page_functions::{FrameScripts, Injections};
 use crate::page_value::{HandlerPages, PageValue};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
 use crate::proxy::{Opening, SessionProxy};
@@ -184,6 +184,8 @@ struct Session {
     /// popups alone are its own; none elsewhere, where its browser context
     /// holds only its pages.
     held_frames: Option<tabs::HeldFrames>,
+    /// Its marks of main-world injections in Provenance, each once.
+    injections: Injections,
 }
 
 /// A fresh Session a program opened, in a browser the engine launched.
@@ -221,6 +223,8 @@ pub(crate) struct OpenPage {
     pub(crate) page_check: Option<Arc<Declared>>,
     /// Its init scripts as its out-of-process iframes take them.
     pub(crate) frame_scripts: FrameScripts,
+    /// Its Session's marks of main-world injections in Provenance.
+    pub(crate) injections: Injections,
     /// Its admission of the governor's `browser_page` kind, given back once
     /// the page leaves and no call holds it.
     _admission: Arc<Permit>,
@@ -326,6 +330,7 @@ impl Sessions {
             proxy,
             interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
             held_frames: borrowed.as_ref().map(|_| tabs::HeldFrames::default()),
+            injections: Injections::default(),
         });
         self.state
             .lock()
@@ -405,6 +410,7 @@ impl Sessions {
                             proxy,
                             interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
                             held_frames: borrowed.as_ref().map(|_| tabs::HeldFrames::default()),
+                            injections: Injections::default(),
                         }),
                     );
                     self.open_in_interception(&session, &run, borrowed.is_some());
@@ -733,6 +739,7 @@ impl Sessions {
                             proxy,
                             interception_only: None,
                             held_frames: None,
+                            injections: Injections::default(),
                         }),
                     );
                 }

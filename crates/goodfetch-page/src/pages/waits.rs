@@ -228,7 +228,7 @@ impl Pages {
             .wait_deadline(params.timeout)?;
         let world = params.world.unwrap_or_default();
         if world == World::Main {
-            self.injections
+            page.injections
                 .mark(
                     &page.run,
                     &page.session,

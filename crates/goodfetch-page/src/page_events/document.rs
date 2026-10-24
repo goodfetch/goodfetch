@@ -73,6 +73,12 @@ impl Document {
     pub(super) fn generation(&self) -> u64 {
         self.generation
     }
+
+    /// The browser's ID of its load, which is its document request's; none
+    /// for the page's first, blank one.
+    pub(super) fn loader(&self) -> Option<&LoaderId> {
+        self.loader.as_ref()
+    }
 }
 
 /// Where a URL waiter's URL came.

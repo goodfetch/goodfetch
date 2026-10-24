@@ -9,6 +9,7 @@
 //! cases `page_check`'s and the reset gate's cases `reset`'s.
 
 mod blocking_off;
+mod blocks;
 mod clean_up;
 mod consent;
 mod delivery;

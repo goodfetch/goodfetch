@@ -101,6 +101,8 @@ export interface ConsoleClientOptions {
   readonly product: Product;
   /** How long to wait before each new attempt once one failed, the last repeating. */
   readonly retryDelays?: readonly number[] | undefined;
+  /** How long a Connection may send nothing before it is asked something, and then before it counts as stalled. */
+  readonly stallTimeout?: number | undefined;
 }
 
 /** One of the stream's events, as a subscription gives it. */
@@ -167,14 +169,25 @@ const NOT_CONNECTED =
 /** How many events a subscription lets the engine send ahead of what was read. */
 const WINDOW = 64;
 
+/** How long a silent Connection waits to be asked something, then to answer it, in milliseconds. */
+const STALL_TIMEOUT = 10_000;
+
 /** The waits between attempts once one failed, in milliseconds, the last repeating. */
 const RETRY_DELAYS = [1_000, 2_000, 5_000, 10_000];
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** The byte stream a Channel runs over, made of a Connection's text messages, one line each. */
-function byteTransport(transport: Transport): { bytes: ByteTransport; connection: Connection } {
+/**
+ * The byte stream a Channel runs over, made of a Connection's text
+ * messages, one line each; `heard` is called at each message, and
+ * `abandon` ends the stream at once and closes the Connection, without
+ * waiting for a stalled one to say it closed.
+ */
+function byteTransport(
+  transport: Transport,
+  heard: () => void,
+): { bytes: ByteTransport; connection: Connection; abandon: () => void } {
   let push: ((text: string) => void) | undefined;
   let end: (() => void) | undefined;
   const readable = new ReadableStream<Uint8Array>({
@@ -183,14 +196,18 @@ function byteTransport(transport: Transport): { bytes: ByteTransport; connection
       end = () => controller.close();
     },
   });
+  const closed = (): void => {
+    const ending = end;
+    end = undefined;
+    push = undefined;
+    ending?.();
+  };
   const connection = transport.open({
-    message: (text) => push?.(text),
-    close: () => {
-      const ending = end;
-      end = undefined;
-      push = undefined;
-      ending?.();
+    message: (text) => {
+      heard();
+      push?.(text);
     },
+    close: closed,
   });
   let pending = "";
   const writable = new WritableStream<Uint8Array>({
@@ -207,7 +224,11 @@ function byteTransport(transport: Transport): { bytes: ByteTransport; connection
       connection.close();
     },
   });
-  return { bytes: { readable, writable }, connection };
+  const abandon = (): void => {
+    closed();
+    connection.close();
+  };
+  return { bytes: { readable, writable }, connection, abandon };
 }
 
 /** A subscription's events waiting to be read, and its readers waiting for them. */
@@ -354,6 +375,8 @@ class KeptSubscription implements Subscription {
 interface Opened {
   readonly channel: Channel;
   readonly connection: Connection;
+  /** What looks for a stall, until the Connection ends. */
+  readonly watchdog: ReturnType<typeof setInterval>;
 }
 
 class Client implements ConsoleClient {
@@ -475,7 +498,10 @@ class Client implements ConsoleClient {
     }
     const opened = this.#opened;
     this.#opened = undefined;
-    void opened?.channel.close();
+    if (opened !== undefined) {
+      clearInterval(opened.watchdog);
+      void opened.channel.close();
+    }
     this.#wake();
   }
 
@@ -501,13 +527,31 @@ class Client implements ConsoleClient {
     }
     this.#retry = undefined;
     this.#enter("reconnecting");
-    const { bytes, connection } = byteTransport(this.#options.transport);
+    // A Connection that sends nothing for a stall timeout is asked
+    // something, `hello` first; one still silent a stall timeout later is
+    // stalled, and abandoned as a dropped one is.
+    let heard = false;
+    let asked = true;
+    const { bytes, connection, abandon } = byteTransport(this.#options.transport, () => {
+      heard = true;
+    });
     let current: Opened | undefined;
     const channel = new Channel(bytes, {
       ended: async (end) => this.#ended(current, end),
       failure: (error: unknown) => errorOfReply(error, collieErrorClasses),
     });
-    current = { channel, connection };
+    const watchdog = setInterval(() => {
+      if (heard) {
+        heard = false;
+        asked = false;
+      } else if (asked) {
+        abandon();
+      } else {
+        asked = true;
+        channel.call("engine.info", {}).catch(() => undefined);
+      }
+    }, this.#options.stallTimeout ?? STALL_TIMEOUT);
+    current = { channel, connection, watchdog };
     this.#opened = current;
     const hello: HelloParams = {
       protocol_version: PROTOCOL_VERSION,
@@ -548,6 +592,9 @@ class Client implements ConsoleClient {
   /** The Connection `opened` ended: every waiting call fails, and the Client tries again. */
   async #ended(opened: Opened | undefined, end: TransportEnd): Promise<GoodfetchError> {
     const failure = new ConnectionLostError(end.kind === "invalid" ? INVALID : DROPPED);
+    if (opened !== undefined) {
+      clearInterval(opened.watchdog);
+    }
     if (this.#opened !== opened || this.#closed) {
       return failure;
     }

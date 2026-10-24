@@ -13,7 +13,7 @@ import {
   createProtocolAdapter,
   type ProtocolAdapter,
 } from "@goodfetch/test-support/protocol-adapter";
-import { describe, expect } from "vitest";
+import { describe, expect, onTestFinished, vi } from "vitest";
 import {
   createConsoleClient,
   type ConnectionState,
@@ -22,6 +22,9 @@ import {
   type StreamItem,
   type Subscription,
 } from "./client.ts";
+
+/** How long the Client waits on a silent Connection before it asks, then before it gives up. */
+const STALL = 10_000;
 
 /** The engine instance the adapter's first `hello` names. */
 const FIRST_INSTANCE = "0000000000000001";
@@ -217,6 +220,62 @@ describe("the Console's Client", () => {
     await reaches(client, "connected");
 
     expect(states).toEqual(["reconnecting", "connected", "read_only", "reconnecting", "connected"]);
+    client.close();
+  });
+
+  test(
+    "closes a Connection that stops answering and opens another",
+    { tags: ["story:12-125"] },
+    async () => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const adapter = createProtocolAdapter();
+      const { client, states } = clientOf(adapter);
+      await reaches(client, "connected");
+      const { promise: probed, resolve: probe } = Promise.withResolvers<void>();
+      adapter.answer("engine.info", () => {
+        probe();
+        return new Promise<never>(() => {});
+      });
+
+      const reconnecting = reaches(client, "reconnecting");
+      for (let tick = 0; tick < 3; tick += 1) {
+        vi.advanceTimersByTime(STALL);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      await probed;
+      await reconnecting;
+      await reaches(client, "connected");
+
+      expect(states).toEqual(["reconnecting", "connected", "reconnecting", "connected"]);
+      expect(adapter.requests.filter((request) => request.method === "hello")).toHaveLength(2);
+      client.close();
+    },
+  );
+
+  test("a Connection that keeps answering is never closed", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const adapter = createProtocolAdapter();
+    adapter.answer("engine.info", {
+      product: "collie",
+      product_major: 0,
+      product_version: "0.1.0",
+      protocol_version: "0.1",
+    });
+    const { client, states } = clientOf(adapter);
+    await reaches(client, "connected");
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      vi.advanceTimersByTime(STALL);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(states).toEqual(["reconnecting", "connected"]);
     client.close();
   });
 

@@ -184,7 +184,9 @@ fn a_crawl_that_hedges_while_a_domain_admits_one_request_at_a_time_is_refused() 
 /// Twenty quick answers give the route its latency; then the site slows
 /// down. The slow GET is sent a second time, on a new connection, the
 /// hedge counted in Usage, and Provenance records it; the slow POST after
-/// it is sent once.
+/// it is sent once. The quick URLs serve one page, so each declares its
+/// own key: the Frontier would otherwise learn that `quick` has no effect
+/// and end the rest as duplicates.
 ///
 /// Covers: story:3-63, setting:fetch.hedge.enabled, setting:fetch.hedge.max_percent, operation:crawl.start
 #[test]
@@ -194,7 +196,7 @@ fn a_slow_get_is_hedged_on_a_new_connection_and_a_post_never_is() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = Attached::start(&env);
     let quick: Vec<Value> = (1..=20)
-        .map(|number| json!({ "url": proving_ground.url("pacing.test", &format!("/articles/1?quick={number}")), "label": "article" }))
+        .map(|number| json!({ "url": proving_ground.url("pacing.test", &format!("/articles/1?quick={number}")), "label": "article", "key": format!("quick-{number}") }))
         .collect();
     let last_quick = proving_ground.url("pacing.test", "/articles/1?quick=20");
     let slow_get = proving_ground.url("pacing.test", "/articles/2?slow=get");

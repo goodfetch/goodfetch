@@ -14,7 +14,7 @@
 import { sep } from "node:path";
 import { readFeatureIds } from "@goodfetch/test-support/features";
 import type { ServedOptions } from "@goodfetch/test-support/playwright";
-import { defineConfig, type PlaywrightTestConfig, type Project } from "@playwright/test";
+import { defineConfig, type PlaywrightTestConfig } from "@playwright/test";
 import { PLAYWRIGHT_VISUAL_TESTS, visualConfig } from "@goodfetch/test-support/visual-config";
 
 // Playwright matches a glob against a test file's absolute path, from any
@@ -39,7 +39,11 @@ const ignored = [
 // Its elsewhere project reruns them in a browser whose locale and time zone
 // are Turkish and Nepal's, whose offset is a quarter hour (ADR 0073): no
 // test asserts formatted text, so each passes there as it does here.
-const releaseProjects: Project<ServedOptions>[] =
+//
+// A project of this configuration takes Playwright's own options as well as
+// the served fixtures' (`Project<ServedOptions>` alone drops Playwright's).
+type ServedProject = NonNullable<PlaywrightTestConfig<ServedOptions>["projects"]>[number];
+const releaseProjects: ServedProject[] =
   process.env["GOODFETCH_TEST_SUITE"] === "release"
     ? [
         ...(["firefox", "webkit"] as const).map((browserName) => ({

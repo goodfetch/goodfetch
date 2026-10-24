@@ -483,6 +483,69 @@ pub(crate) fn end(
     Ok(true)
 }
 
+/// Ends the pending work items a rule the Frontier learned later merged
+/// (ADR 0093): given the crawl requests it showed to be one page, each
+/// still pending ends `skipped` with `duplicate` at `ended_at`, its
+/// handler never run, unless none of them was leased or ended otherwise
+/// than so, when the first pending one stays. Answers each one it ended,
+/// with its URL and the domain key it waits under, if keyed.
+pub(crate) fn end_merged(
+    connection: &Connection,
+    ids: &BTreeSet<String>,
+    ended_at: &PointInTime,
+) -> rusqlite::Result<Vec<(String, String, Option<String>)>> {
+    let mut members = Vec::with_capacity(ids.len());
+    for id in ids {
+        let member = connection
+            .query_row(
+                "SELECT position, status, url, domain_key, EXISTS (
+                     SELECT 1 FROM outcomes WHERE work_item = ?1 AND kind = ?2
+                         AND json_extract(outcome, '$.reason') = 'duplicate')
+                 FROM work_items WHERE id = ?1",
+                (id, SKIPPED),
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, bool>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        members.extend(member.map(|member| (id.clone(), member)));
+    }
+    members.sort_by_key(|(_, (position, ..))| *position);
+    let kept = members
+        .iter()
+        .any(|(_, (_, status, _, _, merged))| status != PENDING && !merged);
+    let mut pending = members
+        .into_iter()
+        .filter(|(_, (_, status, ..))| status == PENDING);
+    if !kept {
+        pending.next();
+    }
+    let mut ended = Vec::new();
+    for (id, (_, _, url, key, _)) in pending {
+        connection.execute(
+            "UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2",
+            (SKIPPED, &id),
+        )?;
+        write_outcome(
+            connection,
+            &id,
+            ended_at,
+            Ending::Skipped {
+                reason: SkipReason::Duplicate,
+                message: None,
+            },
+        )?;
+        ended.push((id, url, key));
+    }
+    Ok(ended)
+}
+
 /// Keeps the error of the work item `id`'s current attempt for its next
 /// outcome.
 fn keep_error(

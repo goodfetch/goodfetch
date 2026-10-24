@@ -362,10 +362,12 @@ fn a_persons_answer_writes_consent_domains_records_its_warning_and_resolves_the_
 /// Operator policy that locks `consent.domains` with `setting_locked`,
 /// user configuration left as it was each time and nothing recorded.
 ///
-/// Covers: story:12-26, operation:needs_you.allow_consent_domain, error:person_required, error:setting_locked
+/// Covers: story:12-26, operation:needs_you.allow_consent_domain
 #[rstest]
+/// Covers: error:person_required
 #[case::from_an_agent_surface("sdk_typescript", "walled.test", "", "person_required")]
 #[case::naming_no_domain("console", "https://walled.test/", "", "invalid_params")]
+/// Covers: error:setting_locked
 #[case::under_a_lock(
     "console",
     "walled.test",

@@ -189,6 +189,48 @@ fn the_proxy_that_refuses_tunnels_still_relays_plain_http() {
     assert_eq!(exchange.status(), 200);
 }
 
+/// Covers: story:5-90
+#[test]
+fn the_limited_proxy_answers_too_many_requests_to_one_sent_while_it_relays_another() {
+    let proving_ground = ProvingGround::start(SEED);
+    let url = format!("http://catalog.test:{}/catalog/1", proving_ground.port());
+    let proxy = proving_ground.proxy("limited");
+
+    let (first, second) = std::thread::scope(|scope| {
+        let first = scope.spawn(|| clients::raw(&proxy, &absolute(&url, None)));
+        let second = scope.spawn(|| clients::raw(&proxy, &absolute(&url, None)));
+        (first.join().unwrap(), second.join().unwrap())
+    });
+    let after = clients::raw(&proxy, &absolute(&url, None));
+
+    let mut statuses = [first.status(), second.status()];
+    statuses.sort_unstable();
+    let refused = [first, second]
+        .into_iter()
+        .find(|exchange| exchange.status() == 429)
+        .and_then(|exchange| exchange.header("proxy-status"));
+    let mut outcomes: Vec<Value> = proving_ground.observations()["relays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|relay| relay["outcome"].clone())
+        .collect();
+    outcomes.sort_by_key(ToString::to_string);
+    assert_eq!(
+        (statuses, after.status(), refused, outcomes),
+        (
+            [200, 429],
+            200,
+            Some("proving-ground; error=http_request_denied".to_owned()),
+            vec![
+                json!("relayed"),
+                json!("relayed"),
+                json!("too_many_requests")
+            ],
+        )
+    );
+}
+
 #[test]
 fn the_down_proxy_refuses_every_connection() {
     let proving_ground = ProvingGround::start(SEED);

@@ -6172,6 +6172,28 @@
       ]
     },
     {
+      "id": "setting:politeness.proxy.concurrency",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:politeness.proxy.rate",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:politeness.retry_after.max",
       "kind": "setting",
       "area": 3,

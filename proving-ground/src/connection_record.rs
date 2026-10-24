@@ -136,6 +136,8 @@ pub(crate) enum Outcome {
     DestinationProhibited,
     /// Nothing accepted the connection (`502`).
     ConnectionRefused,
+    /// The proxy relayed another request already, past its plan (`429`).
+    TooManyRequests,
 }
 
 /// A relay's place in the record.

@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718 and #859;
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718, #859 and #709;
 # spec #580, ticket #783): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "25"
+version = "26"
 
 [[capability]]
 name = "sessions.default"
@@ -95,6 +95,25 @@ covers = ["story:5-89", "operation:session.new_page", "operation:run.new_page", 
 [[capability.case]]
 id = "socks4-and-credentials-in-the-proxy-url-are-setting-invalid"
 covers = ["story:5-88", "setting:proxy.server", "error:setting_invalid"]
+
+[[capability]]
+name = "sessions.proxy_limits"
+
+[[capability.case]]
+id = "two-runs-through-a-limited-proxy-take-turns-under-the-ceiling-the-first-learned"
+covers = ["story:5-90", "error:proxy_unavailable", "setting:proxy.server", "setting:proxy.username"]
+
+[[capability.case]]
+id = "the-proxy-concurrency-and-rate-hold-a-programs-own-navigation"
+covers = ["story:5-90", "setting:politeness.proxy.concurrency", "setting:politeness.proxy.rate"]
+
+[[capability.case]]
+id = "a-run-that-shares-no-politeness-keeps-the-ceiling-it-learned-to-itself"
+covers = ["story:5-90", "setting:politeness.sharing", "error:proxy_unavailable"]
+
+[[capability.case]]
+id = "a-sites-429-through-a-proxy-lowers-no-ceiling"
+covers = ["story:5-90", "error:proxy_unavailable"]
 
 [[capability]]
 name = "navigation"

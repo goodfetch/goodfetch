@@ -27,6 +27,8 @@ pub(crate) enum Case {
     Ended,
     /// One of a Session's proxy cases.
     Proxy(super::proxies::Case),
+    /// One of a Session's proxy limit cases.
+    ProxyLimit(super::proxy_limits::Case),
     /// One of a Session's Page check cases.
     PageCheck(super::page_check::Case),
     /// One of a Session's Block cause cases.
@@ -46,6 +48,7 @@ impl Case {
             _ => {
                 return super::proxies::Case::from_id(id)
                     .map(Self::Proxy)
+                    .or_else(|| super::proxy_limits::Case::from_id(id).map(Self::ProxyLimit))
                     .or_else(|| super::page_check::Case::from_id(id).map(Self::PageCheck))
                     .or_else(|| super::blocks::Case::from_id(id).map(Self::Blocked));
             }
@@ -66,6 +69,7 @@ impl Case {
             Self::Source => source(connection, site, checks),
             Self::Ended => ended(connection, checks),
             Self::Proxy(case) => case.run(connection, site, checks),
+            Self::ProxyLimit(case) => case.run(connection, site, checks),
             Self::PageCheck(case) => case.run(connection, target, site, checks),
             Self::Blocked(case) => case.run(connection, target, site, checks),
         }

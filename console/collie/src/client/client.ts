@@ -12,11 +12,14 @@
 // stream's events, each marked lossless or telemetry, and a `resync`
 // carries the snapshot that replaces a screen's state (ADR 0031).
 //
-// When its Connection drops, a call waiting for its answer fails with
-// `connection_lost`, and nothing is sent again but each subscription,
-// after the last position it read: the Client is `reconnecting` while it
-// opens a Connection, `read_only` while it waits to try again or for the
-// page to be visible, and `connected` once `hello` is answered.
+// When its Connection drops, it sends again only each subscription, after
+// the last position it read, and each read or idempotent write waiting for
+// its answer; an Effect waiting for its answer fails with
+// `connection_lost`, an `UnavailableError`, and so does one called with no
+// Connection, while a read or idempotent write waits for the next (ADR
+// 0079). The Client is `reconnecting` while it opens a Connection,
+// `read_only` while it waits to try again or for the page to be visible,
+// and `connected` once `hello` is answered.
 import {
   Channel,
   PRODUCT_VERSION,
@@ -39,7 +42,12 @@ import {
   type Product,
   type Resync,
 } from "@goodfetch/collie-client/generated";
-import { eventClasses, type ConsoleOperations, type EventClass } from "#generated/operations.ts";
+import {
+  eventClasses,
+  operationClasses,
+  type ConsoleOperations,
+  type EventClass,
+} from "#generated/operations.ts";
 
 export type { ConsoleOperations, EventClass, LastRead };
 
@@ -352,6 +360,8 @@ class Client implements ConsoleClient {
   readonly #options: ConsoleClientOptions;
   readonly #listeners = new Set<(state: ConnectionState) => void>();
   readonly #subscriptions = new Set<KeptSubscription>();
+  /** The calls waiting for a Connection. */
+  readonly #waiting = new Set<() => void>();
   readonly #stopWatching: () => void;
   #state: ConnectionState = "reconnecting";
   #engine: EngineIdentity | undefined;
@@ -387,13 +397,53 @@ class Client implements ConsoleClient {
     operation: Name,
     params: ConsoleOperations[Name]["params"],
   ): Promise<ConsoleOperations[Name]["result"]> {
+    // A read or an idempotent write waits for a Connection and is sent
+    // again on the next one when its own drops; an Effect never is (ADR
+    // 0079).
+    const sentAgain = operationClasses[operation] !== "effect";
+    for (;;) {
+      const opened = sentAgain ? await this.#connected(operation) : this.#current(operation);
+      try {
+        const result = await opened.channel.call(operation, params);
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): the result is the operation's as the catalog types it.
+        return result as ConsoleOperations[Name]["result"];
+      } catch (error) {
+        const dropped = error instanceof ConnectionLostError && this.#opened !== opened;
+        if (!sentAgain || !dropped || this.#closed) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  /** The Connection a call goes on now; `connection_lost` when there is none. */
+  #current(operation: string): Opened {
     const opened = this.#opened;
     if (opened === undefined || this.#state !== "connected") {
       throw lost(operation);
     }
-    const result = await opened.channel.call(operation, params);
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): the result is the operation's as the catalog types it.
-    return result as ConsoleOperations[Name]["result"];
+    return opened;
+  }
+
+  /** The Connection a call goes on, once there is one; `connection_lost` once the Client is closed. */
+  async #connected(operation: string): Promise<Opened> {
+    while (!this.#closed) {
+      const opened = this.#opened;
+      if (opened !== undefined && this.#state === "connected") {
+        return opened;
+      }
+      await new Promise<void>((resolve) => this.#waiting.add(resolve));
+    }
+    throw lost(operation);
+  }
+
+  /** Wakes every call waiting for a Connection, to look again. */
+  #wake(): void {
+    const waiting = [...this.#waiting];
+    this.#waiting.clear();
+    for (const resolve of waiting) {
+      resolve();
+    }
   }
 
   subscribe(
@@ -426,6 +476,7 @@ class Client implements ConsoleClient {
     const opened = this.#opened;
     this.#opened = undefined;
     void opened?.channel.close();
+    this.#wake();
   }
 
   /** Forgets a closed subscription. */
@@ -439,6 +490,7 @@ class Client implements ConsoleClient {
       for (const listener of this.#listeners) {
         listener(state);
       }
+      this.#wake();
     }
   }
 

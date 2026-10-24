@@ -3,7 +3,11 @@
 // subscription from a position and a resync that replaces a screen's
 // state, its three connection states, bodies by handle, and, after a
 // dropped Connection, nothing sent again but its subscriptions.
-import { ConnectionLostError, type RunAxes } from "@goodfetch/collie-client/generated";
+import {
+  ConnectionLostError,
+  UnavailableError,
+  type RunAxes,
+} from "@goodfetch/collie-client/generated";
 import { test } from "@goodfetch/test-support";
 import {
   createProtocolAdapter,
@@ -228,40 +232,83 @@ describe("the Console's Client", () => {
   });
 
   test(
-    "after a drop it fails the call in flight and sends nothing again but its subscription",
-    { tags: ["error:connection_lost"] },
+    "after a drop it sends a read and an idempotent write again, and fails an Effect with connection_lost",
+    { tags: ["story:12-123", "error:connection_lost"] },
     async () => {
       const adapter = createProtocolAdapter();
-      const { promise: calledOnce, resolve: asked } = Promise.withResolvers<void>();
-      adapter.answer("sample.echo", () => {
-        asked();
-        return new Promise<never>(() => {});
-      });
+      const asked = new Map<string, number>();
+      const { promise: allAsked, resolve: everyCallArrived } = Promise.withResolvers<void>();
+      /** Answers `answer` from the second call of `method` on; the first never comes. */
+      const secondTime =
+        <Answer>(method: string, answer: Answer) =>
+        (): Promise<Answer> => {
+          const count = (asked.get(method) ?? 0) + 1;
+          asked.set(method, count);
+          if (asked.size === 3 && count === 1) {
+            everyCallArrived();
+          }
+          return count === 1 ? new Promise<never>(() => {}) : Promise.resolve(answer);
+        };
+      adapter.answer("sample.echo", secondTime("sample.echo", { text: "woof woof" }));
+      adapter.answer("connection.set_log_level", secondTime("connection.set_log_level", {}));
+      adapter.answer("daemon.stop", secondTime("daemon.stop", { live_runs: 0 }));
       const { client } = clientOf(adapter);
       const subscription = client.subscribe("events");
       await reaches(client, "connected");
       adapter.push(axes("first", "running"), 1);
       await take(subscription, 1);
-      const inFlight = client.call("sample.echo", { text: "woof" });
-      await calledOnce;
+      const read = client.call("sample.echo", { text: "woof" });
+      const idempotentWrite = client.call("connection.set_log_level", { log_level: "debug" });
+      const effect = client.call("daemon.stop", {});
+      await allAsked;
       const sentBefore = adapter.requests.length;
 
       adapter.drop();
-      await expect(inFlight).rejects.toBeInstanceOf(ConnectionLostError);
-      await reaches(client, "connected");
+      await expect(effect).rejects.toBeInstanceOf(UnavailableError);
+      await expect(effect).rejects.toBeInstanceOf(ConnectionLostError);
+      await expect(read).resolves.toEqual({ text: "woof woof" });
+      await expect(idempotentWrite).resolves.toEqual({});
       adapter.push(axes("first", "finished"), 2);
       const [resumed] = await take(subscription, 1);
 
       const sentAfter = adapter.requests.slice(sentBefore);
       const methods = sentAfter.map((request) => request.method);
-      expect(methods.filter((method) => method !== "$/credit")).toEqual([
-        "hello",
+      expect(methods.filter((method) => method !== "$/credit").toSorted()).toEqual([
+        "connection.set_log_level",
         "events.subscribe",
+        "hello",
+        "sample.echo",
       ]);
+      expect(methods[0]).toBe("hello");
       expect(sentAfter.find((request) => request.method === "events.subscribe")?.params).toEqual({
         after: { engine_instance: FIRST_INSTANCE, position: 1 },
       });
       expect(resumed).toMatchObject({ kind: "event", position: 2 });
+      client.close();
+    },
+  );
+
+  test(
+    "while it has no Connection, a read waits for the next one and an Effect fails at once",
+    { tags: ["story:12-125", "error:connection_lost"] },
+    async () => {
+      const adapter = createProtocolAdapter();
+      adapter.answer("sample.echo", ({ text }) => ({ text }));
+      adapter.answer("daemon.stop", { live_runs: 0 });
+      const visibility = new Visibility();
+      const { client } = clientOf(adapter, visibility);
+      await reaches(client, "connected");
+      visibility.set(false);
+      adapter.drop();
+      await reaches(client, "read_only");
+
+      const effect = client.call("daemon.stop", {});
+      const read = client.call("sample.echo", { text: "woof" });
+      await expect(effect).rejects.toBeInstanceOf(ConnectionLostError);
+      visibility.set(true);
+
+      await expect(read).resolves.toEqual({ text: "woof" });
+      expect(adapter.requests.map((request) => request.method)).not.toContain("daemon.stop");
       client.close();
     },
   );

@@ -320,6 +320,10 @@ id = "a-page-whose-content-a-listed-script-renders-passes-its-retry-with-blockin
 covers = ["story:5-99", "setting:session.page_check", "operation:run.new_session", "operation:session.new_page", "operation:page.goto"]
 
 [[capability.case]]
+id = "a-retry-with-blocking-off-whose-load-fails-is-recorded-in-provenance"
+covers = ["story:5-99", "setting:session.page_check", "operation:page.route", "error:navigation_failed"]
+
+[[capability.case]]
 id = "a-page-failing-its-page-check-for-another-reason-is-retried-once-and-raises-page-check-failed"
 covers = ["story:5-99", "setting:session.page_check", "error:page_check_failed"]
 

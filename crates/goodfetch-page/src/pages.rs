@@ -805,7 +805,6 @@ impl Pages {
         {
             return Err(blocked::blocked(block, &response, received));
         }
-        let first_request = response.request_id.clone();
         let judged =
             recovery::judge(&arrival::judging(&page, page_id, destination), &response).await;
         let first = blocking_off::FirstLoad {
@@ -813,26 +812,12 @@ impl Pages {
             wait_until,
             response,
             judged,
-            blocked_before,
+            block,
+            touched,
         };
         let navigated = self
             .unless_blocking_broke_it(page_id, &page, first, events)
             .await?;
-        // A document loaded once more with blocking off is judged for its
-        // Block cause too.
-        if let Some(again) = &navigated.response
-            && again.request_id != first_request
-        {
-            page_events.judged(&again.request_id);
-            let received = page_events
-                .answered_at(&again.request_id)
-                .unwrap_or_else(|| page.clock.wall());
-            if let Some(block) =
-                blocked::block_of(&page.driver, self.blocks.as_ref(), again, operation).await?
-            {
-                return Err(blocked::blocked(block, again, received));
-            }
-        }
         // A consent wall the runner found on the navigation's document is
         // the navigation's, once the runner judged it (ADR 0048).
         self.consent_verdict(page_id, &page, true).await?;

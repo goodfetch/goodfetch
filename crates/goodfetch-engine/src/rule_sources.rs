@@ -182,6 +182,7 @@ async fn send(
     let trust = Trust::endpoint(&fetching.trusted_certificates);
     let network = Network {
         exceptions: None,
+        client_certificates: None,
         resolve: &fetching.resolve,
         trust: &trust,
         clock: fetching.clock,

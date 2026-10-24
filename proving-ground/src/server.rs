@@ -39,6 +39,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::authority::Authority;
 use crate::blackhole::Blackhole;
+use crate::certificates;
 use crate::clock;
 use crate::exchange::{self, Reply};
 use crate::model::{self, Ending};
@@ -46,7 +47,7 @@ use crate::observation::{self, Observations};
 use crate::push::{self, EventStream, Push};
 use crate::raw;
 use crate::raw_site::{self, RawSite};
-use crate::site::Site;
+use crate::site::{Pems, Site};
 use crate::tap::{Tap, Wire};
 
 /// The largest request body the server reads, a submission to the oracle
@@ -76,11 +77,13 @@ pub(crate) struct Server {
 }
 
 /// The TLS configurations: one for most host names, one for those that
-/// offer HTTP/1.1 alone.
+/// offer HTTP/1.1 alone, and one for those that require a client
+/// certificate.
 #[derive(Clone)]
 struct Tls {
     any: Arc<ServerConfig>,
     http1: Arc<ServerConfig>,
+    client_certificate: Arc<ServerConfig>,
 }
 
 impl Server {
@@ -107,6 +110,7 @@ impl Server {
         let tls = Tls {
             any: authority.server_config(),
             http1: authority.http1_server_config(),
+            client_certificate: authority.client_certificate_server_config(),
         };
         let observations = Arc::new(Observations::new(hosts));
         let blackhole = if address.is_ipv4() {
@@ -119,7 +123,11 @@ impl Server {
             site: Arc::new(Site::new(
                 seed,
                 port,
-                authority.certificate_pem().to_owned(),
+                Pems {
+                    certificate_authority: authority.certificate_pem().to_owned(),
+                    client_certificate: authority.client_certificate_pem().to_owned(),
+                    client_key: authority.client_key_pem().to_owned(),
+                },
                 Arc::clone(&observations),
             )),
             tls,
@@ -240,6 +248,11 @@ impl Connection {
                 .map(observation::host_name);
             let config = if name
                 .as_deref()
+                .is_some_and(certificates::requires_client_certificate)
+            {
+                Arc::clone(&self.tls.client_certificate)
+            } else if name
+                .as_deref()
                 .is_some_and(|name| raw_site::http1_only(name) || Site::http1_only(name))
             {
                 Arc::clone(&self.tls.http1)
@@ -249,6 +262,11 @@ impl Connection {
             let Ok(stream) = start.into_stream(config).await else {
                 return;
             };
+            if let Some(name) = &name
+                && stream.get_ref().1.peer_certificates().is_some()
+            {
+                self.observations.client_certificate(name);
+            }
             if let Some(name) = name.filter(|name| raw_site::serves(name)) {
                 let http2 = stream.get_ref().1.alpn_protocol() == Some(b"h2");
                 let tapped = Tap::new(stream, Arc::clone(&observed));

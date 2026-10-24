@@ -13,8 +13,29 @@
 //! - `name-mismatch.certificates.test`: signed by the seed's authority for
 //!   `elsewhere.certificates.test` only.
 //! - `self-signed.certificates.test`: signed by its own key.
+//!
+//! Beside them, two hosts with a valid leaf require mutual TLS (story
+//! 4-34): `client-certificate.certificates.test` and
+//! `other-client-certificate.certificates.test` each refuse a handshake
+//! without a client certificate that the seed's client authority signed,
+//! which `GET /client-certificate` and `GET /client-key` on the Proving
+//! ground's own address hand a test, and the observations list each
+//! handshake that presented one.
 
 use crate::exchange::{Reply, encode};
+
+/// The host that requires a client certificate.
+pub(crate) const CLIENT_CERTIFICATE_HOST: &str = "client-certificate.certificates.test";
+
+/// A second host that requires one, outside the first's name: a client
+/// certificate listed for the first goes to it only when listed for it too.
+pub(crate) const OTHER_CLIENT_CERTIFICATE_HOST: &str = "other-client-certificate.certificates.test";
+
+/// Whether `host`, a lowercased name without its port, requires a client
+/// certificate.
+pub(crate) fn requires_client_certificate(host: &str) -> bool {
+    host == CLIENT_CERTIFICATE_HOST || host == OTHER_CLIENT_CERTIFICATE_HOST
+}
 
 /// How a host's leaf certificate fails verification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,13 +96,21 @@ pub(crate) const MISMATCHED_NAME: &str = "elsewhere.certificates.test";
 pub(crate) fn hosts() -> Vec<(String, Option<String>)> {
     Defect::ALL
         .into_iter()
-        .map(|defect| (defect.host().to_owned(), None))
+        .map(Defect::host)
+        .chain([CLIENT_CERTIFICATE_HOST, OTHER_CLIENT_CERTIFICATE_HOST])
+        .map(|host| (host.to_owned(), None))
         .collect()
 }
 
 /// The page every path of a host of the family answers, for a client that
-/// accepted its certificate; `None` for any other host.
+/// accepted its certificate or presented its own; `None` for any other
+/// host.
 pub(crate) fn respond(name: &str) -> Option<Reply> {
+    if requires_client_certificate(name) {
+        return Some(Reply::html(
+            "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Reached with a client certificate</title></head>\n<body><main><h1>Reached with a client certificate</h1><p>This host requires mutual TLS; a client reads this page only when it presented the client certificate the Proving ground's client authority signed.</p></main></body>\n</html>\n".to_owned(),
+        ));
+    }
     let defect = Defect::of(name)?;
     let described = encode(defect.describe());
     Some(Reply::html(format!(

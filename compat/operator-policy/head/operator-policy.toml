@@ -76,6 +76,7 @@ offline = true
 
 [settings.tls]
 trusted_cas = { "example.test" = ["example"] }
+client_certificates = { "example.test" = { certificate = "client.pem", key = "env:CLIENT_KEY" } }
 accept_invalid_certs = { "example.test" = "example" }
 
 [settings.browser]
@@ -292,6 +293,7 @@ offline = true
 
 [lock.tls]
 trusted_cas = { "example.test" = ["example"] }
+client_certificates = { "example.test" = { certificate = "client.pem", key = "env:CLIENT_KEY" } }
 accept_invalid_certs = { "example.test" = "example" }
 
 [lock.browser]

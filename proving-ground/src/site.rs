@@ -54,8 +54,8 @@ pub(crate) struct Site {
     port: u16,
     /// The families' host names: each family's own and each of its tasks'.
     hosts: BTreeMap<String, Option<String>>,
-    /// The seed's certificate authority, as PEM.
-    certificate_authority: String,
+    /// The seed's certificate authority and client certificate.
+    pems: Pems,
     observations: Arc<Observations>,
     logins: Logins,
     canaries: Canaries,
@@ -77,18 +77,23 @@ struct TimeStep {
 /// `<ordinal>.<host>`.
 const FAMILY_HOSTS: [&str; 4] = [catalog::HOST, rendered::HOST, login::HOST, schedule::HOST];
 
+/// What the site hands a client of the seed's certificates, each as PEM.
+pub(crate) struct Pems {
+    /// The certificate authority every leaf chains to.
+    pub(crate) certificate_authority: String,
+    /// The client certificate the hosts that require mutual TLS accept.
+    pub(crate) client_certificate: String,
+    /// Its private key, PKCS #8.
+    pub(crate) client_key: String,
+}
+
 impl Site {
-    pub(crate) fn new(
-        seed: u64,
-        port: u16,
-        certificate_authority: String,
-        observations: Arc<Observations>,
-    ) -> Self {
+    pub(crate) fn new(seed: u64, port: u16, pems: Pems, observations: Arc<Observations>) -> Self {
         Self {
             seed,
             port,
             hosts: Self::hosts(seed),
-            certificate_authority,
+            pems,
             observations,
             logins: Logins::default(),
             canaries: Canaries::default(),
@@ -106,7 +111,7 @@ impl Site {
 
     /// The seed's certificate authority, as PEM.
     pub(crate) fn certificate_authority(&self) -> &str {
-        &self.certificate_authority
+        &self.pems.certificate_authority
     }
 
     /// Every host name a page family is served on, each with the task its
@@ -387,7 +392,19 @@ impl Site {
                 status: StatusCode::OK,
                 content_type: "application/x-pem-file",
                 headers: Vec::new(),
-                body: self.certificate_authority.clone().into(),
+                body: self.pems.certificate_authority.clone().into(),
+            },
+            (&Method::GET, "/client-certificate") => Reply {
+                status: StatusCode::OK,
+                content_type: "application/x-pem-file",
+                headers: Vec::new(),
+                body: self.pems.client_certificate.clone().into(),
+            },
+            (&Method::GET, "/client-key") => Reply {
+                status: StatusCode::OK,
+                content_type: "application/x-pem-file",
+                headers: Vec::new(),
+                body: self.pems.client_key.clone().into(),
             },
             _ => Reply::not_found(),
         }

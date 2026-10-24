@@ -550,6 +550,17 @@
       ]
     },
     {
+      "id": "command:run.list",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:run.migrate",
       "kind": "command",
       "area": 11,
@@ -3033,6 +3044,17 @@
       ]
     },
     {
+      "id": "operation:run.list",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:run.migrate",
       "kind": "operation",
       "area": 3,
@@ -5186,6 +5208,17 @@
       ]
     },
     {
+      "id": "screen:/runs",
+      "kind": "screen",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "screen:/settings",
       "kind": "screen",
       "area": 12,
@@ -6453,6 +6486,17 @@
     },
     {
       "id": "setting:tls.accept_invalid_certs",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:tls.client_certificates",
       "kind": "setting",
       "area": 4,
       "milestone": null,
@@ -11171,6 +11215,17 @@
       ]
     },
     {
+      "id": "story:12-10",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:12-102",
       "kind": "story",
       "area": 12,
@@ -11205,6 +11260,17 @@
     },
     {
       "id": "story:12-111",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-12",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",
@@ -11271,6 +11337,28 @@
     },
     {
       "id": "story:12-129",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-13",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-14",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",

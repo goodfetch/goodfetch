@@ -461,6 +461,49 @@ fn any_is_taken_from_configuration_only(#[case] layer: SettingsLayer, #[case] ta
     }
 }
 
+/// Story 4-34 (ADR 0042): a Recipe and a run set a domain's client
+/// certificate as configuration does, unlike `tls.trusted_cas`.
+/// Covers: story:4-34, setting:tls.client_certificates
+#[rstest]
+#[case::from_a_recipe(SettingsLayer::Recipe)]
+#[case::from_the_run(SettingsLayer::Run)]
+#[case::from_user_configuration(SettingsLayer::UserConfiguration)]
+fn a_client_certificate_is_taken_from_a_recipe_and_the_run(#[case] layer: SettingsLayer) {
+    let certificates =
+        json!({ "mtls.example": { "certificate": "client.pem", "key": "env:CLIENT_KEY" } });
+    let layers = only(layer, "tls.client_certificates", &certificates);
+
+    let resolved = resolve(&layers, Product::Collie, Product::Collie).unwrap();
+
+    assert_eq!(resolved.value("tls.client_certificates"), &certificates);
+}
+
+/// Story 4-34: a client certificate's key given as a raw value, from any
+/// layer, is refused with `setting_invalid` naming the setting, and
+/// neither the error's message nor its reason repeats the key.
+/// Covers: story:4-34, setting:tls.client_certificates, error:setting_invalid
+#[rstest]
+#[case::from_the_run(SettingsLayer::Run)]
+#[case::from_user_configuration(SettingsLayer::UserConfiguration)]
+fn a_raw_client_key_is_refused_with_setting_invalid_without_its_value(
+    #[case] layer: SettingsLayer,
+) {
+    let raw = "-----BEGIN PRIVATE KEY-----\nc4n4ryk3yAgEAMBMGByqGSM49AgEGCCqGSM49AwEH\n-----END PRIVATE KEY-----";
+    let set = json!({
+        "tls.client_certificates": { "mtls.example": { "certificate": "client.pem", "key": raw } },
+    });
+
+    let refused = Values::read(layer, &nested(set), Product::Collie).unwrap_err();
+
+    let shown = format!("{refused} {refused:?}");
+    assert_eq!(
+        (refused.code(), shown.contains("c4n4ryk3y")),
+        ("setting_invalid", false),
+        "{shown}"
+    );
+    assert!(shown.contains("tls.client_certificates"), "{shown}");
+}
+
 /// Covers: story:3-90, setting:paid_fetch.domains, setting:paid_fetch.max_price_per_page, setting:consent.domains, setting:wall.domains, setting:wall.refetch_domains, setting:tls.accept_invalid_certs
 #[rstest]
 #[case::paid_fetch_domains_narrowed(

@@ -23,7 +23,7 @@ use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::http_client::{FetchError, PageTraffic, Resolve, Waiter};
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
-use goodfetch_engine::tls::{CertificateExceptions, Trust};
+use goodfetch_engine::tls::{CertificateExceptions, ClientCertificates, Trust};
 use goodfetch_protocol::egress::{EgressRefusedDetails, EgressRule};
 use goodfetch_test_support::{
     Answer, CaseDomains, Family, Outcome, ProvingGround, Refusal, SsrfCase, SsrfTable, TestEnv,
@@ -63,6 +63,7 @@ fn traffic(
         proxy: None,
         trust: Trust::default_roots(),
         exceptions: CertificateExceptions::default(),
+        client_certificates: ClientCertificates::default(),
         cookies: Vec::new(),
         clock: Clock::system(),
         delays: Delays::BUILT_IN,

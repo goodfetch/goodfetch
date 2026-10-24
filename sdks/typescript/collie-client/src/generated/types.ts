@@ -577,6 +577,14 @@ export type PlanStatus = "unchanged" | "promoted" | "pending_review" | "frozen";
  */
 export type Position = number;
 /**
+ * Whether the state a Run index row points at is there (ADRs 0031 and
+ * 0036).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Presence".
+ */
+export type Presence = "present" | "missing" | "erased";
+/**
  * The reading that holds the engine above `normal`.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -634,6 +642,19 @@ export type Verdict = "verified" | "rejected" | "needs_review";
  */
 export type RouteId = string;
 /**
+ * Where the engine that owns a live Run is reached (ADR 0031).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunOwner".
+ */
+export type RunOwner =
+  | {
+      daemon: DaemonEndpoint;
+    }
+  | {
+      attached: PrivateEndpoint;
+    };
+/**
  * Why a Run stopped (ADRs 0029, 0080 and 0102).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -683,11 +704,58 @@ export type StopReason =
  */
 export type Tag = string;
 /**
- * The Run's opaque tags.
+ * Its tags (ADR 0036).
  *
  * @maxItems 16
  */
 export type Tags = Tag[];
+/**
+ * What kind of Run it is: a Collie Run its program drives, or a crawl
+ * (ADR 0102), which its start's inputs name.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunKind".
+ */
+export type RunKind = "collie" | "crawl";
+/**
+ * Which way `run.list` sorts.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SortOrder".
+ */
+export type SortOrder = "ascending" | "descending";
+/**
+ * What `run.list` sorts its rows by.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunSortKey".
+ */
+export type RunSortKey =
+  | "started_at"
+  | "ended_at"
+  | "run_id"
+  | "recipe"
+  | "schedule"
+  | "occurrence"
+  | "trigger"
+  | "product"
+  | "lifecycle"
+  | "verdict"
+  | "completeness";
+/**
+ * What fired a Schedule's occurrence (ADR 0036), as its run's reserved
+ * `goodfetch.trigger` tag names it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunTrigger".
+ */
+export type RunTrigger = "time" | "watch" | "after_run" | "run_now";
+/**
+ * The Run's opaque tags.
+ *
+ * @maxItems 16
+ */
+export type Tags1 = Tag[];
 /**
  * Whether an engine works a Run (ADR 0102).
  *
@@ -746,7 +814,7 @@ export type Surface =
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "Tags".
  */
-export type Tags1 = Tag[];
+export type Tags2 = Tag[];
 /**
  * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
  * one, or a regular expression in the `regex` crate's syntax. A predicate
@@ -4088,6 +4156,194 @@ export interface RunDiscarded {
   run_id: string;
 }
 /**
+ * One row of the Run index (ADR 0031): a Run, where its state is, its three
+ * axes and, while it is live, the engine that owns it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunIndexRow".
+ */
+export interface RunIndexRow {
+  /**
+   * Its Completeness, once it ended.
+   */
+  completeness?: Completeness | null;
+  /**
+   * When it ended.
+   */
+  ended_at?: PointInTime | null;
+  /**
+   * What kind of Run it is.
+   */
+  kind: "collie" | "crawl";
+  /**
+   * Where it is.
+   */
+  lifecycle: "running" | "stopped" | "finished" | "failed";
+  /**
+   * Its folder: relative to the per-major data folder when it is inside,
+   * absolute otherwise.
+   */
+  location: string;
+  /**
+   * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
+   * writes it.
+   */
+  needs: "collie" | "foxhound";
+  /**
+   * While it is live, where the engine that owns it is reached: a
+   * Daemon's endpoint, or an Attached engine's private endpoint. An
+   * engine that cannot take the Run's writer lock forwards live actions
+   * there.
+   */
+  owner?: RunOwner | null;
+  /**
+   * Whether its state is at its location.
+   */
+  presence: "present" | "missing" | "erased";
+  /**
+   * The program's own status line, once it set one (RT-15).
+   */
+  progress_message?: string | null;
+  /**
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   */
+  run_id: string;
+  /**
+   * A point in time in UTC, as RFC 3339.
+   */
+  started_at: string;
+  /**
+   * Why it stopped, once it stopped: "Needs you" lists a Run stopped by
+   * storage from it (ADR 0122).
+   */
+  stop_reason?: StopReason | null;
+  tags: Tags;
+  /**
+   * Its Verdict, once it ended.
+   */
+  verdict?: Verdict | null;
+}
+/**
+ * It could not take another Slice of a Limit, and stopped at its next
+ * safe point, resumable once the period starts again or a person
+ * raises the Limit (ADR 0041).
+ */
+export interface ReachedLimit1 {
+  kind: "limit";
+}
+/**
+ * A Limit flagged *must understand* that its engine cannot evaluate
+ * came to cover it when it charged, and it stopped at its next safe
+ * point, resumable by an engine that can (ADR 0041): the stop of the
+ * Error code `limit_not_understood`.
+ */
+export interface NotUnderstoodLimit1 {
+  kind: "limit_not_understood";
+}
+/**
+ * What `run.list` answers: the rows of its filter, in its order.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunList".
+ */
+export interface RunList {
+  /**
+   * The rows, every presence kept: a Run whose state is gone is listed
+   * `missing`, one discarded on purpose `erased` (ADR 0031).
+   */
+  runs: RunIndexRow[];
+}
+/**
+ * What `run.list` takes: which rows of the Run index it answers, each
+ * field given narrowing them, and in which order.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunListParams".
+ */
+export interface RunListParams {
+  /**
+   * Their Completeness: only Runs that ended have one.
+   */
+  completeness?: Completeness | null;
+  /**
+   * When they ended: only Runs that ended match.
+   */
+  ended?: TimeRange | null;
+  /**
+   * Their Lifecycle.
+   */
+  lifecycle?: Lifecycle | null;
+  /**
+   * The occurrence that started the Runs, by its ID.
+   */
+  occurrence?: string | null;
+  /**
+   * Which way, descending by default.
+   */
+  order?: SortOrder | null;
+  /**
+   * The Product the Runs need (ADR 0098).
+   */
+  product?: Product | null;
+  /**
+   * The Recipe the Runs ran, by its name, as their reserved
+   * `goodfetch.recipe` tag names it.
+   */
+  recipe?: string | null;
+  /**
+   * The Schedule that started the Runs, by its ID.
+   */
+  schedule?: string | null;
+  /**
+   * What the rows are sorted by, when they started by default; rows
+   * that compare equal follow in Run ID order.
+   */
+  sort?: RunSortKey | null;
+  /**
+   * When they started.
+   */
+  started?: TimeRange | null;
+  /**
+   * Tags each row carries, every one of them.
+   */
+  tags?: Tag[];
+  /**
+   * Text found, ignoring case, in their Run ID or one of their tags,
+   * their Recipe's among them.
+   */
+  text?: string | null;
+  /**
+   * What fired the occurrence that started the Runs.
+   */
+  trigger?: RunTrigger | null;
+  /**
+   * Their Verdict: only Runs that ended have one.
+   */
+  verdict?: Verdict | null;
+  /**
+   * Whether Watch runs are listed too; they are left out by default
+   * (ADR 0036).
+   */
+  watch_runs?: boolean;
+}
+/**
+ * A span of time: from its first point, included, until its last,
+ * excluded; an end left out leaves that side open.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TimeRange".
+ */
+export interface TimeRange {
+  /**
+   * Its first point, included.
+   */
+  from?: PointInTime | null;
+  /**
+   * The point it ends before, excluded.
+   */
+  until?: PointInTime | null;
+}
+/**
  * What `run.migrating` carries.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -4138,7 +4394,7 @@ export interface RunProgress {
    */
   last: boolean;
   /**
-   * Where the Run is.
+   * Where a Run is (ADR 0029).
    */
   lifecycle: "running" | "stopped" | "finished" | "failed";
   /**
@@ -4172,23 +4428,6 @@ export interface RunProgress {
    */
   writer: "live" | "none";
   [k: string]: unknown;
-}
-/**
- * It could not take another Slice of a Limit, and stopped at its next
- * safe point, resumable once the period starts again or a person
- * raises the Limit (ADR 0041).
- */
-export interface ReachedLimit1 {
-  kind: "limit";
-}
-/**
- * A Limit flagged *must understand* that its engine cannot evaluate
- * came to cover it when it charged, and it stopped at its next safe
- * point, resumable by an engine that can (ADR 0041): the stop of the
- * Error code `limit_not_understood`.
- */
-export interface NotUnderstoodLimit1 {
-  kind: "limit_not_understood";
 }
 /**
  * The worst storage level among the filesystems a Run writes to, with
@@ -4266,7 +4505,7 @@ export interface RunReport {
    */
   error?: EndingError | null;
   /**
-   * Where it ended.
+   * Where a Run is (ADR 0029).
    */
   lifecycle: "running" | "stopped" | "finished" | "failed";
   /**
@@ -4568,7 +4807,7 @@ export interface RunStartParams {
   settings?: {
     [k: string]: unknown;
   };
-  tags?: Tags;
+  tags?: Tags1;
 }
 /**
  * What a start answers once its Run is started, never at its end.
@@ -4578,7 +4817,7 @@ export interface RunStartParams {
  */
 export interface RunStarted {
   /**
-   * Where it is now.
+   * Where a Run is (ADR 0029).
    */
   lifecycle: "running" | "stopped" | "finished" | "failed";
   /**

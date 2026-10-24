@@ -237,6 +237,21 @@ impl CertificateExceptions {
         self.run.lock().await.stopped.get(&host).cloned()
     }
 
+    /// Whether `host`, which [`Self::covers`], has a pin, or a row or a
+    /// store the engine cannot read: then it passes only through the
+    /// exception, whatever its certificate.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub(crate) async fn pinned(&self, host: &str) -> bool {
+        let Some(book) = &self.book else {
+            return false;
+        };
+        let host = domain_key(host).unwrap_or_else(|| host.to_owned());
+        book.find(&host).await != Found::Unpinned
+    }
+
     /// The exception `host`, which [`Self::covers`], is reached through
     /// once it presented `presented`: none when its certificate verified
     /// and it has no pin.

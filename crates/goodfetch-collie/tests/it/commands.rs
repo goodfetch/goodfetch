@@ -426,6 +426,61 @@ fn run_report_answers_the_report_of_a_run_that_ended_at_once(#[case] mode: Mode)
     );
 }
 
+/// `run list` answers the Run index's rows its flags name, in their
+/// order, from the engine's own filter.
+///
+/// Covers: story:12-12, command:run.list
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_list_answers_the_rows_its_filter_names_in_its_order(#[case] mode: Mode) {
+    let env = TestEnv::new();
+    start(&env, "first");
+    start(&env, "second");
+
+    let all = cli(&env, COLLIE)
+        .args([
+            "run",
+            "list",
+            "--sort",
+            "run_id",
+            "--order",
+            "ascending",
+            "--json",
+        ])
+        .mode(mode)
+        .json("RunList")
+        .unwrap();
+    let matched = cli(&env, COLLIE)
+        .args(["run", "list", "--text", "SEC", "--json"])
+        .mode(mode)
+        .json("RunList")
+        .unwrap();
+
+    let ids = |runs: &serde_json::Value| -> Vec<String> {
+        runs["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|run| run["run_id"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(
+        (
+            all.output.exit,
+            ids(&all.documents[0]),
+            ids(&matched.documents[0])
+        ),
+        (
+            Some(0),
+            vec!["first".to_owned(), "second".to_owned()],
+            vec!["second".to_owned()]
+        ),
+        "{}",
+        all.output
+    );
+}
+
 /// Covers: command:run.checkpoint
 #[rstest]
 #[case::attached(Mode::Attached)]

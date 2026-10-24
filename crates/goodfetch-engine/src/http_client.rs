@@ -54,7 +54,8 @@ use crate::egress::{self, Judgment, Refused};
 use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
 use crate::run_trace::RequestLog;
 use crate::tls::{
-    self, CertificateChanged, CertificateExceptions, CertificateInvalid, ExceptionUsed, Trust,
+    self, CertificateChanged, CertificateExceptions, CertificateInvalid, ClientCertificateFailure,
+    ClientCertificates, ExceptionUsed, Trust,
 };
 
 #[cfg(test)]
@@ -96,6 +97,9 @@ pub(crate) struct Network<'a> {
     /// The Session's certificate exceptions; none for an
     /// Operator-configured endpoint, which never takes one.
     pub(crate) exceptions: Option<&'a CertificateExceptions>,
+    /// The Session's client certificates; none for an Operator-configured
+    /// endpoint, whose own certificate is its module's.
+    pub(crate) client_certificates: Option<&'a ClientCertificates>,
     /// What the race waits on.
     pub(crate) clock: Clock,
     /// The race's delays.
@@ -242,6 +246,9 @@ pub struct PageTraffic {
     pub trust: Trust,
     /// The exceptions `tls.accept_invalid_certs` makes, and where they pin.
     pub exceptions: CertificateExceptions,
+    /// The client certificates `tls.client_certificates` lists, each
+    /// presented to its domain's hosts when they ask for one.
+    pub client_certificates: ClientCertificates,
     /// The Session's cookies, which go to no host reached through an
     /// exception.
     pub cookies: Vec<SessionCookie>,
@@ -378,6 +385,7 @@ impl PageTraffic {
             resolve: &self.resolve,
             trust: &self.trust,
             exceptions: Some(&self.exceptions),
+            client_certificates: Some(&self.client_certificates),
             clock: self.clock,
             delays: self.delays,
         };
@@ -461,6 +469,9 @@ pub enum Failure {
     /// The host is pinned to another key than it presented, or its pin row
     /// cannot be read, so nothing was sent (ADR 0042).
     CertificateChanged(CertificateChanged),
+    /// The client certificate listed for the host cannot be presented, or
+    /// may not go to it, so nothing was sent.
+    ClientCertificate(ClientCertificateFailure),
     /// The Session's upstream proxy carried nothing to the site: its own
     /// failure, never the site's.
     Proxy(ProxyFailure),
@@ -583,10 +594,9 @@ fn cookie_header(cookies: &[SessionCookie], host: &str) -> Option<hyper::header:
 }
 
 /// Sends `request` to `server` `via` one of its addresses or its proxy,
-/// over HTTPS unless the server is plain, and answers its head. A host listed
-/// for trust on first use is let through or stopped by the Session's
-/// exceptions once its handshake is done, before the request is written;
-/// `cookies` go to the host unless it was reached through an exception.
+/// over HTTPS ([`open_tls`]) unless the server is plain, and answers its
+/// head. `cookies` go to the host unless it was reached through an
+/// exception.
 ///
 /// # Cancel safety
 ///
@@ -609,36 +619,8 @@ async fn send_to(
             .map_err(|_| Failure::Network)?;
         (sender, Box::pin(connection) as Connection)
     } else {
-        let server_name =
-            ServerName::try_from(server.host.to_owned()).map_err(|_| Failure::ServerName)?;
-        let listed = network
-            .exceptions
-            .filter(|exceptions| exceptions.covers(server.host));
-        if let Some(exceptions) = listed
-            && let Some(stopped) = exceptions.stopped(server.host).await
-        {
-            return Err(Failure::CertificateChanged(stopped));
-        }
-        let seen = listed.map(|_| Arc::new(tls::Seen::default()));
-        let config = match &seen {
-            Some(seen) => network.trust.client_config_presenting(Arc::clone(seen)),
-            None => network.trust.client_config(),
-        };
-        let tcp = open(server, via, network).await?;
-        let tls = tokio_rustls::TlsConnector::from(Arc::new(config))
-            .connect(server_name, tcp)
-            .await
-            .map_err(|error| {
-                tls::certificate_invalid(&error, server.host)
-                    .map_or(Failure::Network, Failure::CertificateInvalid)
-            })?;
-        if let (Some(exceptions), Some(seen)) = (listed, &seen) {
-            let presented = seen.take().ok_or(Failure::Network)?;
-            exception = exceptions
-                .admit(server.host, presented)
-                .await
-                .map_err(Failure::CertificateChanged)?;
-        }
+        let (tls, used) = open_tls(server, via, network).await?;
+        exception = used;
         let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tls))
             .await
             .map_err(|_| Failure::Network)?;
@@ -680,6 +662,105 @@ async fn send_to(
         connection_done,
         exception,
     })
+}
+
+/// A TLS connection to `server` `via` its addresses or its proxy, and the
+/// invalid-certificate exception it was let through under, if any. A host
+/// listed for trust on first use is let through or stopped by the
+/// Session's exceptions once its handshake is done; the client certificate
+/// listed for its domain, its key resolved now, is presented when it asks
+/// for one, and the handshake stops before it is sent unless the host's
+/// certificate verifies and it has no pin.
+///
+/// # Cancel safety
+///
+/// Dropping the future closes any connection it opened.
+async fn open_tls(
+    server: &Server<'_>,
+    via: &Via<'_>,
+    network: &Network<'_>,
+) -> Result<
+    (
+        tokio_rustls::client::TlsStream<TcpStream>,
+        Option<ExceptionUsed>,
+    ),
+    Failure,
+> {
+    let server_name =
+        ServerName::try_from(server.host.to_owned()).map_err(|_| Failure::ServerName)?;
+    let listed = network
+        .exceptions
+        .filter(|exceptions| exceptions.covers(server.host));
+    if let Some(exceptions) = listed
+        && let Some(stopped) = exceptions.stopped(server.host).await
+    {
+        return Err(Failure::CertificateChanged(stopped));
+    }
+    let tcp = open(server, via, network).await?;
+    let client = match network.client_certificates {
+        Some(certificates) => certificates
+            .for_host(server.host)
+            .await
+            .map_err(Failure::ClientCertificate)?,
+        None => None,
+    };
+    let seen = match (listed, &client) {
+        (Some(exceptions), Some(_)) => Some(Arc::new(tls::Seen::before_client_certificate(
+            exceptions.pinned(server.host).await,
+        ))),
+        (Some(_), None) => Some(Arc::new(tls::Seen::default())),
+        (None, _) => None,
+    };
+    let config = network.trust.connection_config(seen.clone(), client);
+    let tls = match tokio_rustls::TlsConnector::from(Arc::new(config))
+        .connect(server_name, tcp)
+        .await
+    {
+        Ok(tls) => tls,
+        Err(error) => {
+            let presented = seen.as_ref().and_then(|seen| seen.take());
+            return Err(match (listed, presented) {
+                (Some(exceptions), Some(presented)) if tls::withheld(&error) => {
+                    withheld(exceptions, network, server.host, presented).await
+                }
+                _ => tls::certificate_invalid(&error, server.host)
+                    .map_or(Failure::Network, Failure::CertificateInvalid),
+            });
+        }
+    };
+    let mut exception = None;
+    if let (Some(exceptions), Some(seen)) = (listed, &seen) {
+        let presented = seen.take().ok_or(Failure::Network)?;
+        exception = exceptions
+            .admit(server.host, presented)
+            .await
+            .map_err(Failure::CertificateChanged)?;
+    }
+    Ok((tls, exception))
+}
+
+/// Why a handshake with `host` stopped before its client certificate was
+/// sent, once it showed `presented`: the exception's decision, a changed
+/// key's `certificate_changed`, or, for a host its exception lets through,
+/// the refusal of a client certificate to a host reached that way.
+async fn withheld(
+    exceptions: &CertificateExceptions,
+    network: &Network<'_>,
+    host: &str,
+    presented: tls::Presented,
+) -> Failure {
+    match exceptions.admit(host, presented).await {
+        Err(changed) => Failure::CertificateChanged(changed),
+        Ok(Some(_)) => network
+            .client_certificates
+            .and_then(|certificates| certificates.refused(host))
+            .map_or(Failure::Network, |refused| {
+                Failure::ClientCertificate(ClientCertificateFailure::Secret(refused))
+            }),
+        // The host's pin went between the lookup and the handshake: the
+        // next connection presents the certificate.
+        Ok(None) => Failure::Network,
+    }
 }
 
 /// `request`'s target in absolute form, as a proxy takes a plain HTTP

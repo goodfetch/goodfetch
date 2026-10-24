@@ -37,6 +37,7 @@ mod forward;
 pub mod governor;
 pub mod happy_eyeballs;
 pub mod home;
+pub mod hostile_input;
 pub mod http_client;
 mod info;
 pub mod installed;

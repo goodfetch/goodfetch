@@ -1893,6 +1893,7 @@ dependencies = [
  "httpdate",
  "hyper",
  "hyper-util",
+ "icu_normalizer",
  "insta",
  "jiff",
  "keyring-core",

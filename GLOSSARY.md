@@ -330,6 +330,14 @@ _Avoid_: fetch mode, fetcher, backend (for a tier)
 The URLs a run has discovered but not yet visited, with the list of those already visited and the rules that decide when two URLs are the same page.
 _Avoid_: queue, request list, to-do list
 
+**Page signature**:
+The SHA-256 of a fetched page's title and the text of its main content, white space collapsed, by which the Frontier tells whether two URLs serve one page.
+_Avoid_: fingerprint, content hash, signature (alone)
+
+**Learned rule**:
+A rule the Frontier learns on one host from the pages a crawl fetched (a query parameter with no effect, a trap path or cursor pagination preferred to offset), kept with its evidence and every URL it merged, and listed in the Run report.
+_Avoid_: canonicalization rule, URL filter
+
 **Label**:
 The name a crawl gives one kind of request, which picks the handler that processes it, the shape of its Payload and the Hooks scoped to it.
 _Avoid_: route (for a Label), page type (for a Label), callback (for the name)

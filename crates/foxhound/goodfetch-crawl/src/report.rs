@@ -2,7 +2,9 @@
 //! composition's report part: `requests`, how its requests ended, from each
 //! one's latest outcome, with the counts by skip reason, Error code and
 //! Block cause, and those left pending; `records`, per Dataset, the Records
-//! its succeeded requests committed, dropped and rejected; and, for a crawl
+//! its succeeded requests committed, dropped and rejected; `learned_rules`,
+//! the rules its Frontier learned, each with its evidence and every URL it
+//! merged (ADR 0005); and, for a crawl
 //! that finished with no seed reaching a handler, `nothingDone`'s
 //! `no_seed_handled`. A Run of another kind gets none of them.
 
@@ -31,6 +33,11 @@ impl ReportPart for CrawlParts {
         report.kind_parts.insert(
             "records".to_owned(),
             serde_json::to_value(records).expect("invariant: Record counts encode"),
+        );
+        report.kind_parts.insert(
+            "learned_rules".to_owned(),
+            serde_json::to_value(goodfetch_frontier::learned_rules(connection)?)
+                .expect("invariant: learned rules encode"),
         );
         let handled: bool = connection.query_row(
             "SELECT EXISTS (SELECT 1 FROM work_items WHERE attempts > 0)",

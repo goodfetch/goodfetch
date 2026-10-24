@@ -31,6 +31,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { useEffect, useReducer, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { ConsoleClient } from "#client/client.ts";
 import { formatBytes, formatCount, formatInstant } from "#format.ts";
+import { ErrorMessage } from "#errors/error-message.tsx";
 import { RUNS } from "#routes.ts";
 import { COMPLETENESS_NAMES, LIFECYCLE_NAMES, VERDICT_NAMES } from "./names.ts";
 
@@ -57,7 +58,7 @@ export type RunRead =
   /** The Run index lists no run with that Run ID (`run_not_found`). */
   | { readonly kind: "not_listed" }
   /** The engine refused; its English message, which the code's catalog message replaces once #912 maps it (ADR 0079). */
-  | { readonly kind: "failed"; readonly message: string }
+  | { readonly kind: "failed"; readonly error: unknown }
   | { readonly kind: "shown"; readonly run: ShownRun };
 
 /** What the last action a person took on the page came to. */
@@ -66,7 +67,7 @@ export type Notice =
   | { readonly kind: "stopped" }
   | { readonly kind: "copied" }
   | { readonly kind: "copy_refused" }
-  | { readonly kind: "refused"; readonly message: string };
+  | { readonly kind: "refused"; readonly error: unknown };
 
 /** What a run's page shows. */
 export interface RunPageViewProps {
@@ -117,7 +118,11 @@ function live({ progress }: ShownRun): boolean {
 
 /** A point in time, with its machine form beside it. */
 function Instant({ value }: { readonly value: string }): ReactNode {
-  return <time dateTime={value}>{formatInstant(value)}</time>;
+  return (
+    <time dateTime={value} translate="no">
+      {formatInstant(value)}
+    </time>
+  );
 }
 
 const sectionClassName = "flex flex-col gap-3 rounded-lg border p-4";
@@ -144,7 +149,13 @@ function Fact({
 /** The run's three axes, each its own value (ADR 0029). */
 function Axes({ axes }: { readonly axes: RunAxisValues }): ReactNode {
   const { i18n } = useLingui();
-  const noneYet = <Trans>none yet</Trans>;
+  // In an element of its own, so React replaces the element, never a text
+  // node a page translator moved, when the axis gets its value (react#11538).
+  const noneYet = (
+    <span>
+      <Trans>none yet</Trans>
+    </span>
+  );
   return (
     <dl className={listClassName}>
       <Fact term={<Trans>Lifecycle</Trans>}>{i18n._(LIFECYCLE_NAMES[axes.lifecycle])}</Fact>
@@ -162,24 +173,34 @@ function Axes({ axes }: { readonly axes: RunAxisValues }): ReactNode {
   );
 }
 
-/** The worst storage level among the filesystems the run writes to (ADR 0122). */
+/**
+ * The worst storage level among the filesystems the run writes to (ADR
+ * 0122). Each form is an element of its own, keyed, so React replaces the
+ * element, never text nodes a page translator moved (react#11538).
+ */
 function Storage({ progress }: { readonly progress: RunProgress }): ReactNode {
   const { i18n } = useLingui();
   const { storage } = progress;
   if (storage === undefined || storage === null) {
-    return i18n._(STORAGE_LEVEL_NAMES.normal);
+    return <span key="normal">{i18n._(STORAGE_LEVEL_NAMES.normal)}</span>;
   }
   const level = i18n._(STORAGE_LEVEL_NAMES[storage.level]);
   const folder = storage.folder;
   const free = formatBytes(storage.free_bytes);
   return (
-    <Trans>
-      {level}: the filesystem of{" "}
-      <code translate="no" className="font-mono">
-        {folder}
-      </code>{" "}
-      has <data value={String(storage.free_bytes)}>{free}</data> free
-    </Trans>
+    <span key="level">
+      <Trans>
+        {level}: the filesystem of{" "}
+        <code translate="no" className="font-mono">
+          {folder}
+        </code>{" "}
+        has{" "}
+        <data value={String(storage.free_bytes)} translate="no">
+          {free}
+        </data>{" "}
+        free
+      </Trans>
+    </span>
   );
 }
 
@@ -256,18 +277,24 @@ function Progress({ progress }: { readonly progress: RunProgress }): ReactNode {
         )}
       </Fact>
       <Fact term={<Trans>Run epoch</Trans>}>
-        <data value={String(progress.epoch)}>{epoch}</data>
+        <data value={String(progress.epoch)} translate="no">
+          {epoch}
+        </data>
       </Fact>
       <Fact term={<Trans>Last Checkpoint</Trans>}>
         {progress.checkpoint_at === undefined || progress.checkpoint_at === null ? (
-          <Trans>none yet</Trans>
+          <span>
+            <Trans>none yet</Trans>
+          </span>
         ) : (
           <Instant value={progress.checkpoint_at} />
         )}
       </Fact>
       <Fact term={<Trans>Status</Trans>}>
         {progress.message === undefined || progress.message === null ? (
-          <Trans>no status line</Trans>
+          <span>
+            <Trans>no status line</Trans>
+          </span>
         ) : (
           <span translate="no">{progress.message}</span>
         )}
@@ -294,14 +321,15 @@ function NoticeText({ notice }: { readonly notice: Notice }): ReactNode {
       return <Trans>Copied the resume command.</Trans>;
     case "copy_refused":
       return <Trans>The browser refused to copy the resume command: select it and copy it.</Trans>;
-    case "refused": {
-      const message = notice.message;
+    case "refused":
       return (
-        <Trans>
-          The engine refused: <span translate="no">{message}</span>
-        </Trans>
+        <>
+          <p>
+            <Trans>The engine refused:</Trans>
+          </p>
+          <ErrorMessage error={notice.error} />
+        </>
       );
-    }
     default:
       return notice satisfies never;
   }
@@ -365,7 +393,14 @@ function Actions({
           </button>
         </div>
       ) : null}
-      <p role="status">{notice === undefined ? null : <NoticeText notice={notice} />}</p>
+      {/* Each notice is an element of its own, keyed by its kind, so React replaces the element, never text nodes a page translator moved (react#11538). */}
+      <div role="status">
+        {notice === undefined ? null : (
+          <div key={notice.kind}>
+            <NoticeText notice={notice} />
+          </div>
+        )}
+      </div>
     </>
   );
 }
@@ -425,16 +460,15 @@ function Read({ read, ...props }: RunPageViewProps): ReactNode {
           </Trans>
         </p>
       );
-    case "failed": {
-      const message = read.message;
+    case "failed":
       return (
-        <p role="alert">
-          <Trans>
-            The engine could not read the run: <span translate="no">{message}</span>
-          </Trans>
-        </p>
+        <div role="alert">
+          <p>
+            <Trans>The engine could not read the run:</Trans>
+          </p>
+          <ErrorMessage error={read.error} />
+        </div>
       );
-    }
     case "shown":
       return <Shown run={read.run} {...props} />;
     default:
@@ -500,12 +534,7 @@ function refusedRead(error: unknown): RunRead {
   if (error instanceof GoodfetchError && error.code === "run_not_found") {
     return { kind: "not_listed" };
   }
-  return { kind: "failed", message: error instanceof Error ? error.message : String(error) };
-}
-
-/** A refused action's message. */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return { kind: "failed", error };
 }
 
 /** The run's Run index row; none when the index has no row of it or the read fails. */
@@ -640,7 +669,7 @@ export function RunPage({
     try {
       done = await action();
     } catch (error) {
-      done = { kind: "refused", message: messageOf(error) };
+      done = { kind: "refused", error };
     }
     setAction({ busy: false, notice: done });
   };

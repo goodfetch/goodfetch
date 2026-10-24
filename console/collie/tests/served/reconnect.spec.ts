@@ -161,12 +161,21 @@ class Carrier {
     };
   }
 
-  /** The `index`th WebSocket, once the page opened it. */
-  async nth(index: number): Promise<Carried> {
-    await expect.poll(() => this.connections.length).toBeGreaterThan(index);
-    const carried = this.connections[index];
+  /**
+   * The last WebSocket the page sent a `method` call on, once it did: the
+   * one a screen read through. The order the WebSockets opened in names
+   * none, since the page before may still have the last one that sent
+   * something while the screen's says `hello`.
+   */
+  async through(method: string): Promise<Carried> {
+    const sent = (): Carried | undefined =>
+      this.connections.findLast(({ fromPage }) =>
+        fromPage.some((message) => field(message, "method") === method),
+      );
+    await expect.poll(() => sent() !== undefined).toBe(true);
+    const carried = sent();
     if (carried === undefined) {
-      throw new Error(`invariant: the page opened WebSocket ${index}`);
+      throw new Error(`invariant: the page called ${method}`);
     }
     return carried;
   }
@@ -201,21 +210,16 @@ async function subscribedAfter(carrier: Carrier, earlier: Carried): Promise<Carr
 }
 
 /**
- * Opens the Runs screen of the signed-in page, answering the WebSocket it
- * subscribes through: the first screen's own WebSocket subscribes to
- * nothing, and may open after the screen's.
+ * Opens the Runs screen of the signed-in page, once it has listed the runs
+ * (none yet), answering the WebSocket its list came through. The first
+ * screen's WebSocket subscribes too, for the shell's "Needs you", so the
+ * last WebSocket to have subscribed may be that closed one while the Runs
+ * screen's still says `hello`.
  */
 async function openRuns(page: Page, daemon: ServedDaemon, carrier: Carrier): Promise<Carried> {
   await page.goto(new URL("/runs", daemon.url).href);
-  await expect(page.getByRole("heading", { name: "Runs", level: 1 })).toBeVisible();
-  await expect
-    .poll(() => carrier.connections.some(({ subscriptions }) => subscriptions.length > 0))
-    .toBe(true);
-  const subscribed = carrier.connections.findLast(({ subscriptions }) => subscriptions.length > 0);
-  if (subscribed === undefined) {
-    throw new Error("invariant: a WebSocket of the page subscribed");
-  }
-  return subscribed;
+  await expect(page.getByText("No run matches this filter.")).toBeVisible();
+  return carrier.through("run.list");
 }
 
 test(
@@ -271,8 +275,9 @@ test(
     await signIn.withLink(page);
     await page.goto(new URL("/settings", daemon.url).href);
     const explain = page.getByRole("button", { name: "Explain" });
+    await expect(page.getByRole("table").first()).toBeVisible();
     await expect(explain).toBeEnabled();
-    const first = await carrier.nth(carrier.connections.length - 1);
+    const first = await carrier.through("config.explain");
 
     const release = carrier.hold();
     first.stall();

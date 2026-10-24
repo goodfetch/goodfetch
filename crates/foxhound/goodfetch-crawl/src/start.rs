@@ -129,6 +129,7 @@ async fn start(
     FetchTiers::check(settings.resolved())?;
     let scope = Scope::of_settings(settings.resolved()).map_err(CallError::from)?;
     let bounds = Bounds::of_settings(settings.resolved());
+    bounds.check().map_err(CallError::from)?;
     let egress = domain_policy(settings.resolved())?;
     let seeding = egress.clone();
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();

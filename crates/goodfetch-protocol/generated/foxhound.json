@@ -4254,6 +4254,11 @@
           "type": "string"
         },
         {
+          "const": "path_budget",
+          "description": "The first entry of `crawl.path_budgets` whose pattern its URL's path\nand query match already counted that entry's `max_requests`.",
+          "type": "string"
+        },
+        {
           "const": "trap_path",
           "description": "Its URL's path falls under a trap the Frontier learned and closed\n(ADR 0005): a path pattern whose pages brought no new page and no\nURL outside it, which leaves a finished Run `unverified`.",
           "type": "string"
@@ -11589,7 +11594,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `out_of_scope`, `unsupported_scheme`, `invalid_url`, `max_depth`, `max_requests` or a URL cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
+      "description": "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `out_of_scope`, `unsupported_scheme`, `invalid_url`, `max_depth`, `max_requests`, `path_budget` or a URL cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
       "events": [],
       "kind": "round_trip",
       "name": "crawl_request.enqueue",
@@ -13727,6 +13732,41 @@
       "value": {
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": [],
+      "description": "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
+      "name": "crawl.path_budgets",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "max_requests": {
+              "description": "How many requests whose URL the pattern matches first the crawl admits.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pattern": {
+              "description": "A glob read as Playwright reads one, such as `/shop?*`, matched in the engine against a URL's path and query.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern",
+            "max_requests"
+          ],
+          "type": "object"
+        },
+        "type": "array"
       },
       "weakens": false
     },

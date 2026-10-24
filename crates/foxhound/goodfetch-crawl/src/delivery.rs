@@ -321,12 +321,12 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
 }
 
 /// Drives a resumed crawl (ADRs 0002 and 0102), its bounds recorded again
-/// from its settings: each attempt its committed
-/// state shows in flight, whose engine stopped without settling it, counts
-/// as `handler_lost` against `crawl.retry.max` and is retried or failed,
-/// then delivery goes on from the committed state, so the work since that
-/// state is redone. Its domain policy is read again from its settings; one
-/// that cannot be read admits no seed or enqueue.
+/// from its settings (an unreadable path budget fails it): each attempt its
+/// committed state shows in flight, whose engine stopped without settling
+/// it, counts as `handler_lost` against `crawl.retry.max` and is retried or
+/// failed, then delivery goes on from the committed state, so the work
+/// since that state is redone. Its domain policy is read again from its
+/// settings; one that cannot be read admits no seed or enqueue.
 ///
 /// # Cancel safety
 ///

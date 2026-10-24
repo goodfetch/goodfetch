@@ -5596,6 +5596,16 @@
       ]
     },
     {
+      "id": "setting:crawl.path_budgets",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:crawl.retry.handler_failed",
       "kind": "setting",
       "area": 3,
@@ -17852,6 +17862,16 @@
       ]
     },
     {
+      "id": "story:6-229",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-23",
       "kind": "story",
       "area": 6,
@@ -17859,6 +17879,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-230",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

@@ -403,10 +403,11 @@ pub(super) fn abandoned(error: &NetError) -> bool {
 
 /// What a navigation `Page.navigate` refused with `error` is waited for
 /// as: a download; a redirect loop, whose chain its events hold; or any
-/// other failure but a cancel of a navigation it gave a loader, whose
-/// error page then loads. Else how it ended: `net::ERR_ABORTED` is an
-/// interruption when the engine started another navigation of the page
-/// after it, any other error the browser's failure of it.
+/// other failure of a navigation it gave a loader, whose error page then
+/// loads, or, for a cancel, which another navigation of the page that
+/// started after it may have caused. Else how it ended: `net::ERR_ABORTED`
+/// is an interruption when the engine started another navigation of the
+/// page after it, any other error the browser's failure of it.
 pub(super) fn refused(
     error: &NetError,
     loader: Option<LoaderId>,
@@ -419,8 +420,8 @@ pub(super) fn refused(
     match loader {
         Some(loader) if *error == NetError::TooManyRedirects => Ok(Expected::Loader(loader)),
         _ if *error == NetError::Aborted && superseded => Err(Ended::Interrupted),
-        Some(loader) if *error != NetError::Aborted => Ok(Expected::Failed(loader, error.clone())),
-        _ => Err(Ended::Failed(error.clone())),
+        Some(loader) => Ok(Expected::Failed(loader, error.clone())),
+        None => Err(Ended::Failed(error.clone())),
     }
 }
 

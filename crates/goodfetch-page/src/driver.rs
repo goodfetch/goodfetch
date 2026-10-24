@@ -1391,36 +1391,44 @@ impl PageDriver {
             }
         };
         match outcome {
-            Err(Ended::Failed(error)) if navigation::abandoned(&error) => self
-                .abandoned(error, events, &mut navigation, call)
-                .await
-                .map(Err),
+            Err(Ended::Failed(error)) if navigation::abandoned(&error) => {
+                if self.renderer_crashed(events, &mut navigation, call).await? {
+                    return Ok(Err(Ended::Crashed));
+                }
+                // Every event the browser sent before the renderer answered
+                // is read now: a navigation the page started that cancelled
+                // this one has started by then.
+                Ok(Err(expected
+                    .and_then(|expected| navigation.outcome(&expected, wait_until, superseded()))
+                    .and_then(Result::err)
+                    .unwrap_or(Ended::Failed(error))))
+            }
             outcome => Ok(outcome),
         }
     }
 
-    /// How a navigation the browser abandoned with `error` ended: under a
-    /// renderer that crashed, or else as the browser's own failure of it,
-    /// such as for an answer with no document. The pinned Chromium
-    /// abandons the navigation of a renderer that crashes before it reports
-    /// the crash, once the crash's dump is written (~200 ms idle, longer
-    /// under load), so the page's renderer is asked for its frame tree: a
+    /// Whether the renderer of a navigation the browser abandoned crashed;
+    /// else it is the browser's own failure of it, such as for an answer
+    /// with no document, or a navigation the page started superseded it.
+    /// The pinned Chromium abandons the navigation of a renderer that
+    /// crashes before it reports the crash, once the crash's dump is
+    /// written (~200 ms idle, longer under load), so the page's renderer is
+    /// asked for its frame tree, the main frame's events read meanwhile: a
     /// live one answers, and a crashed one never does before its crash is
     /// reported.
-    async fn abandoned(
+    async fn renderer_crashed(
         &self,
-        error: NetError,
         events: &mut Subscription,
         navigation: &mut Navigation,
         call: &Call,
-    ) -> Result<Ended, CallError> {
+    ) -> Result<bool, CallError> {
         let alive = self
             .browser
             .try_send(Some(&self.session), &page::GetFrameTreeParams {});
         let mut alive = std::pin::pin!(alive);
         loop {
             if navigation.crashed() {
-                return Ok(Ended::Crashed);
+                return Ok(true);
             }
             tokio::select! {
                 biased;
@@ -1432,7 +1440,7 @@ impl PageDriver {
                     Err(Failure::Disconnected) => {
                         Err(self.browser.failed(call, &Failure::Disconnected).await)
                     }
-                    Ok(_) | Err(_) => Ok(Ended::Failed(error)),
+                    Ok(_) | Err(_) => Ok(false),
                 },
             }
         }

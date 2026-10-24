@@ -178,6 +178,8 @@ impl FetchTiers {
                 .body
                 .as_ref()
                 .map(|body| Bytes::copy_from_slice(body.bytes())),
+            // A crawl request is a read whatever its method (ADR 0106).
+            read: true,
         };
         let fetched = fetch(tier.transport.as_ref(), &hop, &tier.deadlines, &run.clock()).await?;
         let url = fetched.url.to_string();

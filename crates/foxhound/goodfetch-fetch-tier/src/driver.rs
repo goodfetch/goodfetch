@@ -49,17 +49,37 @@ pub struct Hop {
     pub headers: Vec<(String, String)>,
     /// Its body, if any.
     pub body: Option<Bytes>,
+    /// Whether it only reads, so a site that may have seen it is sent it
+    /// again after a reused connection closed (ADR 0118): a crawl
+    /// request's hop whatever its method, which ADR 0106 makes a read, and
+    /// any other only for a method [`Hop::idempotent`] names.
+    pub read: bool,
 }
 
 impl Hop {
-    /// A `GET` of `url` with no header of its own.
+    /// A `GET` of `url` with no header of its own, a read.
     pub fn get(url: Url) -> Self {
         Self {
             url,
             method: http::Method::GET,
             headers: Vec::new(),
             body: None,
+            read: true,
         }
+    }
+
+    /// Whether `method` is idempotent, so a request of it is a read
+    /// (RFC 9110, section 9.2.2).
+    pub fn idempotent(method: &http::Method) -> bool {
+        [
+            http::Method::GET,
+            http::Method::HEAD,
+            http::Method::OPTIONS,
+            http::Method::TRACE,
+            http::Method::PUT,
+            http::Method::DELETE,
+        ]
+        .contains(method)
     }
 }
 
@@ -216,30 +236,18 @@ impl TransportFailure {
         )
     }
 
-    /// Whether the site never processed a hop of `method` that failed so,
-    /// which is then sent once more on a new connection (ADR 0118): a
-    /// refused HTTP/2 stream and `HTTP_1_1_REQUIRED` whatever the method,
-    /// and a reused connection's close only for a read (RFC 9110, section
+    /// Whether the site never processed a hop that failed so, which is
+    /// then sent once more on a new connection (ADR 0118): a refused
+    /// HTTP/2 stream and `HTTP_1_1_REQUIRED` whatever the hop, and a reused
+    /// connection's close only for a [read](Hop::read) (RFC 9110, section
     /// 9.2.2).
-    fn unprocessed(&self, method: &http::Method) -> bool {
+    fn unprocessed(&self, hop: &Hop) -> bool {
         match self {
             Self::RefusedStream | Self::Http11Required => true,
-            Self::ClosedAtReuse => is_read(method),
+            Self::ClosedAtReuse => hop.read,
             _ => false,
         }
     }
-}
-
-/// Whether `method` only reads, so a site that may have seen it can be
-/// sent it again (RFC 9110, section 9.2.1).
-fn is_read(method: &http::Method) -> bool {
-    [
-        http::Method::GET,
-        http::Method::HEAD,
-        http::Method::OPTIONS,
-        http::Method::TRACE,
-    ]
-    .contains(method)
 }
 
 /// The head of `hop`'s answer through `transport`, sent once more on a new
@@ -248,11 +256,8 @@ fn is_read(method: &http::Method) -> bool {
 /// connection gave a read. The resend's answer or failure is the hop's.
 async fn answer(transport: &dyn Transport, hop: &Hop) -> Result<Sent, TransportFailure> {
     match transport.send(hop, Connection::Pooled).await {
-        Err(failure) if !failure.unprocessed(&hop.method) => Err(failure),
-        Ok(sent)
-            if sent.status != 421
-                && !(sent.status == 408 && sent.reused && is_read(&hop.method)) =>
-        {
+        Err(failure) if !failure.unprocessed(hop) => Err(failure),
+        Ok(sent) if sent.status != 421 && !(sent.status == 408 && sent.reused && hop.read) => {
             Ok(sent)
         }
         Err(_) | Ok(_) => transport.send(hop, Connection::New).await,

@@ -233,16 +233,26 @@ fn a_request_refused_again_is_never_sent_a_third_time() {
     );
 }
 
+/// A POST of `path` on the fetch edge host over plain HTTP, a read or not.
+fn post(proving_ground: &ProvingGround, path: &str, read: bool) -> Hop {
+    let mut post = plain(proving_ground, HOST, path);
+    post.method = http::Method::POST;
+    post.body = Some(bytes::Bytes::from_static(b"q=1"));
+    post.read = read;
+    post
+}
+
 /// Covers: story:5-127
 #[test]
-fn a_post_on_a_reused_connection_that_closes_is_not_sent_again() {
+fn a_post_that_is_no_read_is_not_sent_again_when_its_reused_connection_closes() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let transport = reqwest(&proving_ground, None);
-    let mut post = plain(&proving_ground, HOST, "/reuse/close");
-    post.method = http::Method::POST;
-    post.body = Some(bytes::Bytes::from_static(b"q=1"));
-    let hops = [plain(&proving_ground, HOST, "/target"), post];
+    // A handler's `page.request` POST on the `http` tier.
+    let hops = [
+        plain(&proving_ground, HOST, "/target"),
+        post(&proving_ground, "/reuse/close", false),
+    ];
 
     let error = fetched_in_turn(&transport, &hops)
         .pop()
@@ -250,5 +260,37 @@ fn a_post_on_a_reused_connection_that_closes_is_not_sent_again() {
         .unwrap_err();
 
     assert_eq!(error.code(), "navigation_failed", "{error:?}");
+    assert_eq!(error.details().unwrap()["error"], "net::ERR_EMPTY_RESPONSE");
     assert_eq!(requests_for(&proving_ground, HOST, "/reuse/close").len(), 1);
+}
+
+/// Covers: story:5-127
+#[test]
+fn a_crawl_request_s_post_is_a_read_sent_again_when_its_reused_connection_closes() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    // A crawl request's own POST, a read whatever its method (ADR 0106).
+    let hops = [
+        plain(&proving_ground, HOST, "/target"),
+        post(&proving_ground, "/reuse/close", true),
+    ];
+
+    let answer = fetched_in_turn(&transport, &hops).pop().unwrap().unwrap();
+
+    assert_eq!(answer.status, 200);
+    assert_eq!(requests_for(&proving_ground, HOST, "/reuse/close").len(), 2);
+}
+
+/// Covers: story:5-127
+#[test]
+fn a_hop_is_a_read_for_an_idempotent_method_alone() {
+    let reads: Vec<bool> = [
+        "GET", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE", "POST", "PATCH",
+    ]
+    .into_iter()
+    .map(|method| Hop::idempotent(&http::Method::from_bytes(method.as_bytes()).unwrap()))
+    .collect();
+
+    assert_eq!(reads, [true, true, true, true, true, true, false, false]);
 }

@@ -79,6 +79,20 @@ use self::waits::{
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
+/// A field that is present, `null` included, as `Some`; one left out stays
+/// `None` through `#[serde(default)]`.
+#[expect(
+    clippy::option_option,
+    reason = "three states (ADRs 0080 and 0083): left out inherits, `null` clears, a value sets"
+)]
+fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
 /// The notification that carries one chunk of a body `page.body` reads.
 pub const CHUNK: &str = "$/chunk";
 

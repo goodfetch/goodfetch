@@ -31,7 +31,7 @@
 //! answered by the next matching request sent, a response waiter by the
 //! next matching response, a redirect's included, and the page's document
 //! (`document`) answers the URL and load state waits. Each waits at most
-//! the Run's `timeout.wait`.
+//! its call's own `timeout`, else the Run's `timeout.wait`.
 //!
 //! Size: one page's event reader and the state its calls read, kept whole
 //! so each event changes that state in one place, under one lock.
@@ -72,6 +72,7 @@ mod document;
 mod runtime_values;
 mod waiters;
 
+pub(crate) use self::document::WaitDeadline;
 use self::document::{Document, InFlight, UrlWaiter};
 use self::runtime_values::{console_message, web_error};
 use self::waiters::{Armed, answer_armed};
@@ -433,12 +434,13 @@ impl PageEvents {
 
     /// Arms a waiter for the next request whose URL `pattern` matches, any
     /// when none, to finish; it answers the request and its response,
-    /// whose body it kept, unless the Run's `timeout.wait` passes first;
+    /// whose body it kept, unless `deadline` passes first;
     /// its errors are spelled for `surface`.
     pub(crate) fn wait_for_request_finished(
         &self,
         pattern: Option<UrlPattern>,
         surface: Surface,
+        deadline: WaitDeadline,
     ) -> impl Future<Output = Result<PageExchange, CallError>> + use<> {
         let (answer, answered) = oneshot::channel();
         lock(&self.shared.state).waiters.push(Waiter {
@@ -446,12 +448,8 @@ impl PageEvents {
             surface,
             answer,
         });
-        let (deadline, clock) = (self.shared.wait.clone(), self.shared.clock);
         async move {
-            match deadline
-                .within(&clock, "finished request", answered)
-                .await?
-            {
+            match deadline.within("finished request", answered).await? {
                 Ok(answer) => answer,
                 Err(_) => Err(gone()),
             }

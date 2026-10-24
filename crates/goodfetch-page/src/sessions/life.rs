@@ -244,10 +244,17 @@ impl PageLife {
     /// The code a call that failed with `error` raises: what ended its page,
     /// when the failure was the page going and its end is known in time.
     async fn settled(&self, error: CallError) -> CallError {
-        let mut ended = self.shared.ended.subscribe();
         if error.code() != PAGE_CRASHED.name {
             return error;
         }
+        self.ending_or(error).await
+    }
+
+    /// What ended the page, once it is known in time, else `error`: the
+    /// code a call raises that learnt otherwise that its page went, such as
+    /// a wait whose page's events ended.
+    pub(crate) async fn ending_or(&self, error: CallError) -> CallError {
+        let mut ended = self.shared.ended.subscribe();
         match tokio::time::timeout(ENDING_WAIT, ending(&mut ended)).await {
             Ok(Some(ending)) => ending,
             Ok(None) | Err(_) => error,

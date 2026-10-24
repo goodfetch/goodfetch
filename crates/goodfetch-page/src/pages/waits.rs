@@ -1,15 +1,16 @@
 //! The handlers of the app-state waits (ADR 0080): those on the page's
 //! requests, URL and load states, armed in its events when their call
 //! arrives, `page.wait_for_function`, which runs its function until it is
-//! truthy, and the locator waits, through the guard's check, each under the
-//! Run's `timeout.wait`.
+//! truthy, and the locator waits, through the guard's check, each under its
+//! call's own `timeout`, else the Run's `timeout.wait`, and each a call on
+//! its page, which raises what ended the page under it.
 
 use std::time::Duration;
 
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
+use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::Locator;
 use goodfetch_protocol::page::functions::{Evaluated, World};
 use goodfetch_protocol::page::waits::{
     Count, Counted, LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, LocatorWaitForParams,
@@ -17,9 +18,11 @@ use goodfetch_protocol::page::waits::{
     PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL, Reached, WaitForCountParams, WaitForExchangeParams,
     WaitForFunctionParams, WaitForLoadStateParams, WaitForUrlParams,
 };
+use goodfetch_protocol::page::{Locator, PageId};
 
 use super::{Pages, pattern_of};
 use crate::guard::{self, Awaited, Wait, Window};
+use crate::page_events::WaitDeadline;
 use crate::page_functions::{self, Injection};
 use crate::sessions::PageEvent;
 
@@ -31,48 +34,57 @@ const FRAME: Duration = Duration::from_millis(16);
 /// URL and load states each armed when its call arrives, the others
 /// checking from then on.
 pub(super) fn with_wait_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
-    let (requesting, responding, locating, loading) = (
-        pages.events.clone(),
-        pages.events.clone(),
-        pages.events.clone(),
-        pages.events.clone(),
-    );
-    let (functioning, waiting, counting) = (pages.clone(), pages.clone(), pages.clone());
-    let judging = pages.clone();
+    with_checking_handlers(with_armed_handlers(contribution, pages), pages)
+}
+
+/// Adds the handlers of the waits on the page's requests, URL and load
+/// states, each armed when its call arrives.
+fn with_armed_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
+    let (requesting, responding, locating, loading) =
+        (pages.clone(), pages.clone(), pages.clone(), pages.clone());
     contribution
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_REQUEST,
             move |params: WaitForExchangeParams, _context: CallContext| {
-                let armed = requesting.get(&params.page_id).and_then(|events| {
+                let pages = requesting.clone();
+                let armed = pages.events.get(&params.page_id).and_then(|events| {
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
-                    Ok(events.wait_for_request(pattern))
+                    let deadline = events.wait_deadline(params.timeout)?;
+                    Ok(events.wait_for_request(pattern, deadline))
                 });
-                async move { armed?.await }
+                async move { pages.waited(&params.page_id, armed?).await }
             },
         ))
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_RESPONSE,
             move |params: WaitForExchangeParams, _context: CallContext| {
-                let armed = responding.get(&params.page_id).and_then(|events| {
+                let pages = responding.clone();
+                let armed = pages.events.get(&params.page_id).and_then(|events| {
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
-                    Ok(events.wait_for_response(pattern))
+                    let deadline = events.wait_deadline(params.timeout)?;
+                    Ok(events.wait_for_response(pattern, deadline))
                 });
-                async move { armed?.await }
+                async move { pages.waited(&params.page_id, armed?).await }
             },
         ))
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_URL,
             move |params: WaitForUrlParams, _context: CallContext| {
-                let armed = locating.get(&params.page_id).and_then(|events| {
+                let pages = locating.clone();
+                let armed = pages.events.get(&params.page_id).and_then(|events| {
                     let pattern = pattern_of(&params.url)?;
-                    Ok(events.wait_for_url(pattern, params.wait_until.unwrap_or_default()))
+                    let deadline = events.wait_deadline(params.timeout)?;
+                    Ok(events.wait_for_url(
+                        pattern,
+                        params.wait_until.unwrap_or_default(),
+                        deadline,
+                    ))
                 });
-                let pages = judging.clone();
                 // The document the navigation it waited for reached is
                 // judged for its Block cause, raised by this call (ADR
                 // 0092).
                 async move {
-                    let reached = armed?.await?;
+                    let reached = Box::pin(pages.waited(&params.page_id, armed?)).await?;
                     pages
                         .judge_waited(&params.page_id, PAGE_WAIT_FOR_URL.name)
                         .await?;
@@ -83,17 +95,26 @@ pub(super) fn with_wait_handlers(contribution: Contribution, pages: &Pages) -> C
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_LOAD_STATE,
             move |params: WaitForLoadStateParams, _context: CallContext| {
-                let armed = loading
-                    .get(&params.page_id)
-                    .map(|events| events.wait_for_load_state(params.state.unwrap_or_default()));
-                async move { armed?.await }
+                let pages = loading.clone();
+                let armed = pages.events.get(&params.page_id).and_then(|events| {
+                    let deadline = events.wait_deadline(params.timeout)?;
+                    Ok(events.wait_for_load_state(params.state.unwrap_or_default(), deadline))
+                });
+                async move { pages.waited(&params.page_id, armed?).await }
             },
         ))
+}
+
+/// Adds the handlers of the waits that check the page from when their call
+/// arrives: `page.wait_for_function` and the locator waits.
+fn with_checking_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
+    let (functioning, waiting, counting) = (pages.clone(), pages.clone(), pages.clone());
+    contribution
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_FUNCTION,
             move |params: WaitForFunctionParams, context: CallContext| {
                 let pages = functioning.clone();
-                async move { pages.wait_for_function(params, context.surface()).await }
+                async move { Box::pin(pages.wait_for_function(params, context.surface())).await }
             },
         ))
         .with_handler(Handler::new(
@@ -102,8 +123,17 @@ pub(super) fn with_wait_handlers(contribution: Contribution, pages: &Pages) -> C
                 let pages = waiting.clone();
                 let awaited = Awaited::State(params.state.unwrap_or_default());
                 async move {
+                    let deadline = pages
+                        .events
+                        .get(&params.locator.page_id)?
+                        .wait_deadline(params.timeout)?;
                     pages
-                        .wait_on_locator(LOCATOR_WAIT_FOR.name, params.locator, awaited, &context)
+                        .wait_on_locator(
+                            LOCATOR_WAIT_FOR.name,
+                            params.locator,
+                            (awaited, deadline),
+                            &context,
+                        )
                         .await?;
                     Ok::<Reached, CallError>(Reached {})
                 }
@@ -115,11 +145,15 @@ pub(super) fn with_wait_handlers(contribution: Contribution, pages: &Pages) -> C
                 let pages = counting.clone();
                 async move {
                     let count = count_of(params.count)?;
+                    let deadline = pages
+                        .events
+                        .get(&params.locator.page_id)?
+                        .wait_deadline(params.timeout)?;
                     let counted = pages
                         .wait_on_locator(
                             LOCATOR_WAIT_FOR_COUNT.name,
                             params.locator,
-                            Awaited::Count(count),
+                            (Awaited::Count(count), deadline),
                             &context,
                         )
                         .await?;
@@ -143,9 +177,31 @@ fn count_of(count: Count) -> Result<Count, CallError> {
 }
 
 impl Pages {
+    /// Answers `armed`, a wait on the page `page_id` armed when its call
+    /// arrived, as a call on the page: a failure a handler left on the page
+    /// is raised first, and a page that ends under the wait raises what
+    /// ended it, `call_cancelled` or `page_crashed`, rather than `closed`.
+    pub(super) async fn waited<T>(
+        &self,
+        page_id: &PageId,
+        armed: impl Future<Output = Result<T, CallError>>,
+    ) -> Result<T, CallError> {
+        let page = self.open(page_id).await?;
+        page.life
+            .call(PageEvent::Read, async {
+                match armed.await {
+                    Err(error) if error.code() == CLOSED.name => {
+                        Err(page.life.ending_or(error).await)
+                    }
+                    answered => answered,
+                }
+            })
+            .await
+    }
+
     /// Runs the page function `params` names on its page, again at its
     /// interval and in each new document, until its result is truthy, and
-    /// answers that result, unless the Run's `timeout.wait` passes first; a
+    /// answers that result, unless its deadline passes first; a
     /// main-world call marks the Session in Provenance. Its errors are
     /// spelled for `surface`.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_WAIT_FOR_FUNCTION.name, run_id = tracing::field::Empty))]
@@ -166,7 +222,10 @@ impl Pages {
         };
         let page = self.open(&params.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
-        let (deadline, clock) = self.events.get(&params.page_id)?.wait_deadline();
+        let deadline = self
+            .events
+            .get(&params.page_id)?
+            .wait_deadline(params.timeout)?;
         let world = params.world.unwrap_or_default();
         if world == World::Main {
             self.injections
@@ -183,38 +242,37 @@ impl Pages {
             &page.driver,
             &expression,
             world,
-            (interval, &clock),
+            (interval, deadline.clock()),
             surface,
         );
         page.life
             .call(PageEvent::Read, async {
-                deadline.within(&clock, "function", truthy).await?
+                deadline.within("function", truthy).await?
             })
             .await
     }
 
     /// Waits until the matches of `locator` are as `awaited` says, through
-    /// the guard's check, under the Run's `timeout.wait`; answers how many
-    /// matched for a count.
+    /// the guard's check, until `deadline` passes, if the wait has one;
+    /// answers how many matched for a count.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %locator.page_id.0, operation = operation, run_id = tracing::field::Empty))]
     async fn wait_on_locator(
         &self,
         operation: &'static str,
         locator: Locator,
-        awaited: Awaited,
+        (awaited, deadline): (Awaited, WaitDeadline),
         context: &CallContext,
     ) -> Result<Option<u64>, CallError> {
         let page = self.open(&locator.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
-        let (deadline, _) = self.events.get(&locator.page_id)?.wait_deadline();
         let wait = Wait {
             operation,
             selector: &locator.selector,
             awaited,
-            window: Window {
+            window: deadline.deadline().map(|deadline| Window {
                 limit: deadline.limit().clone(),
                 duration: deadline.duration(),
-            },
+            }),
             surface: context.surface(),
         };
         page.life

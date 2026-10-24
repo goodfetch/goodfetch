@@ -549,6 +549,14 @@ covers = ["story:5-19", "operation:locator.wait_for", "operation:locator.wait_fo
 id = "each-wait-ends-at-timeout-wait-naming-what-it-waited-for"
 covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
 
+[[capability.case]]
+id = "a-waits-own-timeout-is-its-deadline-at-the-run-layer-and-null-is-none"
+covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+
+[[capability.case]]
+id = "a-wait-in-flight-when-its-page-closes-raises-call-cancelled-naming-the-page"
+covers = ["story:5-19", "error:call_cancelled", "operation:page.close", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+
 [[capability]]
 name = "robots_txt"
 

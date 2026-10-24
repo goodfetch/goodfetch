@@ -1,9 +1,10 @@
 //! A page's app-state waits (ADRs 0080 and 0081): each waits for the state a
-//! program's next step needs, under one deadline, `timeout.wait`, past which
-//! it fails with `deadline_exceeded` naming what it waited for. Each is
-//! armed in the engine when its request arrives, in the order of the page's
-//! calls, not when the program awaits its answer, so the response a click
-//! triggers is caught by a waiter sent before the click.
+//! program's next step needs, under one deadline, its own `timeout` or else
+//! `timeout.wait`, past which it fails with `deadline_exceeded` naming what
+//! it waited for. Each is armed in the engine when its request arrives, in
+//! the order of the page's calls, not when the program awaits its answer,
+//! so the response a click triggers is caught by a waiter sent before the
+//! click.
 //!
 //! `page.wait_for_url` passes on a committed navigation and on a change
 //! within the document, a `pushState`, a `replaceState` or a hash change, so
@@ -56,6 +57,16 @@ pub struct WaitForUrlParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub wait_until: Option<LoadState>,
+    /// How long the wait may take, in milliseconds, at least 1: absent for
+    /// `timeout.wait`, `null` for none, though an enclosing timeout still
+    /// applies (ADR 0080).
+    #[serde(
+        default,
+        deserialize_with = "super::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub timeout: Option<Option<u64>>,
 }
 
 /// What `page.wait_for_request` and `page.wait_for_response` take: the
@@ -71,6 +82,16 @@ pub struct WaitForExchangeParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: Option<UrlMatcher>,
+    /// How long the wait may take, in milliseconds, at least 1: absent for
+    /// `timeout.wait`, `null` for none, though an enclosing timeout still
+    /// applies (ADR 0080).
+    #[serde(
+        default,
+        deserialize_with = "super::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub timeout: Option<Option<u64>>,
 }
 
 /// What `page.wait_for_load_state` takes: the page and the state.
@@ -84,6 +105,16 @@ pub struct WaitForLoadStateParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub state: Option<LoadState>,
+    /// How long the wait may take, in milliseconds, at least 1: absent for
+    /// `timeout.wait`, `null` for none, though an enclosing timeout still
+    /// applies (ADR 0080).
+    #[serde(
+        default,
+        deserialize_with = "super::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub timeout: Option<Option<u64>>,
 }
 
 /// What `page.wait_for_url`, `page.wait_for_load_state` and
@@ -116,6 +147,16 @@ pub struct WaitForFunctionParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub polling_interval: Option<u64>,
+    /// How long the wait may take, in milliseconds, at least 1: absent for
+    /// `timeout.wait`, `null` for none, though an enclosing timeout still
+    /// applies (ADR 0080).
+    #[serde(
+        default,
+        deserialize_with = "super::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub timeout: Option<Option<u64>>,
 }
 
 /// A state of the element a locator matches (Playwright's `waitFor`).
@@ -145,6 +186,16 @@ pub struct LocatorWaitForParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub state: Option<ElementState>,
+    /// How long the wait may take, in milliseconds, at least 1: absent for
+    /// `timeout.wait`, `null` for none, though an enclosing timeout still
+    /// applies (ADR 0080).
+    #[serde(
+        default,
+        deserialize_with = "super::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub timeout: Option<Option<u64>>,
 }
 
 /// A count of matches, bounded on either side or both: an exact count is
@@ -173,6 +224,16 @@ pub struct WaitForCountParams {
     /// The count.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub count: Count,
+    /// How long the wait may take, in milliseconds, at least 1: absent for
+    /// `timeout.wait`, `null` for none, though an enclosing timeout still
+    /// applies (ADR 0080).
+    #[serde(
+        default,
+        deserialize_with = "super::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub timeout: Option<Option<u64>>,
 }
 
 /// What `locator.wait_for_count` answers: how many elements matched.
@@ -186,7 +247,7 @@ pub struct Counted {
 /// `page.wait_for_url`.
 pub const PAGE_WAIT_FOR_URL: Operation = Operation {
     name: "page.wait_for_url",
-    description: "Waits, armed when the call arrives, until the page's URL matches: at once when it already does, else on a committed navigation, then until its document reaches `wait_until`, or on a change within the document, a `pushState`, a `replaceState` or a hash change. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+    description: "Waits, armed when the call arrives, until the page's URL matches: at once when it already does, else on a committed navigation, then until its document reaches `wait_until`, or on a change within the document, a `pushState`, a `replaceState` or a hash change. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
     class: OperationClass::Read,
     kind: OperationKind::Waiter,
     reach: Reach::AllSurfaces,
@@ -202,7 +263,7 @@ pub const PAGE_WAIT_FOR_URL: Operation = Operation {
 /// `page.wait_for_request`.
 pub const PAGE_WAIT_FOR_REQUEST: Operation = Operation {
     name: "page.wait_for_request",
-    description: "Waits, armed when the call arrives, until the page sends a request whose URL matches, and answers it, so a request an action triggers is caught by a waiter sent before the action. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+    description: "Waits, armed when the call arrives, until the page sends a request whose URL matches, and answers it, so a request an action triggers is caught by a waiter sent before the action. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
     class: OperationClass::Read,
     kind: OperationKind::Waiter,
     reach: Reach::AllSurfaces,
@@ -218,7 +279,7 @@ pub const PAGE_WAIT_FOR_REQUEST: Operation = Operation {
 /// `page.wait_for_response`.
 pub const PAGE_WAIT_FOR_RESPONSE: Operation = Operation {
     name: "page.wait_for_response",
-    description: "Waits, armed when the call arrives, until a request of the page whose URL matches gets its response, a redirect's included, and answers both, so a response an action triggers is caught by a waiter sent before the action, even one that arrives before the program awaits it. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+    description: "Waits, armed when the call arrives, until a request of the page whose URL matches gets its response, a redirect's included, and answers both, so a response an action triggers is caught by a waiter sent before the action, even one that arrives before the program awaits it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
     class: OperationClass::Read,
     kind: OperationKind::Waiter,
     reach: Reach::AllSurfaces,
@@ -234,7 +295,7 @@ pub const PAGE_WAIT_FOR_RESPONSE: Operation = Operation {
 /// `page.wait_for_load_state`.
 pub const PAGE_WAIT_FOR_LOAD_STATE: Operation = Operation {
     name: "page.wait_for_load_state",
-    description: "Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+    description: "Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
     class: OperationClass::Read,
     kind: OperationKind::Waiter,
     reach: Reach::AllSurfaces,
@@ -250,7 +311,7 @@ pub const PAGE_WAIT_FOR_LOAD_STATE: Operation = Operation {
 /// `page.wait_for_function`.
 pub const PAGE_WAIT_FOR_FUNCTION: Operation = Operation {
     name: "page.wait_for_function",
-    description: "Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+    description: "Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
     class: OperationClass::Effect,
     kind: OperationKind::Waiter,
     reach: Reach::SdkOnly,
@@ -266,7 +327,7 @@ pub const PAGE_WAIT_FOR_FUNCTION: Operation = Operation {
 /// `locator.wait_for`.
 pub const LOCATOR_WAIT_FOR: Operation = Operation {
     name: "locator.wait_for",
-    description: "Waits until the element the locator matches is in the state: attached or visible, one element; detached, none; hidden, none or one not visible. The locator is resolved again at each check, so a re-render that replaces its element changes nothing. Past `timeout.wait`, several matches raise `target_not_unique` listing them, and anything else `deadline_exceeded` naming the state.",
+    description: "Waits until the element the locator matches is in the state: attached or visible, one element; detached, none; hidden, none or one not visible. The locator is resolved again at each check, so a re-render that replaces its element changes nothing. Past its `timeout`, `timeout.wait` when the call gives none, several matches raise `target_not_unique` listing them, and anything else `deadline_exceeded` naming the state.",
     class: OperationClass::Read,
     kind: OperationKind::Waiter,
     reach: Reach::AllSurfaces,
@@ -282,7 +343,7 @@ pub const LOCATOR_WAIT_FOR: Operation = Operation {
 /// `locator.wait_for_count`.
 pub const LOCATOR_WAIT_FOR_COUNT: Operation = Operation {
     name: "locator.wait_for_count",
-    description: "Waits until the number of elements the locator matches is within the count, and answers it. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+    description: "Waits until the number of elements the locator matches is within the count, and answers it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
     class: OperationClass::Read,
     kind: OperationKind::Waiter,
     reach: Reach::AllSurfaces,

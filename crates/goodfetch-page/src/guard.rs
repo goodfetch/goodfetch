@@ -376,8 +376,9 @@ pub(crate) struct Wait<'a> {
     pub(crate) selector: &'a str,
     /// What it waits for.
     pub(crate) awaited: Awaited,
-    /// How long it may wait: `timeout.wait`.
-    pub(crate) window: Window,
+    /// How long it may wait: its call's own `timeout`, else
+    /// `timeout.wait`; none for a call whose `timeout` is `null`.
+    pub(crate) window: Option<Window>,
     /// The Client's surface, in whose language its errors show targets.
     pub(crate) surface: Surface,
 }
@@ -401,7 +402,7 @@ pub(crate) async fn wait(
     clock: &Clock,
 ) -> Result<Option<u64>, CallError> {
     let started = clock.now();
-    let end = started + wait.window.duration;
+    let end = wait.window.as_ref().map(|window| started + window.duration);
     let (state, bounds) = match wait.awaited {
         Awaited::State(state) => (state_name(state), (None, None)),
         Awaited::Count(count) => ("count", (count.min, count.max)),
@@ -412,13 +413,15 @@ pub(crate) async fn wait(
         matches: Vec::new(),
     };
     loop {
-        let remaining = end.saturating_duration_since(clock.now());
-        if remaining.is_zero() {
+        let remaining = end.map_or(SLICE, |end| end.saturating_duration_since(clock.now()));
+        if remaining.is_zero()
+            && let Some(window) = wait.window
+        {
             let asked = Asked {
                 operation: wait.operation,
                 selector: wait.selector,
                 surface: wait.surface,
-                limit: wait.window.limit,
+                limit: window.limit,
             };
             return Err(at_deadline(asked, last, clock.now() - started));
         }

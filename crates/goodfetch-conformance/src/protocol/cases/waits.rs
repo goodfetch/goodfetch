@@ -13,8 +13,9 @@
 
 use std::time::Duration;
 
-use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
+use goodfetch_protocol::connection::{CALL_CANCELLED, DEADLINE_EXCEEDED};
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
+use goodfetch_protocol::page::tabs::PAGE_CLOSE;
 use goodfetch_protocol::page::waits::{
     LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_LOAD_STATE,
     PAGE_WAIT_FOR_REQUEST, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL,
@@ -44,6 +45,8 @@ pub(crate) enum Case {
     ResponseBeforeAwaited,
     ReRenderingPages,
     Deadlines,
+    OwnTimeouts,
+    PageCloses,
 }
 
 impl Case {
@@ -61,6 +64,12 @@ impl Case {
             }
             "locator-and-function-waits-resolve-on-re-rendering-pages" => Self::ReRenderingPages,
             "each-wait-ends-at-timeout-wait-naming-what-it-waited-for" => Self::Deadlines,
+            "a-waits-own-timeout-is-its-deadline-at-the-run-layer-and-null-is-none" => {
+                Self::OwnTimeouts
+            }
+            "a-wait-in-flight-when-its-page-closes-raises-call-cancelled-naming-the-page" => {
+                Self::PageCloses
+            }
             _ => return None,
         })
     }
@@ -82,6 +91,8 @@ impl Case {
             Self::ResponseBeforeAwaited => response_before_awaited(&mut exchange, site, checks),
             Self::ReRenderingPages => re_rendering_pages(&mut exchange, site, checks),
             Self::Deadlines => deadlines(&mut exchange, site, checks),
+            Self::OwnTimeouts => own_timeouts(&mut exchange, site, checks),
+            Self::PageCloses => page_closes(&mut exchange, site, checks),
         }
     }
 }
@@ -442,9 +453,36 @@ fn deadlines(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> R
         return Ok(());
     };
     exchange.go(&page, &board, false, checks)?;
+    let mut sent = Vec::new();
+    for (method, params, waited_for) in never_passing(&page) {
+        sent.push((method, exchange.request(method, &params)?, waited_for));
+    }
+    for (method, id, waited_for) in sent {
+        let answer = exchange.answer(id)?;
+        let data = &answer["error"]["data"];
+        checks.check(
+            format!(
+                "`{method}` ends with `{}` naming `{waited_for}` and `{}`, at its deadline",
+                DEADLINE_EXCEEDED.name, TIMEOUT_WAIT.name
+            ),
+            data["code"] == DEADLINE_EXCEEDED.name
+                && data["waited_for"] == waited_for
+                && data["limit"]["key"] == TIMEOUT_WAIT.name
+                && data["elapsed"]
+                    .as_u64()
+                    .is_some_and(|elapsed| elapsed >= SHORT_WAIT),
+        );
+    }
+    exchange.finish(run_id)
+}
+
+/// Each wait, with what it waits for on `page`, the live board, where none
+/// passes: its operation, its params and the `waited_for` its deadline
+/// names.
+fn never_passing(page: &Value) -> [(&'static str, Value, &'static str); 7] {
     let never = json!({ "kind": "glob", "pattern": "**/never" });
     let locator = |selector: &str| json!({ "page_id": page, "selector": selector });
-    let waits = [
+    [
         (
             PAGE_WAIT_FOR_URL.name,
             json!({ "page_id": page, "url": never }),
@@ -480,25 +518,108 @@ fn deadlines(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> R
             json!({ "locator": locator("[data-id=board]"), "count": { "min": 2 } }),
             "target_count",
         ),
-    ];
+    ]
+}
+
+/// A wait's own `timeout` is its deadline in place of `timeout.wait`, which
+/// its `deadline_exceeded` names at the run layer with the call's value;
+/// one whose `timeout` is `null` has none, and is still waiting once the
+/// Run's `timeout.wait` passed.
+fn own_timeouts(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
+    let run_id = "conformance-waits-own-timeouts";
+    let Some(board) = task_url(site, "live/2", checks) else {
+        return Ok(());
+    };
+    let Some(page) = exchange.page_of_run(site, run_id, LONG_WAIT, checks)? else {
+        return Ok(());
+    };
+    exchange.go(&page, &board, false, checks)?;
     let mut sent = Vec::new();
-    for (method, params, waited_for) in waits {
+    for (method, mut params, waited_for) in never_passing(&page) {
+        params["timeout"] = json!(SHORT_WAIT);
         sent.push((method, exchange.request(method, &params)?, waited_for));
     }
     for (method, id, waited_for) in sent {
-        let answer = exchange.answer(id)?;
+        let answer = exchange.answer_within(id, Duration::from_millis(LONG_WAIT / 2))?;
         let data = &answer["error"]["data"];
         checks.check(
             format!(
-                "`{method}` ends with `{}` naming `{waited_for}` and `{}`, at its deadline",
+                "`{method}` given `timeout` ends with `{}` naming `{waited_for}` and `{}` at the run layer, at the call's deadline",
                 DEADLINE_EXCEEDED.name, TIMEOUT_WAIT.name
             ),
             data["code"] == DEADLINE_EXCEEDED.name
                 && data["waited_for"] == waited_for
-                && data["limit"]["key"] == TIMEOUT_WAIT.name
+                && data["limit"]
+                    == json!({ "key": TIMEOUT_WAIT.name, "value": SHORT_WAIT, "layer": "run" })
                 && data["elapsed"]
                     .as_u64()
-                    .is_some_and(|elapsed| elapsed >= SHORT_WAIT),
+                    .is_some_and(|elapsed| (SHORT_WAIT..LONG_WAIT).contains(&elapsed)),
+        );
+    }
+    exchange.finish(run_id)?;
+
+    let run_id = "conformance-waits-no-timeout";
+    let Some(page) = exchange.page_of_run(site, run_id, SHORT_WAIT, checks)? else {
+        return Ok(());
+    };
+    exchange.go(&page, &board, false, checks)?;
+    let never = json!({ "kind": "glob", "pattern": "**/never" });
+    let unbounded = exchange.request(
+        PAGE_WAIT_FOR_URL.name,
+        &json!({ "page_id": page, "url": never, "timeout": null }),
+    )?;
+    let bounded = exchange.request(
+        PAGE_WAIT_FOR_URL.name,
+        &json!({ "page_id": page, "url": never }),
+    )?;
+    let ended = exchange.answer(bounded)?;
+    let waiting = exchange.answered_at_once(unbounded)?;
+    checks.check(
+        "a wait whose `timeout` is `null` is still waiting once `timeout.wait` ended another",
+        ended["error"]["data"]["code"] == DEADLINE_EXCEEDED.name && waiting.is_none(),
+    );
+    let refused = exchange.call(
+        PAGE_WAIT_FOR_URL.name,
+        &json!({ "page_id": page, "url": never, "timeout": 0 }),
+    )?;
+    checks.check(
+        "a `timeout` of 0 is refused with `invalid_params`",
+        refused["error"]["code"] == json!(-32602),
+    );
+    exchange.finish(run_id)
+}
+
+/// Each wait in flight when its page closes ends with `call_cancelled`,
+/// stopped by the program, naming the page as what closed.
+fn page_closes(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
+    let run_id = "conformance-waits-page-closes";
+    let Some(board) = task_url(site, "live/2", checks) else {
+        return Ok(());
+    };
+    let Some(page) = exchange.page_of_run(site, run_id, LONG_WAIT, checks)? else {
+        return Ok(());
+    };
+    exchange.go(&page, &board, false, checks)?;
+    let mut sent = Vec::new();
+    for (method, params, _) in never_passing(&page) {
+        sent.push((method, exchange.request(method, &params)?));
+    }
+    let early = exchange.answered_at_once(sent[0].1)?;
+    let closed = exchange.call(PAGE_CLOSE.name, &json!({ "page_id": page }))?;
+    checks.check(
+        "the waits are in flight, and the page closes",
+        early.is_none() && closed.get("result").is_some(),
+    );
+    for (method, id) in sent {
+        let answer = exchange.answer(id)?;
+        checks.check(
+            format!(
+                "`{method}` in flight ends with `{}` by the program, naming the page",
+                CALL_CANCELLED.name
+            ),
+            answer["error"]["data"]["code"] == CALL_CANCELLED.name
+                && answer["error"]["data"]["by"] == "program"
+                && answer["error"]["data"]["closed"] == "page",
         );
     }
     exchange.finish(run_id)

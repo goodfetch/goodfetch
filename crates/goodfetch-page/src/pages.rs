@@ -161,7 +161,7 @@ pub fn contribution_with(
     );
     let contribution = with_session_handlers(contribution, &pages.sessions);
     let contribution = with_locator_handlers(contribution, &pages);
-    let contribution = with_event_handlers(contribution, &pages.events);
+    let contribution = with_event_handlers(contribution, &pages);
     let contribution = with_route_handlers(contribution, &pages.interception);
     let contribution = with_dialog_handlers(contribution, &pages.dialogs);
     let contribution = with_function_handlers(contribution, &pages);
@@ -246,8 +246,10 @@ fn max_redirects_option(surface: Surface) -> &'static str {
 /// Adds the handlers of `page.on`, each listening from when its call
 /// arrives until the call goes, of `page.wait_for_request_finished`, armed
 /// when its call arrives, and of `response.body`.
-fn with_event_handlers(contribution: Contribution, table: &page_events::Table) -> Contribution {
+fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
+    let table = &pages.events;
     let (listening, waiting, reading) = (table.clone(), table.clone(), table.clone());
+    let finishing = pages.clone();
     contribution
         .with_handler(Handler::new(
             &PAGE_ON,
@@ -267,9 +269,11 @@ fn with_event_handlers(contribution: Contribution, table: &page_events::Table) -
             move |params: WaitForRequestFinishedParams, context: CallContext| {
                 let armed = waiting.get(&params.page_id).and_then(|events| {
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
-                    Ok(events.wait_for_request_finished(pattern, context.surface()))
+                    let deadline = events.wait_deadline(params.timeout)?;
+                    Ok(events.wait_for_request_finished(pattern, context.surface(), deadline))
                 });
-                async move { armed?.await }
+                let pages = finishing.clone();
+                async move { pages.waited(&params.page_id, armed?).await }
             },
         ))
         .with_handler(Handler::new(

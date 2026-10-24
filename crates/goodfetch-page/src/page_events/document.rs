@@ -18,7 +18,9 @@ use goodfetch_cdp::generated::page;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::waits::{LoadState, Reached};
+use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_WAIT};
 use tokio::sync::{oneshot, watch};
 use tokio::time::Instant;
 
@@ -289,12 +291,13 @@ impl PageEvents {
     /// already does, else once a navigation commits a document at a URL it
     /// matches, or one within the document moves there. A document the
     /// navigation committed, or the page's own when it already matched, is
-    /// then waited for until it reaches `wait_until`. It ends at the Run's
-    /// `timeout.wait`.
+    /// then waited for until it reaches `wait_until`. It ends at
+    /// `deadline`.
     pub(crate) fn wait_for_url(
         &self,
         pattern: UrlPattern,
         wait_until: LoadState,
+        deadline: WaitDeadline,
     ) -> impl Future<Output = Result<Reached, CallError>> + use<> {
         let (answer, answered) = oneshot::channel();
         let mut document = self.shared.document.subscribe();
@@ -306,7 +309,6 @@ impl PageEvents {
                 state.url_waiters.push(UrlWaiter { pattern, answer });
             }
         }
-        let (deadline, clock) = (self.shared.wait.clone(), self.shared.clock);
         let mut gone_now = self.shared.gone.subscribe();
         async move {
             let reached = async move {
@@ -326,7 +328,7 @@ impl PageEvents {
                     }
                 }
             };
-            if deadline.within(&clock, "url", reached).await? {
+            if deadline.within("url", reached).await? {
                 Ok(Reached {})
             } else {
                 Err(gone())
@@ -336,15 +338,15 @@ impl PageEvents {
 
     /// Waits until the page's document reached `state`: at once when it
     /// already did when the call arrived, else until its document, or the
-    /// one a navigation commits meanwhile, reaches it, unless the Run's
-    /// `timeout.wait` passes first.
+    /// one a navigation commits meanwhile, reaches it, unless `deadline`
+    /// passes first.
     pub(crate) fn wait_for_load_state(
         &self,
         state: LoadState,
+        deadline: WaitDeadline,
     ) -> impl Future<Output = Result<Reached, CallError>> + use<> {
         let mut document = self.shared.document.subscribe();
         let already = document.borrow().reached(state);
-        let (deadline, clock) = (self.shared.wait.clone(), self.shared.clock);
         let mut gone_now = self.shared.gone.subscribe();
         async move {
             if already {
@@ -353,7 +355,7 @@ impl PageEvents {
             let reached = until_gone(&mut gone_now, async {
                 document.wait_for(|now| now.reached(state)).await.is_ok()
             });
-            if deadline.within(&clock, name(state), reached).await? {
+            if deadline.within(name(state), reached).await? {
                 Ok(Reached {})
             } else {
                 Err(gone())
@@ -361,10 +363,76 @@ impl PageEvents {
         }
     }
 
-    /// The Run's `timeout.wait`, an app-state wait's deadline, and the
-    /// Run's clock it is counted on.
-    pub(crate) fn wait_deadline(&self) -> (Deadline, Clock) {
-        (self.shared.wait.clone(), self.shared.clock)
+    /// The deadline of an app-state wait whose call's own `timeout` is
+    /// `timeout` (ADR 0080): the Run's `timeout.wait` when absent, none
+    /// when `null`, else the call's, which is that setting at the run layer.
+    ///
+    /// # Errors
+    ///
+    /// `invalid_params` for a `timeout` of 0.
+    #[expect(
+        clippy::option_option,
+        reason = "the param's three states as the protocol carries them (ADR 0080): absent, `null` or a duration"
+    )]
+    pub(crate) fn wait_deadline(
+        &self,
+        timeout: Option<Option<u64>>,
+    ) -> Result<WaitDeadline, CallError> {
+        let deadline = match timeout {
+            None => Some(self.shared.wait.clone()),
+            Some(None) => None,
+            Some(Some(0)) => {
+                return Err(CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    "the wait's timeout is 0 ms, which would end it at once: give at least 1, or null for none",
+                ));
+            }
+            Some(Some(millis)) => Some(Deadline::given(&TIMEOUT_WAIT, millis, SettingsLayer::Run)),
+        };
+        Ok(WaitDeadline {
+            deadline,
+            clock: self.shared.clock,
+        })
+    }
+}
+
+/// An app-state wait's deadline, if it has one, on the Run's clock.
+#[derive(Clone)]
+pub(crate) struct WaitDeadline {
+    deadline: Option<Deadline>,
+    clock: Clock,
+}
+
+impl WaitDeadline {
+    /// The deadline, if the wait has one.
+    pub(crate) fn deadline(&self) -> Option<&Deadline> {
+        self.deadline.as_ref()
+    }
+
+    /// The Run's clock it is counted on.
+    pub(crate) fn clock(&self) -> &Clock {
+        &self.clock
+    }
+
+    /// Waits for `work` until the deadline, if any, passes, then ends it
+    /// with `deadline_exceeded`, which says it waited for `waited_for`.
+    ///
+    /// # Errors
+    ///
+    /// `deadline_exceeded` once the deadline passed first.
+    ///
+    /// # Cancel safety
+    ///
+    /// As cancel-safe as `work`.
+    pub(crate) async fn within<T>(
+        &self,
+        waited_for: &str,
+        work: impl Future<Output = T>,
+    ) -> Result<T, CallError> {
+        match &self.deadline {
+            Some(deadline) => deadline.within(&self.clock, waited_for, work).await,
+            None => Ok(work.await),
+        }
     }
 }
 

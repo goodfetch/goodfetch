@@ -471,6 +471,33 @@ fn a_killed_daemon_leaves_its_run_resumable_and_a_runtime_file_the_next_start_re
     );
 }
 
+/// The Daemon socket of the Daemon the runtime file of `env`'s home names,
+/// as the endpoint table's listener, with its token.
+pub(crate) fn socket_listener(env: &TestEnv) -> Listener {
+    let found = RuntimeFile::read(&runtime_file(env)).unwrap();
+    let address = match &found.endpoint {
+        #[cfg(unix)]
+        DaemonEndpoint::Unix(path) => ListenerAddress::Unix(path.clone()),
+        #[cfg(not(unix))]
+        DaemonEndpoint::Unix(_) => unreachable!("a Daemon listens on TCP here"),
+        DaemonEndpoint::Tcp(address) => ListenerAddress::Tcp(*address),
+    };
+    let hello = json!({
+        "protocol_version": PROTOCOL_VERSION.to_string(),
+        "surface": "sdk_typescript",
+        "needs": "collie",
+        "product_version": VERSION,
+    });
+    Listener::new(
+        ListenerKind::DaemonSocket,
+        Endpoint::JsonRpc {
+            address,
+            hello: Hello::new(hello.as_object().unwrap().clone(), "token"),
+        },
+        found.token,
+    )
+}
+
 /// The token of the Daemon the runtime file of `env`'s home names.
 fn daemon_token(env: &TestEnv) -> String {
     RuntimeFile::read(&runtime_file(env)).unwrap().token
@@ -495,32 +522,11 @@ fn the_daemon_socket_passes_its_endpoint_table_rows() {
     json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
     let revoked = daemon_token(&env);
     json_of(COLLIE.as_ref(), &env, &["daemon", "restart", "--json"]);
-    let found = RuntimeFile::read(&runtime_file(&env)).unwrap();
-    let address = match &found.endpoint {
-        #[cfg(unix)]
-        DaemonEndpoint::Unix(path) => ListenerAddress::Unix(path.clone()),
-        #[cfg(not(unix))]
-        DaemonEndpoint::Unix(_) => unreachable!("a Daemon listens on TCP here"),
-        DaemonEndpoint::Tcp(address) => ListenerAddress::Tcp(*address),
-    };
-    let hello = json!({
-        "protocol_version": PROTOCOL_VERSION.to_string(),
-        "surface": "sdk_typescript",
-        "needs": "collie",
-        "product_version": VERSION,
-    });
-    let listener = Listener::new(
-        ListenerKind::DaemonSocket,
-        Endpoint::JsonRpc {
-            address,
-            hello: Hello::new(hello.as_object().unwrap().clone(), "token"),
-        },
-        found.token.clone(),
-    )
-    .with_other_listener_token("a-private-endpoints-token")
-    .with_expired_token(expired)
-    .with_revoked_token(revoked)
-    .with_scoped_elsewhere_token(ops_token);
+    let listener = socket_listener(&env)
+        .with_other_listener_token("a-private-endpoints-token")
+        .with_expired_token(expired)
+        .with_revoked_token(revoked)
+        .with_scoped_elsewhere_token(ops_token);
 
     let ran =
         EndpointRunner::new(crate::endpoint::audit_verifier(&env, "daemon_socket")).run(&listener);

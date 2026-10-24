@@ -10,14 +10,26 @@
 )]
 
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::time::Instant;
 
+use goodfetch_engine::home::Home;
 use goodfetch_test_support::{
-    AuditUnreadable, Canaries, ListenerKind, MESSAGE_DEADLINE, Rule, SecretKind, TestEnv,
+    AuditUnreadable, Canaries, Canary, DaemonEndpoint, Endpoint, EndpointRunner, Listener,
+    ListenerKind, MESSAGE_DEADLINE, Output, Rule, RuntimeFile, SecretKind, TestEnv,
 };
 use serde_json::{Value, json};
 
+use crate::attached::{Attached, hello};
+use crate::daemon::{StopsTheDaemon, json_of, runtime_file, short_idle, socket_listener};
+use crate::daemon_run::{ANY_PORT, Foreground, token};
 use crate::lasting_sign_ins::audit_entries;
+use crate::ops::{Browsers, with_ops};
+
+const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
+
+/// MCP Inspector's advisory, whose rows the endpoint table cites.
+const CVE_49596: &str = "CVE-2025-49596";
 
 /// The reason the Daemon's socket, an Attached engine's private endpoint
 /// and the ops listener record `rule`'s refusal with: a listener keeps no
@@ -95,4 +107,196 @@ pub(crate) fn provision_ops_token(env: &TestEnv, canaries: &mut Canaries) -> Str
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(folder.join("ops.token"), &token).unwrap();
     token
+}
+
+/// Whether `endpoint`, where a listener serves, is reached on loopback
+/// alone: a Unix socket, or a loopback TCP address.
+fn on_loopback(endpoint: &DaemonEndpoint) -> bool {
+    match endpoint {
+        DaemonEndpoint::Unix(_) => cfg!(unix),
+        DaemonEndpoint::Tcp(address) => address.ip().is_loopback(),
+    }
+}
+
+/// The value `config explain` gives `key` in `env`'s home, `null` when it
+/// is unset.
+fn explained(env: &TestEnv, key: &str) -> Value {
+    let output = json_of(COLLIE.as_ref(), env, &["config", "explain", key, "--json"]);
+    output["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|setting| setting["key"] == json!(key))
+        .map_or(Value::Null, |setting| setting["value"].clone())
+}
+
+/// Whether the `host:port` `value` names a loopback address.
+fn names_loopback(value: &Value) -> bool {
+    value
+        .as_str()
+        .and_then(|address| address.parse::<SocketAddr>().ok())
+        .is_some_and(|address| address.ip().is_loopback())
+}
+
+/// With nothing configured, every listener binds to loopback or not at
+/// all: the Daemon's socket is a Unix socket (loopback TCP on Windows), an
+/// Attached engine's private endpoint too, `daemon run` and the Console
+/// default to `127.0.0.1`, and no ops listener opens until `ops.address`
+/// names one.
+///
+/// Covers: story:4-21, setting:daemon.address, setting:ops.address
+#[test]
+fn every_listener_binds_to_loopback_unless_configured_otherwise() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
+    let daemon_socket = RuntimeFile::read(&runtime_file(&env)).unwrap().endpoint;
+    let mut engine = Attached::start(&env);
+    engine.send(&hello("collie", "0.1"));
+    let reply = engine.next().unwrap();
+    let _ = engine.finish();
+    let private_endpoint: DaemonEndpoint =
+        serde_json::from_value(reply["result"]["private_endpoint"]["address"].clone()).unwrap();
+    let defaults = [
+        explained(&env, "daemon.address"),
+        explained(&env, "console.address"),
+        explained(&env, "ops.address"),
+    ];
+    let foreground = TestEnv::new();
+    foreground.user_configuration(&format!("daemon.address = \"{ANY_PORT}\"\n"));
+    let mut daemon = Foreground::start(&foreground, COLLIE, &[]);
+    daemon.serving();
+    daemon.terminate();
+    let ops_listener_opened = daemon
+        .logged
+        .iter()
+        .any(|line| line.contains("the ops listener serves"));
+
+    assert_eq!(
+        (
+            on_loopback(&daemon_socket),
+            on_loopback(&private_endpoint),
+            names_loopback(&defaults[0]),
+            names_loopback(&defaults[1]),
+            defaults[2].clone(),
+            ops_listener_opened,
+        ),
+        (true, true, true, true, Value::Null, false)
+    );
+}
+
+/// CVE-2025-49596 (MCP Inspector's remote code execution): a browser page's
+/// cross-site request reached a local proxy that trusted loopback, with no
+/// token and no `Origin` check. On the ops listener every row citing it is
+/// refused and audited: no token, the token in the query string, a foreign
+/// `Origin`, and no `Origin` with the token only in a cookie.
+///
+/// Covers: story:4-21, story:4-24
+#[test]
+fn cve_2025_49596_a_browser_pages_request_without_a_header_token_is_refused_by_the_ops_listener() {
+    let env = TestEnv::new();
+    let (mut daemon, address) = with_ops(&env, Browsers::Installed);
+    let listener = Listener::new(
+        ListenerKind::OpsListener,
+        Endpoint::Http { address },
+        std::fs::read_to_string(env.home().join("0.0").join("ops.token")).unwrap(),
+    );
+
+    let ran = EndpointRunner::new(audit_verifier(&env, "ops_listener"))
+        .run_advisory(&listener, CVE_49596);
+
+    daemon.terminate();
+    assert_eq!(ran, Ok(()));
+}
+
+/// CVE-2025-49596 on the Daemon's socket: a first message without the
+/// token is closed unanswered and audited.
+///
+/// Covers: story:4-21, story:4-24
+#[test]
+fn cve_2025_49596_a_first_message_without_the_token_is_refused_by_the_daemon_socket() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
+    let listener = socket_listener(&env);
+
+    let ran = EndpointRunner::new(audit_verifier(&env, "daemon_socket"))
+        .run_advisory(&listener, CVE_49596);
+
+    assert_eq!(ran, Ok(()));
+}
+
+/// CVE-2025-66414 (the TypeScript MCP SDK's DNS-rebinding protection off by
+/// default): a rebinding page's request names its own `Host`. The ops
+/// listener refuses it and audits the refusal.
+///
+/// Covers: story:4-21, story:4-24
+#[test]
+fn cve_2025_66414_a_dns_rebinding_pages_host_is_refused_by_the_ops_listener() {
+    let env = TestEnv::new();
+    let (mut daemon, address) = with_ops(&env, Browsers::Installed);
+    let listener = Listener::new(
+        ListenerKind::OpsListener,
+        Endpoint::Http { address },
+        std::fs::read_to_string(env.home().join("0.0").join("ops.token")).unwrap(),
+    );
+
+    let ran = EndpointRunner::new(audit_verifier(&env, "ops_listener"))
+        .run_advisory(&listener, "CVE-2025-66414");
+
+    daemon.terminate();
+    assert_eq!(ran, Ok(()));
+}
+
+/// After the ops listener's whole column, the ops token, an endpoint-token
+/// Secret canary the operator provisioned, and the Daemon's protocol token
+/// reach neither the Daemon's log nor the Audit log, raw or encoded, while
+/// the Audit log holds the refusals.
+///
+/// Covers: story:4-24
+#[test]
+fn no_endpoint_token_reaches_the_daemons_log_or_the_audit_log() {
+    let env = TestEnv::new();
+    let mut canaries = Canaries::new(env.seed());
+    let ops_token = provision_ops_token(&env, &mut canaries);
+    let (mut daemon, address) = with_ops(&env, Browsers::Installed);
+    let protocol_token = token(&env);
+    canaries.add(Canary::known(
+        "protocol-token",
+        SecretKind::EndpointToken,
+        &protocol_token,
+    ));
+    let listener = Listener::new(
+        ListenerKind::OpsListener,
+        Endpoint::Http { address },
+        ops_token,
+    )
+    .with_other_listener_token(protocol_token.clone())
+    .with_revoked_token("a-replaced-ops-token")
+    .with_scoped_elsewhere_token(protocol_token);
+    let ran = EndpointRunner::new(audit_verifier(&env, "ops_listener")).run(&listener);
+    daemon.terminate();
+
+    let home = Home::new(env.home().to_path_buf());
+    let stdout = daemon.logged.join("\n");
+    let leaks = canaries
+        .leaks(&[
+            Output::Bytes {
+                name: "the Daemon's log",
+                bytes: stdout.as_bytes(),
+            },
+            Output::Path(&home.audit_log()),
+            Output::Path(&home.audit_log_head()),
+        ])
+        .unwrap();
+    assert_eq!(
+        (
+            ran,
+            leaks,
+            refusals(&env, "ops_listener", "token_wrong") > 0
+        ),
+        (Ok(()), vec![], true)
+    );
 }

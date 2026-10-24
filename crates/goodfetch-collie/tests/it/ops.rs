@@ -54,7 +54,7 @@ fn ops_token(env: &TestEnv) -> String {
 
 /// Whether the Browser cache holds the pinned build, or is an empty one.
 #[derive(Clone, Copy, Debug)]
-enum Browsers {
+pub(crate) enum Browsers {
     Installed,
     Missing,
 }
@@ -73,7 +73,7 @@ fn browsers_path(env: &TestEnv, browsers: Browsers) -> PathBuf {
 
 /// A foreground Daemon with an ops listener on a free port, its configured
 /// browsers `browsers`; and where its ops listener listens.
-fn with_ops(env: &TestEnv, browsers: Browsers) -> (Foreground, SocketAddr) {
+pub(crate) fn with_ops(env: &TestEnv, browsers: Browsers) -> (Foreground, SocketAddr) {
     env.user_configuration(&format!(
         "daemon.address = \"{ANY_PORT}\"\nops.address = \"127.0.0.1:0\"\n"
     ));

@@ -387,6 +387,50 @@ fn two_sessions_of_one_run_reach_the_site_each_through_its_own_proxy() {
     );
 }
 
+/// A SOCKS5 proxy with credentials whose host has no address fails the
+/// Session's open, before any request: `proxy_unavailable` names the proxy
+/// and no URL.
+///
+/// Covers: story:5-88, setting:proxy.server, error:proxy_unavailable
+#[cfg(unix)]
+#[test]
+fn a_proxy_that_fails_the_sessions_open_names_no_url() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let proxy = json!({
+        "server": "socks5://nowhere.invalid:1080",
+        "username": "user",
+        "password": format!("env:{PASSWORD_VARIABLE}"),
+    });
+    let mut engine = started_through(&env, &cache, &proving_ground, "nowhere", proxy, "secret");
+
+    let opened = call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "nowhere" }),
+    );
+    let _ = call(
+        &mut engine,
+        3,
+        "run.finish",
+        &json!({ "run_id": "nowhere" }),
+    );
+    let _ = engine.finish();
+
+    let data = &opened["error"]["data"];
+    assert_eq!(
+        (&data["code"], &data["proxy"], data.get("url")),
+        (
+            &json!("proxy_unavailable"),
+            &json!("socks5://nowhere.invalid:1080"),
+            None
+        ),
+        "{opened}"
+    );
+}
+
 /// Covers: story:5-88, setting:proxy.bypass
 #[cfg(unix)]
 #[test]

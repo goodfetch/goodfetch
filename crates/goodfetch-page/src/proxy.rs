@@ -321,7 +321,7 @@ impl SessionProxy {
                 };
                 let relay = Relay::open(run, address, mode, None)
                     .await
-                    .map_err(|error| unavailable(&server, "", &error.to_string()))?;
+                    .map_err(|error| unavailable(&server, None, &error.to_string()))?;
                 Some(relay)
             }
             _ => None,
@@ -413,7 +413,7 @@ impl SessionProxy {
         let usage = Arc::new(ProxyUsage::new(run.clone(), chosen.kind, price));
         let relay = Relay::open(run, address, mode, Some(Arc::clone(&usage)))
             .await
-            .map_err(|error| unavailable(&chosen.server, "", &error.to_string()))?;
+            .map_err(|error| unavailable(&chosen.server, None, &error.to_string()))?;
         let limits = ProxyLimits::open(settings, run, &chosen.server, chosen.username.as_deref())
             .await
             .map_err(|reason| invalid(settings, POLITENESS_PROXY_CONCURRENCY.name, reason))?;
@@ -526,7 +526,7 @@ impl SessionProxy {
     /// `proxy_unavailable` for a request to `url` that met `error`, the
     /// browser's network error or the proxy's own.
     pub(crate) fn unavailable(&self, url: &str, error: &str) -> CallError {
-        unavailable(&self.server, url, error)
+        unavailable(&self.server, Some(url), error)
     }
 
     /// `proxy_auth_failed` for a request to `url` the proxy answered with
@@ -621,20 +621,21 @@ async fn address_of(server: &ProxyServer, settings: &Resolved) -> Result<SocketA
         });
     let addresses = http_client::lookup(&server.host, server.port, &mapping)
         .await
-        .map_err(|_| unavailable(server, "", "the proxy's host has no address"))?;
+        .map_err(|_| unavailable(server, None, "the proxy's host has no address"))?;
     Ok(*addresses
         .first()
         .expect("invariant: a lookup that answered has an address"))
 }
 
-/// `proxy_unavailable` for `server`, met by a request to `url`.
-fn unavailable(server: &ProxyServer, url: &str, error: &str) -> CallError {
+/// `proxy_unavailable` for `server`, met by a request to `url`, or by the
+/// Session's open when none.
+fn unavailable(server: &ProxyServer, url: Option<&str>, error: &str) -> CallError {
     CallError::new(
         &PROXY_UNAVAILABLE,
         format!("the proxy {server} is unavailable: {error}"),
         &ProxyUnavailableDetails {
             proxy: server.to_string(),
-            url: url.to_owned(),
+            url: url.map(str::to_owned),
             error: Some(error.to_owned()),
         },
     )

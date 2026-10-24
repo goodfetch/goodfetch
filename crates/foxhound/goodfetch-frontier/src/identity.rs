@@ -7,6 +7,10 @@
 //! check holds nothing in memory (STYLE.md); a redirect that reaches an
 //! identity admitted for another request ends that request `skipped` with
 //! `duplicate`, and a redirect's final URL joins the set under its key.
+//! Beside its own identity, a request has a learned one, its URL's key
+//! without the parameters the learned rules found to have no effect on its
+//! host; a request whose learned identity meets a visited one's is a
+//! `duplicate` the rules merged.
 
 use data_encoding::HEXLOWER;
 use goodfetch_engine::run_state::RunStateTables;

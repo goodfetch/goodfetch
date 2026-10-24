@@ -437,6 +437,11 @@
           "arrived_in": "0.1",
           "description": "Who did what it records."
         },
+        "chained": {
+          "arrived_in": "0.1",
+          "description": "Whether its hash chains it to the entry before it: `false` for an\nentry of a Run whose `security.audit_chain` was off, whose hash is\n`SHA-256` of 32 zero bytes and its own canonical JSON alone, and\nwhich `audit verify` steps over while it verifies the chain around\nit; left out when chained.",
+          "type": "boolean"
+        },
         "details": {
           "arrived_in": "0.1",
           "description": "What its kind records, such as a Secret reference and the domain it\nwas sent to, never a secret's value."
@@ -2597,6 +2602,14 @@
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
         },
+        "labels": {
+          "additionalProperties": {
+            "$ref": "#/$defs/LabelDeclaration"
+          },
+          "arrived_in": "0.1",
+          "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone (ADRs 0082 and 0093). A Payload of a declared schema is checked\nagainst it at every enqueue; a Label the crawl does not declare\ntakes any Payload.",
+          "type": "object"
+        },
         "project": {
           "anyOf": [
             {
@@ -3920,6 +3933,11 @@
           "arrived_in": "0.1",
           "description": "Who did what it records."
         },
+        "chained": {
+          "arrived_in": "0.1",
+          "description": "Whether its hash chains it to the entry before it: `false` for an\nentry of a Run whose `security.audit_chain` was off, whose hash is\n`SHA-256` of 32 zero bytes and its own canonical JSON alone, and\nwhich `audit verify` steps over while it verifies the chain around\nit; left out when chained.",
+          "type": "boolean"
+        },
         "details": {
           "arrived_in": "0.1",
           "description": "What its kind records, such as a Secret reference and the domain it\nwas sent to, never a secret's value."
@@ -5143,6 +5161,17 @@
         "usage_kind",
         "amount"
       ],
+      "type": "object"
+    },
+    "LabelDeclaration": {
+      "additionalProperties": false,
+      "description": "One Label a crawl declares (ADRs 0082 and 0093).",
+      "properties": {
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema its requests' Payloads are checked against, the\nside the program's schema parses from; none takes any Payload."
+        }
+      },
       "type": "object"
     },
     "LastRead": {
@@ -13233,6 +13262,17 @@
                     ],
                     "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
                   },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
@@ -13520,7 +13560,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. None by default."
+                        "description": "How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap."
                       },
                       "rate": {
                         "anyOf": [
@@ -13532,7 +13572,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run starts one, its own navigation included, only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
+                        "description": "How many page navigations a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run starts one only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
                       }
                     },
                     "type": "object"
@@ -14049,6 +14089,17 @@
                       "type": "object"
                     },
                     "type": "array"
+                  },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   },
                   "retry": {
                     "additionalProperties": false,
@@ -14625,7 +14676,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. None by default."
+                        "description": "How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap."
                       },
                       "rate": {
                         "anyOf": [
@@ -14637,7 +14688,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run starts one, its own navigation included, only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
+                        "description": "How many page navigations a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run starts one only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
                       }
                     },
                     "type": "object"
@@ -14905,6 +14956,40 @@
                 "properties": {
                   "by_reference": {
                     "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "security": {
+                "additionalProperties": false,
+                "properties": {
+                  "audit_chain": {
+                    "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
+                    "type": "boolean"
+                  },
+                  "browser_sandbox": {
+                    "description": "Whether Chromium's renderers run in their namespace sandbox (ADR 0017). On by default; off, they run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "field_encryption": {
+                    "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "raw_cdp_egress_proxy": {
+                    "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
+                    "type": "boolean"
+                  },
+                  "redaction": {
+                    "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "resolved_ip_check": {
+                    "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "secure_delete": {
+                    "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
                     "type": "boolean"
                   }
                 },
@@ -15565,6 +15650,23 @@
                       }
                     ],
                     "description": "Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users."
+                  }
+                },
+                "type": "object"
+              },
+              "site_preferences": {
+                "additionalProperties": false,
+                "properties": {
+                  "robots_txt_user_agent": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder."
                   }
                 },
                 "type": "object"
@@ -16106,6 +16208,17 @@
                     },
                     "type": "array"
                   },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
@@ -16681,7 +16794,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. None by default."
+                        "description": "How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap."
                       },
                       "rate": {
                         "anyOf": [
@@ -16693,7 +16806,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run starts one, its own navigation included, only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
+                        "description": "How many page navigations a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run starts one only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
                       }
                     },
                     "type": "object"
@@ -16961,6 +17074,40 @@
                 "properties": {
                   "by_reference": {
                     "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "security": {
+                "additionalProperties": false,
+                "properties": {
+                  "audit_chain": {
+                    "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
+                    "type": "boolean"
+                  },
+                  "browser_sandbox": {
+                    "description": "Whether Chromium's renderers run in their namespace sandbox (ADR 0017). On by default; off, they run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "field_encryption": {
+                    "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "raw_cdp_egress_proxy": {
+                    "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
+                    "type": "boolean"
+                  },
+                  "redaction": {
+                    "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "resolved_ip_check": {
+                    "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "secure_delete": {
+                    "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
                     "type": "boolean"
                   }
                 },
@@ -17621,6 +17768,23 @@
                       }
                     ],
                     "description": "Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users."
+                  }
+                },
+                "type": "object"
+              },
+              "site_preferences": {
+                "additionalProperties": false,
+                "properties": {
+                  "robots_txt_user_agent": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder."
                   }
                 },
                 "type": "object"
@@ -18178,6 +18342,17 @@
                     },
                     "type": "array"
                   },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
@@ -18753,7 +18928,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. None by default."
+                        "description": "How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap."
                       },
                       "rate": {
                         "anyOf": [
@@ -18765,7 +18940,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run starts one, its own navigation included, only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
+                        "description": "How many page navigations a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run starts one only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
                       }
                     },
                     "type": "object"
@@ -19033,6 +19208,40 @@
                 "properties": {
                   "by_reference": {
                     "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "security": {
+                "additionalProperties": false,
+                "properties": {
+                  "audit_chain": {
+                    "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
+                    "type": "boolean"
+                  },
+                  "browser_sandbox": {
+                    "description": "Whether Chromium's renderers run in their namespace sandbox (ADR 0017). On by default; off, they run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "field_encryption": {
+                    "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "raw_cdp_egress_proxy": {
+                    "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
+                    "type": "boolean"
+                  },
+                  "redaction": {
+                    "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "resolved_ip_check": {
+                    "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "secure_delete": {
+                    "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
                     "type": "boolean"
                   }
                 },
@@ -19693,6 +19902,23 @@
                       }
                     ],
                     "description": "Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users."
+                  }
+                },
+                "type": "object"
+              },
+              "site_preferences": {
+                "additionalProperties": false,
+                "properties": {
+                  "robots_txt_user_agent": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder."
                   }
                 },
                 "type": "object"

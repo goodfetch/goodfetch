@@ -65,7 +65,7 @@ use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
-use goodfetch_fetch_tier::{FetchTiers, HttpTier};
+use goodfetch_fetch_tier::{FetchTiers, HttpTier, RobotsTxtFetch};
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
@@ -94,7 +94,7 @@ use goodfetch_protocol::foxhound::progress::{InFlightPhase, InFlightRequest};
 mod attempt;
 mod politeness;
 
-use attempt::{Answer, Attempt, DocumentFetch, attempt, block_cause, effect, leased_count};
+use attempt::{Answer, Attempt, DocumentFetch, Gating, attempt, block_cause, effect, leased_count};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
 
 /// A Connection serving the crawl's handler requests, as the delivery
@@ -156,9 +156,19 @@ pub(crate) async fn drive(
     // One HTTP tier for the Run, so its hops share connections (#763).
     match FetchTiers::http(&run, settings.resolved()) {
         Ok(http) => {
+            // The navigation gate fetches robots.txt on the Run's HTTP tier,
+            // or on one of its own when crawl requests take none.
+            let robots = match &http {
+                Some(http) => Some(http.robots_txt_fetch()),
+                None => FetchTiers::built(&run, settings.resolved())
+                    .inspect_err(|error| tracing::warn!(%error, run_id = %run.id(), "the navigation gate has no transport for robots.txt; every robots.txt it reads is unreachable"))
+                    .ok()
+                    .map(|tier| tier.robots_txt_fetch()),
+            };
             let fetching = Fetching {
                 tiers: &tiers,
                 http: http.as_ref(),
+                robots,
                 in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
             };
             deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
@@ -349,10 +359,12 @@ pub(crate) async fn resume(
     let policy = CrawlPolicy::of(&settings.at_admission().await);
     let retry_max = policy.retry_max;
     let bounds = Bounds::of_settings(settings.resolved());
+    let resolved = settings.resolved().clone();
     let left = run
         .state()
         .write(move |connection| {
             bounds.record(connection)?;
+            goodfetch_frontier::payload::record_max_size(connection, &resolved)?;
             work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)?;
             work_items::left(connection)
         })
@@ -381,11 +393,22 @@ pub(crate) async fn resume(
 struct Fetching<'a> {
     tiers: &'a FetchTiers,
     http: Option<&'a HttpTier>,
+    /// How the navigation gate fetches robots.txt.
+    robots: Option<RobotsTxtFetch>,
     /// The requests in flight, as the Run's progress shows them.
     in_flight: SharedInFlight,
 }
 
 impl Fetching<'_> {
+    /// What one attempt's handler pages are gated with.
+    fn gating(&self, second_copies: &SecondCopies) -> Gating {
+        Gating {
+            tiers: self.tiers.clone(),
+            second_copies: second_copies.clone(),
+            robots: self.robots.clone(),
+        }
+    }
+
     /// What one attempt fetches its request's document with.
     fn served(&self, second_copies: &SecondCopies) -> Option<DocumentFetch> {
         self.http
@@ -490,7 +513,10 @@ async fn lease_to_servers(
                     server.client.clone(),
                     (leased, session, leased_count(run)),
                     lease,
-                    pooled.fetching.served(&admission.second_copies()),
+                    (
+                        pooled.fetching.served(&admission.second_copies()),
+                        pooled.fetching.gating(&admission.second_copies()),
+                    ),
                     std::sync::Arc::clone(&pooled.fetching.in_flight),
                 ),
             ));

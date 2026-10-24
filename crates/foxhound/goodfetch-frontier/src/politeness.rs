@@ -413,5 +413,28 @@ pub async fn started_again(
         .await
 }
 
+/// When the last request of `key` started, by any run sharing
+/// `politeness`; `None` before the first.
+///
+/// # Errors
+///
+/// When the Politeness file's transaction failed.
+///
+/// # Cancel safety
+///
+/// Dropping the future only loses the reading.
+pub async fn last_start(
+    politeness: &Politeness,
+    key: &str,
+) -> Result<Option<SystemTime>, PolitenessError> {
+    let key = key.to_owned();
+    let last = politeness
+        .transact(move |connection| Ok(Limits::read(connection, &key)?.last_start))
+        .await?;
+    Ok(last
+        .and_then(|last| u64::try_from(last).ok())
+        .map(|last| SystemTime::UNIX_EPOCH + Duration::from_millis(last)))
+}
+
 #[cfg(test)]
 mod tests;

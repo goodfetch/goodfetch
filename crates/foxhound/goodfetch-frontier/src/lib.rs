@@ -10,7 +10,10 @@
 //! the user (the per-domain cap, delay, backoff, `Retry-After` and 429
 //! halving); and the rules it learns from the pages a crawl fetched
 //! (ADR 0005): query parameters with no effect, equivalent forms (ADR
-//! 0120), trap paths and cursor pagination preferred to offset. Its own crate under `crates/foxhound/`, since only Foxhound
+//! 0120), trap paths and cursor pagination preferred to offset; and each
+//! crawl request's Payload, kept apart from the engine's fields, checked
+//! against its Label's JSON Schema and `crawl.payload.max_size`, with the
+//! schema hashes a resume compares (ADR 0082). Its own crate under `crates/foxhound/`, since only Foxhound
 //! links it (STYLE.md, reason 2).
 
 mod admit;
@@ -19,6 +22,7 @@ mod domain_key;
 mod forms;
 mod identity;
 mod learn;
+pub mod payload;
 mod politeness;
 mod queues;
 mod robots_txt;
@@ -38,7 +42,7 @@ pub use identity::{
     Declared, Hop, TABLES as VISITED_TABLES, fuzz_url_key, redirect_hop, redirect_reached, url_key,
 };
 pub use learn::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
-pub use politeness::{longest_wait, refuse_second_copies, started_again};
+pub use politeness::{last_start, longest_wait, refuse_second_copies, started_again};
 pub use queues::DomainQueues;
 pub use robots_txt::SharedRobotsTxt;
 pub use rules::{
@@ -64,6 +68,7 @@ pub fn contribution() -> Contribution {
         .with_run_state_tables(scope::TABLES)
         .with_run_state_tables(bounds::TABLES)
         .with_run_state_tables(rules::TABLES)
+        .with_run_state_tables(payload::TABLES)
         .with_politeness_tables(politeness::TABLES)
         .with_politeness_tables(robots_txt::TABLES)
         .with_admission_gates(Arc::new(queues::DomainGates))

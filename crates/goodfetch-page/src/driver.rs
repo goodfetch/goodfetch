@@ -79,7 +79,7 @@ use crate::errors::{
 };
 use crate::launch::launch;
 use crate::page_value::{self, PageValue};
-use crate::proxy::{Answer, PROXY_STATUS, Party, ProxyPermit, SessionProxy, party, proxy_error};
+use crate::proxy::{PROXY_STATUS, Party, ProxyPermit, SessionProxy, party, proxy_error};
 use crate::trace::CommandLog;
 use identity::Identity;
 
@@ -1030,10 +1030,11 @@ impl PageDriver {
 
     /// A Permit for one hop of a navigation through its Session's proxy,
     /// once the proxy's limits admit it (ADRs 0053 and 0088); none on a
-    /// page without a proxy. The wait counts against no deadline of the
+    /// page without a proxy, and for a hop to `url` that `proxy.bypass`
+    /// sends around the proxy. The wait counts against no deadline of the
     /// page, and its lease check holds the lease through it.
     pub(crate) async fn proxy_permit(&self, url: &str) -> Option<ProxyPermit> {
-        let proxy = self.proxy.as_deref()?;
+        let proxy = self.proxy.as_deref().filter(|proxy| !proxy.bypasses(url))?;
         let waiting = self.waits.as_ref().map(PermitWaits::begin);
         let holding = self.value.lease().map(|lease| lease.permit_wait(url));
         let permit = proxy.permit().await;
@@ -1424,7 +1425,7 @@ impl PageDriver {
     fn answered_by_proxy(&self, url: &str, response: &PageResponse) -> Option<CallError> {
         let proxy = self.proxy.as_deref()?;
         let proxy_status = response.headers.get(PROXY_STATUS).map(String::as_str);
-        if party(Answer::Response { proxy_status }) != Party::Proxy {
+        if party(proxy.response(&response.url, proxy_status)) != Party::Proxy {
             return None;
         }
         let error = proxy_status.and_then(proxy_error).unwrap_or_default();

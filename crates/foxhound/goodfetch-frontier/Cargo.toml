@@ -15,6 +15,9 @@ data-encoding.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-page.workspace = true
 goodfetch-protocol.workspace = true
+# Each Label's Payload is checked against its JSON Schema at enqueue (ADR
+# 0082); no remote or file reference is resolved.
+jsonschema.workspace = true
 psl.workspace = true
 # Its statement cache keeps the per-seed scope insert prepared (prepare_cached).
 rusqlite = { workspace = true, features = ["cache"] }

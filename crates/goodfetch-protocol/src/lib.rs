@@ -51,6 +51,7 @@ pub mod run;
 pub mod sample;
 pub mod secret_reference;
 pub mod secrets;
+pub mod security;
 pub mod settings;
 pub mod special_purpose;
 pub mod storage;

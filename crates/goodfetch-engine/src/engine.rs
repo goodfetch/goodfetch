@@ -26,6 +26,7 @@ use crate::audit::AuditEvents;
 use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError, ConsoleBuild};
 use crate::console;
+use crate::controls::Controls;
 use crate::daemon::{self, DaemonConsole, DaemonEnd, DaemonOptions};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
@@ -68,6 +69,7 @@ pub struct Engine {
     clean_up: Option<Arc<dyn CleanUpVersions>>,
     gates: Option<Arc<dyn Gates>>,
     needs_you_sources: Vec<NeedsYouSource>,
+    controls: Controls,
     events: EventsOptions,
     console: Option<&'static ConsoleBuild>,
     metrics: Metrics,
@@ -118,6 +120,7 @@ impl Engine {
             clean_up: composition.clean_up_versions()?,
             gates: composition.admission_gates()?,
             needs_you_sources: composition.needs_you_sources(),
+            controls: composition.controls(),
             events: EventsOptions::default(),
             console: composition.console(),
             metrics: Metrics::none(),
@@ -412,6 +415,7 @@ impl Engine {
                 governor,
                 environment: dependencies.environment,
                 needs_you,
+                controls: self.controls.clone(),
             },
             owner,
         );

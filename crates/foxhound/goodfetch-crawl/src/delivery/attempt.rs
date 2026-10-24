@@ -24,14 +24,16 @@ use std::sync::Arc;
 
 use std::collections::BTreeSet;
 
+use goodfetch_engine::CallError;
 use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
+use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch};
 use goodfetch_engine::runs::Run;
-use goodfetch_fetch_tier::{FetchTiers, HttpTier, Requester};
-use goodfetch_frontier::{EndMerged, PageSeen, SharedRobotsTxt};
+use goodfetch_fetch_tier::{FetchTiers, HandOver, HandedOver, HttpTier, Requester, RobotsTxtFetch};
+use goodfetch_frontier::{DomainKeys, EndMerged, PageSeen, SharedRobotsTxt};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled, HANDLER_FAILED,
@@ -41,7 +43,9 @@ use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::frontier::HttpBody;
 use goodfetch_protocol::foxhound::progress::InFlightPhase;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
-use goodfetch_protocol::foxhound::settings::POLITENESS_DOMAIN_DELAY;
+use goodfetch_protocol::foxhound::settings::{
+    POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
+};
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_session_pool::Effect;
@@ -95,6 +99,109 @@ impl DocumentFetch {
             http: http.clone(),
             second_copies: second_copies.clone(),
         }
+    }
+}
+
+/// What an attempt's handler pages are gated with (the fetch tiers'
+/// `gate`): the tiers that hand them over, room beside the Run's own
+/// requests and how robots.txt is fetched.
+pub(super) struct Gating {
+    pub(super) tiers: FetchTiers,
+    pub(super) second_copies: SecondCopies,
+    pub(super) robots: Option<RobotsTxtFetch>,
+}
+
+impl Gating {
+    /// Hands the Run's pages over to the attempt of `leased` holding
+    /// `lease`, while its handler runs; `in_flight` names its waits.
+    async fn hand_over(
+        &self,
+        run: &Run,
+        leased: &Leased,
+        lease: &WorkItemLease,
+        in_flight: &SharedInFlight,
+    ) -> HandedOver {
+        let politeness = share_robots_txt(run).await;
+        let settings = run.settings().map(|settings| settings.resolved().clone());
+        let domain_delay = settings
+            .as_ref()
+            .and_then(|settings| settings.duration(POLITENESS_DOMAIN_DELAY.name))
+            .unwrap_or_default();
+        self.tiers.hand_over(HandOver {
+            run: run.clone(),
+            domain_key: leased.waiting.key.clone(),
+            keys: settings.as_ref().map(DomainKeys::of).unwrap_or_default(),
+            second_copies: self.second_copies.clone(),
+            politeness,
+            robots: self.robots.clone(),
+            operator_token: settings.as_ref().and_then(|settings| {
+                settings
+                    .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
+                    .as_str()
+                    .map(str::to_owned)
+            }),
+            domain_delay,
+            lease: Arc::new(HandlerLease {
+                lease: lease.clone(),
+                run: run.clone(),
+                request_id: leased.crawl_request.id.clone(),
+                in_flight: Arc::clone(in_flight),
+            }),
+        })
+    }
+}
+
+/// The lease check of an attempt's handler pages: the attempt's lease,
+/// renewed while a page waits for a navigation gate's permit, the wait
+/// named in the Run's live status, so a handler waiting for a permit is not
+/// timed out meanwhile (ADR 0093).
+#[derive(Clone, Debug)]
+struct HandlerLease {
+    lease: WorkItemLease,
+    run: Run,
+    request_id: String,
+    in_flight: SharedInFlight,
+}
+
+/// How often a permit's wait renews its lease, as a share of its length.
+const RENEWALS_PER_LENGTH: u32 = 4;
+
+impl LeaseCheck for HandlerLease {
+    fn check(&self) -> Result<(), LeaseEnded> {
+        self.lease.check()
+    }
+
+    fn withheld(&self, ended: LeaseEnded, method: &str) -> CallError {
+        self.lease.withheld(ended, method)
+    }
+
+    fn permit_wait(&self, _url: &str) -> PermitWait {
+        let (stop, mut stopped) = oneshot::channel::<()>();
+        let waiting = self.clone();
+        self.run.spawn(async move {
+            let id = &waiting.request_id;
+            waiting
+                .in_flight
+                .lock()
+                .await
+                .permit_wait_began(&waiting.run, id);
+            let (length, clock) = (waiting.lease.length(), waiting.run.clock());
+            loop {
+                waiting.lease.renew(length);
+                tokio::select! {
+                    _ = &mut stopped => break,
+                    () = clock.sleep(length / RENEWALS_PER_LENGTH) => {}
+                }
+            }
+            // The handler's timeout runs again from the wait's end.
+            waiting.lease.renew(length);
+            waiting
+                .in_flight
+                .lock()
+                .await
+                .permit_wait_ended(&waiting.run, id);
+        });
+        PermitWait::holding(stop)
     }
 }
 
@@ -177,7 +284,7 @@ pub(super) async fn attempt(
     client: Client,
     (leased, session, counted): (Leased, ServingSession, Counted),
     lease: WorkItemLease,
-    fetching: Option<DocumentFetch>,
+    (fetching, gating): (Option<DocumentFetch>, Gating),
     in_flight: SharedInFlight,
 ) -> Attempt {
     let fetched = match &fetching {
@@ -235,7 +342,9 @@ pub(super) async fn attempt(
                 tier: document.as_ref().map(|_| FetchTier::Http),
                 page_id: document.clone(),
             };
+            let handed_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
             let answer = handled(&run, &client, &params, &lease).await;
+            drop(handed_over);
             if let (Some(fetch), Some(page_id)) = (&fetching, &document) {
                 fetch.tiers.close(page_id);
             }

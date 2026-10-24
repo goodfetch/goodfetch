@@ -38,6 +38,7 @@ use url::Url;
 
 use crate::canonical::canonical;
 use crate::driver::{Deadlines, Hop, fetch};
+use crate::gate::{Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::redundant::{Redundant, Requester};
 use crate::transports::{Reqwest, TransportConfig};
 
@@ -53,6 +54,36 @@ pub struct FetchTiers {
 #[derive(Default)]
 struct Served {
     pages: Mutex<Pages>,
+    /// What each Run's attempts handed over while their handlers run, in
+    /// the order they did, each under its number.
+    handed: Mutex<HandedOvers>,
+}
+
+#[derive(Default)]
+struct HandedOvers {
+    /// The number of the last hand-over.
+    last: u64,
+    by_run: BTreeMap<RunId, Vec<(u64, Arc<HandOver>)>>,
+}
+
+/// A Run's pages handed over by one attempt, taken back when dropped.
+#[must_use = "the pages are taken back when this is dropped"]
+pub struct HandedOver {
+    served: Arc<Served>,
+    run: RunId,
+    number: u64,
+}
+
+impl Drop for HandedOver {
+    fn drop(&mut self) {
+        let mut handed = lock(&self.served.handed);
+        if let Some(attempts) = handed.by_run.get_mut(&self.run) {
+            attempts.retain(|(number, _)| *number != self.number);
+            if attempts.is_empty() {
+                handed.by_run.remove(&self.run);
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -87,6 +118,26 @@ impl FetchTiers {
     /// No tier serving any page yet.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Hands the pages that open in `hand_over`'s Run over to its attempt
+    /// until the answer drops: each takes the attempt's navigation gate and
+    /// lease check (the `gate` module).
+    pub fn hand_over(&self, hand_over: HandOver) -> HandedOver {
+        let run = hand_over.run.id().clone();
+        let mut handed = lock(&self.served.handed);
+        handed.last += 1;
+        let number = handed.last;
+        handed
+            .by_run
+            .entry(run.clone())
+            .or_default()
+            .push((number, Arc::new(hand_over)));
+        HandedOver {
+            served: Arc::clone(&self.served),
+            run,
+            number,
+        }
     }
 
     /// Refuses a Run whose `fetch.tier` forces a tier this engine does not
@@ -134,6 +185,17 @@ impl FetchTiers {
         if forced(settings).map(|(tier, _)| tier) != Some(FetchTier::Http) {
             return Ok(None);
         }
+        Self::built(run, settings).map(Some)
+    }
+
+    /// An HTTP tier for `run` under its settings, whatever `fetch.tier`
+    /// says: the one a Run's navigation gate fetches robots.txt with when
+    /// its crawl requests take no HTTP tier.
+    ///
+    /// # Errors
+    ///
+    /// As [`FetchTiers::http`].
+    pub fn built(run: &Run, settings: &Resolved) -> Result<HttpTier, String> {
         let egress = Policy::of(settings).map_err(|error| error.to_string())?;
         let transport = Reqwest::new(TransportConfig {
             trust: Trust::default_roots(),
@@ -143,11 +205,11 @@ impl FetchTiers {
             clock: run.clock(),
         })
         .map_err(|error| error.to_string())?;
-        Ok(Some(HttpTier {
+        Ok(HttpTier {
             transport: Arc::new(transport),
             deadlines: Deadlines::of(settings),
             redundant: Arc::new(Redundant::of(settings)),
-        }))
+        })
     }
 
     /// Fetches `request`'s document on `tier` for `run`, sent for
@@ -281,8 +343,20 @@ impl FetchTiers {
 }
 
 impl HandlerPages for FetchTiers {
+    /// The value of the attempt that handed its Run's pages over last,
+    /// while its handler runs; else a program's page's, empty.
     fn value(&self, run: &RunId, session: &SessionId) -> PageValue {
-        ProgramPages.value(run, session)
+        let handed = lock(&self.served.handed)
+            .by_run
+            .get(run)
+            .and_then(|attempts| attempts.last())
+            .map(|(_, hand_over)| Arc::clone(hand_over));
+        match handed {
+            Some(hand_over) => {
+                PageValue::new(Gate::new(Arc::clone(&hand_over)), Lease::new(hand_over))
+            }
+            None => ProgramPages.value(run, session),
+        }
     }
 
     fn observer(&self, run: &RunId, session: &SessionId) -> Option<Observer> {
@@ -309,6 +383,15 @@ pub struct HttpTier {
 const ROBOTS_TXT_REDIRECTS: usize = 5;
 
 impl HttpTier {
+    /// [`HttpTier::robots_txt`] as the navigation gate fetches robots.txt.
+    pub fn robots_txt_fetch(&self) -> RobotsTxtFetch {
+        let tier = self.clone();
+        Arc::new(move |run, location| {
+            let tier = tier.clone();
+            Box::pin(async move { tier.robots_txt(&run, &location).await })
+        })
+    }
+
     /// Fetches the robots.txt at `location` for `run` (ADR 0086), following
     /// up to five redirects as RFC 9309 §2.3.1.2 asks: a `3xx` past them,
     /// or one naming no location, answers as itself, which disallows

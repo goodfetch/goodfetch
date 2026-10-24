@@ -93,7 +93,7 @@ use crate::page_functions::{FrameScripts, Injections};
 use crate::page_value::{HandlerPages, PageValue};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
 use crate::proxy::{Opening, SessionProxy};
-use crate::recovery::Declared;
+use crate::recovery::Checking;
 use crate::trace;
 
 /// What the page crate adds to every run file: each Session the Run opened,
@@ -220,8 +220,9 @@ pub(crate) struct OpenPage {
     /// Its documents' hiding sheets, which the Consent prompt runner writes
     /// into too.
     pub(crate) sheets: Arc<crate::hiding::Sheets>,
-    /// Its Session's Page check, when it declares one.
-    pub(crate) page_check: Option<Arc<Declared>>,
+    /// How its Session's pages are judged: its Page check, when it declares
+    /// one, and whether it may hold a login.
+    pub(crate) page_check: Arc<Checking>,
     /// Its init scripts as its out-of-process iframes take them.
     pub(crate) frame_scripts: FrameScripts,
     /// Its Session's marks of main-world injections in Provenance.

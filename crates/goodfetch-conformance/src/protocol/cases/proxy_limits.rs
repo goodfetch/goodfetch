@@ -8,7 +8,8 @@
 //! proxy's ceiling for the user's other runs, which then take turns instead
 //! of failing; `politeness.proxy.concurrency` and `politeness.proxy.rate`
 //! hold a program's own navigation; `politeness.sharing: run` keeps the
-//! ceiling a Run learned to itself; and a site's 429 lowers nothing. Each
+//! ceiling a Run learned to itself; and a site's 429 lowers nothing and
+//! writes no domain limit to the Politeness file. Each
 //! case uses a proxy credential of its own, its key, so no case meets the
 //! ceiling another taught.
 
@@ -19,8 +20,11 @@ use goodfetch_protocol::page::proxy::PROXY_UNAVAILABLE;
 use goodfetch_protocol::page::{BLOCKED, PAGE_GOTO, PageOpened};
 use serde_json::{Value, json};
 
+use super::blocks::politeness_names;
+use super::proxies::server;
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::target::EngineTarget;
 
 /// How long concurrent navigations may take to answer together, a wait
 /// for a Permit included.
@@ -46,15 +50,18 @@ impl Case {
             "a-run-that-shares-no-politeness-keeps-the-ceiling-it-learned-to-itself" => {
                 Self::RunsOwn
             }
-            "a-sites-429-through-a-proxy-lowers-no-ceiling" => Self::SitesRefusal,
+            "a-sites-429-through-a-proxy-lowers-no-ceiling-and-writes-no-domain-limit" => {
+                Self::SitesRefusal
+            }
             _ => return None,
         })
     }
 
-    /// Runs the case on the open Connection against `site`.
+    /// Runs the case on the open Connection to `target` against `site`.
     pub(crate) fn run(
         self,
         connection: &mut Connection,
+        target: &EngineTarget,
         site: &Site,
         checks: &mut Checks,
     ) -> Result<(), Gone> {
@@ -65,20 +72,9 @@ impl Case {
             Self::Learned => learned(connection, site, &limited, checks),
             Self::OwnLimits => own_limits(connection, site, &limited, checks),
             Self::RunsOwn => runs_own(connection, site, &limited, checks),
-            Self::SitesRefusal => sites_refusal(connection, site, &limited, checks),
+            Self::SitesRefusal => sites_refusal(connection, target, site, &limited, checks),
         }
     }
-}
-
-/// `proxy.server` for the Proving ground's proxy `name`, checked to be one
-/// it serves.
-fn server(site: &Site, name: &str, checks: &mut Checks) -> Option<String> {
-    let address = site.proxy(name);
-    checks.check(
-        format!("the Proving ground serves its `{name}` proxy"),
-        address.is_some(),
-    );
-    address.map(|address| format!("http://{address}"))
 }
 
 /// A Run's settings: the proxy `server` used as `username`, and `more`.
@@ -400,9 +396,11 @@ fn runs_own(
 
 /// A site's 429 through the `limited` proxy is the site's, never the
 /// proxy's error, and lowers no ceiling: two navigations at once through
-/// the proxy afterwards still meet the proxy's own 429.
+/// the proxy afterwards still meet the proxy's own 429. Nor does it write
+/// a domain limit: the Politeness file names no `scope.test` key.
 fn sites_refusal(
     connection: &mut Connection,
+    target: &EngineTarget,
     site: &Site,
     limited: &str,
     checks: &mut Checks,
@@ -434,5 +432,10 @@ fn sites_refusal(
             tally(&after, PROXY_UNAVAILABLE.name) == (1, 1),
         );
     }
-    finish_run(connection, "conformance-proxy-site")
+    finish_run(connection, "conformance-proxy-site")?;
+    checks.check(
+        "a site's 429 through the proxy writes no domain limit: the Politeness file names no `scope.test` key",
+        !politeness_names(target, "scope.test"),
+    );
+    Ok(())
 }

@@ -6,13 +6,18 @@
 //! nor the login page raises `page_check_failed` from the `goto` that
 //! reached it; an expected page answers its response. Each form of a page
 //! match, a URL glob or regular expression, a CSS or `XPath` selector and a
-//! text, judges the same three pages. Without a Page check the built-in
-//! detector judges a redirect to the login page a lost login, lets a `goto`
-//! to a login page through, and Provenance marks each page it judged as
-//! weakly checked.
+//! text, judges the same three pages. A page a click reached is judged too,
+//! raised by the wait for its URL. Without a Page check the built-in
+//! detector judges a redirect to the login page a lost login, from the
+//! `goto` that sent it or, for a script's navigation, from the page's next
+//! call, lets a `goto` to a login page through, and Provenance marks each
+//! page it judged as weakly checked; on a fresh Session, which holds no
+//! login of its own, a login form at a page's own URL is no lost login.
 
 use goodfetch_protocol::page::events::PAGE_WAIT_FOR_REQUEST_FINISHED;
+use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
+use goodfetch_protocol::page::waits::PAGE_WAIT_FOR_URL;
 use goodfetch_protocol::page::{
     LOCATOR_CLICK, LOCATOR_FILL, LOGGED_OUT, PAGE_CHECK_FAILED, PAGE_GOTO, PageOpened,
 };
@@ -23,6 +28,7 @@ use super::navigation::url_on;
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::{BROWSER_DEADLINE, EngineTarget};
+use crate::proving_ground::TaskAccount;
 
 /// The portal's task whose login expires after four pages and answers
 /// with its login form and a 200.
@@ -40,6 +46,7 @@ pub(crate) enum Case {
     LostLogin,
     EachForm,
     BuiltIn,
+    FreshSession,
 }
 
 impl Case {
@@ -54,6 +61,9 @@ impl Case {
             }
             "without-a-page-check-the-built-in-detector-judges-and-each-page-is-weakly-checked" => {
                 Self::BuiltIn
+            }
+            "on-a-fresh-session-a-login-form-at-a-pages-own-url-is-no-lost-login" => {
+                Self::FreshSession
             }
             _ => return None,
         })
@@ -71,6 +81,7 @@ impl Case {
             Self::LostLogin => lost_login(connection, site, checks),
             Self::EachForm => each_form(connection, site, checks),
             Self::BuiltIn => built_in(connection, target, site, checks),
+            Self::FreshSession => fresh_session(connection, site, checks),
         }
     }
 }
@@ -135,13 +146,58 @@ fn portal_check() -> Value {
     })
 }
 
+/// Signs `page`, on the portal's login page, in as `account` through its
+/// form; whether the report page the sign-in serves answered.
+fn sign_in(
+    connection: &mut Connection,
+    page: &PageOpened,
+    account: &TaskAccount,
+) -> Result<bool, Gone> {
+    for (selector, value) in [
+        ("input[name=user]", account.username.as_str()),
+        ("input[name=password]", account.password.as_str()),
+    ] {
+        call(
+            connection,
+            LOCATOR_FILL.name,
+            &json!({ "locator": { "page_id": page.page_id, "selector": selector }, "value": value }),
+        )?;
+    }
+    let waiting = connection.request(
+        PAGE_WAIT_FOR_REQUEST_FINISHED.name,
+        &json!({ "page_id": page.page_id, "url": { "kind": "glob", "pattern": "**/reports*" } }),
+    )?;
+    let clicked = connection.request(
+        LOCATOR_CLICK.name,
+        &json!({ "locator": { "page_id": page.page_id, "selector": "button[type=submit]" } }),
+    )?;
+    let (_, signed_in) = both(connection, clicked, waiting)?;
+    Ok(signed_in["result"]["response"]["status"] == json!(200))
+}
+
+/// Clicks the report page's `Next` link on `page` and answers the wait,
+/// armed before it, for the URL of report page `number`.
+fn click_next(connection: &mut Connection, page: &PageOpened, number: u32) -> Result<Value, Gone> {
+    let waiting = connection.request(
+        PAGE_WAIT_FOR_URL.name,
+        &json!({ "page_id": page.page_id, "url": { "kind": "glob", "pattern": format!("**/reports?page={number}") } }),
+    )?;
+    let clicked = connection.request(
+        LOCATOR_CLICK.name,
+        &json!({ "locator": { "page_id": page.page_id, "selector": "a.next" } }),
+    )?;
+    let (_, waited) = both(connection, clicked, waiting)?;
+    Ok(waited)
+}
+
 /// On a Run whose Session checks the portal's pages: a `goto` to the login
 /// page, answered with a 200, raises `logged_out`, and the page stays on
 /// it, so the program signs in through the form; the four report pages the
-/// login serves answer their responses; the fifth, which the expired login
-/// answers with the login form and a 200, raises `logged_out` (golden
-/// scenario 04, failure point 2); and an error page, neither the expected
-/// page nor the login page, raises `page_check_failed`.
+/// login serves pass, the last reached by a click; the fifth, which the
+/// expired login answers with the login form and a 200, reached by a click
+/// on its `Next` link, raises `logged_out` from the wait for its URL
+/// (golden scenario 04, failure point 2); and an error page, neither the
+/// expected page nor the login page, raises `page_check_failed`.
 fn lost_login(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-page-check-lost-login";
     let (Some(login), Some(account), Some(not_found)) = (
@@ -168,32 +224,14 @@ fn lost_login(connection: &mut Connection, site: &Site, checks: &mut Checks) -> 
         raised(&went, LOGGED_OUT.name, "/login", 200)
             && went["error"]["data"]["judged_by"] == json!("page_check"),
     );
-    for (selector, value) in [
-        ("input[name=user]", account.username.as_str()),
-        ("input[name=password]", account.password.as_str()),
-    ] {
-        call(
-            connection,
-            LOCATOR_FILL.name,
-            &json!({ "locator": { "page_id": page.page_id, "selector": selector }, "value": value }),
-        )?;
-    }
-    let waiting = connection.request(
-        PAGE_WAIT_FOR_REQUEST_FINISHED.name,
-        &json!({ "page_id": page.page_id, "url": { "kind": "glob", "pattern": "**/reports*" } }),
-    )?;
-    let clicked = connection.request(
-        LOCATOR_CLICK.name,
-        &json!({ "locator": { "page_id": page.page_id, "selector": "button[type=submit]" } }),
-    )?;
-    let (_, signed_in) = both(connection, clicked, waiting)?;
+    let signed_in = sign_in(connection, &page, &account)?;
     checks.check(
         "the program signs in from the login page the page stayed on",
-        signed_in["result"]["response"]["status"] == json!(200),
+        signed_in,
     );
     // The sign-in served the first report page; the login serves four.
     let mut served = true;
-    for number in 2..=4 {
+    for number in 2..=3 {
         let report = format!("/reports?page={number}");
         let url = url_on(site, EXPIRY_TASK, &report).unwrap_or_default();
         served &= answered(&goto(connection, &page, &url)?, 200);
@@ -202,11 +240,15 @@ fn lost_login(connection: &mut Connection, site: &Site, checks: &mut Checks) -> 
         "each report page the login serves is the expected page and answers its response",
         served,
     );
-    let expired = url_on(site, EXPIRY_TASK, "/reports?page=5").unwrap_or_default();
-    let went = goto(connection, &page, &expired)?;
+    let fourth = click_next(connection, &page, 4)?;
     checks.check(
-        "the login form an expired login answers with a 200 raises `logged_out`",
-        raised(&went, LOGGED_OUT.name, "/reports?page=5", 200),
+        "a report page a click reached is the expected page, and the wait for its URL answers",
+        fourth.get("result").is_some(),
+    );
+    let expired = click_next(connection, &page, 5)?;
+    checks.check(
+        "the login form an expired login answers with a 200 to a click raises `logged_out` from the wait for its URL",
+        raised(&expired, LOGGED_OUT.name, "/reports?page=5", 200),
     );
     let went = goto(connection, &page, &not_found)?;
     checks.check(
@@ -305,9 +347,10 @@ fn each_form(connection: &mut Connection, site: &Site, checks: &mut Checks) -> R
 /// Without a Page check: the catalog's listing answers its response; the
 /// login site's account page, which sends a Session without a login to its
 /// login page, raises `logged_out` judged by the built-in detector; a
-/// `goto` to the portal's login page itself answers its response; and
-/// Provenance marks each of the three pages as weakly checked, with its
-/// verdict.
+/// `goto` to the portal's login page itself answers its response; a
+/// script's navigation to the account page, which no call waited for,
+/// raises `logged_out` from the page's next call; and Provenance marks each
+/// of the four pages as weakly checked, with its verdict.
 fn built_in(
     connection: &mut Connection,
     target: &EngineTarget,
@@ -346,6 +389,25 @@ fn built_in(
         "a `goto` to a login page itself answers its response",
         answered(&went, 200),
     );
+    let finished = connection.request(
+        PAGE_WAIT_FOR_REQUEST_FINISHED.name,
+        &json!({ "page_id": page.page_id, "url": { "kind": "glob", "pattern": "**/login" } }),
+    )?;
+    let sent = connection.request(
+        PAGE_EVALUATE.name,
+        &json!({ "page_id": page.page_id, "function": format!("() => {{ location.href = {}; }}", json!(account)) }),
+    )?;
+    let _ = both(connection, sent, finished)?;
+    let next = call(
+        connection,
+        PAGE_EVALUATE.name,
+        &json!({ "page_id": page.page_id, "function": "() => document.title" }),
+    )?;
+    checks.check(
+        "a redirect to the login page a script's navigation reached raises `logged_out` from the page's next call",
+        raised(&next, LOGGED_OUT.name, "/login", 200)
+            && next["error"]["data"]["judged_by"] == json!("built_in"),
+    );
     finish_run(connection, run_id)?;
     let lines = provenance(target, run_id);
     let marked = |path: &str, verdict: &str| {
@@ -365,12 +427,62 @@ fn built_in(
         marked("/login", "login_page"),
     );
     checks.check(
-        "Provenance marks each of the three pages the detector judged",
+        "Provenance marks each of the four pages the detector judged",
         lines
             .iter()
             .filter(|line| line["action"] == json!(WEAKLY_CHECKED))
             .count()
-            == 3,
+            == 4,
     );
     Ok(())
+}
+
+/// Without a Page check, on a fresh Session, which holds no login of its
+/// own until the program logs in itself (ADR 0006): the program signs in
+/// through the portal's form and reads the four report pages its login
+/// serves; the fifth, which the expired login answers with its login form
+/// and a 200 at the report page's own URL, is the program's way back in,
+/// not a lost login, so it answers its response.
+fn fresh_session(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-page-check-fresh-session";
+    let (Some(login), Some(account)) = (
+        url_on(site, EXPIRY_TASK, "/login"),
+        site.account(EXPIRY_TASK).cloned(),
+    ) else {
+        checks.check(
+            format!("the Proving ground serves `{EXPIRY_TASK}` with its account"),
+            false,
+        );
+        return Ok(());
+    };
+    start_run(connection, site, run_id, &json!({}), checks)?;
+    let Some(page) = new_page(connection, run_id, checks)? else {
+        return finish_run(connection, run_id);
+    };
+    let went = goto(connection, &page, &login)?;
+    let signed_in = answered(&went, 200) && sign_in(connection, &page, &account)?;
+    checks.check(
+        "the program signs in through the login page of a fresh Session",
+        signed_in,
+    );
+    let mut served = true;
+    for number in 2..=4 {
+        let url = url_on(site, EXPIRY_TASK, &format!("/reports?page={number}")).unwrap_or_default();
+        served &= answered(&goto(connection, &page, &url)?, 200);
+    }
+    checks.check(
+        "each report page the login serves answers its response",
+        served,
+    );
+    let expired = url_on(site, EXPIRY_TASK, "/reports?page=5").unwrap_or_default();
+    let went = goto(connection, &page, &expired)?;
+    checks.check(
+        "the login form at a report page's own URL answers its response on a fresh Session",
+        answered(&went, 200),
+    );
+    finish_run(connection, run_id)
 }

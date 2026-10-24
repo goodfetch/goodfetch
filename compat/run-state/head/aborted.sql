@@ -75,6 +75,19 @@ CREATE TABLE outcomes (
             outcome TEXT NOT NULL
         ) STRICT;
 CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source TEXT) STRICT;
+CREATE TABLE payload_cap (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            max_size INTEGER NOT NULL
+        ) STRICT;
+CREATE TABLE payload_labels (
+            label TEXT NOT NULL PRIMARY KEY,
+            schema TEXT,
+            hash TEXT
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE payloads (
+            request TEXT NOT NULL PRIMARY KEY,
+            payload TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE pool_sessions (
             position INTEGER NOT NULL PRIMARY KEY,
             proxy_tier TEXT NOT NULL,
@@ -249,7 +262,6 @@ CREATE TABLE work_items (
             body BLOB,
             label TEXT NOT NULL,
             depth INTEGER NOT NULL,
-            payload TEXT,
             status TEXT NOT NULL,
             attempts INTEGER NOT NULL,
             lease_epoch INTEGER NOT NULL,

@@ -567,6 +567,12 @@ number = 4
 kind = "setting"
 prefix = "audit."
 
+# Area 4's switchable security controls (#614): the `security.*` settings.
+[[area]]
+number = 4
+kind = "setting"
+prefix = "security."
+
 # Area 4's known-certificates store (#628): `certs.list`, Collie's `certs
 # list` and the store's format.
 [[area]]
@@ -627,6 +633,13 @@ prefix = "session.pool."
 number = 5
 kind = "setting"
 prefix = "fetch.tier"
+
+# The operator's robots.txt product token, which the navigation gate's
+# group selection merges with Foxhound's (spec #579's `robots_token`, #760).
+[[area]]
+number = 5
+kind = "setting"
+prefix = "site_preferences.robots_txt_user_agent"
 
 # The HTTP tier's hedged requests and coalescing (RT-20, #238).
 [[area]]
@@ -1159,6 +1172,18 @@ prefix = "crawl.max_"
 number = 6
 kind = "setting"
 prefix = "crawl.path_budgets"
+
+# Area 6, Collection, Foxhound: a Payload's cap, its check at enqueue and
+# the schema check a resume runs (#860).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.payload."
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "payload_"
 
 # Area 6, Collection (spec #580, Collie's part): a Run's Key-value store
 # (#791).

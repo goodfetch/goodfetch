@@ -95,6 +95,27 @@ pub struct AuditEntry {
     /// was sent to, never a secret's value.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub details: Value,
+    /// Whether its hash chains it to the entry before it: `false` for an
+    /// entry of a Run whose `security.audit_chain` was off, whose hash is
+    /// `SHA-256` of 32 zero bytes and its own canonical JSON alone, and
+    /// which `audit verify` steps over while it verifies the chain around
+    /// it; left out when chained.
+    #[serde(default = "chained", skip_serializing_if = "is_chained")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub chained: bool,
+}
+
+/// An entry's `chained` when left out.
+const fn chained() -> bool {
+    true
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes the field by reference"
+)]
+const fn is_chained(chained: &bool) -> bool {
+    *chained
 }
 
 /// What `audit.verify` takes: nothing.

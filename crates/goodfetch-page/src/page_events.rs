@@ -445,20 +445,27 @@ impl PageEvents {
         Some((loader, response, received))
     }
 
-    /// The response of the document the main frame committed last, and when
-    /// it arrived, unless it was judged already, as a navigation no call
+    /// The response of the document the main frame committed last, when it
+    /// arrived, and the URL its navigation was first sent to, before any
+    /// redirect, unless it was judged already, as a navigation no call
     /// waited for leaves it: it is judged from now. None for the page's
     /// first, blank document.
-    pub(crate) fn take_unjudged(&self) -> Option<(PageResponse, SystemTime)> {
+    pub(crate) fn take_unjudged(&self) -> Option<(PageResponse, SystemTime, String)> {
         let loader = self.shared.document.borrow().loader()?.clone();
         let mut state = lock(&self.shared.state);
         if state.judged.as_ref() == Some(&loader) {
             return None;
         }
         let tracked = state.requests.get(&loader)?;
-        let unjudged = tracked.response.clone().zip(tracked.answered_at)?;
+        let (response, received) = tracked.response.clone().zip(tracked.answered_at)?;
+        let requested = tracked
+            .request
+            .redirect_chain
+            .first()
+            .unwrap_or(&tracked.request.url)
+            .clone();
         state.judged = Some(loader);
-        Some(unjudged)
+        Some((response, received, requested))
     }
 
     /// Arms a listener for `event` now: the event is published while it

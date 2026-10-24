@@ -38,7 +38,9 @@ pub(super) fn with_wait_handlers(contribution: Contribution, pages: &Pages) -> C
 }
 
 /// Adds the handlers of the waits on the page's requests, URL and load
-/// states, each armed when its call arrives.
+/// states, each armed when its call arrives. Each judges the document a
+/// navigation it waited for reached, its Block cause and its Page check,
+/// raised by that wait (ADRs 0006 and 0092).
 fn with_armed_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
     let (requesting, responding, locating, loading) =
         (pages.clone(), pages.clone(), pages.clone(), pages.clone());
@@ -52,7 +54,13 @@ fn with_armed_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok(events.wait_for_request(pattern, deadline))
                 });
-                async move { pages.waited(&params.page_id, armed?).await }
+                async move {
+                    let request = Box::pin(pages.waited(&params.page_id, armed?)).await?;
+                    pages
+                        .judge_waited(&params.page_id, PAGE_WAIT_FOR_REQUEST.name)
+                        .await?;
+                    Ok::<_, CallError>(request)
+                }
             },
         ))
         .with_handler(Handler::new(
@@ -64,7 +72,13 @@ fn with_armed_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok(events.wait_for_response(pattern, deadline))
                 });
-                async move { pages.waited(&params.page_id, armed?).await }
+                async move {
+                    let response = Box::pin(pages.waited(&params.page_id, armed?)).await?;
+                    pages
+                        .judge_waited(&params.page_id, PAGE_WAIT_FOR_RESPONSE.name)
+                        .await?;
+                    Ok::<_, CallError>(response)
+                }
             },
         ))
         .with_handler(Handler::new(
@@ -100,7 +114,13 @@ fn with_armed_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok(events.wait_for_load_state(params.state.unwrap_or_default(), deadline))
                 });
-                async move { pages.waited(&params.page_id, armed?).await }
+                async move {
+                    let reached = Box::pin(pages.waited(&params.page_id, armed?)).await?;
+                    pages
+                        .judge_waited(&params.page_id, PAGE_WAIT_FOR_LOAD_STATE.name)
+                        .await?;
+                    Ok::<_, CallError>(reached)
+                }
             },
         ))
 }

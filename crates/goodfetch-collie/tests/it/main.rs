@@ -60,6 +60,7 @@ mod proxy_limits;
 mod request_kinds;
 mod run;
 mod secrets;
+mod security_controls;
 mod service_manager;
 mod sessions;
 mod settings_flags;

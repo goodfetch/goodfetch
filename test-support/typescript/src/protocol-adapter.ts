@@ -14,6 +14,8 @@
 import type {
   CollieEventPayloads,
   CollieOperationTypes,
+  NeedsYouChange,
+  NeedsYouItem,
   OperationTypes,
   Product,
 } from "@goodfetch/collie-client/generated";
@@ -189,6 +191,8 @@ export class ProtocolAdapter<
   #floor = 0;
   /** Each Run's axes as `run.axes_changed` last reported them, which a resync gives. */
   readonly #runs = new Map<string, unknown>();
+  /** Each "Needs you" item `needs_you.changed` left listed, by ID, which a resync gives. */
+  readonly #needsYou = new Map<string, NeedsYouItem>();
   /** How many engine instances the adapter has stood for: `restart()` starts another. */
   #instances = 1;
   /** Whether the test that made it ended: nothing reaches a Client after that. */
@@ -252,12 +256,35 @@ export class ProtocolAdapter<
     if (name === "run.axes_changed" && runId !== undefined) {
       this.#runs.set(runId, data);
     }
+    if (name === "needs_you.changed") {
+      this.#foldNeedsYou(data);
+    }
     for (const connection of this.#connections) {
       for (const subscription of connection.subscriptions.values()) {
         subscription.queue.push(envelope);
         this.#flush(connection, subscription);
       }
     }
+  }
+
+  /** Folds a `needs_you.changed` payload, which its schema has checked, into the items a resync gives. */
+  #foldNeedsYou(data: unknown): void {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- push() checked the payload against the catalog's schema of `needs_you.changed` first.
+    const change = data as NeedsYouChange;
+    if (change.change === "listed") {
+      this.#needsYou.set(change.item.id, change.item);
+    } else {
+      this.#needsYou.delete(change.id);
+    }
+  }
+
+  /** Every item of "Needs you", as a resync gives them: the longest waiting first, then by ID. */
+  #needsYouItems(): NeedsYouItem[] {
+    return [...this.#needsYou.values()].toSorted((left, right) =>
+      left.since === right.since
+        ? left.id.localeCompare(right.id)
+        : left.since.localeCompare(right.since),
+    );
   }
 
   #eventProblems(name: string, data: unknown, position: number): Problems {
@@ -285,7 +312,7 @@ export class ProtocolAdapter<
   /**
    * Stands for a new engine instance, as a restarted Daemon: closes every
    * open Connection, names a new engine instance in `hello` and forgets
-   * every position and Run pushed, so positions count from 1 again and a
+   * every position, Run and "Needs you" item pushed, so positions count from 1 again and a
    * subscription that resumes after one of the previous instance starts
    * with `events.resync`, then the stream.
    */
@@ -296,6 +323,7 @@ export class ProtocolAdapter<
     this.#last = 0;
     this.#floor = 0;
     this.#runs.clear();
+    this.#needsYou.clear();
   }
 
   /**
@@ -498,7 +526,7 @@ export class ProtocolAdapter<
         queue.push({
           position: this.#last,
           event: RESYNC,
-          data: { runs: [...this.#runs.values()] },
+          data: { runs: [...this.#runs.values()], needs_you: this.#needsYouItems() },
         });
       }
     }

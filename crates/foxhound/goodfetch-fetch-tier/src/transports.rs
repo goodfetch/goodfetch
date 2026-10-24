@@ -1,10 +1,13 @@
-//! The HTTP transports (spec #579; ADRs 0060, 0118, 0127): reqwest in
-//! `standard` and `identified` Sessions, filling the driver's `send(hop)`.
-//! It opens its own sockets (ADR 0060's one exception for a transport),
-//! names hosts through the engine's [`Dns`] (the `network.resolve` mapping,
-//! then the engine's resolver) and verifies certificates under the
-//! engine's [`Trust`]. It follows no redirect, resends nothing, decodes no
-//! content coding and sets no timeout of its own: the driver does each.
+//! The HTTP transports (spec #579; ADRs 0020, 0060, 0118, 0127), each
+//! filling the driver's `send(hop)`: reqwest in `standard` and
+//! `identified` Sessions, here, and `wreq` in HTTP-only `stealth` Sessions
+//! (`impersonated`), which sends its Identity profile's TLS and HTTP/2
+//! fingerprint. Each opens its own sockets (ADR 0060's one exception for a
+//! transport), names hosts through the engine's [`Dns`] (the
+//! `network.resolve` mapping, then the engine's resolver) and verifies
+//! certificates under the engine's [`Trust`]. Neither follows a redirect,
+//! resends anything, decodes a content coding or sets a timeout of its
+//! own: the driver does each.
 //!
 //! **Connections (ADR 0118):** it keeps a pool of idle connections for
 //! [`Reuse::Allowed`] hops and opens a new one, kept for nothing, for
@@ -46,9 +49,13 @@ use url::Url;
 
 use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
 
-/// What a reqwest transport reaches and trusts.
+mod impersonated;
+
+pub use impersonated::Wreq;
+
+/// What a transport reaches and trusts.
 #[derive(Clone, Debug)]
-pub struct ReqwestConfig {
+pub struct TransportConfig {
     /// What each host's certificate may chain to beside Mozilla's roots.
     pub trust: Trust,
     /// The Session's proxy, whose connections reach it in place of the
@@ -62,14 +69,14 @@ pub struct ReqwestConfig {
     pub clock: Clock,
 }
 
-/// Why a reqwest transport could not be built.
+/// Why a transport could not be built.
 #[derive(Debug, thiserror::Error)]
-pub enum ReqwestUnavailable {
+pub enum TransportUnavailable {
     /// The system's resolver configuration could not be read.
     #[error(transparent)]
     Resolver(#[from] ConfigurationUnreadable),
-    /// reqwest refused the configuration, such as a proxy URL it does not
-    /// take.
+    /// Its library refused the configuration, such as a proxy URL it does
+    /// not take.
     #[error("the HTTP transport could not be built: {0}")]
     Client(String),
 }
@@ -98,24 +105,11 @@ impl Reqwest {
     ///
     /// # Errors
     ///
-    /// [`ReqwestUnavailable`] when the system's resolver configuration
+    /// [`TransportUnavailable`] when the system's resolver configuration
     /// cannot be read or reqwest refuses the proxy.
-    pub fn new(config: ReqwestConfig) -> Result<Self, ReqwestUnavailable> {
-        let dns = Dns::new(
-            HostMapping::new(
-                config
-                    .resolve
-                    .iter()
-                    .map(|(host, addresses)| (host.as_str(), addresses.clone())),
-            ),
-            ResolverConfiguration::system()?,
-            config.clock,
-        );
-        let resolver = Arc::new(Resolver {
-            dns,
-            judged: config.proxy.is_none().then(|| config.egress.clone()),
-        });
-        let clients = |alpn: &[&[u8]]| -> Result<Clients, ReqwestUnavailable> {
+    pub fn new(config: TransportConfig) -> Result<Self, TransportUnavailable> {
+        let resolver = Arc::new(Resolver::new(&config)?);
+        let clients = |alpn: &[&[u8]]| -> Result<Clients, TransportUnavailable> {
             let mut tls = config.trust.client_config();
             tls.alpn_protocols = alpn.iter().map(|protocol| protocol.to_vec()).collect();
             let client = |pooled: bool| {
@@ -141,11 +135,11 @@ impl Reqwest {
                 let builder = match &config.proxy {
                     Some(proxy) => builder.proxy(
                         reqwest::Proxy::all(proxy.as_str())
-                            .map_err(|error| ReqwestUnavailable::Client(error.to_string()))?,
+                            .map_err(|error| TransportUnavailable::Client(error.to_string()))?,
                     ),
                     None => builder.no_proxy(),
                 };
-                build(builder).map_err(|error| ReqwestUnavailable::Client(error.to_string()))
+                build(builder).map_err(|error| TransportUnavailable::Client(error.to_string()))
             };
             Ok(Clients {
                 pooled: client(true)?,
@@ -356,18 +350,40 @@ struct Resolver {
     judged: Option<Policy>,
 }
 
-impl reqwest::dns::Resolve for Resolver {
-    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+impl Resolver {
+    /// The resolver of a transport under `config`.
+    fn new(config: &TransportConfig) -> Result<Self, TransportUnavailable> {
+        let dns = Dns::new(
+            HostMapping::new(
+                config
+                    .resolve
+                    .iter()
+                    .map(|(host, addresses)| (host.as_str(), addresses.clone())),
+            ),
+            ResolverConfiguration::system()?,
+            config.clock,
+        );
+        Ok(Self {
+            dns,
+            judged: config.proxy.is_none().then(|| config.egress.clone()),
+        })
+    }
+
+    /// The addresses of `name`, judged when the connection goes direct and
+    /// the resolver answered them.
+    fn addresses(
+        &self,
+        name: String,
+    ) -> impl Future<Output = Result<Vec<SocketAddr>, ResolveFailure>> + Send + 'static {
         let dns = self.dns.clone();
         let judged = self.judged.clone();
-        let name = name.as_str().to_owned();
-        Box::pin(async move {
+        async move {
             let Ok(Resolution::Addresses {
                 addresses,
                 answered_by,
             }) = dns.lookup(&name, Route::Direct).await
             else {
-                return Err(ResolveFailure::NotResolved.into());
+                return Err(ResolveFailure::NotResolved);
             };
             let addresses: Vec<SocketAddr> = addresses
                 .into_iter()
@@ -377,17 +393,39 @@ impl reqwest::dns::Resolve for Resolver {
                 egress::judge_addresses(&name, &addresses, &policy)
                     .map_err(ResolveFailure::Egress)?;
             }
-            Ok(Box::new(addresses.into_iter()) as reqwest::dns::Addrs)
-        })
+            Ok(addresses)
+        }
+    }
+}
+
+impl reqwest::dns::Resolve for Resolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let addresses = self.addresses(name.as_str().to_owned());
+        Box::pin(async move { Ok(Box::new(addresses.await?.into_iter()) as reqwest::dns::Addrs) })
     }
 }
 
 /// The failure `error` is, read down its chain of sources: the first one
-/// a variant names decides; anything else is the generic case.
+/// a variant names decides; anything else is the generic case. reqwest's
+/// translation point.
 pub(crate) fn classify(error: &(dyn Error + 'static)) -> TransportFailure {
+    walk(error, named)
+}
+
+/// The failure `error` is, read down its chain of sources with
+/// `library`'s names for its own errors beside those every transport
+/// shares: the first one a variant names decides; anything else is the
+/// generic case.
+fn walk(
+    error: &(dyn Error + 'static),
+    library: fn(&(dyn Error + 'static)) -> Option<TransportFailure>,
+) -> TransportFailure {
     let mut next = Some(error);
     while let Some(error) = next {
-        if let Some(failure) = named(error) {
+        if let Some(failure) = shared(error)
+            .or_else(|| library(error))
+            .or_else(|| io_failure(error))
+        {
             return failure;
         }
         next = match error.downcast_ref::<std::io::Error>() {
@@ -399,17 +437,21 @@ pub(crate) fn classify(error: &(dyn Error + 'static)) -> TransportFailure {
     TransportFailure::Other
 }
 
-/// The failure one error of a chain names, if it names one.
-fn named(error: &(dyn Error + 'static)) -> Option<TransportFailure> {
+/// The failure one error of a chain names among those every transport
+/// meets: its resolver's, and a proxy's answer to the tunnel request.
+fn shared(error: &(dyn Error + 'static)) -> Option<TransportFailure> {
     if let Some(resolve) = error.downcast_ref::<ResolveFailure>() {
         return Some(match resolve {
             ResolveFailure::NotResolved => TransportFailure::NameNotResolved,
             ResolveFailure::Egress(refused) => TransportFailure::Egress(refused.clone()),
         });
     }
-    if let Some(tunnel) = tunnel_failure(&error.to_string()) {
-        return Some(tunnel);
-    }
+    tunnel_failure(&error.to_string())
+}
+
+/// The failure one error of reqwest's chain names, if it names one:
+/// rustls's, h2's and hyper's.
+fn named(error: &(dyn Error + 'static)) -> Option<TransportFailure> {
     if let Some(tls) = error.downcast_ref::<rustls::Error>() {
         return Some(match tls {
             rustls::Error::InvalidCertificate(_) => TransportFailure::CertificateInvalid,
@@ -436,24 +478,28 @@ fn named(error: &(dyn Error + 'static)) -> Option<TransportFailure> {
             return Some(TransportFailure::ConnectionClosed);
         }
     }
-    if let Some(io) = error.downcast_ref::<std::io::Error>()
-        && io.get_ref().is_none()
-    {
-        return match io.kind() {
-            std::io::ErrorKind::ConnectionRefused => Some(TransportFailure::ConnectionRefused),
-            std::io::ErrorKind::TimedOut => Some(TransportFailure::ConnectionTimedOut),
-            std::io::ErrorKind::ConnectionReset => Some(TransportFailure::ConnectionReset),
-            std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::ConnectionAborted => {
-                Some(TransportFailure::ConnectionClosed)
-            }
-            _ => None,
-        };
-    }
     None
 }
 
+/// The failure an OS error of a chain names, if it names one.
+fn io_failure(error: &(dyn Error + 'static)) -> Option<TransportFailure> {
+    let io = error.downcast_ref::<std::io::Error>()?;
+    if io.get_ref().is_some() {
+        return None;
+    }
+    match io.kind() {
+        std::io::ErrorKind::ConnectionRefused => Some(TransportFailure::ConnectionRefused),
+        std::io::ErrorKind::TimedOut => Some(TransportFailure::ConnectionTimedOut),
+        std::io::ErrorKind::ConnectionReset => Some(TransportFailure::ConnectionReset),
+        std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::ConnectionAborted => {
+            Some(TransportFailure::ConnectionClosed)
+        }
+        _ => None,
+    }
+}
+
 /// The proxy's answer to the tunnel request, as hyper-util's private
-/// tunnel error writes it.
+/// tunnel error writes it, and `wreq`'s, which writes the same words.
 fn tunnel_failure(text: &str) -> Option<TransportFailure> {
     match text.strip_prefix("tunnel error: ")? {
         "unsuccessful" => Some(TransportFailure::TunnelRefused),

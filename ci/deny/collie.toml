@@ -39,6 +39,21 @@ reason = "exists for wreq, which only Foxhound uses (ADR 0124)"
 crate = "http2"
 reason = "wreq's HTTP/2 fork, which only Foxhound uses (ADR 0124)"
 
+# What wreq and wreq-util bring that nothing else uses: wreq's connection
+# cache, wreq-util's options builder, and the Brotli crate wreq-util reads
+# compressed TLS certificates with (spec #579).
+[[bans.deny]]
+crate = "lru"
+reason = "exists in the graph for wreq, which only Foxhound uses (spec #579, ADR 0124)"
+
+[[bans.deny]]
+crate = "typed-builder"
+reason = "exists in the graph for wreq-util, which only Foxhound uses (spec #579, ADR 0124)"
+
+[[bans.deny]]
+crate = "brotli"
+reason = "exists in the graph for wreq-util's certificate compression, which only Foxhound uses (spec #579, ADR 0124)"
+
 # BoringSSL, through the fork wreq uses, only for the TLS relay, which stays
 # in Collie's Rust SDK crate (ADR 0124): each under the listed direct parents
 # only.

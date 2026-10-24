@@ -10,15 +10,15 @@
 use std::time::Duration;
 
 use goodfetch_protocol::connection::CANCEL;
-use goodfetch_protocol::events::{CREDIT, EVENTS, EVENTS_SUBSCRIBE};
+use goodfetch_protocol::events::{CREDIT, EVENTS_SUBSCRIBE};
 use goodfetch_protocol::page::events::PAGE_ON;
 use goodfetch_protocol::page::tabs::{PAGE_CLOSE, SESSION_ON, SESSION_PAGES};
 use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_GOTO};
 use serde_json::{Value, json};
 
+use super::exchange::Exchange;
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
-use crate::protocol::target::BROWSER_DEADLINE;
 
 /// How long a listener armed late is watched for a popup it must not get.
 const QUIET: Duration = Duration::from_secs(2);
@@ -53,84 +53,6 @@ impl Case {
     }
 }
 
-/// The Connection as the case reads it: the events its subscription
-/// delivered so far, and the messages read while waiting for another.
-struct Exchange<'connection> {
-    connection: &'connection mut Connection,
-    subscription: i64,
-    events: Vec<Value>,
-}
-
-impl Exchange<'_> {
-    /// Takes in one message within `deadline`: a batch's events, or else
-    /// the message.
-    fn read(&mut self, deadline: Duration) -> Result<Option<Value>, Gone> {
-        let message = self.connection.next_within(deadline)?;
-        if message["method"] == json!(EVENTS) {
-            if message["params"]["id"] == json!(self.subscription) {
-                self.events.extend(
-                    message["params"]["events"]
-                        .as_array()
-                        .cloned()
-                        .unwrap_or_default(),
-                );
-            }
-            return Ok(None);
-        }
-        Ok(Some(message))
-    }
-
-    fn call(&mut self, method: &str, params: &Value) -> Result<Value, Gone> {
-        let id = self.connection.request(method, params)?;
-        self.answer(id)
-    }
-
-    fn answer(&mut self, id: i64) -> Result<Value, Gone> {
-        loop {
-            if let Some(message) = self.read(BROWSER_DEADLINE)?
-                && message.get("method").is_none()
-                && message["id"] == json!(id)
-            {
-                return Ok(message);
-            }
-        }
-    }
-
-    /// The data of the first event `name` whose data `holds`, read until it
-    /// arrives.
-    fn until(&mut self, name: &str, holds: impl Fn(&Value) -> bool) -> Result<Value, Gone> {
-        loop {
-            if let Some(event) = self
-                .events
-                .iter()
-                .find(|event| event["event"] == json!(name) && holds(&event["data"]))
-            {
-                return Ok(event["data"].clone());
-            }
-            self.read(BROWSER_DEADLINE)?;
-        }
-    }
-
-    /// Reads until the target stays silent for `quiet`, taking in what
-    /// arrives.
-    fn idle(&mut self, quiet: Duration) -> Result<(), Gone> {
-        loop {
-            match self.read(quiet) {
-                Ok(_) => {}
-                Err(Gone::Silent(_)) => return Ok(()),
-                Err(gone) => return Err(gone),
-            }
-        }
-    }
-
-    fn count(&self, name: &str) -> usize {
-        self.events
-            .iter()
-            .filter(|event| event["event"] == json!(name))
-            .count()
-    }
-}
-
 /// A listener armed for `popup` before the click that opens one catches
 /// it; one armed after it opened does not, and `session.pages` lists it.
 fn armed_before(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
@@ -149,11 +71,7 @@ fn armed_before(connection: &mut Connection, site: &Site, checks: &mut Checks) -
     let (page, session) = (json!(opener.page_id), json!(opener.session_id));
     let subscription = connection.request(EVENTS_SUBSCRIBE.name, &json!({}))?;
     connection.notify(CREDIT, &json!({ "id": subscription, "credits": 10_000 }))?;
-    let mut exchange = Exchange {
-        connection,
-        subscription,
-        events: Vec::new(),
-    };
+    let mut exchange = Exchange::new(connection).with_events(subscription);
     let went = exchange.call(
         PAGE_GOTO.name,
         &json!({ "page_id": page, "url": format!("{origin}/popup") }),

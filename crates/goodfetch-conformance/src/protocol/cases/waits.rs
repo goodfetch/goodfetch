@@ -24,9 +24,9 @@ use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_GOTO};
 use goodfetch_protocol::settings::TIMEOUT_WAIT;
 use serde_json::{Value, json};
 
+use super::exchange::Exchange;
 use super::{Checks, Site, clean_up, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
-use crate::protocol::target::BROWSER_DEADLINE;
 
 /// `timeout.wait` where a case expects its waits to pass: 10 s.
 const LONG_WAIT: u64 = 10_000;
@@ -81,10 +81,7 @@ impl Case {
         site: &Site,
         checks: &mut Checks,
     ) -> Result<(), Gone> {
-        let mut exchange = Exchange {
-            connection,
-            answers: Vec::new(),
-        };
+        let mut exchange = Exchange::new(connection);
         match self {
             Self::UrlWithinTheDocument => url_within_the_document(&mut exchange, site, checks),
             Self::NetworkIdle => network_idle(&mut exchange, site, checks),
@@ -97,51 +94,11 @@ impl Case {
     }
 }
 
-/// The Connection as these cases read it: several calls in flight at once,
-/// each answer kept until its call's is asked for.
-struct Exchange<'connection> {
-    connection: &'connection mut Connection,
-    answers: Vec<Value>,
-}
-
+/// What these cases do on the Connection besides reading it.
 impl Exchange<'_> {
-    fn request(&mut self, method: &str, params: &Value) -> Result<i64, Gone> {
-        self.connection.request(method, params)
-    }
-
-    /// The answer to the request `id`, read within `deadline`.
-    fn answer_within(&mut self, id: i64, deadline: Duration) -> Result<Value, Gone> {
-        loop {
-            if let Some(at) = self
-                .answers
-                .iter()
-                .position(|answer| answer["id"] == json!(id))
-            {
-                return Ok(self.answers.remove(at));
-            }
-            let message = self.connection.next_within(deadline)?;
-            if message.get("method").is_none() {
-                self.answers.push(message);
-            }
-        }
-    }
-
-    fn answer(&mut self, id: i64) -> Result<Value, Gone> {
-        self.answer_within(id, BROWSER_DEADLINE)
-    }
-
     /// The answer to the request `id` if it comes within [`QUIET`].
     fn answered_at_once(&mut self, id: i64) -> Result<Option<Value>, Gone> {
-        match self.answer_within(id, QUIET) {
-            Ok(answer) => Ok(Some(answer)),
-            Err(Gone::Silent(_)) => Ok(None),
-            Err(gone) => Err(gone),
-        }
-    }
-
-    fn call(&mut self, method: &str, params: &Value) -> Result<Value, Gone> {
-        let id = self.request(method, params)?;
-        self.answer(id)
+        self.answered_within(id, QUIET)
     }
 
     /// The value `page.evaluate` of `function` answers on `page`.

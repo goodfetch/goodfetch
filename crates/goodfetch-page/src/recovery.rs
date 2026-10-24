@@ -13,9 +13,15 @@
 //!
 //! The built-in detector reads a login page from two signs: a navigation
 //! redirected to a login path (a last path segment such as `login` or
-//! `sign-in`), or a page outside a login path showing one password field
-//! that takes no new password. A navigation sent to a login path itself is
-//! the program going to log in, never a lost login.
+//! `sign-in`), or, on a Session that may hold a login, a page outside a
+//! login path showing one password field that takes no new password. A
+//! navigation sent to a login path itself is the program going to log in,
+//! never a lost login, and so is a password field on a fresh Session, which
+//! holds no login until the program logs in itself.
+//!
+//! A page reached by anything else, such as a click, a form, a script, a
+//! popup's opener or a redirect, is judged the same way by the call that
+//! waited for its navigation, or by the page's next call.
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::runs::Run;
@@ -78,6 +84,18 @@ impl Declared {
     }
 }
 
+/// How a Session's pages are judged.
+#[derive(Debug)]
+pub(crate) struct Checking {
+    /// Its Page check, when it declares one.
+    pub(crate) declared: Option<Declared>,
+    /// Whether it may hold a login: it opened from a Session source. A
+    /// fresh one holds none until the program logs in itself, so a
+    /// password field it shows is the program's own way in, never a lost
+    /// login (ADR 0006's built-in detector).
+    pub(crate) holds_login: bool,
+}
+
 /// One judgement: the page, its Session and Run, its Page check if it
 /// declares one, and the URL its navigation was sent to, when it named one.
 pub(crate) struct Judging<'a> {
@@ -85,12 +103,17 @@ pub(crate) struct Judging<'a> {
     pub(crate) session: &'a SessionId,
     pub(crate) page_id: &'a PageId,
     pub(crate) driver: &'a PageDriver,
-    pub(crate) declared: Option<&'a Declared>,
+    pub(crate) checking: &'a Checking,
     pub(crate) requested: Option<&'a str>,
-    /// The operation whose navigation is judged, which names a failure to
-    /// read the document.
-    pub(crate) operation: &'static str,
+    /// The operation that waited for the judged navigation, which names a
+    /// failure to read the document; none for the page's next call, for
+    /// which such a failure reads as a document showing nothing.
+    pub(crate) operation: Option<&'static str>,
 }
+
+/// The operation a read for the page's next call is named by, whose
+/// failure no call sees.
+const NEXT_CALL: &str = "page";
 
 /// What the document showed the Page check's read.
 #[derive(Default, Deserialize)]
@@ -110,7 +133,7 @@ struct Read {
 ///
 /// Dropping the future may lose a Provenance entry.
 pub(crate) async fn judge(judging: &Judging<'_>, response: &PageResponse) -> Result<(), CallError> {
-    match judging.declared {
+    match &judging.checking.declared {
         Some(declared) => by_page_check(judging, declared, response).await,
         None => by_built_in(judging, response).await,
     }
@@ -182,7 +205,7 @@ async fn by_built_in(judging: &Judging<'_>, response: &PageResponse) -> Result<(
             .requested
             .is_some_and(|requested| !same_document(requested, &response.url))
     } else {
-        read(judging, &[]).await?.password
+        judging.checking.holds_login && read(judging, &[]).await?.password
     };
     trace::provenance(
         judging.run,
@@ -212,8 +235,13 @@ async fn read(judging: &Judging<'_>, matches: &[&PageMatch]) -> Result<Read, Cal
     let argument = json!({ "matches": matches });
     let read = judging
         .driver
-        .read_in_page(READ, argument, judging.operation)
-        .await?;
+        .read_in_page(READ, argument, judging.operation.unwrap_or(NEXT_CALL))
+        .await;
+    let read = match (read, judging.operation) {
+        (Ok(read), _) => read,
+        (Err(failure), Some(_)) => return Err(failure),
+        (Err(_), None) => None,
+    };
     Ok(read
         .and_then(|value: Value| serde_json::from_value(value).ok())
         .unwrap_or_default())

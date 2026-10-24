@@ -15,11 +15,12 @@
 //! behind a loopback relay that charges every byte to its Run under the
 //! proxy's kind; `proxy.server` and `proxy.provider` together are refused.
 
+mod bypass;
 mod limits;
 mod party;
 mod relay;
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,7 +28,7 @@ use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 use goodfetch_engine::CallError;
-use goodfetch_engine::dns::{Dns, HostMapping, Resolution, ResolverConfiguration, Route};
+use goodfetch_engine::http_client::{self, Resolve};
 use goodfetch_engine::run::secret_error;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::secrets::Purpose;
@@ -39,12 +40,12 @@ use goodfetch_protocol::page::proxy::{
     PROXY_USERNAME, ProxyAuthFailedDetails, ProxyKind, ProxyProviderConfiguration, ProxyScheme,
     ProxyServer, ProxyUnavailableDetails,
 };
+use goodfetch_protocol::politeness::POLITENESS_PROXY_CONCURRENCY;
 use goodfetch_protocol::settings::{NETWORK_RESOLVE, SETTING_INVALID, SettingInvalidDetails};
-use secrecy::SecretString;
+use secrecy::{ExposeSecret as _, SecretString};
 
 use self::limits::ProxyLimits;
 pub(crate) use self::limits::{ProxyPermit, TABLES};
-pub use self::limits::{ProxyRule, TABLES as LIMITS_TABLES, key as limits_key};
 pub(crate) use self::party::{Answer, PROXY_STATUS, Party, party, proxy_error, refusal};
 use self::relay::{Mode, Relay};
 use crate::proxy_provider::{Chosen, ProxyDriver, ProxyUsage, Refusal, Wanted, list, priced};
@@ -169,6 +170,63 @@ fn refused(settings: &Resolved, refusal: &Refusal) -> CallError {
     }
 }
 
+/// The setting, `proxy.username` or `proxy.password`, whose value is longer
+/// than the 255 bytes a SOCKS5 proxy takes it in (RFC 1929); none when both
+/// fit.
+fn too_long_for_socks5(username: &str, password: Option<&SecretString>) -> Option<&'static str> {
+    const MOST: usize = u8::MAX as usize;
+    if username.len() > MOST {
+        Some(PROXY_USERNAME.name)
+    } else if password.is_some_and(|password| password.expose_secret().len() > MOST) {
+        Some(PROXY_PASSWORD.name)
+    } else {
+        None
+    }
+}
+
+/// `setting_invalid` for credentials a SOCKS5 proxy cannot take, set as
+/// `key` in `settings`, if `username` or `password` is too long.
+fn fits_socks5(
+    settings: &Resolved,
+    key: Option<&str>,
+    username: &str,
+    password: Option<&SecretString>,
+) -> Result<(), CallError> {
+    match too_long_for_socks5(username, password) {
+        Some(long) => Err(invalid(
+            settings,
+            key.unwrap_or(long),
+            format!(
+                "a SOCKS5 proxy takes a username and a password of at most 255 bytes each (RFC 1929), and `{long}` is longer"
+            ),
+        )),
+        None => Ok(()),
+    }
+}
+
+/// How the relay relays the proxy a Proxy provider chose: SOCKS5 with its
+/// credentials, or as it is.
+///
+/// # Errors
+///
+/// `setting_invalid` for credentials too long for a SOCKS5 proxy.
+fn provided_mode(
+    settings: &Resolved,
+    chosen: &Chosen,
+    password: Option<&SecretString>,
+) -> Result<Mode, CallError> {
+    Ok(match (&chosen.username, chosen.server.scheme.is_socks()) {
+        (Some(username), true) => {
+            fits_socks5(settings, Some(PROXY_PROVIDERS.name), username, password)?;
+            Mode::Socks5 {
+                username: username.clone(),
+                password: password.cloned().unwrap_or_else(|| SecretString::from("")),
+            }
+        }
+        (_, socks) => Mode::AsItIs { http: !socks },
+    })
+}
+
 /// `setting_invalid` for `key`, whose value needs `needs`.
 fn needs(key: &str, needed: &str) -> CallError {
     CallError::new(
@@ -253,7 +311,8 @@ impl SessionProxy {
         };
         let relay = match (&username, server.scheme.is_socks()) {
             (Some(username), true) => {
-                let address = address_of(&server, settings, run).await?;
+                fits_socks5(settings, None, username, password.as_ref())?;
+                let address = address_of(&server, settings).await?;
                 let password = password.clone().unwrap_or_else(|| SecretString::from(""));
                 let mode = Mode::Socks5 {
                     username: username.clone(),
@@ -261,12 +320,14 @@ impl SessionProxy {
                 };
                 let relay = Relay::open(run, address, mode, None)
                     .await
-                    .map_err(|error| unavailable(&server, "", &error.to_string()))?;
+                    .map_err(|error| unavailable(&server, None, &error.to_string()))?;
                 Some(relay)
             }
             _ => None,
         };
-        let limits = ProxyLimits::open(settings, run, &server, username.as_deref()).await;
+        let limits = ProxyLimits::open(settings, run, &server, username.as_deref())
+            .await
+            .map_err(|reason| invalid(settings, POLITENESS_PROXY_CONCURRENCY.name, reason))?;
         Ok(Some(Self {
             server,
             bypass: text(PROXY_BYPASS.name),
@@ -346,20 +407,15 @@ impl SessionProxy {
             }
             _ => None,
         };
-        let address = address_of(&chosen.server, settings, run).await?;
-        let mode = match (&chosen.username, chosen.server.scheme.is_socks()) {
-            (Some(username), true) => Mode::Socks5 {
-                username: username.clone(),
-                password: password.clone().unwrap_or_else(|| SecretString::from("")),
-            },
-            (_, socks) => Mode::AsItIs { http: !socks },
-        };
+        let address = address_of(&chosen.server, settings).await?;
+        let mode = provided_mode(settings, &chosen, password.as_ref())?;
         let usage = Arc::new(ProxyUsage::new(run.clone(), chosen.kind, price));
         let relay = Relay::open(run, address, mode, Some(Arc::clone(&usage)))
             .await
-            .map_err(|error| unavailable(&chosen.server, "", &error.to_string()))?;
-        let limits =
-            ProxyLimits::open(settings, run, &chosen.server, chosen.username.as_deref()).await;
+            .map_err(|error| unavailable(&chosen.server, None, &error.to_string()))?;
+        let limits = ProxyLimits::open(settings, run, &chosen.server, chosen.username.as_deref())
+            .await
+            .map_err(|reason| invalid(settings, POLITENESS_PROXY_CONCURRENCY.name, reason))?;
         Ok(Self {
             limits,
             server: chosen.server.clone(),
@@ -469,7 +525,7 @@ impl SessionProxy {
     /// `proxy_unavailable` for a request to `url` that met `error`, the
     /// browser's network error or the proxy's own.
     pub(crate) fn unavailable(&self, url: &str, error: &str) -> CallError {
-        unavailable(&self.server, url, error)
+        unavailable(&self.server, Some(url), error)
     }
 
     /// `proxy_auth_failed` for a request to `url` the proxy answered with
@@ -515,6 +571,34 @@ impl SessionProxy {
         })
     }
 
+    /// Whether a request to `url` goes around the proxy, as its
+    /// `proxy.bypass` says.
+    pub(crate) fn bypasses(&self, url: &str) -> bool {
+        bypass::bypassed(self.bypass.as_deref(), url)
+    }
+
+    /// A response to `url` through the proxy, carrying the `Proxy-Status`
+    /// field `proxy_status`: one the proxy forwarded itself only for an
+    /// `http:` URL sent to an HTTP or HTTPS proxy and not around it, the
+    /// one case where the proxy's own member can be in the field.
+    pub(crate) fn response<'a>(&self, url: &str, proxy_status: Option<&'a str>) -> Answer<'a> {
+        let plain = url::Url::parse(url).is_ok_and(|url| url.scheme() == "http");
+        Answer::Response {
+            proxy_status,
+            forwarded: plain && !self.server.scheme.is_socks() && !self.bypasses(url),
+        }
+    }
+
+    /// Whether `answer`, with `status` for a response, is the proxy
+    /// refusing a request its plan does not admit, which lowers its learned
+    /// ceiling: never a failure while the relay cannot reach the proxy,
+    /// which is a proxy that is down.
+    pub(crate) fn refusal(&self, answer: Answer<'_>, status: Option<u16>) -> bool {
+        let down = matches!(answer, Answer::Failure { .. })
+            && self.relay.as_ref().is_some_and(Relay::unreachable);
+        !down && refusal(answer, status)
+    }
+
     /// Whether the proxy refused the Session's credentials on a connection
     /// the relay opened.
     pub(crate) fn refused_credentials(&self) -> bool {
@@ -523,48 +607,38 @@ impl SessionProxy {
 }
 
 /// The address of `server`'s host: an IP address as it is, a name from the
-/// Run's `network.resolve` mapping first, then the resolver (ADR 0059).
-async fn address_of(
-    server: &ProxyServer,
-    settings: &Resolved,
-    run: &Run,
-) -> Result<SocketAddr, CallError> {
-    if let Ok(ip) = server.host.parse::<IpAddr>() {
-        return Ok(SocketAddr::new(ip, server.port));
-    }
-    let mapping = settings.hosts(NETWORK_RESOLVE.name);
-    let configuration = ResolverConfiguration::system()
-        .map_err(|error| unavailable(server, "", &error.to_string()))?;
-    let dns = Dns::new(
-        HostMapping::new(
-            mapping
-                .iter()
-                .map(|(host, addresses)| (host.as_str(), addresses.clone())),
-        ),
-        configuration,
-        run.clock(),
-    );
-    match dns.lookup(&server.host, Route::Direct).await {
-        Ok(Resolution::Addresses { addresses, .. }) => Ok(SocketAddr::new(
-            *addresses
-                .first()
-                .expect("invariant: a resolution's addresses are never empty"),
-            server.port,
-        )),
-        Ok(Resolution::ByProxy) => Err(unavailable(server, "", "the proxy's host has no address")),
-        Err(error) => Err(unavailable(server, "", &error.to_string())),
-    }
+/// Run's `network.resolve` mapping first, then the system's resolver, as the
+/// engine's own requests resolve theirs ([`http_client::lookup`], whose
+/// lookup runs off the async workers), so no Session's open reads the
+/// system's resolver configuration.
+async fn address_of(server: &ProxyServer, settings: &Resolved) -> Result<SocketAddr, CallError> {
+    let mapping = settings
+        .hosts(NETWORK_RESOLVE.name)
+        .into_iter()
+        .fold(Resolve::new(), |mapping, (host, addresses)| {
+            mapping.with(host, addresses)
+        });
+    let addresses = http_client::lookup(&server.host, server.port, &mapping)
+        .await
+        .map_err(|_| unavailable(server, None, "the proxy's host has no address"))?;
+    Ok(*addresses
+        .first()
+        .expect("invariant: a lookup that answered has an address"))
 }
 
-/// `proxy_unavailable` for `server`, met by a request to `url`.
-fn unavailable(server: &ProxyServer, url: &str, error: &str) -> CallError {
+/// `proxy_unavailable` for `server`, met by a request to `url`, or by the
+/// Session's open when none.
+fn unavailable(server: &ProxyServer, url: Option<&str>, error: &str) -> CallError {
     CallError::new(
         &PROXY_UNAVAILABLE,
         format!("the proxy {server} is unavailable: {error}"),
         &ProxyUnavailableDetails {
             proxy: server.to_string(),
-            url: url.to_owned(),
+            url: url.map(str::to_owned),
             error: Some(error.to_owned()),
         },
     )
 }
+
+#[cfg(test)]
+mod tests;

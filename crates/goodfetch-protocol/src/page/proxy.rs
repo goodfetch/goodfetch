@@ -253,9 +253,11 @@ pub struct ProxyUnavailableDetails {
     /// The proxy, `scheme://host:port`, without its credentials.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub proxy: String,
-    /// The URL the request went to.
+    /// The URL the request went to; none when the proxy failed the
+    /// Session's open, before any request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub url: String,
+    pub url: Option<String>,
     /// The browser's network error, such as
     /// `net::ERR_TUNNEL_CONNECTION_FAILED`, or the proxy's own error its
     /// `Proxy-Status` names.

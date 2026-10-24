@@ -143,3 +143,6 @@ pub(super) async fn end_unsent(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

@@ -31,17 +31,21 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 
+use goodfetch_engine::CallError;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::{
     Ending, Hold, PermitRule, Politeness, PolitenessError, PolitenessTables, Verdict, milliseconds,
     moment,
 };
 use goodfetch_engine::settings::Resolved;
+use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::settings::{
     POLITENESS_BACKOFF_ENABLED, POLITENESS_BACKOFF_INITIAL, POLITENESS_BACKOFF_MAX,
     POLITENESS_DOMAIN_CONCURRENCY, POLITENESS_DOMAIN_DELAY, POLITENESS_RETRY_AFTER_MAX,
 };
+use goodfetch_protocol::settings::{SETTING_NOT_APPLICABLE, SettingNotApplicableDetails};
 use rusqlite::{Connection, OptionalExtension as _};
+use serde_json::Value;
 
 /// How long a lowered ceiling stays quiet before it grows back by one.
 pub(crate) const RECOVERY: Duration = Duration::from_secs(10);
@@ -250,6 +254,42 @@ fn duration_milliseconds(duration: Duration) -> i64 {
 /// (ADR 0118).
 pub fn longest_wait(settings: &Resolved) -> Option<Duration> {
     Waits::of(settings).longest()
+}
+
+/// Refuses a crawl whose `switch`, such as `fetch.hedge.enabled`, sends a
+/// second copy of a request beside its first while `settings` admit one
+/// request at a time to a domain, where the copy could never start (ADR
+/// 0086): the one rule hedges and `fetch.tier_race` share. A crawl that
+/// raises `politeness.domain.concurrency`, which is recorded as pressing
+/// harder, lifts it; the second copy then takes a slot of its own, as any
+/// crawl request does.
+///
+/// # Errors
+///
+/// `setting_not_applicable` naming `switch` and the layer that set it.
+pub fn refuse_second_copies(settings: &Resolved, switch: &Setting) -> Result<(), CallError> {
+    let Some(switched) = settings.get(switch.name) else {
+        return Ok(());
+    };
+    let one_at_a_time = settings
+        .count(POLITENESS_DOMAIN_CONCURRENCY.name)
+        .is_some_and(|concurrency| concurrency < 2);
+    if switched.value != Value::Bool(true) || !one_at_a_time {
+        return Ok(());
+    }
+    let name = switch.name;
+    let concurrency = POLITENESS_DOMAIN_CONCURRENCY.name;
+    Err(CallError::new(
+        &SETTING_NOT_APPLICABLE,
+        format!(
+            "`{name}` sends a second copy of a request to its domain, which `{concurrency}` admits only one request at a time to: raise `{concurrency}` to 2 or more, or switch `{name}` off."
+        ),
+        &SettingNotApplicableDetails {
+            key: name.to_owned(),
+            layer: switched.layer,
+            fix: format!("`{concurrency}` of 2 or more"),
+        },
+    ))
 }
 
 /// What a crawl waits for under its own settings.

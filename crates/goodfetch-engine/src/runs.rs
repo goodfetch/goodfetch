@@ -105,7 +105,7 @@ pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
 use crate::admission::{Admission, Gates};
-use crate::audit::AuditLog;
+use crate::audit::{AuditEvents, AuditLog};
 use crate::body;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
 use crate::client::Client;
@@ -191,6 +191,8 @@ pub(crate) struct RunsSetup {
     pub(crate) events: Events,
     /// The engine's settings, which each Run resolves its own under.
     pub(crate) settings: Settings,
+    /// Where the Audit log also sends each entry it appends.
+    pub(crate) audit_events: Option<AuditEvents>,
     /// The engine's Product, which a Run must not need more than for the
     /// engine to take its writer role (ADR 0098).
     pub(crate) product: Product,
@@ -1522,11 +1524,12 @@ impl Run {
         }
     }
 
-    /// Reads robots.txt from `copies` from now on, in place of its own
-    /// copies: a crawl's Run reads the copy shared across the user's runs
-    /// (ADR 0086). The first call sets it; a later one changes nothing.
-    pub fn share_robots_txt(&self, copies: Arc<dyn Copies>) {
-        let _ = self.shared.crawls_robots_txt.set(copies);
+    /// Reads robots.txt from the copies `copies` makes from now on, in
+    /// place of its own: a crawl's Run reads the copy shared across the
+    /// user's runs (ADR 0086). The first call makes them; a later one
+    /// changes nothing and makes none.
+    pub fn share_robots_txt(&self, copies: impl FnOnce() -> Arc<dyn Copies>) {
+        self.shared.crawls_robots_txt.get_or_init(copies);
     }
 
     /// Its owner, whose tasks and blocking work stop with the Run.
@@ -1957,7 +1960,11 @@ impl Runs {
                 keychain: setup.keychain.clone(),
                 home: setup.home.clone(),
             },
-            Arc::new(AuditLog::of(&setup.home, setup.ledger_vfs.clone())),
+            Arc::new(
+                AuditLog::of(&setup.home, setup.ledger_vfs.clone())
+                    .retained_under(setup.settings.files().clone(), setup.settings.product())
+                    .sending_to(setup.audit_events.clone()),
+            ),
             Arc::clone(&readers),
             setup.clock,
         );

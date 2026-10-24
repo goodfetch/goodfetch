@@ -79,6 +79,81 @@
       "description": "What a locator action answers once its input landed on its target:\nnothing, since no operation returns a handle on an element (ADR 0085).",
       "type": "object"
     },
+    "Actor": {
+      "description": "Who an entry's event was done by.",
+      "oneOf": [
+        {
+          "description": "A person, by the name their account or OS user goes by.",
+          "properties": {
+            "kind": {
+              "const": "person",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "Their name.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A named token (area 12), by its name.",
+          "properties": {
+            "kind": {
+              "const": "named_token",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "Its name.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A Client, by the surface its `hello` named.",
+          "properties": {
+            "kind": {
+              "const": "client_surface",
+              "type": "string"
+            },
+            "surface": {
+              "$ref": "#/$defs/Surface",
+              "arrived_in": "0.1",
+              "description": "Its surface."
+            }
+          },
+          "required": [
+            "kind",
+            "surface"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The engine itself.",
+          "properties": {
+            "kind": {
+              "const": "engine",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "AddInitScriptParams": {
       "additionalProperties": false,
       "description": "What `page.add_init_script` takes: the page, and the script's source and\nargument.",
@@ -271,6 +346,34 @@
     "Asked": {
       "const": true,
       "description": "The format, with its default options."
+    },
+    "AuditExportParams": {
+      "additionalProperties": false,
+      "description": "What `audit.export` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
+    "AuditExported": {
+      "description": "What `audit.export` answers.",
+      "properties": {
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "Every entry the log holds, in sequence, each with its hash: the\nanchor first when the log was pruned.",
+          "items": {
+            "$ref": "#/$defs/ExportedAuditEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "type": "object"
     },
     "AuditVerified": {
       "description": "What `audit.verify` answers.",
@@ -1677,6 +1780,87 @@
         "value",
         "layer",
         "weakens"
+      ],
+      "type": "object"
+    },
+    "ExportedAuditEntry": {
+      "description": "One entry of an exported Audit log, one line of its JSONL: the entry\nand the hash that chains it to the line before it.",
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Actor",
+          "arrived_in": "0.1",
+          "description": "Who did what it records."
+        },
+        "details": {
+          "arrived_in": "0.1",
+          "description": "What its kind records, such as a Secret reference and the domain it\nwas sent to, never a secret's value."
+        },
+        "hash": {
+          "arrived_in": "0.1",
+          "description": "`SHA-256(previous hash ‖ RFC 8785 canonical JSON of the entry)`, in\nlowercase hex; an anchor's is the last pruned entry's.",
+          "type": "string"
+        },
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "Its kind, a value of the shared type `audit_kind`.",
+          "type": "string"
+        },
+        "layer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsLayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The settings layer its event came from, such as an Operator policy\nthat switched a control off; none where no layer applies."
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run it happened in; none outside a Run."
+        },
+        "sequence": {
+          "arrived_in": "0.1",
+          "description": "Its place in the chain, from 1.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "surface": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Surface"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The surface the actor acted through, such as `console` for a person\nin the Console; none for the engine's own events."
+        },
+        "time": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it was recorded."
+        }
+      },
+      "required": [
+        "sequence",
+        "time",
+        "kind",
+        "actor",
+        "details",
+        "hash"
       ],
       "type": "object"
     },
@@ -6728,6 +6912,56 @@
       "description": "What `events.subscribe` answers when its subscription ends without the\nClient cancelling it: the engine stopped.",
       "type": "object"
     },
+    "Surface": {
+      "description": "The surface a `hello` comes from (ADR 0024).",
+      "oneOf": [
+        {
+          "const": "sdk_typescript",
+          "description": "The TypeScript SDK.",
+          "type": "string"
+        },
+        {
+          "const": "sdk_python",
+          "description": "The Python SDK.",
+          "type": "string"
+        },
+        {
+          "const": "rust",
+          "description": "A Rust program, through a Product's crate.",
+          "type": "string"
+        },
+        {
+          "const": "cli",
+          "description": "The CLI, as a Client of its own Attached engine or of a Daemon.",
+          "type": "string"
+        },
+        {
+          "const": "mcp",
+          "description": "The MCP server, as a Client of a Daemon.",
+          "type": "string"
+        },
+        {
+          "const": "console",
+          "description": "The Console.",
+          "type": "string"
+        },
+        {
+          "const": "cloud",
+          "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).",
+          "type": "string"
+        },
+        {
+          "const": "browser_host",
+          "description": "A Browser host, which is never a Client and needs no Product\n(ADR 0095).",
+          "type": "string"
+        },
+        {
+          "const": "worker",
+          "description": "A Script sandbox worker.",
+          "type": "string"
+        }
+      ]
+    },
     "SystemInfo": {
       "description": "What the governor read and decided at one sample: the payload of\n`engine.system_info`.",
       "properties": {
@@ -9101,6 +9335,25 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
+      "description": "Exports the user's Audit log: every entry in sequence, each with the hash that chains it to the one before it, the anchor first when `audit.retention` pruned its beginning. The CLI's `audit export` writes them as JSONL, one entry per line, which `audit verify --file` verifies off the machine.",
+      "events": [],
+      "kind": "query",
+      "name": "audit.export",
+      "params": {
+        "$ref": "#/$defs/AuditExportParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/AuditExported"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
       "description": "Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows.",
       "events": [],
       "kind": "query",
@@ -10725,6 +10978,42 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": false,
+      "description": "Whether an engine process also sends each new Audit log entry, the hash with it, as an OpenTelemetry event to the OTLP/HTTP collector `otlp.logs_endpoint` names: off by default, and nothing is sent while `otlp.logs_endpoint` is unset. Read when the process starts; set in user configuration or an Operator policy only.",
+      "name": "audit.otlp",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only.",
+      "name": "audit.retention",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": [],
@@ -11739,6 +12028,23 @@
       "default": null,
       "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`.",
       "name": "ops.address",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "The OTLP/HTTP endpoint an engine process sends its OpenTelemetry events to, such as `http://localhost:4318/v1/logs`: today the Audit log's entries, while `audit.otlp` is on. Unset, the default, sends nothing, and nothing leaves the machine. Read when the process starts; set in user configuration or an Operator policy only.",
+      "name": "otlp.logs_endpoint",
       "product": "collie",
       "products": [
         "collie",
@@ -13199,6 +13505,20 @@
     }
   ],
   "shared_type_values": [
+    {
+      "arrived_in": "0.1",
+      "description": "The first entry of a pruned Audit log, in place of the entries `audit.retention` pruned: the last pruned sequence, its hash, from which the rest chains, and the time and layer of the pruning that left it.",
+      "name": "audit_log_anchor",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`audit.retention` pruned the Audit log's beginning: the last pruned sequence and its hash, which the anchor carries, and the retention, with the layer that set it.",
+      "name": "audit_log_pruned",
+      "product": "collie",
+      "type": "audit_kind"
+    },
     {
       "arrived_in": "0.1",
       "description": "The baseline a comparison needs was unavailable.",

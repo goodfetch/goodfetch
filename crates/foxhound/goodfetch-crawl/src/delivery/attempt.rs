@@ -9,23 +9,26 @@
 //! request's document on the Run's HTTP tier, under the same lease, and
 //! hands the handler the page served from it, closed once the attempt
 //! ends; a fetch that fails ends the attempt with its error, as a
-//! handler's failure would, and sends the handler nothing. Before it, the
-//! attempt reads its origin's robots.txt from the copy the user's runs
-//! share (ADR 0086); when that copy has none to use, the robots.txt is
+//! handler's failure would, and sends the handler nothing. The fetch is
+//! sent from the attempt's Session, whose identical requests in flight it
+//! may share, and hedged under its domain key's room (ADR 0040). Before
+//! it, the attempt reads its origin's robots.txt from the copy the user's
+//! runs share (ADR 0086), which the crawl's Run reads from then on in
+//! place of its own; when that copy has none to use, the robots.txt is
 //! fetched under the attempt's own Permit of its domain key, and the
 //! document then waits the domain's delay between starts, its start
 //! recorded for every run sharing the domain. What robots.txt allows is
 //! read here and applied by the gate of #883.
 
-use std::time::Duration;
+use std::sync::Arc;
 
+use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch};
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::Resolved;
-use goodfetch_fetch_tier::{FetchTiers, HttpTier};
+use goodfetch_fetch_tier::{FetchTiers, HttpTier, Requester};
 use goodfetch_frontier::{PageSeen, SharedRobotsTxt};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
@@ -55,99 +58,6 @@ const BLOCKED: &str = "blocked";
 /// scores its Session down; declared with the Page check (area 5).
 const PAGE_CHECK_FAILED: &str = "page_check_failed";
 
-/// How a crawl request's document is paced after its origin's robots.txt
-/// was fetched under its Permit: the domain's delay between starts, and
-/// the Politeness the Run shares, where the document's start is recorded.
-#[derive(Clone, Debug, Default)]
-pub(super) struct Pacing {
-    /// `politeness.domain.delay`, when set.
-    pub(super) delay: Option<Duration>,
-    /// The Politeness the Run shares, when it opened.
-    pub(super) politeness: Option<Politeness>,
-}
-
-/// The tiers a Run's crawl requests are fetched on: under `fetch.tier:
-/// http`, its HTTP tier; else none, and each handler is given its request
-/// alone.
-pub(super) struct Fetching<'a> {
-    pub(super) tiers: &'a FetchTiers,
-    pub(super) http: Option<&'a HttpTier>,
-    /// How a document fetched after its robots.txt is paced.
-    pub(super) pacing: Pacing,
-    /// The requests in flight, as the Run's progress shows them.
-    pub(super) in_flight: SharedInFlight,
-}
-
-impl Fetching<'_> {
-    /// What one attempt fetches its request's document with.
-    pub(super) fn served(&self) -> Option<(FetchTiers, HttpTier, Pacing)> {
-        self.http
-            .map(|http| (self.tiers.clone(), http.clone(), self.pacing.clone()))
-    }
-}
-
-/// Has the crawl's Run read robots.txt from the copy its user's runs
-/// share in the Politeness file, in place of a copy of its own (ADR
-/// 0086), and answers how a document fetched after its robots.txt is
-/// paced. A Politeness file that cannot open leaves the Run its own copy.
-pub(super) async fn share_robots_txt(run: &Run, settings: &Resolved) -> Pacing {
-    let delay = settings
-        .duration(POLITENESS_DOMAIN_DELAY.name)
-        .filter(|delay| !delay.is_zero());
-    match run.politeness(settings).await {
-        Ok((politeness, _)) => {
-            run.share_robots_txt(std::sync::Arc::new(SharedRobotsTxt::new(
-                politeness.clone(),
-                run.clock(),
-            )));
-            Pacing {
-                delay,
-                politeness: Some(politeness),
-            }
-        }
-        Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), "the shared robots.txt copy is out of reach; the crawl reads its own");
-            Pacing {
-                delay,
-                politeness: None,
-            }
-        }
-    }
-}
-
-/// Reads the robots.txt of `leased`'s origin, as the Run reads it: from
-/// the copy its user's runs share, fetched on `http` only when the copy
-/// has none to use. A fetch made here is a request of the domain: the
-/// document then waits `pacing`'s delay, and its start is recorded.
-async fn read_robots_txt(run: &Run, http: &HttpTier, pacing: &Pacing, leased: &Leased) {
-    let Some(location) = goodfetch_frontier::Url::parse(&leased.crawl_request.url)
-        .ok()
-        .and_then(|url| robots_txt::location(&url))
-    else {
-        return;
-    };
-    let (sending, sent) = oneshot::channel::<()>();
-    let fetch: Fetch<'_> = Box::pin(async {
-        let _ = sending.send(());
-        http.robots_txt(run, &location).await
-    });
-    let _read = run.robots_txt().copy(&location, fetch).await;
-    if sent.await.is_err() {
-        return;
-    }
-    let Some(delay) = pacing.delay else {
-        return;
-    };
-    run.clock().sleep(delay).await;
-    if let Some(politeness) = &pacing.politeness
-        && let Err(error) =
-            goodfetch_frontier::started_again(politeness, &leased.waiting.key, run.clock().wall())
-                .await
-    {
-        tracing::warn!(%error, run_id = %run.id(), "a document's start after its robots.txt was not recorded");
-    }
-}
-
 /// How an attempt ended, before its outcome is committed.
 pub(super) enum Answer {
     /// The handler answered.
@@ -163,6 +73,81 @@ pub(super) enum Answer {
     LeaseEnded,
     /// The program's Connection ended.
     ClientGone,
+}
+
+/// What an attempt fetches its request's document with under `fetch.tier:
+/// http`: the Run's HTTP tier, and the room its hedges take beside it.
+pub(super) struct DocumentFetch {
+    tiers: FetchTiers,
+    http: HttpTier,
+    second_copies: SecondCopies,
+}
+
+impl DocumentFetch {
+    /// The Run's `tiers` and `http` tier, its hedges taking
+    /// `second_copies`.
+    pub(super) fn of(tiers: &FetchTiers, http: &HttpTier, second_copies: &SecondCopies) -> Self {
+        Self {
+            tiers: tiers.clone(),
+            http: http.clone(),
+            second_copies: second_copies.clone(),
+        }
+    }
+}
+
+/// The Politeness the crawl's Run shares, once it opened: from then on
+/// the Run reads robots.txt from the copy its user's runs share there
+/// (ADR 0086). A Politeness file that cannot open leaves the Run its own
+/// copy.
+async fn share_robots_txt(run: &Run) -> Option<Politeness> {
+    let settings = run.settings()?.resolved();
+    match run.politeness(settings).await {
+        Ok((politeness, _)) => {
+            let shared = politeness.clone();
+            run.share_robots_txt(|| Arc::new(SharedRobotsTxt::new(shared, run.clock())));
+            Some(politeness)
+        }
+        Err(error) => {
+            tracing::warn!(%error, run_id = %run.id(), "the shared robots.txt copy is out of reach; the crawl reads its own");
+            None
+        }
+    }
+}
+
+/// Reads the robots.txt of `leased`'s origin, as the crawl's Run reads it:
+/// from the copy its user's runs share, fetched on `http` only when the
+/// copy has none to use. A fetch made here is a request of the domain:
+/// the document then waits `politeness.domain.delay`, and its start is
+/// recorded for every run sharing the domain.
+async fn read_robots_txt(run: &Run, http: &HttpTier, leased: &Leased) {
+    let Some(location) = goodfetch_frontier::Url::parse(&leased.crawl_request.url)
+        .ok()
+        .and_then(|url| robots_txt::location(&url))
+    else {
+        return;
+    };
+    let politeness = share_robots_txt(run).await;
+    let (sending, sent) = oneshot::channel::<()>();
+    let fetch: Fetch<'_> = Box::pin(async {
+        let _ = sending.send(());
+        http.robots_txt(run, &location).await
+    });
+    let _read = run.robots_txt().copy(&location, fetch).await;
+    let delay = run
+        .settings()
+        .and_then(|settings| settings.resolved().duration(POLITENESS_DOMAIN_DELAY.name))
+        .filter(|delay| !delay.is_zero());
+    let (Ok(()), Some(delay)) = (sent.await, delay) else {
+        return;
+    };
+    run.clock().sleep(delay).await;
+    if let Some(politeness) = &politeness
+        && let Err(error) =
+            goodfetch_frontier::started_again(politeness, &leased.waiting.key, run.clock().wall())
+                .await
+    {
+        tracing::warn!(%error, run_id = %run.id(), "a document's start after its robots.txt was not recorded");
+    }
 }
 
 pub(super) struct Attempt {
@@ -185,16 +170,29 @@ pub(super) async fn attempt(
     client: Client,
     (leased, session, counted): (Leased, ServingSession, Counted),
     lease: WorkItemLease,
-    fetching: Option<(FetchTiers, HttpTier, Pacing)>,
+    fetching: Option<DocumentFetch>,
     in_flight: SharedInFlight,
 ) -> Attempt {
     let fetched = match &fetching {
         None => Ok(None),
-        Some((tiers, http, pacing)) => tokio::select! {
+        Some(fetch) => {
+            let requester = Requester {
+                request_id: &leased.crawl_request.id,
+                session: &session.id,
+                label: &leased.crawl_request.label,
+                domain_key: &leased.waiting.key,
+                second_copies: &fetch.second_copies,
+                // No work item declares an Effect before area 9's Effect
+                // journal (ADR 0106), and no crawl request is a Paid fetch
+                // before ADR 0045's.
+                declares_effect: false,
+                paid: false,
+            };
+            tokio::select! {
             biased;
             document = async {
-                read_robots_txt(&run, http, pacing, &leased).await;
-                tiers.serve(http, &run, &leased.crawl_request).await
+                read_robots_txt(&run, &fetch.http, &leased).await;
+                fetch.tiers.serve(&fetch.http, &run, &leased.crawl_request, &requester).await
             } => document
                 .map(Some)
                 .map_err(|error| Answer::Failed {
@@ -204,13 +202,14 @@ pub(super) async fn attempt(
                     details: error.details().cloned().unwrap_or_default(),
                 }),
             _ = lease.ended() => Err(Answer::LeaseEnded),
-        },
+            }
+        }
     };
     let answer = match fetched {
         Err(answer) => answer,
         Ok(document) => {
-            if let (Some((tiers, _, _)), Some(page_id)) = (&fetching, &document) {
-                learn(&run, tiers, page_id, &leased).await;
+            if let (Some(fetch), Some(page_id)) = (&fetching, &document) {
+                learn(&run, &fetch.tiers, page_id, &leased).await;
             }
             if document.is_some() {
                 in_flight.lock().await.went_on(
@@ -229,8 +228,8 @@ pub(super) async fn attempt(
                 page_id: document.clone(),
             };
             let answer = handled(&run, &client, &params, &lease).await;
-            if let (Some((tiers, _, _)), Some(page_id)) = (&fetching, &document) {
-                tiers.close(page_id);
+            if let (Some(fetch), Some(page_id)) = (&fetching, &document) {
+                fetch.tiers.close(page_id);
             }
             answer
         }

@@ -18,6 +18,7 @@
 //! `daemon run`'s alone: anywhere else stdout is the protocol or the CLI's
 //! output, and it fails with `setting_not_applicable`.
 
+use goodfetch_engine::audit::AuditEvents;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, major_name};
@@ -38,6 +39,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
+use super::audit_events;
 use super::log_file::{LogFile, Rotation};
 use super::otlp::{EXPORT_TIMEOUT, ToCollector};
 use super::{Command, DaemonCommand, LOG_FOLDER, Parsed};
@@ -219,11 +221,20 @@ pub(super) struct Handles {
 }
 
 /// The installed subscriber's export, which sends the spans still waiting
-/// when it is dropped, and its log file, whose waiting lines are written
-/// then.
+/// when it is dropped, its log file, whose waiting lines are written then,
+/// and the Audit log's OpenTelemetry events, also sent then.
 pub(super) struct Installed {
     export: Option<SdkTracerProvider>,
     file: Option<LogFile>,
+    audit: Option<audit_events::Export>,
+}
+
+impl Installed {
+    /// What the engine sends each new Audit log entry to, when
+    /// `audit.otlp` sends them anywhere.
+    pub(super) fn audit_events(&self) -> Option<AuditEvents> {
+        self.audit.as_ref().map(audit_events::Export::events)
+    }
 }
 
 impl Drop for Installed {
@@ -335,7 +346,12 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
     if let Some(error) = failed {
         tracing::error!(%error, "the spans' OTLP export cannot start, and is off");
     }
-    Installed { export, file: kept }
+    let audit = audit_events::export(logs.settings, clock, logs.product);
+    Installed {
+        export,
+        file: kept,
+        audit,
+    }
 }
 
 /// The export of every span to the OTLP/HTTP collector at `endpoint`

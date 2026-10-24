@@ -49,7 +49,7 @@
 
 use std::time::Duration;
 
-use goodfetch_engine::admission::{Admission, Waiting, Wakes};
+use goodfetch_engine::admission::{Admission, SecondCopies, Waiting, Wakes};
 use goodfetch_engine::client::Client;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::governor::Permit;
@@ -57,7 +57,7 @@ use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, CompletenessReason, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
-use goodfetch_fetch_tier::FetchTiers;
+use goodfetch_fetch_tier::{FetchTiers, HttpTier};
 use goodfetch_frontier::{Bounds, completeness_reasons, learned_completeness_reasons};
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
@@ -86,9 +86,7 @@ use goodfetch_protocol::foxhound::progress::{InFlightPhase, InFlightRequest};
 mod attempt;
 mod politeness;
 
-use attempt::{
-    Answer, Attempt, Fetching, attempt, block_cause, effect, leased_count, share_robots_txt,
-};
+use attempt::{Answer, Attempt, DocumentFetch, attempt, block_cause, effect, leased_count};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
 
 /// A Connection serving the crawl's handler requests, as the delivery
@@ -147,14 +145,12 @@ pub(crate) async fn drive(
         in_flight: 0,
         gone: false,
     }];
-    let pacing = share_robots_txt(&run, settings.resolved()).await;
     // One HTTP tier for the Run, so its hops share connections (#763).
     match FetchTiers::http(&run, settings.resolved()) {
         Ok(http) => {
             let fetching = Fetching {
                 tiers: &tiers,
                 http: http.as_ref(),
-                pacing,
                 in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
             };
             deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
@@ -371,6 +367,24 @@ pub(crate) async fn resume(
     drive(run, client, opened, crawls, settings, tiers).await;
 }
 
+/// The tiers a Run's crawl requests are fetched on: under `fetch.tier:
+/// http`, its HTTP tier; else none, and each handler is given its request
+/// alone.
+struct Fetching<'a> {
+    tiers: &'a FetchTiers,
+    http: Option<&'a HttpTier>,
+    /// The requests in flight, as the Run's progress shows them.
+    in_flight: SharedInFlight,
+}
+
+impl Fetching<'_> {
+    /// What one attempt fetches its request's document with.
+    fn served(&self, second_copies: &SecondCopies) -> Option<DocumentFetch> {
+        self.http
+            .map(|http| DocumentFetch::of(self.tiers, http, second_copies))
+    }
+}
+
 /// What each attempt is given: a Session drawn from the crawl's Session
 /// pool under the Run's settings now, and the tier that fetches its
 /// request's document.
@@ -468,7 +482,7 @@ async fn lease_to_servers(
                     server.client.clone(),
                     (leased, session, leased_count(run)),
                     lease,
-                    pooled.fetching.served(),
+                    pooled.fetching.served(&admission.second_copies()),
                     std::sync::Arc::clone(&pooled.fetching.in_flight),
                 ),
             ));

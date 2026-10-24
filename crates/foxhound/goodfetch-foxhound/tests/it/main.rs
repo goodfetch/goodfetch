@@ -9,6 +9,7 @@
 
 mod admission;
 mod attached;
+mod audit;
 mod bounds;
 mod crawl;
 mod daemon;
@@ -19,6 +20,7 @@ mod learned_rules;
 mod limits;
 mod outcomes;
 mod politeness;
+mod redundant_requests;
 mod robots_txt;
 mod scope;
 mod seeds;

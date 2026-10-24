@@ -37,7 +37,7 @@ pub use identity::{
     Declared, Hop, TABLES as VISITED_TABLES, fuzz_url_key, redirect_hop, redirect_reached, url_key,
 };
 pub use learn::{PageSeen, learn};
-pub use politeness::{longest_wait, started_again};
+pub use politeness::{longest_wait, refuse_second_copies, started_again};
 pub use queues::DomainQueues;
 pub use robots_txt::SharedRobotsTxt;
 pub use rules::{

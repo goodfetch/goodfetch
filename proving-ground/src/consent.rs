@@ -34,6 +34,11 @@
 //!   there.
 //! - `/notice`: a notice with only an acknowledgement, which reports
 //!   `/consent/notice?visible=false` once it is no longer shown.
+//! - `/wall`: a consent wall, a prompt with only an acceptance that covers
+//!   the whole viewport, the article withheld behind it.
+//! - `/pay-or-accept`: an "accept or pay" wall, a banner at the bottom of
+//!   the viewport that leaves the article readable but offers a
+//!   subscription instead of a refusal.
 
 use hyper::{Method, StatusCode};
 
@@ -402,6 +407,34 @@ const shown = setInterval(() => {{ const notice = document.getElementById('cooki
     )
 }
 
+/// The consent wall: a prompt with only an acceptance, over the whole
+/// viewport.
+fn wall() -> String {
+    page(
+        "wall",
+        "A consent wall",
+        "",
+        "<div id=\"consent-wall\" style=\"position:fixed;inset:0;background:#fff;z-index:1000;padding:48px\" role=\"dialog\" aria-modal=\"true\">\
+<p>We use cookies and similar technologies to personalise content and ads. To read this site, accept our use of cookies.</p>\
+<button data-answer=\"accept\" data-closes=\"#consent-wall\">Accept all</button></div>",
+    )
+}
+
+/// The "accept or pay" wall: a banner offering a subscription instead of a
+/// refusal.
+fn pay_or_accept() -> String {
+    page(
+        "pay-or-accept",
+        "An accept or pay wall",
+        "",
+        &format!(
+            "<div id=\"consent-pay\" style=\"{BANNER}\"><p>We use cookies to fund our journalism. Accept cookies, or subscribe for 2,99 € a month to read without ads and tracking.</p>\
+<button data-answer=\"accept\" data-closes=\"#consent-pay\">Accept cookies</button>\
+<button data-answer=\"subscribe\">Subscribe for 2,99 € a month</button></div>"
+        ),
+    )
+}
+
 /// Answers a request to the pages' hosts; `None` for any other host.
 pub(crate) fn respond(name: &str, request: &Request<'_>) -> Option<Reply> {
     if name != HOST && name != FRAME_HOST {
@@ -440,6 +473,8 @@ pub(crate) fn respond(name: &str, request: &Request<'_>) -> Option<Reply> {
         (false, "/late") => Some(late()),
         (false, "/spa" | "/spa/next") => Some(spa()),
         (false, "/notice") => Some(notice()),
+        (false, "/wall") => Some(wall()),
+        (false, "/pay-or-accept") => Some(pay_or_accept()),
         _ => None,
     };
     Some(html.map_or_else(Reply::not_found, Reply::html))

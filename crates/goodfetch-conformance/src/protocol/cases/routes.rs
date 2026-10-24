@@ -5,6 +5,9 @@
 //! the routes' handler: it answers each `route.handle` request the engine
 //! sends with the calls a case scripts, then replies that the handler ended
 //! or failed.
+//!
+//! Size: one handler harness and the cases that script it, each reading
+//! its private record of what the handler served and called.
 
 use std::collections::BTreeMap;
 

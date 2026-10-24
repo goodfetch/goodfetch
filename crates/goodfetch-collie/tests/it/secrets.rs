@@ -114,6 +114,48 @@ fn a_raw_value_as_the_key_reference_is_refused_with_setting_invalid_naming_no_va
     );
 }
 
+/// Story 4-34: a run whose `tls.client_certificates` gives a client
+/// certificate's key as a value, a canary standing for a pasted key, is
+/// refused with `setting_invalid` naming the setting, and the value appears
+/// in no reply, log or file, the logs at `trace`.
+/// Covers: story:4-34, error:setting_invalid, setting:tls.client_certificates
+#[test]
+fn a_raw_client_certificate_key_is_refused_with_setting_invalid_naming_no_value() {
+    let env = TestEnv::new();
+    let mut canaries = Canaries::new(env.seed());
+    let value = canaries.plant(SecretKind::EndpointToken).value().to_owned();
+    let mut engine = Attached::start(&env);
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+
+    let mut replies = vec![call(
+        &mut engine,
+        1,
+        "run.start",
+        &json!({
+            "run_id": "mutual",
+            "settings": { "tls": { "client_certificates": {
+                "mtls.example": { "certificate": "client.pem", "key": value },
+            } } },
+        }),
+    )];
+    let (rest, _) = engine.finish();
+    replies.extend(rest);
+
+    assert_eq!(
+        (
+            &replies[0]["error"]["data"]["code"],
+            &replies[0]["error"]["data"]["key"],
+            leaks(&canaries, &env, &replies),
+        ),
+        (
+            &json!("setting_invalid"),
+            &json!("tls.client_certificates"),
+            Vec::<String>::new()
+        )
+    );
+}
+
 /// Covers: story:4-49, setting:run_state.key_reference
 #[test]
 fn config_explain_shows_the_key_reference_never_its_value() {

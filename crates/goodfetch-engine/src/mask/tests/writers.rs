@@ -263,7 +263,7 @@ fn workspace() -> PathBuf {
         .to_owned()
 }
 
-/// Whether `path`, relative to the workspace, is Product code.
+/// Whether `path`, a Rust file relative to the workspace, is Product code.
 fn is_product_code(path: &str) -> bool {
     let left_out = [
         "/tests/",
@@ -275,8 +275,7 @@ fn is_product_code(path: &str) -> bool {
         "crates/goodfetch-test-support/",
         "crates/goodfetch-conformance/",
     ];
-    path.ends_with(".rs")
-        && !path.ends_with("tests.rs")
+    !path.ends_with("tests.rs")
         && !path.ends_with("/build.rs")
         && !left_out.iter().any(|part| path.contains(part))
 }

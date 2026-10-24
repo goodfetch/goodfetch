@@ -4,7 +4,12 @@
 //! why. `run.seeds` lists the answers each seed of a crawl got when its Run
 //! began, and `crawl_request.enqueue` adds a request from inside a
 //! handler's attempt, resolving a relative URL against the document's base
-//! URL. A crawl request is sent with a method and a body, which with its
+//! URL; `crawl_request.links` reads the elements a locator matches on
+//! the attempt's page, as an `enqueueLinks` Payload function reads them,
+//! and `crawl_request.enqueue_links` adds their links, each `href`'s query
+//! percent-encoded in its document's encoding, answering each element
+//! added, not added with its reason, `no_link` or `skipped_by_payload`.
+//! A crawl request is sent with a method and a body, which with its
 //! URL's key make its identity, unless the program declares its `key`.
 //! `run.add_seed` adds a seed to a running crawl, and `run.add_seeds` takes
 //! a stream of them under credits, answering each in order. The

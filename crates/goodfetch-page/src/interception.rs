@@ -55,6 +55,14 @@
 //! domain; the never-block list and `browser.block_resources` stay. Each
 //! page counts the requests the lists blocked, which tell a navigation the
 //! lists touched.
+//!
+//! Each out-of-process frame of a page, and each shared worker of a
+//! Session, is held as a service worker is, before it runs: a frame's
+//! requests pass its page's pipeline, a shared worker's its Session's.
+//!
+//! Size: the one table of the pages, Sessions and workers the interception
+//! holds, and how each is put under it; the pipeline, its steps, routes,
+//! answers, hops and pending navigations are in their own modules.
 #![expect(
     clippy::disallowed_types,
     reason = "routes are armed and answers delivered as their call arrives, before any `.await`: each lock guards one table or map for one operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"

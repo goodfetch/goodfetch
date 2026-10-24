@@ -5,7 +5,7 @@
 // stopped by a Limit, an SDK script's and a Recipe's priced one, and what a
 // person's raise left: a run waiting for its script, with its resume
 // command, and one resumed in the Daemon.
-import type { NeedsYouItem } from "@goodfetch/collie-client/generated";
+import { RunStateUnavailableError, type NeedsYouItem } from "@goodfetch/collie-client/generated";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NeedsYouView } from "./needs-you.tsx";
 
@@ -146,5 +146,12 @@ export const LimitRaised: Story = {
 
 /** The engine refused the list. */
 export const Failed: Story = {
-  args: { state: { kind: "failed", message: "the Run index cannot be read" } },
+  args: {
+    state: {
+      kind: "failed",
+      error: new RunStateUnavailableError("the Run index cannot be read", {
+        details: { operation: "needs_you.list", path: "/srv/goodfetch/1/run-index.sqlite" },
+      }),
+    },
+  },
 };

@@ -340,7 +340,7 @@ test(
 
 test(
   "the engine's refusal to raise a Limit is shown, and the run stays listed",
-  { tags: ["story:12-100", "screen:/needs-you"] },
+  { tags: ["story:12-100", "story:12-133", "screen:/needs-you"] },
   async () => {
     const adapter = createProtocolAdapter();
     adapter.answer("needs_you.list", { items: [stoppedByLimit()] });
@@ -354,7 +354,9 @@ test(
     await expect
       .element(page.getByRole("alert"))
       .toHaveTextContent(
-        "The engine did not raise the Limit: The test answered usage.raise with person_required.",
+        "The engine did not raise the Limit:" +
+          "Only a person can give this answer." +
+          "Error codeperson_required",
       );
     await expect.poll(() => items().elements().length).toBe(1);
     client.close();

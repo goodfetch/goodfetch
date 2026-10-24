@@ -31,6 +31,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { useEffect, useReducer, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { ConsoleClient } from "#client/client.ts";
 import { formatBytes, formatCount, formatInstant } from "#format.ts";
+import { ErrorMessage } from "#errors/error-message.tsx";
 import { RUNS } from "#routes.ts";
 import { COMPLETENESS_NAMES, LIFECYCLE_NAMES, VERDICT_NAMES } from "./names.ts";
 
@@ -57,7 +58,7 @@ export type RunRead =
   /** The Run index lists no run with that Run ID (`run_not_found`). */
   | { readonly kind: "not_listed" }
   /** The engine refused; its English message, which the code's catalog message replaces once #912 maps it (ADR 0079). */
-  | { readonly kind: "failed"; readonly message: string }
+  | { readonly kind: "failed"; readonly error: unknown }
   | { readonly kind: "shown"; readonly run: ShownRun };
 
 /** What the last action a person took on the page came to. */
@@ -66,7 +67,7 @@ export type Notice =
   | { readonly kind: "stopped" }
   | { readonly kind: "copied" }
   | { readonly kind: "copy_refused" }
-  | { readonly kind: "refused"; readonly message: string };
+  | { readonly kind: "refused"; readonly error: unknown };
 
 /** What a run's page shows. */
 export interface RunPageViewProps {
@@ -117,7 +118,11 @@ function live({ progress }: ShownRun): boolean {
 
 /** A point in time, with its machine form beside it. */
 function Instant({ value }: { readonly value: string }): ReactNode {
-  return <time dateTime={value}>{formatInstant(value)}</time>;
+  return (
+    <time dateTime={value} translate="no">
+      {formatInstant(value)}
+    </time>
+  );
 }
 
 const sectionClassName = "flex flex-col gap-3 rounded-lg border p-4";
@@ -178,7 +183,11 @@ function Storage({ progress }: { readonly progress: RunProgress }): ReactNode {
       <code translate="no" className="font-mono">
         {folder}
       </code>{" "}
-      has <data value={String(storage.free_bytes)}>{free}</data> free
+      has{" "}
+      <data value={String(storage.free_bytes)} translate="no">
+        {free}
+      </data>{" "}
+      free
     </Trans>
   );
 }
@@ -256,7 +265,9 @@ function Progress({ progress }: { readonly progress: RunProgress }): ReactNode {
         )}
       </Fact>
       <Fact term={<Trans>Run epoch</Trans>}>
-        <data value={String(progress.epoch)}>{epoch}</data>
+        <data value={String(progress.epoch)} translate="no">
+          {epoch}
+        </data>
       </Fact>
       <Fact term={<Trans>Last Checkpoint</Trans>}>
         {progress.checkpoint_at === undefined || progress.checkpoint_at === null ? (
@@ -294,14 +305,15 @@ function NoticeText({ notice }: { readonly notice: Notice }): ReactNode {
       return <Trans>Copied the resume command.</Trans>;
     case "copy_refused":
       return <Trans>The browser refused to copy the resume command: select it and copy it.</Trans>;
-    case "refused": {
-      const message = notice.message;
+    case "refused":
       return (
-        <Trans>
-          The engine refused: <span translate="no">{message}</span>
-        </Trans>
+        <>
+          <p>
+            <Trans>The engine refused:</Trans>
+          </p>
+          <ErrorMessage error={notice.error} />
+        </>
       );
-    }
     default:
       return notice satisfies never;
   }
@@ -365,7 +377,7 @@ function Actions({
           </button>
         </div>
       ) : null}
-      <p role="status">{notice === undefined ? null : <NoticeText notice={notice} />}</p>
+      <div role="status">{notice === undefined ? null : <NoticeText notice={notice} />}</div>
     </>
   );
 }
@@ -425,16 +437,15 @@ function Read({ read, ...props }: RunPageViewProps): ReactNode {
           </Trans>
         </p>
       );
-    case "failed": {
-      const message = read.message;
+    case "failed":
       return (
-        <p role="alert">
-          <Trans>
-            The engine could not read the run: <span translate="no">{message}</span>
-          </Trans>
-        </p>
+        <div role="alert">
+          <p>
+            <Trans>The engine could not read the run:</Trans>
+          </p>
+          <ErrorMessage error={read.error} />
+        </div>
       );
-    }
     case "shown":
       return <Shown run={read.run} {...props} />;
     default:
@@ -500,12 +511,7 @@ function refusedRead(error: unknown): RunRead {
   if (error instanceof GoodfetchError && error.code === "run_not_found") {
     return { kind: "not_listed" };
   }
-  return { kind: "failed", message: error instanceof Error ? error.message : String(error) };
-}
-
-/** A refused action's message. */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return { kind: "failed", error };
 }
 
 /** The run's Run index row; none when the index has no row of it or the read fails. */
@@ -640,7 +646,7 @@ export function RunPage({
     try {
       done = await action();
     } catch (error) {
-      done = { kind: "refused", message: messageOf(error) };
+      done = { kind: "refused", error };
     }
     setAction({ busy: false, notice: done });
   };

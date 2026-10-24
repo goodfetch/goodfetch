@@ -225,3 +225,19 @@ milestone = "M1 Core"
 journey = false
 not_journey = "actor"
 status = "active"
+
+[[story]]
+id = 132
+title = "As a person reading another language, I want dates, numbers, sizes, durations, lists and plurals formatted from my browser's locale and time zone, data marked so browser translation leaves it alone, and layouts that work right to left, so that the Console reads naturally (ADR 0073)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 133
+title = "As a person, I want each Error code shown with a message from the Console's catalog rendered from the error's fields (operation, target, URL, observed, `limit` with its setting, value and layer, `fix`, call log), falling back to the engine's English message, and for `handler_failed`, `hook_failed`, `<kind>_handler_failed`, `agent_tool_failed`, `success_check_threw` and `schema_validator_failed` always naming the program's exception type and message, so that an error reads well, can be translated and loses nothing (ADRs 0073, 0079, 0080, 0100, 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

@@ -146,5 +146,6 @@ fn found_row(
         owner,
         presence: Presence::Present,
         progress_message: recorded.progress_message.clone(),
+        stop_reason: report.and_then(|report| report.stop_reason.clone()),
     })
 }

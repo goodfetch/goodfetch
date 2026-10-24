@@ -119,6 +119,7 @@ use crate::home::{Home, RunStateLocation, major_name};
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation};
 use crate::metrics::Metrics;
+use crate::needs_you::NeedsYou;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::run_files::{self, FileKind, KeepError, Kept};
 use crate::run_index;
@@ -216,6 +217,8 @@ pub(crate) struct RunsSetup {
     /// The Console's address, when this engine serves one (ADR 0031): each
     /// Run's report names its page there.
     pub(crate) console: Option<String>,
+    /// The engine's "Needs you", which `needs_you.*` reach through the Runs.
+    pub(crate) needs_you: NeedsYou,
 }
 
 /// What drives a kind of Run, such as Foxhound's crawl's delivery, given
@@ -338,6 +341,10 @@ pub enum Resumed {
 }
 
 /// What a start found.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a start answers once and its caller takes the Run out at once: boxing it would allocate on every start for no saving"
+)]
 pub enum Started {
     /// It began a new Run, which its driver now drives.
     New(Run),
@@ -929,6 +936,8 @@ pub struct Runs {
     /// The composition's Clean-up rules, which choose the version each new
     /// Run holds to (ADR 0047), if it has any.
     clean_up: Option<Arc<CleanUpRules>>,
+    /// The engine's "Needs you".
+    needs_you: NeedsYou,
 }
 
 /// The composition's Clean-up rules, and the engine's Product version, the
@@ -1803,6 +1812,7 @@ impl Runs {
             secrets,
             drivers: Arc::new(setup.drivers.clone()),
             clean_up: CleanUpRules::of(&setup),
+            needs_you: setup.needs_you.clone(),
         };
         let politeness = SharedPoliteness {
             file: Arc::new(tokio::sync::OnceCell::new()),
@@ -1847,6 +1857,11 @@ impl Runs {
     /// The engine's settings, which a start resolves its Run's under.
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// The engine's "Needs you" (spec #592).
+    pub fn needs_you(&self) -> &NeedsYou {
+        &self.needs_you
     }
 
     /// What this engine's Runs charge against: the user's Usage ledger and
@@ -3747,6 +3762,7 @@ impl Registry {
                 .progress_message
                 .as_ref()
                 .map(|message| message.as_str().to_owned()),
+            stop_reason: report.and_then(|report| report.stop_reason.clone()),
         }
     }
 
@@ -3943,6 +3959,7 @@ impl Registry {
             secrets: self.secrets.clone(),
             drivers: Arc::clone(&self.drivers),
             clean_up: CleanUpRules::of(&self.setup),
+            needs_you: self.setup.needs_you.clone(),
         }
     }
 
@@ -4821,6 +4838,7 @@ impl Recording {
             completeness: Some(report.completeness),
             ended_at: Some(report.ended_at.clone()),
             owner: None,
+            stop_reason: report.stop_reason.clone(),
             ..self.row
         };
         if let Err(error) = run_index::write(&self.index, &self.version, &ended) {

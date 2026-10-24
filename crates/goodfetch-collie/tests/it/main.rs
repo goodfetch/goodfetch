@@ -45,6 +45,7 @@ mod lazyfs;
 mod locator;
 mod log;
 mod navigation_egress;
+mod needs_you;
 mod ops;
 mod page;
 #[cfg(unix)]

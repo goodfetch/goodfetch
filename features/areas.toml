@@ -958,6 +958,22 @@ number = 12
 kind = "operation"
 prefix = "sign_in."
 
+# Area 12's "Needs you" (#852): its operations, its event and its commands.
+[[area]]
+number = 12
+kind = "operation"
+prefix = "needs_you."
+
+[[area]]
+number = 12
+kind = "event"
+prefix = "needs_you."
+
+[[area]]
+number = 12
+kind = "command"
+prefix = "needs-you"
+
 [[area]]
 number = 12
 kind = "operation"

@@ -14,7 +14,13 @@
 # fails with `keyboard_walk_changed`: fix the screen, or record the new one.
 
 [[screen]]
+feature = "screen:/needs-you"
+route = "/needs-you"
+sign_in = "signed-in"
+walk = ["link Overview", "link Needs you", "link Engine & settings"]
+
+[[screen]]
 feature = "screen:/settings"
 route = "/settings"
 sign_in = "signed-in"
-walk = ["link Overview", "link Engine & settings", "button Project configuration", "textbox Run values", "button Explain"]
+walk = ["link Overview", "link Needs you", "link Engine & settings", "button Project configuration", "textbox Run values", "button Explain"]

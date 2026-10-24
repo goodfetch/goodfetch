@@ -82,6 +82,8 @@ export interface TestEnvStart {
 /** A started setup. */
 export interface StartedTestEnv {
   readonly description: TestEnvDescription;
+  /** The process ID of the program that described it. */
+  readonly pid: number;
   /**
    * Closes `goodfetch-test-env`'s stdin and waits for it to tear the setup
    * down, keeping the test's folder when `failed` is set. Fails with
@@ -150,7 +152,7 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
       `goodfetch-test-env printed a description that fails test-env-description.schema.json: ${ajv.errorsText(isDescription.errors)}`,
     );
   }
-  return { description, close };
+  return { description, pid: started.child.pid ?? 0, close };
 }
 
 /** The path of one executable of the manifest; `tool_missing` when it lists none. */
@@ -180,7 +182,8 @@ export function manifestWithEngine(
   return path;
 }
 
-function readTools(manifest: string | undefined): Tools {
+/** The test tool manifest at `manifest`; `tools_unset` or `tools_invalid` when it cannot be read. */
+export function readTools(manifest: string | undefined): Tools {
   if (manifest === undefined) {
     throw new TestSupportError("tools_unset", `${TOOLS_VARIABLE} is not set: ${RUN_WITH_JUST}`);
   }

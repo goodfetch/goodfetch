@@ -40,6 +40,7 @@ test(
   { tags: ["story:12-125", "screen:/settings"] },
   async () => {
     const adapter = createProtocolAdapter();
+    adapter.answer("needs_you.list", { items: [] });
     adapter.answer("config.explain", EXPLANATION);
     adapter.answer("usage.list", { limits: [] });
     const visibility = new Visibility();

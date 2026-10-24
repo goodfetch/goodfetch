@@ -9,7 +9,9 @@
 //! tab kept it (spec #577, ticket #696); a page's events (#703); a page
 //! a service worker controls (#707); and a page that opens each JavaScript
 //! dialog and one that opens a popup (#719); and a page whose own script
-//! defines a global and records an init script's mark (#704). Its answers name the build's age beside the
+//! defines a global and records an init script's mark (#704); and one page
+//! per kind of request a page makes, which makes one of that kind to the
+//! host it names (#632). Its answers name the build's age beside the
 //! Access dimensions a result was run under, so every result is reported per
 //! Fingerprint method, engine, Access mode and build age, against stock
 //! headless and headful Chrome as controls.
@@ -78,6 +80,21 @@ const SERVICE_WORKER_CALLS: [&str; 3] = [
 ];
 /// The path the service worker requests that EasyPrivacy blocks.
 const SERVICE_WORKER_TRACKER: &str = "/service-worker/js/adobe-analytics.js";
+/// The request kinds pages, one per kind under this prefix, and their
+/// worker's script and cross-site frame.
+const REQUEST_KINDS: &str = "/request-kinds/";
+const REQUEST_KINDS_WORKER: &str = "/request-kinds/worker.js";
+const REQUEST_KINDS_FRAME: &str = "/request-kinds/frame-document";
+/// The kinds of request the request kinds pages make (ADR 0014).
+const REQUEST_KIND_NAMES: [&str; 7] = [
+    "fetch",
+    "navigation",
+    "frame",
+    "dedicated_worker",
+    "shared_worker",
+    "websocket",
+    "webrtc",
+];
 
 /// The client hints the identity page asks for, beyond those a browser
 /// sends unasked, so the requests its script makes carry every one.
@@ -96,6 +113,9 @@ const POPUP_SCRIPT: &str = include_str!("../pages/access/popup.js");
 const PAGE_FUNCTIONS_SCRIPT: &str = include_str!("../pages/access/page-functions.js");
 const SERVICE_WORKER_PAGE_SCRIPT: &str = include_str!("../pages/access/service-worker.js");
 const SERVICE_WORKER_WORKER_SCRIPT: &str = include_str!("../pages/access/service-worker-sw.js");
+const REQUEST_KINDS_SCRIPT: &str = include_str!("../pages/access/request-kinds.js");
+const REQUEST_KINDS_WORKER_SCRIPT: &str = include_str!("../pages/access/request-kinds-worker.js");
+const REQUEST_KINDS_FRAME_SCRIPT: &str = include_str!("../pages/access/request-kinds-frame.js");
 
 /// The generator places of the family's values: the family's own first, then
 /// 0 and the value's.
@@ -215,6 +235,20 @@ pub(crate) fn respond(
             None,
         ),
         Method::GET if path == SERVICE_WORKER_TRACKER => (script_reply("void 0;\n"), None),
+        Method::GET if path == REQUEST_KINDS_WORKER => {
+            (script_reply(REQUEST_KINDS_WORKER_SCRIPT), None)
+        }
+        Method::GET if path == REQUEST_KINDS_FRAME => (
+            scripted(seed, "request-kinds-frame", REQUEST_KINDS_FRAME_SCRIPT),
+            None,
+        ),
+        Method::GET
+            if path
+                .strip_prefix(REQUEST_KINDS)
+                .is_some_and(|kind| REQUEST_KIND_NAMES.contains(&kind)) =>
+        {
+            (scripted(seed, "request-kinds", REQUEST_KINDS_SCRIPT), None)
+        }
         Method::GET => (corpus::page(path).unwrap_or_else(Reply::not_found), None),
         Method::POST if path == "/reports" => match Report::parse(request.body) {
             Some(report) => (Reply::no_content(), Some(Recorded::Report(report))),

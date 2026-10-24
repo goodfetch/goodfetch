@@ -14985,7 +14985,7 @@
       "authority": "every",
       "clearable": true,
       "default": null,
-      "description": "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap.",
+      "description": "How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap.",
       "name": "politeness.proxy.concurrency",
       "product": "collie",
       "products": [
@@ -15003,7 +15003,7 @@
       "authority": "every",
       "clearable": true,
       "default": null,
-      "description": "How many requests a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run starts one, its own navigation included, only once a second divided by its own value has passed since the last start there by any sharing run. None by default.",
+      "description": "How many page navigations a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run starts one only once a second divided by its own value has passed since the last start there by any sharing run. None by default.",
       "name": "politeness.proxy.rate",
       "product": "collie",
       "products": [

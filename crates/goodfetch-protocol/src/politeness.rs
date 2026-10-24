@@ -46,7 +46,7 @@ pub const POLITENESS_SHARING: Setting = Setting {
 /// `politeness.proxy.concurrency` (ADRs 0053, 0086 and 0088).
 pub const POLITENESS_PROXY_CONCURRENCY: Setting = Setting {
     name: "politeness.proxy.concurrency",
-    description: "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap.",
+    description: "How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap.",
     kind: ValueKind::Count,
     default: null,
     clearable: true,
@@ -58,7 +58,7 @@ pub const POLITENESS_PROXY_CONCURRENCY: Setting = Setting {
 /// `politeness.proxy.rate` (ADRs 0053, 0086 and 0088).
 pub const POLITENESS_PROXY_RATE: Setting = Setting {
     name: "politeness.proxy.rate",
-    description: "How many requests a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run starts one, its own navigation included, only once a second divided by its own value has passed since the last start there by any sharing run. None by default.",
+    description: "How many page navigations a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run starts one only once a second divided by its own value has passed since the last start there by any sharing run. None by default.",
     kind: ValueKind::Count,
     default: null,
     clearable: true,

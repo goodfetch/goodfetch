@@ -536,15 +536,15 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
         }
         report({ action: "failed", rule: "heuristic" });
       }
-      // No refusal: the Decision provider is asked when the Run has one; then
-      // the wall test. A framed prompt's cover is not measured from its frame,
-      // so it is left.
+      // No refusal, or one that did not go through: the Decision provider is
+      // asked when the Run has one; then the wall test. A framed prompt's
+      // cover is not measured from its frame, so it is left.
       const light = lightOf(prompt);
       if (!top) {
         report({ action: "left", rule: "heuristic" });
         return;
       }
-      const pays = paying(buttons);
+      const pays = refusal === undefined && paying(buttons);
       if (!pays && readable(light)) {
         if (answering) {
           await hide(light, `${selectorOf(light)} { display: none !important; }`);
@@ -552,6 +552,11 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
         } else {
           report({ action: "left", rule: "heuristic" });
         }
+        return;
+      }
+      // A prompt whose refusal did not go through offers one: no wall.
+      if (refusal !== undefined) {
+        report({ action: "left", rule: "heuristic" });
         return;
       }
       // A consent wall: accepted only where the engine says a person approved

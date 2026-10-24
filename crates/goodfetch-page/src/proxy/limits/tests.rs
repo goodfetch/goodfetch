@@ -100,7 +100,7 @@ fn a_run_starts_through_a_proxy_only_once_its_interval_passed_since_any_runs_las
 #[case::from_the_count_in_flight(&[3], 2)]
 #[case::from_the_ceiling_it_left(&[3, 1], 1)]
 #[case::never_below_one(&[0, 0, 0], 1)]
-fn a_proxys_own_refusal_halves_its_ceiling_for_every_run(
+fn a_refusal_by_the_proxy_itself_halves_its_ceiling_for_every_run(
     #[case] others_in_flight: &[u64],
     #[case] ceiling: u64,
 ) {

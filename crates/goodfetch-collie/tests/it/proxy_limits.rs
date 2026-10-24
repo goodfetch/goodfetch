@@ -61,7 +61,7 @@ fn ceilings(file: &std::path::Path) -> BTreeSet<(String, Option<i64>)> {
 /// Covers: story:5-90, story:5-91, setting:proxy.server, setting:proxy.username
 #[cfg(unix)]
 #[test]
-fn a_sites_429_through_a_proxy_writes_no_domain_limit_and_no_proxy_ceiling_where_the_proxys_own_does()
+fn a_sites_429_through_a_proxy_writes_no_domain_limit_and_no_proxy_ceiling_where_the_proxy_itself_does()
  {
     let env = TestEnv::new();
     let file = env.home().join("politeness.sqlite");
@@ -135,15 +135,15 @@ fn a_sites_429_through_a_proxy_writes_no_domain_limit_and_no_proxy_ceiling_where
     );
     let _ = engine.finish();
 
-    let mut proxys = answered
+    let mut codes = answered
         .iter()
         .map(|answer| answer["error"]["data"]["code"].clone())
         .collect::<Vec<_>>();
-    proxys.sort_by_key(ToString::to_string);
+    codes.sort_by_key(ToString::to_string);
     assert_eq!(
         (
             sites["error"]["data"]["code"] == json!("proxy_unavailable"),
-            proxys,
+            codes,
             rows(&file, "domain_limits") == planted,
             ceilings(&file),
         ),

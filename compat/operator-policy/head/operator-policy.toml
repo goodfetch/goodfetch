@@ -127,6 +127,7 @@ resolve = { "example.test" = ["127.0.0.1"] }
 [settings.consent]
 handling = true
 domains = ["example"]
+on_wall = "report"
 
 [settings.wall]
 domains = ["example"]
@@ -345,6 +346,7 @@ resolve = { "example.test" = ["127.0.0.1"] }
 [lock.consent]
 handling = true
 domains = ["example"]
+on_wall = "report"
 
 [lock.wall]
 domains = ["example"]

@@ -99,6 +99,7 @@ system = ["storage"]
 # Which of `console`'s own modules may import which.
 [submodules.console]
 content = []
+event_stream = []
 
 # Which of `daemon`'s own modules may import which.
 [submodules.daemon]
@@ -134,7 +135,8 @@ writer = []
 
 # Which of `rpc`'s own modules may import which.
 [submodules.rpc]
-connection = ["framing", "handshake", "websocket"]
+connection = ["event_stream", "framing", "handshake", "websocket"]
+event_stream = ["framing"]
 framing = []
 handshake = []
 stream = []

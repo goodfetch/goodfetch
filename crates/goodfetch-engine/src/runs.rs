@@ -1852,7 +1852,10 @@ impl Runs {
                 keychain: setup.keychain.clone(),
                 home: setup.home.clone(),
             },
-            Arc::new(AuditLog::of(&setup.home, setup.ledger_vfs.clone())),
+            Arc::new(
+                AuditLog::of(&setup.home, setup.ledger_vfs.clone())
+                    .retained_under(setup.settings.files().clone(), setup.settings.product()),
+            ),
             Arc::clone(&readers),
             setup.clock,
         );

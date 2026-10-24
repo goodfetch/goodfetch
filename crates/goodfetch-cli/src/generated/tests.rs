@@ -155,6 +155,7 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("key_value_store.set_bytes", Offer::Command),
             ("key_value_store.delete", Offer::Command),
             ("key_value_store.keys", Offer::Follow),
+            ("audit.export", Offer::Command),
             ("audit.verify", Offer::Command),
             ("sample.echo", Offer::Command),
             ("config.explain", Offer::Command),

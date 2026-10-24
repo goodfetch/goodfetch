@@ -12,6 +12,7 @@ max_files = 4
 
 [settings.otlp]
 traces_endpoint = "example"
+logs_endpoint = "example"
 metrics_endpoint = "example"
 
 [settings.console]
@@ -107,6 +108,10 @@ key_reference = "env:EXAMPLE"
 
 [settings.checkpoint]
 interval = 30000
+
+[settings.audit]
+retention = 30000
+otlp = true
 
 [settings.timeout]
 secret = 30000
@@ -231,6 +236,7 @@ max_files = 4
 
 [lock.otlp]
 traces_endpoint = "example"
+logs_endpoint = "example"
 metrics_endpoint = "example"
 
 [lock.console]
@@ -326,6 +332,10 @@ key_reference = "env:EXAMPLE"
 
 [lock.checkpoint]
 interval = 30000
+
+[lock.audit]
+retention = 30000
+otlp = true
 
 [lock.timeout]
 secret = 30000
@@ -490,6 +500,9 @@ sticky_lifetime = 30000
 
 [cap.checkpoint]
 interval = 30000
+
+[cap.audit]
+retention = 30000
 
 [cap.console.sign_in]
 idle_expiry = 30000

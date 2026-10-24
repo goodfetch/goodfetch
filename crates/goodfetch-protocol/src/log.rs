@@ -217,6 +217,18 @@ pub const OTLP_TRACES_ENDPOINT: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `otlp.logs_endpoint` (ADRs 0016 and 0043).
+pub const OTLP_LOGS_ENDPOINT: Setting = Setting {
+    name: "otlp.logs_endpoint",
+    description: "The OTLP/HTTP endpoint an engine process sends its OpenTelemetry events to, such as `http://localhost:4318/v1/logs`: today the Audit log's entries, while `audit.otlp` is on. Unset, the default, sends nothing, and nothing leaves the machine. Read when the process starts; set in user configuration or an Operator policy only.",
+    kind: ValueKind::Text,
+    default: null,
+    clearable: true,
+    authority: Authority::Machine,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -233,6 +245,7 @@ pub const ENTRIES: Entries = Entries {
         LOG_FILE_MAX_SIZE,
         LOG_FILE_MAX_FILES,
         OTLP_TRACES_ENDPOINT,
+        OTLP_LOGS_ENDPOINT,
     ],
     hook_stages: &[],
     shared_type_values: &[],

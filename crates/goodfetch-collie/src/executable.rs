@@ -65,6 +65,7 @@ use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 
+mod audit;
 mod browsers;
 mod certs;
 mod config;
@@ -121,6 +122,13 @@ enum Command {
     Browsers {
         #[command(subcommand)]
         command: BrowsersCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
+    /// Exports and verifies the user's Audit log.
+    Audit {
+        #[command(subcommand)]
+        command: audit::AuditCommand,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -627,6 +635,18 @@ fn with_passed_variables(
     environment
 }
 
+/// Whether `parsed` records the executable in the list of installed
+/// executables: every command but `daemon launched`.
+fn records_the_executable(parsed: &Parsed) -> bool {
+    !matches!(
+        parsed,
+        Parsed::HandWritten(Command::Daemon {
+            command: DaemonCommand::Launched { .. },
+            ..
+        })
+    )
+}
+
 /// Runs the command `parsed` asks for on `engine`, once the executable is
 /// set up.
 fn run(
@@ -644,13 +664,7 @@ fn run(
         environment,
         executable: std::env::current_exe().ok(),
     };
-    if !matches!(
-        parsed,
-        Parsed::HandWritten(Command::Daemon {
-            command: DaemonCommand::Launched { .. },
-            ..
-        })
-    ) {
+    if records_the_executable(&parsed) {
         machine.record();
     }
     let command = match parsed {
@@ -729,6 +743,9 @@ fn run(
         Command::Usage { command, .. } => {
             warn_of_a_temporary_ledger(&home, human);
             usage_command(command, engine, dependencies, &machine, human)
+        }
+        Command::Audit { command, .. } => {
+            audit::run(command, engine, dependencies, &machine, human)
         }
         Command::Certs { command, .. } => {
             certs::run(command, engine, dependencies, &machine, human)

@@ -3,6 +3,8 @@
 /**
  * A `audit_kind`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).
  *
+ * - `audit_log_anchor`: The first entry of a pruned Audit log, in place of the entries `audit.retention` pruned: the last pruned sequence, its hash, from which the rest chains, and the time and layer of the pruning that left it.
+ * - `audit_log_pruned`: `audit.retention` pruned the Audit log's beginning: the last pruned sequence and its hash, which the anchor carries, and the retention, with the layer that set it.
  * - `certificate_any_used`: A run reached a host whose domain accepts any certificate, `any` (ADR 0042).
  * - `certificate_change_accepted`: A person accepted a pinned host's changed certificate, with both hashes (ADR 0042).
  * - `certificate_exceptions_used`: The certificate exceptions a run used, once per run, by host and kind (ADR 0042).
@@ -22,7 +24,7 @@
  * - `signed_in`: A person signed in to the Console, with the sign-in's identifier and how they proved who they are, such as the single-user link.
  * - `tls_terminated_upstream`: An Exposed Daemon started with `daemon.tls.upstream`, TLS terminated in front of it (ADR 0049).
  */
-export type AuditKind = "certificate_any_used" | "certificate_change_accepted" | "certificate_exceptions_used" | "certificate_pinned" | "console_key_rotated" | "endpoint_authentication_failed" | "exposed_daemon_set_up" | "lent_page_attached" | "pressing_harder_value_set" | "private_addresses_allowed" | "raw_cdp_attached" | "secret_reference_used" | "security_switch_turned_off" | "session_exported" | "session_imported" | "sign_in_revoked" | "signed_in" | "tls_terminated_upstream" | (string & {});
+export type AuditKind = "audit_log_anchor" | "audit_log_pruned" | "certificate_any_used" | "certificate_change_accepted" | "certificate_exceptions_used" | "certificate_pinned" | "console_key_rotated" | "endpoint_authentication_failed" | "exposed_daemon_set_up" | "lent_page_attached" | "pressing_harder_value_set" | "private_addresses_allowed" | "raw_cdp_attached" | "secret_reference_used" | "security_switch_turned_off" | "session_exported" | "session_imported" | "sign_in_revoked" | "signed_in" | "tls_terminated_upstream" | (string & {});
 
 /**
  * A `block_cause`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).

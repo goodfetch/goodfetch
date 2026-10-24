@@ -1,10 +1,13 @@
-//! `audit verify` through Collie's executable (spec #564's seam; ADRs 0016,
-//! 0066 and 0067): the user's Audit log, in the Goodfetch home
-//! `GOODFETCH_HOME` names, written through the engine's `record`, is
-//! verified by the CLI command and by `audit.verify` over the protocol,
-//! which answer the same value: intact, or the first sequence that does not
-//! verify. A log of a newer major is refused with the registry's
-//! `format_version_unsupported`.
+//! `audit export` and `audit verify` through Collie's executable (spec
+//! #564's seam; ADRs 0016, 0066 and 0067): the user's Audit log, in the
+//! Goodfetch home `GOODFETCH_HOME` names, written through the engine's
+//! `record`, is verified by the CLI command and by `audit.verify` over the
+//! protocol, which answer the same value: intact, or the first sequence that
+//! does not verify. A log of a newer major is refused with the registry's
+//! `format_version_unsupported`. `audit export` writes it as JSONL, one
+//! entry with its hash per line, which `audit verify --file` verifies off
+//! the machine; under `audit.retention` the engine prunes its beginning
+//! behind an anchor, from which it still verifies.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -14,7 +17,7 @@ use goodfetch_engine::audit::{AuditLog, Origin};
 use goodfetch_engine::home::Home;
 use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
 use goodfetch_protocol::connection::Surface;
-use goodfetch_test_support::{TestEnv, cli};
+use goodfetch_test_support::{Canaries, SecretKind, TestEnv, cli};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -26,6 +29,11 @@ const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 /// Writes `count` entries to the Audit log of `env`'s home through the
 /// engine's own `record`.
 fn written(env: &TestEnv, count: u64) -> AuditLog {
+    written_at(env, count, "2026-01-05T09:00:00Z")
+}
+
+/// Writes `count` entries recorded at `time`, as [`written`] does.
+fn written_at(env: &TestEnv, count: u64, time: &str) -> AuditLog {
     let log = AuditLog::of(&Home::new(env.home().to_path_buf()), None);
     for index in 1..=count {
         log.record(
@@ -39,7 +47,7 @@ fn written(env: &TestEnv, count: u64) -> AuditLog {
             },
             &SECRET_REFERENCE_USED,
             json!({ "reference": format!("env:SECRET_{index}"), "domain": "example.com" }),
-            "2026-01-05T09:00:00Z".parse().unwrap(),
+            time.parse().unwrap(),
         )
         .unwrap();
     }
@@ -128,6 +136,253 @@ fn audit_verify_refuses_a_log_of_a_newer_major() {
             &json!("format_version_unsupported"),
             &json!("audit-log"),
             &json!("1.0")
+        )
+    );
+}
+
+/// Each stored entry's sequence and hash, read from the store itself.
+fn stored_hashes(log: &AuditLog) -> Vec<(i64, String)> {
+    Connection::open(log.path())
+        .unwrap()
+        .prepare("SELECT sequence, hash FROM entries ORDER BY sequence")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+/// What `audit export` wrote to stdout.
+fn exported(env: &TestEnv) -> String {
+    cli(env, COLLIE)
+        .args(["audit", "export"])
+        .json_lines("ExportedAuditEntry")
+        .unwrap()
+        .printed
+}
+
+/// What `audit verify --file <file> --json` printed of `jsonl`, written to
+/// a file of the test's folder.
+fn verified_file(env: &TestEnv, jsonl: &str) -> Value {
+    let file = env.folder().join("audit-export.jsonl");
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test writes the export it hands the command"
+    )]
+    std::fs::write(&file, jsonl).unwrap();
+    let printed = cli(env, COLLIE)
+        .args([
+            "audit",
+            "verify",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ])
+        .run()
+        .unwrap();
+    serde_json::from_str(&printed.stdout).unwrap()
+}
+
+/// Covers: story:4-71, command:audit.export, operation:audit.export
+#[test]
+fn audit_export_writes_each_entry_with_its_hash_as_one_json_line_in_sequence() {
+    let env = TestEnv::new();
+    let log = written(&env, 3);
+
+    let printed = exported(&env);
+
+    let lines: Vec<(u64, String, String)> = printed
+        .lines()
+        .map(|line| {
+            let entry: Value = serde_json::from_str(line).unwrap();
+            (
+                entry["sequence"].as_u64().unwrap(),
+                entry["details"]["reference"].as_str().unwrap().to_owned(),
+                entry["hash"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    let stored = stored_hashes(&log);
+    assert_eq!(
+        lines,
+        vec![
+            (1, "env:SECRET_1".to_owned(), stored[0].1.clone()),
+            (2, "env:SECRET_2".to_owned(), stored[1].1.clone()),
+            (3, "env:SECRET_3".to_owned(), stored[2].1.clone()),
+        ]
+    );
+}
+
+/// Covers: story:4-71, operation:audit.export
+#[test]
+fn audit_export_answers_over_the_protocol_the_entries_the_cli_writes() {
+    let env = TestEnv::new();
+    written(&env, 2);
+    let printed: Vec<Value> = exported(&env)
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let mut engine = Attached::start(&env);
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+
+    let answered = call(&mut engine, 1, "audit.export", &json!({}));
+
+    let _ = engine.finish();
+    assert_eq!(answered["result"]["entries"], Value::Array(printed));
+}
+
+/// The positive control and the tampered copy: the export as written
+/// verifies intact off the machine, and the same export with one entry
+/// edited is reported at it.
+/// Covers: story:4-71, command:audit.export, command:audit.verify
+#[test]
+fn an_exported_log_verifies_intact_and_an_edit_to_it_shows() {
+    let env = TestEnv::new();
+    written(&env, 3);
+    let jsonl = exported(&env);
+
+    let (intact, edited) = (
+        verified_file(&env, &jsonl),
+        verified_file(&env, &jsonl.replace("SECRET_2", "SECRET_X")),
+    );
+
+    assert_eq!(
+        (intact, edited),
+        (
+            json!({ "intact": true, "entries": 3 }),
+            json!({ "intact": false, "entries": 3, "first_broken": 2 })
+        )
+    );
+}
+
+/// `config explain audit` shows both of the Audit log's keys with the
+/// layer that set each: `audit.retention` from the user configuration, and
+/// `audit.otlp`'s default, off.
+/// Covers: story:4-72, command:config.explain, setting:audit.retention, setting:audit.otlp
+#[test]
+fn config_explain_audit_shows_its_retention_and_otlp_keys_with_their_layer() {
+    let env = TestEnv::new();
+    env.user_configuration("audit.retention = 15552000000\n");
+
+    let printed = cli(&env, COLLIE)
+        .args(["config", "explain", "audit", "--json"])
+        .run()
+        .unwrap();
+
+    let explained: Value = serde_json::from_str(&printed.stdout).unwrap();
+    let keys: Vec<Value> = explained["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|setting| json!([setting["key"], setting["value"], setting["layer"]]))
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            json!(["audit.otlp", false, "default"]),
+            json!(["audit.retention", 15_552_000_000_u64, "user_configuration"]),
+        ]
+    );
+}
+
+/// The variable the engine reads the Run's key-encryption key from, by
+/// `run_state.key_reference`, whose use the engine records.
+const KEY_VARIABLE: &str = "GF_TEST_RUN_KEY";
+
+/// Starts and finishes a Run on an Attached engine, which records the use
+/// of its key reference in the Audit log; answers the Run's lifecycle.
+pub(crate) fn recorded_by_a_run(env: &TestEnv) -> Value {
+    let mut canaries = Canaries::new(env.seed());
+    let key = canaries.plant(SecretKind::RunDataKey).value().to_owned();
+    let mut engine = Attached::start_with(env, |command| {
+        command.env(KEY_VARIABLE, &key);
+    });
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+    call(&mut engine, 1, "run.start", &json!({ "run_id": "audited" }));
+    let finished = call(
+        &mut engine,
+        2,
+        "run.finish",
+        &json!({ "run_id": "audited" }),
+    );
+    let _ = engine.finish();
+    finished["result"]["lifecycle"].clone()
+}
+
+/// The user configuration that names the Run's key by reference, then
+/// `more`.
+pub(crate) fn key_by_reference(more: &str) -> String {
+    format!("run_state.key_reference = \"env:{KEY_VARIABLE}\"\n{more}")
+}
+
+/// Under `audit.retention`, the engine's next append prunes the entries
+/// older than it behind an anchor carrying the last pruned hash, and
+/// `audit verify` reports the log intact from it; the export starts with
+/// the anchor, the pruning record and the new entry after it.
+/// Covers: story:4-72, setting:audit.retention, command:audit.verify, command:audit.export, operation:audit.verify, operation:audit.export
+#[test]
+fn under_audit_retention_an_engine_prunes_the_old_entries_and_the_log_verifies_from_its_anchor() {
+    let env = TestEnv::new();
+    env.user_configuration(&key_by_reference("audit.retention = 86400000\n"));
+    let log = written_at(&env, 2, "2020-01-05T09:00:00Z");
+    let last_pruned = stored_hashes(&log)[1].1.clone();
+
+    let lifecycle = recorded_by_a_run(&env);
+
+    let kinds: Vec<Value> = exported(&env)
+        .lines()
+        .map(|line| {
+            let entry: Value = serde_json::from_str(line).unwrap();
+            json!([
+                entry["sequence"],
+                entry["kind"],
+                entry["hash"] == json!(last_pruned)
+            ])
+        })
+        .collect();
+    let (printed, _) = verified_both_ways(&env);
+    assert_eq!(
+        (lifecycle, kinds, printed),
+        (
+            json!("finished"),
+            vec![
+                json!([2, "audit_log_anchor", true]),
+                json!([3, "audit_log_pruned", false]),
+                json!([4, "secret_reference_used", false]),
+            ],
+            json!({ "intact": true, "entries": 3 })
+        )
+    );
+}
+
+/// With `audit.retention` unset, the default, the same old entries stay.
+/// Covers: story:4-72, setting:audit.retention, command:audit.export, operation:audit.export
+#[test]
+fn with_audit_retention_unset_an_engine_prunes_nothing() {
+    let env = TestEnv::new();
+    env.user_configuration(&key_by_reference(""));
+    written_at(&env, 2, "2020-01-05T09:00:00Z");
+
+    let lifecycle = recorded_by_a_run(&env);
+
+    let kinds: Vec<Value> = exported(&env)
+        .lines()
+        .map(|line| {
+            let entry: Value = serde_json::from_str(line).unwrap();
+            json!([entry["sequence"], entry["kind"]])
+        })
+        .collect();
+    assert_eq!(
+        (lifecycle, kinds),
+        (
+            json!("finished"),
+            vec![
+                json!([1, "secret_reference_used"]),
+                json!([2, "secret_reference_used"]),
+                json!([3, "secret_reference_used"]),
+            ]
         )
     );
 }

@@ -3,7 +3,7 @@
 admission = ["clock", "entropy", "politeness", "settings"]
 age_notice = ["home", "product", "settings"]
 attached = ["daemon", "rpc", "transport"]
-audit = ["home"]
+audit = ["home", "settings"]
 audit_operations = ["audit", "composition", "run", "runs"]
 certs_operations = ["audit", "composition", "known_certificates", "run", "runs", "tls"]
 body = []

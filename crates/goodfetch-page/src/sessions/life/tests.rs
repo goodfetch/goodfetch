@@ -109,8 +109,9 @@ fn a_page_that_ends_ends_its_call_in_flight_and_refuses_the_next(
 }
 
 /// A call whose own command failed as its page went raises what ended the
-/// page once that is known: a navigation the browser abandoned under a
-/// renderer crash is `page_crashed`, not `navigation_failed`.
+/// page once that is known. (A navigation the browser abandoned under a
+/// renderer crash is told apart by the driver, which raises `page_crashed`
+/// itself.)
 ///
 /// Covers: story:5-27, story:5-28
 #[rstest]
@@ -118,11 +119,6 @@ fn a_page_that_ends_ends_its_call_in_flight_and_refuses_the_next(
     renderer_crashed(),
     Ending::Destroyed,
     ("call_cancelled", json!({ "by": "browser", "closed": "page" }))
-)]
-#[case::a_navigation_abandoned_under_a_renderer_crash(
-    network_error("http://catalog.test/", "net::ERR_ABORTED"),
-    Ending::RendererCrash,
-    ("page_crashed", json!({ "browser_exit": null }))
 )]
 fn a_call_that_failed_as_its_page_went_raises_what_ended_the_page(
     #[case] failure: CallError,

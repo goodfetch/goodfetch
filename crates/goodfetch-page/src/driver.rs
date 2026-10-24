@@ -1212,21 +1212,67 @@ impl PageDriver {
         let mut navigation = Navigation::of(self.frame.clone());
         let mut command = std::pin::pin!(command);
         let mut expected = None;
-        loop {
+        let outcome = loop {
             if let Some(expected) = &expected
                 && let Some(outcome) = navigation.outcome(expected, wait_until, superseded())
             {
-                return Ok(outcome);
+                break outcome;
             }
             tokio::select! {
                 answered = &mut command, if expected.is_none() => match answered? {
                     Ok(Some(answered)) => expected = Some(answered),
                     Ok(None) => return Ok(Ok(Arrived::Document(None))),
-                    Err(ended) => return Ok(Err(ended)),
+                    Err(ended) => break Err(ended),
                 },
                 event = events.next() => match event {
                     Some(event) => navigation.feed(&event),
                     None => return Err(self.browser.failed(call, &Failure::Disconnected).await),
+                },
+            }
+        };
+        match outcome {
+            Err(Ended::Failed(error)) if navigation::abandoned(&error) => self
+                .abandoned(error, events, &mut navigation, call)
+                .await
+                .map(Err),
+            outcome => Ok(outcome),
+        }
+    }
+
+    /// How a navigation the browser abandoned with `error` ended: under a
+    /// renderer that crashed, or else as the browser's own failure of it,
+    /// such as for an answer with no document. The pinned Chromium
+    /// abandons the navigation of a renderer that crashes before it reports
+    /// the crash, once the crash's dump is written (~200 ms idle, longer
+    /// under load), so the page's renderer is asked for its frame tree: a
+    /// live one answers, and a crashed one never does before its crash is
+    /// reported.
+    async fn abandoned(
+        &self,
+        error: String,
+        events: &mut Subscription,
+        navigation: &mut Navigation,
+        call: &Call,
+    ) -> Result<Ended, CallError> {
+        let alive = self
+            .browser
+            .try_send(Some(&self.session), &page::GetFrameTreeParams {});
+        let mut alive = std::pin::pin!(alive);
+        loop {
+            if navigation.crashed() {
+                return Ok(Ended::Crashed);
+            }
+            tokio::select! {
+                biased;
+                event = events.next() => match event {
+                    Some(event) => navigation.feed(&event),
+                    None => return Err(self.browser.failed(call, &Failure::Disconnected).await),
+                },
+                answered = &mut alive => return match answered {
+                    Err(Failure::Disconnected) => {
+                        Err(self.browser.failed(call, &Failure::Disconnected).await)
+                    }
+                    Ok(_) | Err(_) => Ok(Ended::Failed(error)),
                 },
             }
         }

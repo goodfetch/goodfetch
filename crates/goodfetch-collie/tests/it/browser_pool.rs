@@ -143,6 +143,66 @@ fn a_crashed_renderer_of_a_pooled_browser_writes_its_dump_in_the_tests_crash_dum
     );
 }
 
+/// A navigation the browser abandons on a live renderer, as it does for an
+/// answer with no document, raises `navigation_failed` with the browser's
+/// `net::ERR_ABORTED`, not the `page_crashed` of a renderer that crashed
+/// under it, and the page answers its next navigation.
+/// Covers: operation:page.goto, story:5-27
+#[test]
+fn a_navigation_abandoned_on_a_live_renderer_raises_navigation_failed_and_the_page_goes_on() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "abandoned",
+        &Map::new(),
+        |_| {},
+    );
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "abandoned" }),
+    ));
+
+    let abandoned = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("fetch-edge.test", "/no-content") }),
+    );
+    let next = call(
+        &mut engine,
+        4,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("fetch-edge.test", "/target") }),
+    );
+    let _ = call(
+        &mut engine,
+        5,
+        "run.finish",
+        &json!({ "run_id": "abandoned" }),
+    );
+    let _ = engine.finish();
+
+    assert_eq!(
+        (
+            abandoned["error"]["data"]["code"].clone(),
+            abandoned["error"]["data"]["error"].clone(),
+            next["result"]["response"]["status"].clone(),
+        ),
+        (
+            json!("navigation_failed"),
+            json!("net::ERR_ABORTED"),
+            json!(200)
+        ),
+        "{abandoned} {next}"
+    );
+}
+
 /// The Session `run.new_session` answered for `run_id`.
 fn new_session(engine: &mut Attached, id: i64, run_id: &str) -> SessionId {
     let answer = call(engine, id, "run.new_session", &json!({ "run_id": run_id }));

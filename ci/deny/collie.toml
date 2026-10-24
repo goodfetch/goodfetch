@@ -72,15 +72,12 @@ crate = "btls-sys"
 wrappers = ["btls"]
 reason = "in Collie, only the TLS relay's crate takes BoringSSL (ADR 0124)"
 
-# reqwest, the HTTP fetch tier's transport, and the Brotli decoder the
-# fetch driver decodes `br` with: Foxhound's alone (spec #579, ADR 0088).
+# reqwest, the HTTP fetch tier's transport: Foxhound's alone (spec #579,
+# ADR 0088). The Brotli decoder is no longer Foxhound's alone: Collie's
+# engine decodes `br` bodies under the response limits (SC-05, #644).
 [[bans.deny]]
 crate = "reqwest"
 reason = "only Foxhound's HTTP fetch tier uses reqwest (spec #579, ADR 0088)"
-
-[[bans.deny]]
-crate = "brotli-decompressor"
-reason = "only Foxhound's fetch driver decodes `br` itself (spec #579, ADR 0119)"
 
 # Paid fetches (ADR 0045), Foxhound's alone (ADR 0088).
 [[bans.deny]]

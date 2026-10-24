@@ -20,7 +20,7 @@ mod limits;
 mod party;
 mod relay;
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,7 +28,7 @@ use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 use goodfetch_engine::CallError;
-use goodfetch_engine::dns::{Dns, HostMapping, Resolution, ResolverConfiguration, Route};
+use goodfetch_engine::http_client::{self, Resolve};
 use goodfetch_engine::run::secret_error;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::secrets::Purpose;
@@ -255,7 +255,7 @@ impl SessionProxy {
         };
         let relay = match (&username, server.scheme.is_socks()) {
             (Some(username), true) => {
-                let address = address_of(&server, settings, run).await?;
+                let address = address_of(&server, settings).await?;
                 let password = password.clone().unwrap_or_else(|| SecretString::from(""));
                 let mode = Mode::Socks5 {
                     username: username.clone(),
@@ -350,7 +350,7 @@ impl SessionProxy {
             }
             _ => None,
         };
-        let address = address_of(&chosen.server, settings, run).await?;
+        let address = address_of(&chosen.server, settings).await?;
         let mode = match (&chosen.username, chosen.server.scheme.is_socks()) {
             (Some(username), true) => Mode::Socks5 {
                 username: username.clone(),
@@ -556,37 +556,23 @@ impl SessionProxy {
 }
 
 /// The address of `server`'s host: an IP address as it is, a name from the
-/// Run's `network.resolve` mapping first, then the resolver (ADR 0059).
-async fn address_of(
-    server: &ProxyServer,
-    settings: &Resolved,
-    run: &Run,
-) -> Result<SocketAddr, CallError> {
-    if let Ok(ip) = server.host.parse::<IpAddr>() {
-        return Ok(SocketAddr::new(ip, server.port));
-    }
-    let mapping = settings.hosts(NETWORK_RESOLVE.name);
-    let configuration = ResolverConfiguration::system()
-        .map_err(|error| unavailable(server, "", &error.to_string()))?;
-    let dns = Dns::new(
-        HostMapping::new(
-            mapping
-                .iter()
-                .map(|(host, addresses)| (host.as_str(), addresses.clone())),
-        ),
-        configuration,
-        run.clock(),
-    );
-    match dns.lookup(&server.host, Route::Direct).await {
-        Ok(Resolution::Addresses { addresses, .. }) => Ok(SocketAddr::new(
-            *addresses
-                .first()
-                .expect("invariant: a resolution's addresses are never empty"),
-            server.port,
-        )),
-        Ok(Resolution::ByProxy) => Err(unavailable(server, "", "the proxy's host has no address")),
-        Err(error) => Err(unavailable(server, "", &error.to_string())),
-    }
+/// Run's `network.resolve` mapping first, then the system's resolver, as the
+/// engine's own requests resolve theirs ([`http_client::lookup`], whose
+/// lookup runs off the async workers), so no Session's open reads the
+/// system's resolver configuration.
+async fn address_of(server: &ProxyServer, settings: &Resolved) -> Result<SocketAddr, CallError> {
+    let mapping = settings
+        .hosts(NETWORK_RESOLVE.name)
+        .into_iter()
+        .fold(Resolve::new(), |mapping, (host, addresses)| {
+            mapping.with(host, addresses)
+        });
+    let addresses = http_client::lookup(&server.host, server.port, &mapping)
+        .await
+        .map_err(|_| unavailable(server, "", "the proxy's host has no address"))?;
+    Ok(*addresses
+        .first()
+        .expect("invariant: a lookup that answered has an address"))
 }
 
 /// `proxy_unavailable` for `server`, met by a request to `url`.

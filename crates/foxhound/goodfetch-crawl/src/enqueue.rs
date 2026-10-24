@@ -92,12 +92,14 @@ fn add(
     else {
         return Ok(None);
     };
-    let Some(base) = document.cloned().or_else(|| document_base(&url, None)) else {
+    let Some(from) = document_base(&url, None) else {
         return Ok(None);
     };
+    let base = document.cloned().unwrap_or_else(|| from.clone());
     let candidate = Candidate::Enqueue {
         url: &params.url,
         base: &base,
+        from: &from,
         declared: Declared {
             method: &params.method,
             body: params.body.as_ref().map(HttpBody::bytes),

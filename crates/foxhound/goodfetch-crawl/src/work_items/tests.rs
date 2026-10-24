@@ -117,7 +117,13 @@ impl Subject {
                     vfs: Some(vfs.name().to_owned()),
                     ..RunStateOptions::default()
                 },
-                vec![TABLES, VISITED_TABLES, SCOPE_TABLES, BOUNDS_TABLES],
+                vec![
+                    TABLES,
+                    VISITED_TABLES,
+                    SCOPE_TABLES,
+                    BOUNDS_TABLES,
+                    goodfetch_frontier::RULES_TABLES,
+                ],
                 1,
                 &owner,
             ))

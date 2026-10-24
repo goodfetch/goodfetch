@@ -28,6 +28,7 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
         .chain(VISITED_TABLES.statements)
         .chain(SCOPE_TABLES.statements)
         .chain(BOUNDS_TABLES.statements)
+        .chain(goodfetch_frontier::RULES_TABLES.statements)
     {
         connection.execute(statement, []).unwrap();
     }

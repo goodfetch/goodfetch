@@ -354,3 +354,64 @@ async fn concurrent_readers_wait_for_one_fetch() {
         (Fetched::File(parse(FILE)), Fetched::File(parse(FILE)), 1)
     );
 }
+
+/// Each refusal case of the Politeness file's format (ADR 0066), on a
+/// file holding a copy: a version this engine reads keeps the copy in
+/// use, with no fetch; one it cannot read refuses the file.
+///
+/// Covers: story:6-241, format:politeness-file
+#[rstest]
+#[tokio::test(start_paused = true)]
+async fn the_copy_follows_the_politeness_files_refusal_cases(
+    #[files("../../goodfetch-protocol/generated/refusals/politeness-file/*.json")]
+    #[mode = str]
+    case: &str,
+) {
+    let case: goodfetch_protocol::refusals::RefusalCase = serde_json::from_str(case).unwrap();
+    let env = TestEnv::new();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
+    let fetches = Arc::new(AtomicUsize::new(0));
+    SharedRobotsTxt::new(file(&env, "writer", &owner).await, clock)
+        .copy(&location(), counted(&fetches, response(200, FILE)))
+        .await;
+    rusqlite::Connection::open(env.folder().join("politeness.sqlite"))
+        .unwrap()
+        .execute("UPDATE format SET version = ?1", [case.found.to_string()])
+        .unwrap();
+
+    let reopened = Politeness::open(
+        env.folder().join("politeness.sqlite"),
+        &PolitenessOptions::default(),
+        vec![TABLES],
+        |_, _| false,
+        "reader".to_owned(),
+        &owner,
+    )
+    .await;
+
+    match (case.compatibility, reopened) {
+        (goodfetch_protocol::formats::Compatibility::Compatible, Ok(file)) => {
+            let read = SharedRobotsTxt::new(file, clock)
+                .copy(&location(), counted(&fetches, response(500, b"")))
+                .await;
+            assert_eq!(
+                ((*read).clone(), fetches.load(Ordering::SeqCst)),
+                (Fetched::File(parse(FILE)), 1),
+                "{case:#?}"
+            );
+        }
+        (
+            compatibility,
+            Err(goodfetch_engine::politeness::PolitenessError::Format {
+                found,
+                compatibility: refused,
+            }),
+        ) => assert_eq!(
+            (found, refused),
+            (case.found.to_string(), compatibility),
+            "{case:#?}"
+        ),
+        (_, opened) => panic!("{case:#?} opened as {:?}", opened.map(|_| ())),
+    }
+}

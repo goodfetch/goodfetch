@@ -71,6 +71,7 @@ use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
     WORK_ITEM_RETRIED,
 };
+use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::run::{
@@ -922,7 +923,19 @@ async fn settle(
         Answer::Handled(CrawlRequestHandled {
             skipped: Some(skip),
             ..
-        }) => Unsuccessful::Skipped(skip.message),
+        }) => Unsuccessful::Skipped {
+            reason: SkipReason::Handler,
+            message: Some(skip.message),
+        },
+        // An outcome's message is the handler's or a Hook's own text: the
+        // engine's reason for a hop's skip goes to the log alone.
+        Answer::Skipped { reason, message } => {
+            tracing::debug!(run_id = %run.id(), work_item = %id, reason = ?reason, message, "a redirect hop ended its request skipped");
+            Unsuccessful::Skipped {
+                reason,
+                message: None,
+            }
+        }
         Answer::Handled(handled) => {
             match lease
                 .commit(run.state(), handled.records, run.point_in_time())
@@ -974,7 +987,7 @@ async fn settle(
         Unsuccessful::Retried(failure) | Unsuccessful::Failed(failure) => {
             Some(failure.code.clone())
         }
-        Unsuccessful::Skipped(_) | Unsuccessful::Blocked(_) => None,
+        Unsuccessful::Skipped { .. } | Unsuccessful::Blocked(_) => None,
     };
     let ended_at = run.point_in_time();
     let written = run

@@ -108,7 +108,10 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                 connection,
                 id,
                 epoch,
-                Unsuccessful::Skipped("no".to_owned()),
+                Unsuccessful::Skipped {
+                    reason: goodfetch_protocol::foxhound::outcomes::SkipReason::Handler,
+                    message: Some("no".to_owned()),
+                },
                 &ended_at(),
             ),
             First::Blocked => work_items::end(

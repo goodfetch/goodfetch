@@ -32,7 +32,7 @@ use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch};
 use goodfetch_engine::runs::Run;
-use goodfetch_fetch_tier::{FetchTiers, HandOver, HandedOver, HttpTier, Requester, RobotsTxtFetch};
+use goodfetch_fetch_tier::{FetchTiers, HandOver, HttpTier, Requester, RobotsTxtFetch, Stop};
 use goodfetch_frontier::{DomainKeys, EndMerged, PageSeen, SharedRobotsTxt};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
@@ -41,6 +41,7 @@ use goodfetch_protocol::foxhound::crawl::{
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::frontier::HttpBody;
+use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::progress::InFlightPhase;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::foxhound::settings::{
@@ -69,6 +70,9 @@ const PAGE_CHECK_FAILED: &str = "page_check_failed";
 pub(super) enum Answer {
     /// The handler answered.
     Handled(CrawlRequestHandled),
+    /// A hop of its document's redirect chain ended it `skipped`, its
+    /// handler never asked (ADRs 0118 and 0120).
+    Skipped { reason: SkipReason, message: String },
     /// The handler failed, or answered no result.
     Failed {
         code: String,
@@ -112,22 +116,23 @@ pub(super) struct Gating {
 }
 
 impl Gating {
-    /// Hands the Run's pages over to the attempt of `leased` holding
-    /// `lease`, while its handler runs; `in_flight` names its waits.
+    /// What the attempt of `leased` holding `lease` gates its document's
+    /// redirect hops with, then hands its Run's pages over with while its
+    /// handler runs; `in_flight` names its waits.
     async fn hand_over(
         &self,
         run: &Run,
         leased: &Leased,
         lease: &WorkItemLease,
         in_flight: &SharedInFlight,
-    ) -> HandedOver {
+    ) -> Arc<HandOver> {
         let politeness = share_robots_txt(run).await;
         let settings = run.settings().map(|settings| settings.resolved().clone());
         let domain_delay = settings
             .as_ref()
             .and_then(|settings| settings.duration(POLITENESS_DOMAIN_DELAY.name))
             .unwrap_or_default();
-        self.tiers.hand_over(HandOver {
+        Arc::new(HandOver {
             run: run.clone(),
             domain_key: leased.waiting.key.clone(),
             keys: settings.as_ref().map(DomainKeys::of).unwrap_or_default(),
@@ -287,6 +292,7 @@ pub(super) async fn attempt(
     (fetching, gating): (Option<DocumentFetch>, Gating),
     in_flight: SharedInFlight,
 ) -> Attempt {
+    let hand_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
     let fetched = match &fetching {
         None => Ok(None),
         Some(fetch) => {
@@ -306,15 +312,22 @@ pub(super) async fn attempt(
             biased;
             document = async {
                 read_robots_txt(&run, &fetch.http, &leased).await;
-                fetch.tiers.serve(&fetch.http, &run, &leased.crawl_request, &requester).await
-            } => document
-                .map(Some)
-                .map_err(|error| Answer::Failed {
+                fetch
+                    .tiers
+                    .serve(&fetch.http, &run, &leased.crawl_request, &requester, &hand_over)
+                    .await
+            } => document.map(Some).map_err(|stop| match stop {
+                Stop::Failed(error) => Answer::Failed {
                     code: error.code().to_owned(),
                     retryable: error.retryable(),
                     message: error.message().to_owned(),
                     details: error.details().cloned().unwrap_or_default(),
-                }),
+                },
+                Stop::Skipped(skip) => Answer::Skipped {
+                    reason: skip.reason,
+                    message: skip.message,
+                },
+            }),
             _ = lease.ended() => Err(Answer::LeaseEnded),
             }
         }
@@ -342,7 +355,7 @@ pub(super) async fn attempt(
                 tier: document.as_ref().map(|_| FetchTier::Http),
                 page_id: document.clone(),
             };
-            let handed_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
+            let handed_over = gating.tiers.hand_over(Arc::clone(&hand_over));
             let answer = handled(&run, &client, &params, &lease).await;
             drop(handed_over);
             if let (Some(fetch), Some(page_id)) = (&fetching, &document) {
@@ -520,6 +533,7 @@ pub(super) fn effect(answer: &Answer) -> Effect {
         Answer::Handled(CrawlRequestHandled {
             skipped: Some(_), ..
         })
+        | Answer::Skipped { .. }
         | Answer::LeaseEnded
         | Answer::ClientGone => Effect::Neutral,
     }

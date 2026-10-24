@@ -108,6 +108,10 @@ pub trait HopGate: Send + Sync {
 
     /// Waits until `until` before `hop` is sent.
     fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()>;
+
+    /// Records that the chain ended on `hop`, one after its first, whose
+    /// answer is its document.
+    fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()>;
 }
 
 /// Follows the chain from `first` under `following`, each hop fetched with
@@ -143,6 +147,9 @@ where
         // The hop's answer arrived: its permit is released (ADR 0118).
         drop(permit.take());
         let Some(next) = next_hop(&hop, &fetched, following)? else {
+            if !hops.is_empty() {
+                gate.reached(&hop).await;
+            }
             return Ok(fetched);
         };
         if hops.len() >= usize::try_from(following.max).unwrap_or(usize::MAX) {

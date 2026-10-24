@@ -61,6 +61,7 @@ struct Recording {
     admitted: Mutex<Vec<String>>,
     released: Arc<Mutex<usize>>,
     waits: Mutex<Vec<(String, Duration)>>,
+    reached: Mutex<Vec<String>>,
 }
 
 impl HopGate for Recording {
@@ -89,6 +90,12 @@ impl HopGate for Recording {
                 .unwrap()
                 .push((hop.url.path().to_owned(), wait));
             tokio::time::sleep(wait).await;
+        })
+    }
+
+    fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
+        Box::pin(async move {
+            self.reached.lock().unwrap().push(hop.url.path().to_owned());
         })
     }
 }
@@ -205,6 +212,7 @@ fn a_chain_of_nineteen_redirects_reaches_its_document_each_hop_through_the_gate(
         .map(|n| format!("/redirect/hops/{n}"))
         .collect();
     assert_eq!(*gate.admitted.lock().unwrap(), admitted);
+    assert_eq!(*gate.reached.lock().unwrap(), ["/redirect/hops/0"]);
 }
 
 /// Covers: story:5-124

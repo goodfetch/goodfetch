@@ -144,8 +144,12 @@ pub(crate) enum Unsuccessful {
     Retried(Failure),
     /// Failed, with no retry left.
     Failed(Failure),
-    /// Skipped by its handler, with its message.
-    Skipped(String),
+    /// Skipped, for this reason, with its message: by its handler, or at a
+    /// hop of its document's redirect chain.
+    Skipped {
+        reason: SkipReason,
+        message: Option<String>,
+    },
     /// Blocked by its site.
     Blocked(BlockCause),
 }
@@ -475,7 +479,7 @@ pub(crate) fn end(
     let (status, error_code) = match &unsuccessful {
         Unsuccessful::Retried(failure) => (PENDING, Some(failure.code.as_str())),
         Unsuccessful::Failed(failure) => (FAILED, Some(failure.code.as_str())),
-        Unsuccessful::Skipped(_) => (SKIPPED, None),
+        Unsuccessful::Skipped { .. } => (SKIPPED, None),
         Unsuccessful::Blocked(_) => (BLOCKED, None),
     };
     connection.execute(
@@ -490,10 +494,7 @@ pub(crate) fn end(
         Unsuccessful::Failed(failure) => Ending::Failed {
             error: keep_error(connection, id, &failure)?,
         },
-        Unsuccessful::Skipped(message) => Ending::Skipped {
-            reason: SkipReason::Handler,
-            message: Some(message),
-        },
+        Unsuccessful::Skipped { reason, message } => Ending::Skipped { reason, message },
         Unsuccessful::Blocked(cause) => Ending::Blocked { cause },
     };
     write_outcome(connection, id, ended_at, ending)?;

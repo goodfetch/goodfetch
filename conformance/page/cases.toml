@@ -550,6 +550,10 @@ id = "locator-and-function-waits-resolve-on-re-rendering-pages"
 covers = ["story:5-19", "operation:locator.wait_for", "operation:locator.wait_for_count", "operation:page.wait_for_function"]
 
 [[capability.case]]
+id = "a-route-or-a-wait-whose-pattern-the-engine-cannot-match-is-refused-at-the-call"
+covers = ["story:5-43", "error:pattern_unsupported", "operation:page.route", "operation:page.wait_for_url"]
+
+[[capability.case]]
 id = "each-wait-ends-at-timeout-wait-naming-what-it-waited-for"
 covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
 

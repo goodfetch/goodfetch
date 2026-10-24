@@ -28,16 +28,19 @@ use serde_json::{Value, json};
 use super::{AuditError, AuditLog, Origin};
 use crate::home::Home;
 
+mod export;
+mod retention;
+
 /// ADR 0059's test `Clock` start, when every entry is recorded.
-fn now() -> Timestamp {
+pub(super) fn now() -> Timestamp {
     "2026-01-05T09:00:00Z".parse().unwrap()
 }
 
-fn log(env: &TestEnv) -> AuditLog {
+pub(super) fn log(env: &TestEnv) -> AuditLog {
     AuditLog::of(&Home::new(env.home().to_path_buf()), None)
 }
 
-fn origin() -> Origin {
+pub(super) fn origin() -> Origin {
     Origin {
         actor: Actor::ClientSurface {
             surface: Surface::Cli,
@@ -50,7 +53,7 @@ fn origin() -> Origin {
 
 /// A log of `count` entries written through `record`, each with its own
 /// details.
-fn written(env: &TestEnv, count: u64) -> AuditLog {
+pub(super) fn written(env: &TestEnv, count: u64) -> AuditLog {
     let log = log(env);
     for index in 1..=count {
         log.record(
@@ -66,7 +69,7 @@ fn written(env: &TestEnv, count: u64) -> AuditLog {
 
 /// The store, opened as someone who edits the file would: with the
 /// triggers that keep it append-only dropped.
-fn tamper(log: &AuditLog) -> Connection {
+pub(super) fn tamper(log: &AuditLog) -> Connection {
     let connection = Connection::open(log.path()).unwrap();
     connection
         .execute_batch("DROP TRIGGER entries_never_updated; DROP TRIGGER entries_never_deleted;")
@@ -75,11 +78,11 @@ fn tamper(log: &AuditLog) -> Connection {
 }
 
 /// A sequence as SQLite stores it.
-fn at(sequence: u64) -> i64 {
+pub(super) fn at(sequence: u64) -> i64 {
     i64::try_from(sequence).unwrap()
 }
 
-fn broken(entries: u64, sequence: u64) -> AuditVerified {
+pub(super) fn broken(entries: u64, sequence: u64) -> AuditVerified {
     AuditVerified {
         intact: false,
         entries,
@@ -349,7 +352,7 @@ fn the_head_sets_log_verifies_and_takes_another_entry() {
 }
 
 /// A log's length and a sequence in it, from 1.
-fn log_and_sequence() -> impl Strategy<Value = (u64, u64)> {
+pub(super) fn log_and_sequence() -> impl Strategy<Value = (u64, u64)> {
     (2..=8_u64).prop_flat_map(|count| (Just(count), 1..=count))
 }
 

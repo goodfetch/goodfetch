@@ -229,3 +229,46 @@ fn a_path_budget_refuses_past_its_count_and_the_run_ends_incomplete() {
         ["added", "duplicate", "path_budget"]
     );
 }
+
+/// A path budget whose pattern the engine cannot match fails the start
+/// with `pattern_unsupported`, before the Run begins.
+///
+/// Covers: story:6-229, setting:crawl.path_budgets, error:pattern_unsupported
+#[test]
+fn a_path_budget_pattern_the_engine_cannot_match_fails_the_start() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+
+    let answer = engine.call(
+        "start",
+        "crawl.start",
+        &json!({
+            "run_id": "unmatched",
+            "seeds": [{ "url": "https://shop.test/", "label": "page" }],
+            "settings": { "crawl": { "path_budgets": [
+                { "pattern": "/shop/{a,{b,c}}", "max_requests": 1 },
+            ] } },
+        }),
+        &mut |_| None,
+    );
+    assert!(engine.finish());
+
+    let begun = env
+        .home()
+        .join("0.0")
+        .join("runs")
+        .join("unmatched")
+        .exists();
+    assert_eq!(
+        (
+            &answer["error"]["data"]["code"],
+            &answer["error"]["data"]["construct"],
+            begun
+        ),
+        (
+            &json!("pattern_unsupported"),
+            &json!("nested_braces"),
+            false
+        )
+    );
+}

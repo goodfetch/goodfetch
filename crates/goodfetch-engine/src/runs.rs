@@ -105,7 +105,7 @@ pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
 use crate::admission::{Admission, Gates};
-use crate::audit::AuditLog;
+use crate::audit::{AuditEvents, AuditLog};
 use crate::body;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
 use crate::client::Client;
@@ -121,6 +121,7 @@ use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation
 use crate::metrics::Metrics;
 use crate::needs_you::NeedsYou;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
+use crate::robots_txt::RunCopies;
 use crate::run_files::{self, FileKind, KeepError, Kept};
 use crate::run_index;
 use crate::run_key::{self, KeyError, RunKey, StoredKey};
@@ -190,6 +191,8 @@ pub(crate) struct RunsSetup {
     pub(crate) events: Events,
     /// The engine's settings, which each Run resolves its own under.
     pub(crate) settings: Settings,
+    /// Where the Audit log also sends each entry it appends.
+    pub(crate) audit_events: Option<AuditEvents>,
     /// The engine's Product, which a Run must not need more than for the
     /// engine to take its writer role (ADR 0098).
     pub(crate) product: Product,
@@ -1071,6 +1074,9 @@ struct Shared {
     /// The Politeness its own code shares outside admission, once it asked
     /// for it.
     politeness: tokio::sync::OnceCell<Politeness>,
+    /// Its own copies of the robots.txt files its program's navigation
+    /// read, one per origin (ADRs 0086 and 0098).
+    robots_txt: RunCopies,
 }
 
 impl std::fmt::Debug for Run {
@@ -1505,6 +1511,13 @@ impl Run {
         });
     }
 
+    /// Its own copies of the robots.txt files its program's navigation
+    /// read, one fetch per origin while it lives, apart from the copy
+    /// Foxhound shares across a user's runs (ADRs 0086 and 0098).
+    pub fn robots_txt(&self) -> &RunCopies {
+        &self.shared.robots_txt
+    }
+
     /// Its owner, whose tasks and blocking work stop with the Run.
     pub fn owner(&self) -> &TaskOwner {
         &self.owner
@@ -1933,7 +1946,11 @@ impl Runs {
                 keychain: setup.keychain.clone(),
                 home: setup.home.clone(),
             },
-            Arc::new(AuditLog::of(&setup.home, setup.ledger_vfs.clone())),
+            Arc::new(
+                AuditLog::of(&setup.home, setup.ledger_vfs.clone())
+                    .retained_under(setup.settings.files().clone(), setup.settings.product())
+                    .sending_to(setup.audit_events.clone()),
+            ),
             Arc::clone(&readers),
             setup.clock,
         );
@@ -4129,6 +4146,7 @@ impl Registry {
                 progress,
                 system_info: self.setup.governor.system_info(),
                 politeness: tokio::sync::OnceCell::new(),
+                robots_txt: RunCopies::default(),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),

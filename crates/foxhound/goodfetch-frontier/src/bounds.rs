@@ -111,24 +111,28 @@ impl Default for Bounds {
 
 impl Bounds {
     /// The bounds `settings` hold.
-    ///
-    /// # Errors
-    ///
-    /// The first path budget's pattern the matcher cannot read, which the
-    /// start raises as `pattern_unsupported`.
-    pub fn of_settings(settings: &Resolved) -> Result<Self, UnsupportedPattern> {
-        let bounds = Self {
+    pub fn of_settings(settings: &Resolved) -> Self {
+        Self {
             max_depth: settings.count(CRAWL_MAX_DEPTH.name),
             max_requests: settings.count(CRAWL_MAX_REQUESTS.name),
             max_url_length: settings.count(CRAWL_MAX_URL_LENGTH.name),
             max_path_segments: settings.count(CRAWL_MAX_PATH_SEGMENTS.name),
             max_segment_repeats: settings.count(CRAWL_MAX_SEGMENT_REPEATS.name),
             path_budgets: PathBudget::list(settings.value(CRAWL_PATH_BUDGETS.name)),
-        };
-        for budget in &bounds.path_budgets {
+        }
+    }
+
+    /// Whether the matcher reads every path budget's pattern.
+    ///
+    /// # Errors
+    ///
+    /// The first pattern it cannot read, which the start raises as
+    /// `pattern_unsupported`.
+    pub fn check(&self) -> Result<(), UnsupportedPattern> {
+        for budget in &self.path_budgets {
             UrlPattern::glob(&budget.pattern)?;
         }
-        Ok(bounds)
+        Ok(())
     }
 
     /// Records the bounds in the run file `connection` holds, as the Run
@@ -136,8 +140,11 @@ impl Bounds {
     ///
     /// # Errors
     ///
-    /// When the run file cannot be written.
+    /// When the run file cannot be written, or a path budget's pattern is
+    /// one the matcher cannot read, as a resume's settings may hold.
     pub fn record(&self, connection: &Connection) -> rusqlite::Result<()> {
+        self.check()
+            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
         connection.execute(
             "INSERT INTO bounds (id, max_depth, max_requests, max_url_length, max_path_segments, max_segment_repeats)
              VALUES (1, ?1, ?2, ?3, ?4, ?5)

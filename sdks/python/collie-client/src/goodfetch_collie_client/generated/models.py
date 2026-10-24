@@ -66,6 +66,37 @@ class Acted(BaseModel):
     )
 
 
+class Actor1(BaseModel):
+    """A person, by the name their account or OS user goes by."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["person"]
+    name: str
+    """Their name."""
+
+
+class Actor2(BaseModel):
+    """A named token (area 12), by its name."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["named_token"]
+    name: str
+    """Its name."""
+
+
+class Actor4(BaseModel):
+    """The engine itself."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["engine"]
+
+
 class AllowanceSource(StrEnum):
     """What set the Memory allowance: the tightest of them (ADR 0040)."""
 
@@ -103,6 +134,14 @@ class ArtifactKind(StrEnum):
 class Asked(RootModel[Literal[True]]):
     root: Literal[True]
     """The format, with its default options."""
+
+
+class AuditExportParams(BaseModel):
+    """What `audit.export` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
 
 
 class AuditVerified(BaseModel):
@@ -2666,6 +2705,22 @@ class World(StrEnum):
     """
 
 
+class Actor3(BaseModel):
+    """A Client, by the surface its `hello` named."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["client_surface"]
+    surface: Surface
+    """Its surface."""
+
+
+class Actor(RootModel[Actor1 | Actor2 | Actor3 | Actor4]):
+    root: Actor1 | Actor2 | Actor3 | Actor4
+    """Who an entry's event was done by."""
+
+
 class AddInitScriptParams(BaseModel):
     """
     What `page.add_init_script` takes: the page, and the script's source and
@@ -3168,6 +3223,47 @@ class ExplainedSetting(BaseModel):
     Whether its value weakens a guarantee class or switches off a costly
     control, which the results it touches are marked with (ADR 0028).
     """
+
+
+class ExportedAuditEntry(BaseModel):
+    """
+    One entry of an exported Audit log, one line of its JSONL: the entry
+    and the hash that chains it to the line before it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    actor: Actor
+    """Who did what it records."""
+    details: Any
+    """
+    What its kind records, such as a Secret reference and the domain it
+    was sent to, never a secret's value.
+    """
+    hash: str
+    """
+    `SHA-256(previous hash ‖ RFC 8785 canonical JSON of the entry)`, in
+    lowercase hex; an anchor's is the last pruned entry's.
+    """
+    kind: str
+    """Its kind, a value of the shared type `audit_kind`."""
+    layer: SettingsLayer | None = None
+    """
+    The settings layer its event came from, such as an Operator policy
+    that switched a control off; none where no layer applies.
+    """
+    run_id: RunId | None = None
+    """The Run it happened in; none outside a Run."""
+    sequence: Annotated[int, Field(ge=0)]
+    """Its place in the chain, from 1."""
+    surface: Surface | None = None
+    """
+    The surface the actor acted through, such as `console` for a person
+    in the Console; none for the engine's own events.
+    """
+    time: PointInTime
+    """When it was recorded."""
 
 
 class GotoParams(BaseModel):
@@ -4351,6 +4447,19 @@ class AppliedLimit(BaseModel):
     """Who set it."""
     usage_kind: str
     """The Usage kind it caps."""
+
+
+class AuditExported(BaseModel):
+    """What `audit.export` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    entries: list[ExportedAuditEntry]
+    """
+    Every entry the log holds, in sequence, each with its hash: the
+    anchor first when the log was pruned.
+    """
 
 
 class ClickParams(BaseModel):

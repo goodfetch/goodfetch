@@ -31,8 +31,8 @@ fn isbn() -> Value {
 
 /// The code of what `rules` answers `payload` enqueued under `label`, and
 /// the paths of its issues.
-fn checked(rules: &PayloadRules, label: &str, payload: Option<Value>) -> Option<(String, Value)> {
-    rules.check(label, payload.as_ref()).err().map(|error| {
+fn checked(rules: &PayloadRules, label: &str, payload: Option<&Value>) -> Option<(String, Value)> {
+    rules.check(label, payload).err().map(|error| {
         let details = error.details().unwrap();
         (
             error.code().to_owned(),
@@ -50,17 +50,20 @@ fn checked(rules: &PayloadRules, label: &str, payload: Option<Value>) -> Option<
 }
 
 fn too_long() -> Option<(String, Value)> {
-    Some((
-        "payload_invalid".to_owned(),
-        json!({ "limit": "crawl.payload.max_size", "paths": null }),
-    ))
+    refused(&json!({ "limit": "crawl.payload.max_size", "paths": null }))
 }
 
 fn not_fitting(paths: &[&str]) -> Option<(String, Value)> {
-    Some((
-        "payload_invalid".to_owned(),
-        json!({ "limit": null, "paths": paths }),
-    ))
+    refused(&json!({ "limit": null, "paths": paths }))
+}
+
+/// `payload_invalid` with `details`, as [`checked`] answers it.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the cases compare it with what `checked` answers, `None` for a Payload added"
+)]
+fn refused(details: &Value) -> Option<(String, Value)> {
+    Some(("payload_invalid".to_owned(), details.clone()))
 }
 
 /// The cap counts the Payload's JSON as written compactly, any Label's;
@@ -95,7 +98,7 @@ fn a_payload_is_checked_against_the_cap_and_its_labels_schema(
 ) {
     let rules = rules(32, &[("book", Some(isbn())), ("untyped", None)]);
 
-    assert_eq!(checked(&rules, label, payload), expected);
+    assert_eq!(checked(&rules, label, payload.as_ref()), expected);
 }
 
 /// A run file in memory with the payload tables, `recorded`'s Labels

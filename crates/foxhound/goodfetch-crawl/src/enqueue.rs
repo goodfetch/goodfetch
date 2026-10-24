@@ -3,7 +3,9 @@
 //! holds, through the Frontier, which resolves a relative URL against the
 //! document's base URL, measures it against the crawl's scope the run file
 //! holds, then the Run's domain policy, and answers added or not added
-//! with its reason. The
+//! with its reason; a Payload that does not fit its Label's JSON Schema or
+//! `crawl.payload.max_size` fails the call with `payload_invalid` first
+//! (ADR 0082). The
 //! request is one level deeper than the attempt's, and is committed at once
 //! in the Run's state; the crawl's delivery keys it and queues it under its
 //! domain once the attempt settles.

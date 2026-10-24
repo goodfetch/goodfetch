@@ -10,6 +10,12 @@
 //! with `capability_unavailable` (spec #579). A
 //! Run ID that names a crawl of the same seeds returns it as it is; one of
 //! other seeds, or of a Run that is no crawl, fails with `run_conflict`.
+//! The crawl's Labels and `crawl.payload.max_size` are recorded with the
+//! Run, and a seed whose Payload does not fit them fails the start with
+//! `payload_invalid` before the Run begins; under a Run ID that names a
+//! Run, whose seeds are not checked again, a Label whose Payload schema
+//! changed under a pending Payload that fails it refuses the start with
+//! `payload_schema_changed` before any work (ADR 0082).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

@@ -10,7 +10,10 @@
 //! the user (the per-domain cap, delay, backoff, `Retry-After` and 429
 //! halving); and the rules it learns from the pages a crawl fetched
 //! (ADR 0005): query parameters with no effect, equivalent forms (ADR
-//! 0120), trap paths and cursor pagination preferred to offset. Its own crate under `crates/foxhound/`, since only Foxhound
+//! 0120), trap paths and cursor pagination preferred to offset; and each
+//! crawl request's Payload, kept apart from the engine's fields, checked
+//! against its Label's JSON Schema and `crawl.payload.max_size`, with the
+//! schema hashes a resume compares (ADR 0082). Its own crate under `crates/foxhound/`, since only Foxhound
 //! links it (STYLE.md, reason 2).
 
 mod admit;

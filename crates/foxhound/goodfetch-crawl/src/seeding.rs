@@ -11,7 +11,10 @@
 //! write and answers its seeds in order, so a million seeds never sit in
 //! the engine's memory. Each seed added wakes the crawl's delivery, which
 //! keys it and queues it under its domain, an idle `crawl.keep_alive`
-//! crawl included.
+//! crawl included. A seed whose Payload does not fit its Label's JSON
+//! Schema or `crawl.payload.max_size` fails `run.add_seed`, and a batch of
+//! `run.add_seeds` holding one fails the call, none of the batch admitted,
+//! with `payload_invalid` (ADR 0082).
 
 use std::sync::Arc;
 

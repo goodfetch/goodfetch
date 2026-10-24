@@ -4,7 +4,9 @@
 //! Run's own state, from which it can be rebuilt, naming the engine that
 //! owns the Run while it is live, and saying whether its state is there.
 //! Beside the Runs it keeps the items of "Needs you" a person dismissed,
-//! so every engine of the major hides them (spec #592).
+//! so every engine of the major hides them (spec #592), and the domains
+//! whose consent wall each Run met, which "Needs you" offers for
+//! `consent.domains` (ADR 0048).
 //! Several engines write it, each through its own short-lived connection;
 //! WAL and a busy timeout let them take turns. Its calls block: callers run
 //! them under their owner's blocking policy.
@@ -54,6 +56,12 @@ const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS needs_you_dismissed (
         item TEXT NOT NULL PRIMARY KEY,
         dismissed_at TEXT NOT NULL
+    ) STRICT",
+    "CREATE TABLE IF NOT EXISTS consent_walls (
+        domain TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        seen_at TEXT NOT NULL,
+        PRIMARY KEY (domain, run_id)
     ) STRICT",
 ];
 
@@ -330,7 +338,8 @@ pub(crate) fn replace(
 }
 
 /// Marks the row of the discarded Run `run_id` in the Run index at `path`
-/// *erased*, without its owner, tags or status line, then truncates the
+/// *erased*, without its owner, tags or status line, nor the domains whose
+/// consent walls it met, then truncates the
 /// index's WAL with `wal_checkpoint(TRUNCATE)`, so that neither the index
 /// nor its `-wal` file keeps them (ADRs 0001 and 0036). Answers whether the
 /// index listed the Run.
@@ -346,6 +355,10 @@ pub(crate) fn erase(
 ) -> Result<bool, RunStateError> {
     let opener = opener(engine);
     let listed = in_transaction(path, &opener, true, |transaction| {
+        transaction.execute(
+            "DELETE FROM consent_walls WHERE run_id = ?1",
+            [run_id.as_str()],
+        )?;
         transaction.execute(
             "UPDATE runs SET presence = ?2, owner = NULL, tags = '[]', progress_message = NULL
              WHERE run_id = ?1",
@@ -376,15 +389,47 @@ pub(crate) fn stopped_by_storage(
     path: &Path,
     engine: &ProductVersion,
 ) -> Result<Vec<RunIndexRow>, RunStateError> {
+    stopped_where(
+        path,
+        engine,
+        "json_extract(stop_reason, '$.kind') = 'resources'
+         AND json_extract(stop_reason, '$.resource') = 'storage'",
+    )
+}
+
+/// The rows of the Runs a Limit stopped in the Run index at `path` (ADR
+/// 0041), present, in Run ID order: "Needs you" lists those whose Limit
+/// still has nothing left. An index not made yet lists none, and is not
+/// made.
+///
+/// # Errors
+///
+/// As [`read`].
+pub(crate) fn stopped_by_limit(
+    path: &Path,
+    engine: &ProductVersion,
+) -> Result<Vec<RunIndexRow>, RunStateError> {
+    stopped_where(
+        path,
+        engine,
+        "json_extract(stop_reason, '$.kind') = 'limit'",
+    )
+}
+
+/// The rows of the Runs left stopped and present in the Run index at
+/// `path` whose stop reason meets `condition`, in Run ID order.
+fn stopped_where(
+    path: &Path,
+    engine: &ProductVersion,
+    condition: &str,
+) -> Result<Vec<RunIndexRow>, RunStateError> {
     if !path.exists() {
         return Ok(Vec::new());
     }
     in_transaction(path, &opener(engine), false, |transaction| {
         let mut statement = transaction.prepare(&format!(
             "SELECT {COLUMNS} FROM runs
-             WHERE lifecycle = ?1 AND presence = ?2
-               AND json_extract(stop_reason, '$.kind') = 'resources'
-               AND json_extract(stop_reason, '$.resource') = 'storage'
+             WHERE lifecycle = ?1 AND presence = ?2 AND {condition}
              ORDER BY run_id"
         ))?;
         statement
@@ -454,6 +499,83 @@ pub(crate) fn forget_dismissed(
             transaction.execute("DELETE FROM needs_you_dismissed WHERE item = ?1", [item])?;
         }
         Ok(())
+    })
+}
+
+/// A domain whose consent wall the Runs met, as the Run index keeps it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ConsentWallSeen {
+    /// The registrable domain.
+    pub(crate) domain: String,
+    /// When a Run first met it.
+    pub(crate) first_seen: PointInTime,
+    /// The last Run that met it.
+    pub(crate) last_run: RunId,
+}
+
+/// Records that the Run `run_id` met a consent wall on `domain` at `at`,
+/// keeping the first time it did.
+///
+/// # Errors
+///
+/// As [`write`].
+pub(crate) fn record_consent_wall(
+    path: &Path,
+    engine: &ProductVersion,
+    domain: &str,
+    run_id: &RunId,
+    at: &PointInTime,
+) -> Result<(), RunStateError> {
+    in_transaction(path, &opener(engine), true, |transaction| {
+        transaction.execute(
+            "INSERT INTO consent_walls (domain, run_id, seen_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT (domain, run_id) DO NOTHING",
+            (domain, run_id.as_str(), at.as_str()),
+        )?;
+        Ok(())
+    })
+}
+
+/// Each domain whose consent wall a Run in the Run index at `path` met, in
+/// domain order, with when one first met it and the last that did. An
+/// index not made yet keeps none, and is not made.
+///
+/// # Errors
+///
+/// As [`read`].
+pub(crate) fn consent_walls(
+    path: &Path,
+    engine: &ProductVersion,
+) -> Result<Vec<ConsentWallSeen>, RunStateError> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    in_transaction(path, &opener(engine), false, |transaction| {
+        let mut statement = transaction.prepare(
+            "SELECT domain, MIN(seen_at),
+                    (SELECT last.run_id FROM consent_walls AS last
+                     WHERE last.domain = walls.domain
+                     ORDER BY last.seen_at DESC, last.run_id DESC LIMIT 1)
+             FROM consent_walls AS walls
+             GROUP BY domain
+             ORDER BY domain",
+        )?;
+        statement
+            .query_map([], |row| {
+                let run: String = row.get(2)?;
+                Ok(ConsentWallSeen {
+                    domain: row.get(0)?,
+                    first_seen: PointInTime::from_rfc3339(row.get::<_, String>(1)?),
+                    last_run: RunId::parse(&run).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            2,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?,
+                })
+            })
+            .and_then(Iterator::collect)
     })
 }
 

@@ -1144,6 +1144,7 @@ dependencies = [
  "libc",
  "opentelemetry",
  "opentelemetry_sdk",
+ "psl",
  "rusqlite",
  "rustls",
  "secrecy",

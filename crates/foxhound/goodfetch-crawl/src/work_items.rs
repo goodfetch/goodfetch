@@ -19,6 +19,7 @@
 use std::collections::BTreeSet;
 
 use goodfetch_engine::admission::Waiting;
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_frontier::{Candidate, Declared, Scope, Url, admit};
 use goodfetch_protocol::block::BlockCause;
@@ -173,11 +174,13 @@ pub(crate) struct Adding<'a> {
     pub(crate) depth: u32,
 }
 
-/// Admits each seed through the Frontier, as a pending work item at depth 0
-/// when added, and answers each seed's answer, in order.
+/// Admits each seed through the Frontier under the Run's domain policy
+/// `policy`, as a pending work item at depth 0 when added, and answers each
+/// seed's answer, in order.
 pub(crate) fn admit_seeds(
     connection: &Connection,
     scope: &Scope,
+    policy: &Policy,
     seeds: &[Seed],
 ) -> rusqlite::Result<Vec<Enqueued>> {
     seeds
@@ -192,7 +195,7 @@ pub(crate) fn admit_seeds(
                 url: &seed.url,
                 declared,
             };
-            admit(connection, scope, candidate, |url| {
+            admit(connection, scope, policy, candidate, |url| {
                 add(
                     connection,
                     url,

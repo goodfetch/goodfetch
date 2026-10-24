@@ -8,8 +8,12 @@
 //! `needs_you.changed`, answers `needs_you.list` a page at a time, and
 //! dismisses an item whose source allows it, keeping the dismissal in the
 //! Run index so that every engine of the major hides it. The engine's own
-//! sources, the storage entries of ADR 0122, are in [`storage`].
+//! sources are the storage entries of ADR 0122, in [`storage`], the Runs
+//! stopped by a Limit a person may raise, in [`limits`], and the consent
+//! walls of ADR 0048, in [`consent`].
 
+pub mod consent;
+pub mod limits;
 pub mod storage;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -31,8 +35,10 @@ use tokio::sync::{mpsc, oneshot, watch};
 use crate::clock::Clock;
 use crate::events::Events;
 use crate::governor::StorageSample;
+use crate::ledger::Ledger;
 use crate::run_index;
 use crate::run_state::RunStateError;
+use crate::settings::Settings;
 use crate::tasks::TaskOwner;
 
 /// How many commands wait for the driver before their senders wait.
@@ -124,14 +130,16 @@ impl SourceError {
 }
 
 /// What every source reads from: the engine's `Clock`, the Resource
-/// governor's storage samples, its major's Run index and an owner for
-/// blocking reads.
+/// governor's storage samples, its major's Run index, the user's Usage
+/// ledger, the machine's settings and an owner for blocking reads.
 #[derive(Clone)]
 pub struct SourceContext {
     pub(crate) clock: Clock,
     pub(crate) storage: watch::Receiver<Arc<StorageSample>>,
     pub(crate) run_index: PathBuf,
     pub(crate) version: ProductVersion,
+    pub(crate) ledger: Ledger,
+    pub(crate) settings: Settings,
     pub(crate) owner: Arc<TaskOwner>,
 }
 

@@ -7,6 +7,7 @@ use crate::catalog::Metric;
 use crate::connection::Surface;
 use crate::entries::MODULES;
 use crate::run::{Completeness, Lifecycle, RunKind, Verdict};
+use crate::storage::{AVAILABLE, INODES_AVAILABLE, LEVEL, SampledFolder};
 
 /// What a label must never name: a value from an unbounded set, which
 /// would blow up cardinality and leak targets (ADR 0050).
@@ -78,6 +79,9 @@ fn every_value_is_a<T: DeserializeOwned>(values: &[&str]) -> bool {
 #[case::verdict(every_value_is_a::<Verdict>(values_of(&RUN_ENDED, "verdict")))]
 #[case::completeness(every_value_is_a::<Completeness>(values_of(&RUN_ENDED, "completeness")))]
 #[case::surface(every_value_is_a::<Surface>(values_of(&CLIENT_CONNECTED, "surface")))]
+#[case::storage_available_holds(every_value_is_a::<SampledFolder>(values_of(&AVAILABLE, "holds")))]
+#[case::storage_inodes_holds(every_value_is_a::<SampledFolder>(values_of(&INODES_AVAILABLE, "holds")))]
+#[case::storage_level_holds(every_value_is_a::<SampledFolder>(values_of(&LEVEL, "holds")))]
 fn a_runtime_metrics_label_values_are_the_protocols_own(#[case] own: bool) {
     assert!(own);
 }

@@ -17,6 +17,9 @@ use goodfetch_protocol::ops::{
     BROWSER_RUNNING, CLIENT_CONNECTED, DAEMON_DRAINING, RUN_ACTIVE, RUN_ENDED,
 };
 use goodfetch_protocol::run::{RunKind, RunReport};
+use goodfetch_protocol::storage::{
+    AVAILABLE, INODES_AVAILABLE, LEVEL, SampledFolder, StorageLevel,
+};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{
     Counter, Gauge, Meter, MeterProvider as _, NoopMeterProvider, UpDownCounter,
@@ -40,6 +43,9 @@ struct Instruments {
     governor_saturation: Gauge<f64>,
     governor_target: Gauge<u64>,
     governor_pressure_source: Gauge<u64>,
+    storage_available: Gauge<u64>,
+    storage_inodes_available: Gauge<u64>,
+    storage_level: Gauge<u64>,
 }
 
 impl Default for Metrics {
@@ -92,6 +98,21 @@ impl Metrics {
                 .u64_gauge(PRESSURE_SOURCE.name)
                 .with_description(PRESSURE_SOURCE.description)
                 .with_unit(PRESSURE_SOURCE.unit)
+                .build(),
+            storage_available: meter
+                .u64_gauge(AVAILABLE.name)
+                .with_description(AVAILABLE.description)
+                .with_unit(AVAILABLE.unit)
+                .build(),
+            storage_inodes_available: meter
+                .u64_gauge(INODES_AVAILABLE.name)
+                .with_description(INODES_AVAILABLE.description)
+                .with_unit(INODES_AVAILABLE.unit)
+                .build(),
+            storage_level: meter
+                .u64_gauge(LEVEL.name)
+                .with_description(LEVEL.description)
+                .with_unit(LEVEL.unit)
                 .build(),
         }))
     }
@@ -175,6 +196,24 @@ impl Metrics {
                 &[KeyValue::new("source", source.as_str())],
             );
         }
+    }
+
+    /// What the Resource governor's last storage sample found of the
+    /// filesystem holding the folder of `holds` (ADR 0122): its `level`,
+    /// the space left on it and its inodes left, where it reports them.
+    pub(crate) fn storage(
+        &self,
+        holds: SampledFolder,
+        level: StorageLevel,
+        free: u64,
+        free_inodes: Option<u64>,
+    ) {
+        let label = [KeyValue::new("holds", holds.as_str())];
+        self.0.storage_available.record(free, &label);
+        if let Some(inodes) = free_inodes {
+            self.0.storage_inodes_available.record(inodes, &label);
+        }
+        self.0.storage_level.record(level.gauge(), &label);
     }
 }
 

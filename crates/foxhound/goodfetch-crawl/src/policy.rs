@@ -4,14 +4,19 @@
 //! from the Run's resolved settings (`timeout.handler`, `crawl.retry.max`,
 //! `crawl.retry.handler_failed`, `crawl.handler.concurrency`) at each
 //! admission point, so a tightened Operator policy cap reaches a crawl
-//! already going (ADR 0028).
+//! already going (ADR 0028); and the Run's domain policy, which its
+//! Frontier judges each seed and enqueue by.
 
 use std::time::Duration;
 
+use goodfetch_engine::CallError;
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_HANDLER_CONCURRENCY, CRAWL_RETRY_HANDLER_FAILED, CRAWL_RETRY_MAX, TIMEOUT_HANDLER,
 };
+use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails};
 
 /// How a crawl's attempts are bounded and retried.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,6 +66,41 @@ impl CrawlPolicy {
     pub(crate) fn may_retry(&self, attempts: u32) -> bool {
         attempts <= self.retry_max
     }
+}
+
+/// The Run's domain policy, `egress.allowed_domains` and
+/// `egress.blocked_domains` as `resolved` holds them, which the Frontier
+/// judges every seed and enqueue by (ADRs 0017 and 0093).
+///
+/// # Errors
+///
+/// `setting_invalid` for an entry that is no host.
+pub(crate) fn domain_policy(resolved: &Resolved) -> Result<Policy, CallError> {
+    Policy::of(resolved).map_err(|invalid| {
+        CallError::new(
+            &SETTING_INVALID,
+            format!(
+                "`{}` holds `{}`, which is no host",
+                invalid.setting, invalid.entry
+            ),
+            &SettingInvalidDetails {
+                key: invalid.setting.to_owned(),
+                layer: None,
+                reason: format!("`{}` is no host", invalid.entry),
+            },
+        )
+    })
+}
+
+/// The domain policy of the crawl `run_id`, resumed under `resolved`; one
+/// that cannot be read, which its start would have refused, admits no seed
+/// or enqueue, and is logged.
+pub(crate) fn resumed_domain_policy(resolved: &Resolved, run_id: &RunId) -> Policy {
+    domain_policy(resolved).unwrap_or_else(|error| {
+        tracing::error!(error = error.message(), %run_id, "the resumed crawl's domain policy could not be read: it admits no seed or enqueue");
+        Policy::new(&[] as &[&str], &[] as &[&str])
+            .expect("invariant: an empty domain policy reads")
+    })
 }
 
 #[cfg(test)]

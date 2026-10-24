@@ -19,6 +19,7 @@ use crate::catalog::{
     SharedType, SharedTypeValue, Stability, schema_of,
 };
 use crate::run::{PointInTime, RunId};
+use crate::settings::SettingsLayer;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -29,6 +30,16 @@ pub const STORAGE_LEVEL: &str = "storage_level";
 /// The kind of a Run stopped by storage, which a start with its Run ID
 /// resumes once space is freed (ADR 0122).
 pub const RUN_STOPPED_BY_STORAGE: &str = "run_stopped_by_storage";
+
+/// The kind of a Run stopped by a Limit that still holds it, which a
+/// person raises (ADRs 0031 and 0041): raising it resumes a Recipe's Run in
+/// the Daemon, and leaves an SDK script's Run waiting for its script.
+pub const RUN_STOPPED_BY_LIMIT: &str = "run_stopped_by_limit";
+
+/// The kind of a domain whose consent wall a Run met and left, which a
+/// person may add to `consent.domains` for the next runs (ADRs 0048 and
+/// 0052).
+pub const CONSENT_WALL: &str = "consent_wall";
 
 /// How many items one `needs_you.list` page holds at most.
 pub const PAGE: usize = 100;
@@ -67,7 +78,9 @@ pub struct NeedsYouItem {
     pub actions: Vec<String>,
     /// Its kind's own fields, which the kind's value in the catalog names:
     /// for `storage_level`, `level` and `folder`; for
-    /// `run_stopped_by_storage`, `folder`.
+    /// `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
+    /// `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for
+    /// `consent_wall`, `domain`.
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub details: Map<String, Value>,
@@ -117,6 +130,48 @@ pub struct NeedsYouDismissed {
     /// its source does not let a person dismiss it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub dismissed: bool,
+}
+
+/// What `needs_you.allow_consent_domain` takes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NeedsYouAllowConsentDomainParams {
+    /// The registrable domain whose consent walls the next runs accept, as
+    /// a `consent_wall` item names it, or `*` for every domain.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub domain: String,
+}
+
+/// What `needs_you.allow_consent_domain` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ConsentDomainAllowed {
+    /// The domain, as `consent.domains` now lists it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub domain: String,
+    /// Whether it was added: false when user configuration listed it
+    /// already, which then changed nothing and recorded nothing.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub added: bool,
+    /// The layer written: user configuration.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub layer: SettingsLayer,
+    /// What the person takes on, in plain words, as the Console showed it
+    /// beside the answer and the Audit log records it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub warning: String,
+}
+
+/// What a person takes on by adding `domain`, or `*`, to `consent.domains`
+/// (ADRs 0048 and 0052), in the words the Console shows beside the answer
+/// and the Audit log records with it.
+pub fn consent_domain_warning(domain: &str) -> String {
+    if domain == "*" {
+        "Accepting consent walls on every domain gives consent in your name on every site that shows one: those sites may load their trackers and set their cookies, and under the GDPR that consent is yours. An Agent also no longer asks you before accepting a consent prompt on any domain. Every later run accepts them until you remove `*` from `consent.domains`.".to_owned()
+    } else {
+        format!(
+            "Accepting the consent walls of {domain} gives consent in your name: the site may load its trackers and set their cookies, and under the GDPR that consent is yours. Every later run accepts them until you remove {domain} from `consent.domains`."
+        )
+    }
 }
 
 /// Why an item left the list.
@@ -194,10 +249,38 @@ pub const NEEDS_YOU_DISMISS: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// `needs_you.allow_consent_domain`.
+pub const NEEDS_YOU_ALLOW_CONSENT_DOMAIN: Operation = Operation {
+    name: "needs_you.allow_consent_domain",
+    description: "Adds a domain whose consent wall a Run met, or `*` for every domain, to `consent.domains` in user configuration, so the next runs accept its consent walls instead of raising `blocked` with `consent_required`, and records the answer in the Audit log with the warning of what the person takes on; answers whether it added it. One call, no confirmation asked. A domain that file lists already adds nothing; an Operator policy that locks `consent.domains` refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `consent_wall` items it covers leave the list with `needs_you.changed`.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::PersonOnly,
+    params: schema_of::<NeedsYouAllowConsentDomainParams>,
+    result: schema_of::<ConsentDomainAllowed>,
+    events: &[&NEEDS_YOU_CHANGED],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A person added a domain, or `*`, to `consent.domains`.
+pub const CONSENT_DOMAIN_ALLOWED: SharedTypeValue = SharedTypeValue {
+    shared_type: SharedType::AuditKind,
+    name: "consent_domain_allowed",
+    description: "A person added a domain, or `*`, to `consent.domains` in user configuration, so later runs accept its consent walls (ADR 0048), with the warning of what they take on that they were shown (ADR 0052).",
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[NEEDS_YOU_LIST, NEEDS_YOU_DISMISS],
+    operations: &[
+        NEEDS_YOU_LIST,
+        NEEDS_YOU_DISMISS,
+        NEEDS_YOU_ALLOW_CONSENT_DOMAIN,
+    ],
     events: &[NEEDS_YOU_CHANGED],
     handler_requests: &[],
     error_codes: &[],
@@ -218,5 +301,18 @@ pub const ENTRIES: Entries = Entries {
             description: "A Run stopped by storage, resumable once space is freed by a start with its Run ID (ADR 0122); `details` give the `folder` whose filesystem filled. It leaves the list once the Run runs again, or when a person dismisses it.",
             arrived_in: ARRIVED_IN,
         },
+        SharedTypeValue {
+            shared_type: SharedType::NeedsYouKind,
+            name: RUN_STOPPED_BY_LIMIT,
+            description: "A Run stopped by a Limit that still holds it (ADR 0041): the Limit's period has not started again since the stop, and it was not set again since then with something left. `details` give the `limit` as `limit_reached` names it, the `amount` it allows now, the Product the Run `needs` and, for a Recipe's Run, its `recipe`. Its actions offer `usage.raise`, a person's answer, and for a Recipe's Run `run.resume`, which resumes it in the Daemon once the Limit is raised; an SDK script's Run then waits for its script, which resumes it by its Run ID (ADR 0031). It leaves the list once a person raises the Limit or its period starts again, once the Run runs again, or when a person dismisses it.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::NeedsYouKind,
+            name: CONSENT_WALL,
+            description: "A domain whose consent wall a Run met and left at `consent_required` (ADR 0048), offered for `consent.domains` with `needs_you.allow_consent_domain`, a domain in `wall.denied_domains` too (ADR 0052); `details` give the `domain`, and `run` the last Run that met it. It leaves the list once `consent.domains` in the Operator policy or user configuration covers the domain, or when a person dismisses it.",
+            arrived_in: ARRIVED_IN,
+        },
+        CONSENT_DOMAIN_ALLOWED,
     ],
 };

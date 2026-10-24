@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
-AuditKind: TypeAlias = Literal["certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pinned", "console_key_rotated", "endpoint_authentication_failed", "exposed_daemon_set_up", "lent_page_attached", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "sign_in_revoked", "signed_in", "tls_terminated_upstream"] | str
+AuditKind: TypeAlias = Literal["certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pinned", "consent_domain_allowed", "console_key_rotated", "endpoint_authentication_failed", "exposed_daemon_set_up", "lent_page_attached", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "sign_in_revoked", "signed_in", "tls_terminated_upstream"] | str
 """A `audit_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -17,6 +17,7 @@ received (ADR 0079).
 - `certificate_change_accepted`: A person accepted a pinned host's changed certificate, with both hashes (ADR 0042).
 - `certificate_exceptions_used`: The certificate exceptions a run used, once per run, by host and kind (ADR 0042).
 - `certificate_pinned`: A host's certificate was pinned on first use under its domain's exception, with the SHA-256 of its public key (ADR 0042).
+- `consent_domain_allowed`: A person added a domain, or `*`, to `consent.domains` in user configuration, so later runs accept its consent walls (ADR 0048), with the warning of what they take on that they were shown (ADR 0052).
 - `console_key_rotated`: The Console key was replaced, which ended every Console sign-in, with how many it ended.
 - `endpoint_authentication_failed`: A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`.
 - `exposed_daemon_set_up`: An Exposed Daemon's setup completed through its setup link (ADR 0049).
@@ -60,12 +61,14 @@ received (ADR 0079).
 - `token`: Every run a Connection holding a named token starts.
 """
 
-NeedsYouKind: TypeAlias = Literal["run_stopped_by_storage", "storage_level"] | str
+NeedsYouKind: TypeAlias = Literal["consent_wall", "run_stopped_by_limit", "run_stopped_by_storage", "storage_level"] | str
 """A `needs_you_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
 received (ADR 0079).
 
+- `consent_wall`: A domain whose consent wall a Run met and left at `consent_required` (ADR 0048), offered for `consent.domains` with `needs_you.allow_consent_domain`, a domain in `wall.denied_domains` too (ADR 0052); `details` give the `domain`, and `run` the last Run that met it. It leaves the list once `consent.domains` in the Operator policy or user configuration covers the domain, or when a person dismisses it.
+- `run_stopped_by_limit`: A Run stopped by a Limit that still holds it (ADR 0041): the Limit's period has not started again since the stop, and it was not set again since then with something left. `details` give the `limit` as `limit_reached` names it, the `amount` it allows now, the Product the Run `needs` and, for a Recipe's Run, its `recipe`. Its actions offer `usage.raise`, a person's answer, and for a Recipe's Run `run.resume`, which resumes it in the Daemon once the Limit is raised; an SDK script's Run then waits for its script, which resumes it by its Run ID (ADR 0031). It leaves the list once a person raises the Limit or its period starts again, once the Run runs again, or when a person dismisses it.
 - `run_stopped_by_storage`: A Run stopped by storage, resumable once space is freed by a start with its Run ID (ADR 0122); `details` give the `folder` whose filesystem filled. It leaves the list once the Run runs again, or when a person dismisses it.
 - `storage_level`: A filesystem a Run writes to is at the `low` or `critical` storage level (ADR 0122); `details` give its `level` and a `folder` on it. It leaves the list at the first sample that finds the space again.
 """

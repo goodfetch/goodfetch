@@ -1,7 +1,8 @@
 //! `crawl.start` and Foxhound's crawl contribution (ADRs 0028, 0087, 0093
 //! and 0102): the start resolves the Run's settings, refused before the Run
 //! begins, begins a crawl's Run through the engine's Runs, its scope and
-//! bounds recorded and each seed admitted by the Frontier as its first work items,
+//! bounds recorded and each seed admitted by the Frontier, under the Run's
+//! domain policy (`setting_invalid` for an entry that is no host), as its first work items,
 //! and each seed's answer kept, in the transaction that records the Run, and hands the Run
 //! to its delivery on the starting Connection's Client. A start whose
 //! every seed was refused still starts, and its Run finishes at once; one
@@ -30,6 +31,7 @@ use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 use crate::delivery;
 use crate::enqueue;
 use crate::outcomes;
+use crate::policy::domain_policy;
 use crate::seeding;
 use crate::serving::Crawls;
 use crate::work_items;
@@ -127,6 +129,8 @@ async fn start(
     FetchTiers::check(settings.resolved())?;
     let scope = Scope::of_settings(settings.resolved()).map_err(CallError::from)?;
     let bounds = Bounds::of_settings(settings.resolved());
+    let egress = domain_policy(settings.resolved())?;
+    let seeding = egress.clone();
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
     let inputs = BTreeMap::from([(
         StartInput::Seeds,
@@ -144,7 +148,7 @@ async fn start(
             initialize: Some(Box::new(move |connection| {
                 scope.record(connection)?;
                 bounds.record(connection)?;
-                let answers = work_items::admit_seeds(connection, &scope, &seeds)?;
+                let answers = work_items::admit_seeds(connection, &scope, &seeding, &seeds)?;
                 goodfetch_frontier::seeds::answered(connection, &answers)
             })),
             policy_version: settings.resolved().policy_version().map(str::to_owned),
@@ -165,7 +169,7 @@ async fn start(
                 lifecycle: Lifecycle::Running,
                 needs: Product::Foxhound,
             };
-            let opened = crawls.open(&run).await;
+            let opened = crawls.open(&run, egress).await;
             run.spawn(delivery::drive(
                 run.clone(),
                 context.client().clone(),

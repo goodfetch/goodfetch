@@ -461,9 +461,11 @@ fn certs_forget_is_refused_under_json_and_without_a_terminal(
 /// `certs forget` are refused before any engine call, so the refusal never
 /// depends on the store: of a host without a pin, too, it is
 /// `person_required` and exit 4, never the engine's answer about the pin.
-/// Covers: story:4-36, story:4-37, command:certs.accept, command:certs.forget, exit:refused
+/// Covers: story:4-36, story:4-37, exit:refused
 #[rstest::rstest]
+/// Covers: command:certs.accept
 #[case::accept("accept")]
+/// Covers: command:certs.forget
 #[case::forget("forget")]
 fn a_person_only_certs_command_from_a_pipe_is_refused_before_reading_the_store(
     #[case] command: &str,

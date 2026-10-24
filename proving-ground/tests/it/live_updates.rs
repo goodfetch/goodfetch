@@ -159,6 +159,26 @@ fn the_websocket_answers_its_handshake_sends_messages_and_is_observed_as_one() {
 }
 
 #[test]
+fn the_late_board_makes_its_one_request_400_ms_after_its_load_on_either_host() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let late = |ordinal: u32| {
+        proving_ground.get(&proving_ground.url(&format!("{ordinal}.live.test"), "/late"))
+    };
+    let (settling, never) = (late(1), late(2));
+
+    assert_eq!(settling.status, 200, "{}", settling.body);
+    assert!(
+        settling
+            .body
+            .contains("data-updates=\"1\" data-after-load=\"400\""),
+        "{}",
+        settling.body
+    );
+    assert_eq!(settling.body, never.body);
+}
+
+#[test]
 fn a_websocket_request_without_its_handshake_is_refused() {
     let proving_ground = ProvingGround::start(SEED);
 

@@ -434,6 +434,101 @@ fn a_handler_waiting_for_a_permit_is_not_timed_out_and_its_wait_is_named() {
     );
 }
 
+/// The host of the service worker page, a secure context over plain HTTP.
+const SERVICE_WORKER_HOST: &str = "access.localhost";
+
+/// The delay between starts the service worker cases set.
+const SERVICE_WORKER_DELAY: Duration = Duration::from_secs(3);
+
+/// Crawls one page as `run_id`, its handler going to the service worker
+/// page whose worker treats navigations as `navigations` says, waiting
+/// until the worker controls it, then reloading it; answers how long the
+/// reload took and the arrival times, in microseconds, of each request
+/// for the page.
+fn reloaded_under_a_service_worker(navigations: &str) -> (Duration, Vec<u64>) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let page = format!("/service-worker/?navigations={navigations}");
+    let more = json!({
+        "politeness": { "domain": { "delay": SERVICE_WORKER_DELAY.as_millis() } },
+    });
+
+    let mut took = None;
+    let report = crawl_with(
+        &mut engine,
+        navigations,
+        &[json!({ "url": proving_ground.url(ROBOTS_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            let page_id = new_page(inside, handle);
+            let url = proving_ground.url(SERVICE_WORKER_HOST, &page);
+            let went = inside.call("page.goto", &json!({ "page_id": page_id, "url": url }));
+            assert_eq!(went["result"]["response"]["status"], 200, "{went}");
+            let title = json!({ "page_id": page_id, "function": "() => document.title" });
+            let until = Instant::now() + Duration::from_secs(20);
+            while inside.call("page.evaluate", &title)["result"]["value"] != "done" {
+                assert!(
+                    Instant::now() < until,
+                    "the worker never controlled the page"
+                );
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            let started = Instant::now();
+            let reloaded = inside.call("page.reload", &json!({ "page_id": page_id }));
+            took = Some(started.elapsed());
+            assert_eq!(reloaded["result"]["response"]["status"], 200, "{reloaded}");
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+    let arrived = arrivals(&proving_ground, SERVICE_WORKER_HOST, &[page.as_str()])
+        .into_iter()
+        .map(|(_, at)| at)
+        .collect();
+    (took.unwrap(), arrived)
+}
+
+/// A service worker's request carrying a navigation of a handler's page,
+/// its `navigate`-mode request or its `cors` refetch of the pending
+/// navigation's URL, takes that navigation's permit: it reaches the site
+/// no sooner than the delay between starts after the page's first load.
+///
+/// Covers: story:5-134, story:5-112, operation:page.reload
+#[rstest::rstest]
+#[case::its_navigate_mode_request("pass")]
+#[case::its_refetch_of_a_pending_navigation("refetch")]
+fn a_service_workers_navigation_request_takes_the_permit(#[case] navigations: &str) {
+    let (_, arrived) = reloaded_under_a_service_worker(navigations);
+
+    let least = u64::try_from(SERVICE_WORKER_DELAY.as_micros() * 9 / 10).unwrap();
+    assert_eq!(
+        (
+            arrived.len(),
+            arrived.windows(2).all(|pair| pair[1] - pair[0] >= least)
+        ),
+        (2, true),
+        "{arrived:?}"
+    );
+}
+
+/// A navigation a service worker answers from its own cache sends nothing
+/// to the site and takes no permit: the reload neither reaches the site
+/// nor waits for the delay between starts.
+///
+/// Covers: story:5-134, operation:page.reload
+#[test]
+fn a_navigation_a_service_worker_answers_from_its_cache_takes_no_permit() {
+    let (took, arrived) = reloaded_under_a_service_worker("cache");
+
+    assert_eq!(
+        (arrived.len(), took < SERVICE_WORKER_DELAY / 2),
+        (1, true),
+        "the reload took {took:?}"
+    );
+}
+
 /// The host whose robots.txt has a group for `Goodfetch-Foxhound`
 /// (`/foxhound/`), for `operator-bot` (`/operator/`), for a bare `Foxhound`
 /// (`/bare/`) and for `*` (`/star/`).

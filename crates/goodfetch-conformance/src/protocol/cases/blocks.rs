@@ -32,6 +32,10 @@ use crate::protocol::target::EngineTarget;
 /// corpus's index.
 const CORPUS_TASK: &str = "access/5";
 
+/// The wait the Proving ground's `/retry-after/<status>/<form>/long` asks
+/// for.
+const RETRY_AFTER_LONG: Duration = Duration::from_hours(1);
+
 /// The CDP command that opens a Session's browser context.
 const NEW_CONTEXT: &str = "Target.createBrowserContext";
 
@@ -219,11 +223,11 @@ fn storage_cookies(site: &Site, mark: &str) -> Vec<Value> {
         .collect()
 }
 
-/// A Collie page's 429 with a `Retry-After`, in seconds and as an
-/// HTTP-date measured against the response's own `Date`, raises `blocked`
-/// from its `goto` with `rate_limit`, the URL, the status and the time the
-/// site asked for; nothing waits on it, so the same URL loads again at once,
-/// and the Session keeps its cookie for the next navigation, with one
+/// A Collie page's 429 with a `Retry-After` of an hour, in seconds and as
+/// an HTTP-date measured against the response's own `Date`, raises
+/// `blocked` from its `goto` with `rate_limit`, the URL, the status and the
+/// time the site asked for; nothing waits on it, so the same URL loads again
+/// before that time, and the Session keeps its cookie for the next navigation, with one
 /// browser context and nothing written to Politeness (Fetch edge cases,
 /// Collie's lines).
 fn rate_limit(
@@ -244,10 +248,14 @@ fn rate_limit(
         answered(&stored, 200),
     );
     for form in ["seconds", "imf-fixdate"] {
-        let path = format!("/retry-after/429/{form}");
+        // An hour's wait: a `goto` that waited for it would outlast its
+        // navigation timeout, so no load can make one that did not wait
+        // look as if it had.
+        let path = format!("/retry-after/429/{form}/long");
         let url = site.named_url("fetch-edge.test", &path).unwrap_or_default();
         let before = now();
         let went = goto(connection, &page, &url)?;
+        let after = now();
         let asked = blocked(&went)
             .and_then(|details| details.retry_after)
             .map(SystemTime::from);
@@ -256,17 +264,17 @@ fn rate_limit(
             raised(&went, "rate_limit", &path, 429),
         );
         checks.check(
-            format!("its `retry_after` is the time the site asked for, about 2 s on ({form})"),
+            format!("its `retry_after` is the time the site asked for: an hour after the response's own `Date`, from the moment it arrived ({form})"),
             asked.is_some_and(|asked| {
-                asked.duration_since(before).is_ok_and(|wait| {
-                    wait >= Duration::from_secs(1) && wait <= Duration::from_secs(30)
-                })
+                before + RETRY_AFTER_LONG <= asked && asked <= after + RETRY_AFTER_LONG
             }),
         );
         let again = goto(connection, &page, &url)?;
         checks.check(
-            format!("nothing waits on it: the same URL loads on the same page at once ({form})"),
-            answered(&again, 200) && now() < asked.unwrap_or(before),
+            format!(
+                "nothing waits on it: the same URL loads on the same page before that time ({form})"
+            ),
+            answered(&again, 200) && asked.is_some_and(|asked| now() < asked),
         );
     }
     let back = goto(connection, &page, &storage(site, mark))?;

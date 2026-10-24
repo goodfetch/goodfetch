@@ -41,7 +41,9 @@ use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::frontier::HttpBody;
 use goodfetch_protocol::foxhound::progress::InFlightPhase;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
-use goodfetch_protocol::foxhound::settings::POLITENESS_DOMAIN_DELAY;
+use goodfetch_protocol::foxhound::settings::{
+    POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
+};
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_session_pool::Effect;
@@ -124,7 +126,12 @@ impl Gating {
             second_copies: self.second_copies.clone(),
             politeness,
             robots: self.robots.clone(),
-            operator_token: None,
+            operator_token: settings.as_ref().and_then(|settings| {
+                settings
+                    .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
+                    .as_str()
+                    .map(str::to_owned)
+            }),
             domain_delay,
             lease: Arc::new(lease.clone()),
         })

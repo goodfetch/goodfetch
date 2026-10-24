@@ -238,6 +238,9 @@ chain_rpc_endpoints = { "example.test" = "example" }
 write_ids_and_epochs = true
 report_guarantee_class = true
 
+[settings.site_preferences]
+robots_txt_user_agent = "example"
+
 [lock.log]
 level = "example"
 output = "stdout"
@@ -474,6 +477,9 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [lock.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
+
+[lock.site_preferences]
+robots_txt_user_agent = "example"
 
 [cap.log.file]
 max_size = 4

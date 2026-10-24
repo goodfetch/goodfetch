@@ -74,8 +74,9 @@ pub struct HandOver {
     pub politeness: Option<Politeness>,
     /// How robots.txt is fetched when the shared copy has none.
     pub robots: Option<RobotsTxtFetch>,
-    /// `site_preferences.robots_txt_user_agent`, when set.
-    pub operator_token: Option<ProductToken>,
+    /// `site_preferences.robots_txt_user_agent`, when set: a value that is
+    /// no product token names no group.
+    pub operator_token: Option<String>,
     /// `politeness.domain.delay`.
     pub domain_delay: Duration,
     /// The attempt's lease.
@@ -259,10 +260,11 @@ impl Gate {
         {
             tracing::warn!(%error, run_id = %run.id(), "a robots.txt fetch's start was not recorded");
         }
-        (
-            applying(&fetched, hand_over.operator_token.as_ref(), url),
-            fetched_at,
-        )
+        let operator = hand_over
+            .operator_token
+            .as_deref()
+            .and_then(|token| ProductToken::new(token).ok());
+        (applying(&fetched, operator.as_ref(), url), fetched_at)
     }
 }
 

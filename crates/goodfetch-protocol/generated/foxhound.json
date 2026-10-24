@@ -16197,6 +16197,22 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder.",
+      "name": "site_preferences.robots_txt_user_agent",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "machine",
       "clearable": true,
       "default": null,

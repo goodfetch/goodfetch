@@ -280,3 +280,82 @@ fn every_navigation_of_a_handlers_pages_takes_a_permit_of_its_domain() {
         "{history:?} {edge:?} {popup:?}"
     );
 }
+
+/// The host whose robots.txt has a group for `Goodfetch-Foxhound`
+/// (`/foxhound/`), for `operator-bot` (`/operator/`), for a bare `Foxhound`
+/// (`/bare/`) and for `*` (`/star/`).
+const TOKENS_HOST: &str = "tokens.access-policy.test";
+
+/// The host whose robots.txt has a group for a bare `Foxhound` (`/bare/`)
+/// and for `*` (`/star/`).
+const STAR_HOST: &str = "star.access-policy.test";
+
+/// The pages of the two token hosts a handler's `goto` reaches.
+const TOKEN_PAGES: [(&str, &str); 6] = [
+    (TOKENS_HOST, "/foxhound/page"),
+    (TOKENS_HOST, "/operator/page"),
+    (TOKENS_HOST, "/bare/page"),
+    (TOKENS_HOST, "/star/page"),
+    (STAR_HOST, "/bare/page"),
+    (STAR_HOST, "/star/page"),
+];
+
+/// Crawls one page as `run_id` under `more`, its handler going to each of
+/// [`TOKEN_PAGES`]; answers, for each, whether robots.txt refused it.
+fn token_refusals(run_id: &str, more: &Value) -> Vec<bool> {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let mut refused = Vec::new();
+    let report = crawl_with(
+        &mut engine,
+        run_id,
+        &[json!({ "url": proving_ground.url(ROBOTS_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, more),
+        &mut |inside, handle| {
+            let page_id = new_page(inside, handle);
+            for (host, path) in TOKEN_PAGES {
+                let url = proving_ground.url(host, path);
+                let went = inside.call("page.goto", &json!({ "page_id": page_id, "url": url }));
+                refused.push(match refusal(&went) {
+                    (code, reason, _) if code == "site_preferences_refused" => {
+                        assert_eq!(reason, "robots_txt", "{went}");
+                        true
+                    }
+                    _ => {
+                        assert_eq!(went["result"]["response"]["status"], 200, "{went}");
+                        false
+                    }
+                });
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+    refused
+}
+
+/// A handler's navigation obeys the robots.txt group for
+/// `goodfetch-foxhound`, written in any case, merged with the group for
+/// `site_preferences.robots_txt_user_agent`; a group naming only a bare
+/// `Foxhound` applies nothing, and the `*` group applies only where
+/// neither of the first two has a group.
+///
+/// Covers: story:5-131, story:5-134, setting:site_preferences.robots_txt_user_agent, error:site_preferences_refused
+#[test]
+fn a_handlers_navigation_obeys_foxhounds_group_merged_with_the_operators_else_stars() {
+    let with_operator = token_refusals(
+        "operator",
+        &json!({ "site_preferences": { "robots_txt_user_agent": "operator-bot" } }),
+    );
+    let without = token_refusals("foxhound", &json!({}));
+
+    assert_eq!(
+        (with_operator, without),
+        (
+            vec![true, true, false, false, false, true],
+            vec![true, false, false, false, false, true],
+        )
+    );
+}

@@ -30,9 +30,9 @@ pub const STORAGE_LEVEL: &str = "storage_level";
 /// resumes once space is freed (ADR 0122).
 pub const RUN_STOPPED_BY_STORAGE: &str = "run_stopped_by_storage";
 
-/// The kind of a Run stopped by a Limit that still has nothing left, which
-/// a person raises (ADRs 0031 and 0041): raising it resumes a Recipe's Run
-/// in the Daemon, and leaves an SDK script's Run waiting for its script.
+/// The kind of a Run stopped by a Limit that still holds it, which a
+/// person raises (ADRs 0031 and 0041): raising it resumes a Recipe's Run in
+/// the Daemon, and leaves an SDK script's Run waiting for its script.
 pub const RUN_STOPPED_BY_LIMIT: &str = "run_stopped_by_limit";
 
 /// How many items one `needs_you.list` page holds at most.
@@ -227,7 +227,7 @@ pub const ENTRIES: Entries = Entries {
         SharedTypeValue {
             shared_type: SharedType::NeedsYouKind,
             name: RUN_STOPPED_BY_LIMIT,
-            description: "A Run stopped by a Limit that still has nothing left in its period (ADR 0041); `details` give the `limit` as `limit_reached` names it, the `amount` it allows now, the Product the Run `needs` and, for a Recipe's Run, its `recipe`. Its actions offer `usage.raise`, a person's answer, and for a Recipe's Run `run.resume`, which resumes it in the Daemon once the Limit is raised; an SDK script's Run then waits for its script, which resumes it by its Run ID (ADR 0031). It leaves the list once the Limit has room again (a person raised it, or its period started again), once the Run runs again, or when a person dismisses it.",
+            description: "A Run stopped by a Limit that still holds it (ADR 0041): the Limit's period has not started again since the stop, and it was not set again since then with something left. `details` give the `limit` as `limit_reached` names it, the `amount` it allows now, the Product the Run `needs` and, for a Recipe's Run, its `recipe`. Its actions offer `usage.raise`, a person's answer, and for a Recipe's Run `run.resume`, which resumes it in the Daemon once the Limit is raised; an SDK script's Run then waits for its script, which resumes it by its Run ID (ADR 0031). It leaves the list once a person raises the Limit or its period starts again, once the Run runs again, or when a person dismisses it.",
             arrived_in: ARRIVED_IN,
         },
     ],

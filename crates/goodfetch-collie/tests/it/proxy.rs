@@ -140,6 +140,41 @@ fn a_client_acting_for_a_model_sets_no_proxy_on_a_run_or_a_session() {
     );
 }
 
+/// The project configuration a Client acting for a model sends with
+/// `run.start` is the model's too, so it sets no proxy either.
+///
+/// Covers: story:5-88, setting:proxy.server, error:setting_locked
+#[test]
+fn a_client_acting_for_a_model_sets_no_proxy_through_the_project_configuration_it_sends() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    engine.send(&hello_for_a_model());
+    let _ = engine.next();
+
+    let started = call(
+        &mut engine,
+        1,
+        "run.start",
+        &json!({
+            "run_id": "proxied",
+            "project": {
+                "path": "goodfetch.toml",
+                "settings": { "proxy": { "server": "http://127.0.0.1:3128" } },
+            },
+        }),
+    );
+    let _ = engine.finish();
+
+    assert_eq!(
+        refusal_of(&started),
+        (
+            json!("setting_locked"),
+            json!("proxy.server"),
+            json!("project_configuration")
+        )
+    );
+}
+
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 708;
 

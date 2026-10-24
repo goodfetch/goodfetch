@@ -5,18 +5,18 @@
 //! Completeness, in a run file in memory; no owned code is mocked.
 mod model;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
-use goodfetch_protocol::foxhound::report::{LearnedRule, LearnedRuleKind};
+use goodfetch_protocol::foxhound::report::{EquivalentForm, LearnedRule, LearnedRuleKind};
 use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::Connection;
 use sha2::{Digest as _, Sha256};
 use url::Url;
 
-use super::{PageSeen, learn};
+use super::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
 use crate::admit::{Candidate, admit};
 use crate::identity::Declared;
 use crate::rules::{self, learned_rules};
@@ -29,6 +29,39 @@ struct Crawl {
     connection: Connection,
     scope: Scope,
     ids: BTreeMap<String, String>,
+    requests: Requests,
+}
+
+/// The crawl's requests as the Frontier's merges end them: those whose
+/// page was fetched, and those a rule learned later ended `skipped` with
+/// `duplicate`, in order.
+#[derive(Default)]
+struct Requests {
+    urls: BTreeMap<String, String>,
+    fetched: BTreeSet<String>,
+    skipped: Vec<String>,
+}
+
+impl EndMerged for Requests {
+    /// Ends every request of `crawl_requests` neither fetched nor ended,
+    /// keeping the first when none was fetched.
+    fn end_merged(
+        &mut self,
+        _: &Connection,
+        crawl_requests: &BTreeSet<String>,
+    ) -> rusqlite::Result<Vec<String>> {
+        let mut pending: Vec<&String> = crawl_requests
+            .iter()
+            .filter(|id| !self.fetched.contains(*id) && !self.skipped.contains(&self.urls[*id]))
+            .collect();
+        pending.sort_by_key(|id| id.parse::<u32>().unwrap());
+        if !crawl_requests.iter().any(|id| self.fetched.contains(id)) && !pending.is_empty() {
+            pending.remove(0);
+        }
+        let ended: Vec<String> = pending.iter().map(|id| self.urls[*id].clone()).collect();
+        self.skipped.extend(ended.iter().cloned());
+        Ok(ended)
+    }
 }
 
 impl Crawl {
@@ -51,6 +84,7 @@ impl Crawl {
                 Patterns::default(),
             ),
             ids: BTreeMap::new(),
+            requests: Requests::default(),
         }
     }
 
@@ -67,6 +101,7 @@ impl Crawl {
         .unwrap();
         if let Enqueued::Added { id, url } = &answer {
             self.ids.insert(url.clone(), id.clone());
+            self.requests.urls.insert(id.clone(), url.clone());
         }
         answer
     }
@@ -93,17 +128,41 @@ impl Crawl {
 
     /// The page at `url`, which the crawl admitted, fetched with the main
     /// text `text`.
-    fn fetched(&self, url: &str, text: &str) {
-        let crawl_request = &self.ids[url];
+    fn fetched(&mut self, url: &str, text: &str) {
+        self.fetched_naming(url, text, None);
+    }
+
+    /// The same, the page naming `canonical` as its `rel=canonical`.
+    fn fetched_naming(&mut self, url: &str, text: &str, canonical: Option<&str>) {
+        let crawl_request = self.ids[url].clone();
+        self.requests.fetched.insert(crawl_request.clone());
+        let canonical = canonical.map(|canonical| Url::parse(canonical).unwrap());
         learn(
             &self.connection,
             PageSeen {
-                crawl_request,
+                crawl_request: &crawl_request,
                 url: &Url::parse(url).unwrap(),
                 method: get().method,
                 body: None,
                 signature: Sha256::digest(text).into(),
+                canonical: canonical.as_ref(),
             },
+            &mut self.requests,
+        )
+        .unwrap();
+    }
+
+    /// A request's fetch was redirected from `from` to `to`.
+    fn redirected(&mut self, from: &str, to: &str) {
+        learn_redirect(
+            &self.connection,
+            Redirect {
+                from: &Url::parse(from).unwrap(),
+                to: &Url::parse(to).unwrap(),
+                method: get().method,
+                body: None,
+            },
+            &mut self.requests,
         )
         .unwrap();
     }
@@ -194,11 +253,13 @@ fn three_matching_pairs_teach_a_parameter_with_no_effect() {
                 host: "shop.test".to_owned(),
                 path: None,
                 parameter: Some("ref".to_owned()),
+                form: None,
                 evidence: format!(
                     "3 pairs of URLs differing only by `ref` served pages of matching signatures, \
                      and no pair pages of differing ones: {ITEM}?n=1 and {ITEM}?n=1&ref=a; \
                      {ITEM}?n=2 and {ITEM}?n=2&ref=b; {ITEM}?n=3 and {ITEM}?n=3&ref=c."
                 ),
+                contradiction: None,
                 merged: strings(&[
                     &format!("{ITEM}?n=1&ref=z"),
                     &format!("{ITEM}?n=5"),
@@ -315,12 +376,14 @@ fn a_trap_closes_after_a_hundred_pages_that_bring_nothing_new() {
                 host: "events.test".to_owned(),
                 path: Some("/calendar/{number}/{number}".to_owned()),
                 parameter: None,
+                form: None,
                 evidence: format!(
                     "100 pages under `/calendar/{{number}}/{{number}}` in a row, from {} to {}, \
                      brought no new page signature and no URL outside it.",
                     month(1),
                     month(100)
                 ),
+                contradiction: None,
                 merged: vec![month(101)],
             }],
             vec![CompletenessReason {
@@ -330,6 +393,7 @@ fn a_trap_closes_after_a_hundred_pages_that_bring_nothing_new() {
                     message:
                         "A learned trap refused 1 URL the crawl would otherwise have admitted."
                             .to_owned(),
+                    count: Some(1),
                     call_id: None,
                 },
             }],
@@ -418,6 +482,7 @@ fn offset_reason() -> Vec<CompletenessReason> {
             message: "1 listing was paged only by an offset parameter, so a row that moved \
                       while the crawl paged it may be missed."
                 .to_owned(),
+            count: Some(1),
             call_id: None,
         },
     }]
@@ -446,10 +511,12 @@ fn a_cursor_found_on_an_offset_listing_is_preferred() {
                 host: "table.test".to_owned(),
                 path: Some("/list".to_owned()),
                 parameter: Some("offset".to_owned()),
+                form: None,
                 evidence: format!(
                     "`offset` steps by 20 on {LIST} ({LIST}?offset=0, {LIST}?offset=20, \
                      {LIST}?offset=40), and {LIST}?offset=40 links the cursor {cursor}."
                 ),
+                contradiction: None,
                 merged: vec![format!("{LIST}?offset=60")],
             }],
             Vec::new(),
@@ -511,5 +578,335 @@ fn a_cursor_link_from_another_path_is_none() {
     assert_eq!(
         (answers.to_vec(), crawl.rules()),
         (strings(&["added", "added"]), Vec::new())
+    );
+}
+
+const SITE: &str = "http://site.test";
+
+fn at_site(path: &str) -> String {
+    format!("{SITE}{path}")
+}
+
+fn form_rule(form: EquivalentForm, evidence: String, merged: &[&str]) -> LearnedRule {
+    LearnedRule {
+        kind: LearnedRuleKind::EquivalentForm,
+        host: "site.test".to_owned(),
+        path: None,
+        parameter: None,
+        form: Some(form),
+        evidence,
+        contradiction: None,
+        merged: strings(merged),
+    }
+}
+
+/// Fetches `path` and `path/`, both reading `text`: a pair of URLs
+/// differing only by a trailing slash.
+fn slash_pair(crawl: &mut Crawl, path: &str, text: &str) {
+    for url in [at_site(path), at_site(&format!("{path}/"))] {
+        if !crawl.ids.contains_key(&url) {
+            assert_eq!(crawl.enqueue(&at_site("/"), &url), "added");
+        }
+        crawl.fetched(&url, text);
+    }
+}
+
+/// Two pairs of URLs differing only by a trailing slash, matching, teach
+/// that form on the host, and one pair does not: a URL that differs from
+/// an admitted one only by its slash is then a `duplicate`, and of two
+/// requests admitted before, both pending, the later ends `skipped` with
+/// `duplicate`, listed with the rule.
+///
+/// Covers: story:6-217, story:6-222, story:6-310
+#[test]
+fn two_matching_pairs_teach_a_form_and_one_does_not() {
+    let mut crawl = Crawl::new();
+    crawl.seed(&at_site("/"));
+    crawl.fetched(&at_site("/"), "Home");
+    slash_pair(&mut crawl, "/a1", "Page 1");
+    let one_short = [
+        crawl.enqueue(&at_site("/"), &at_site("/c")),
+        crawl.enqueue(&at_site("/"), &at_site("/c/")),
+    ];
+    slash_pair(&mut crawl, "/a2", "Page 2");
+
+    let answers = [
+        crawl.enqueue(&at_site("/"), &at_site("/a3")),
+        crawl.enqueue(&at_site("/"), &at_site("/a3/")),
+        crawl.enqueue(&at_site("/"), &at_site("/a1")),
+    ];
+
+    assert_eq!(
+        (
+            one_short.to_vec(),
+            answers.to_vec(),
+            crawl.rules(),
+            crawl.requests.skipped.clone()
+        ),
+        (
+            strings(&["added", "added"]),
+            strings(&["added", "duplicate", "duplicate"]),
+            vec![form_rule(
+                EquivalentForm::TrailingSlash,
+                format!(
+                    "2 pairs of URLs differing only by a trailing slash served pages of matching \
+                     signatures, and no pair pages of differing ones: {SITE}/a1 and {SITE}/a1/; \
+                     {SITE}/a2 and {SITE}/a2/."
+                ),
+                &[&at_site("/c/"), &at_site("/a3/")],
+            )],
+            strings(&[&at_site("/c/")]),
+        )
+    );
+}
+
+/// One redirect from one form of a URL to the other teaches the form at
+/// once, for `www.` and the scheme alike; a redirect to another path
+/// teaches nothing.
+///
+/// Covers: story:6-217
+#[test]
+fn a_redirect_between_two_forms_teaches_the_form() {
+    let mut crawl = Crawl::new();
+    crawl.seed("http://www.site.test/a");
+    crawl.seed(&at_site("/old"));
+    crawl.redirected("http://www.site.test/a", "https://www.site.test/a");
+    crawl.redirected("https://www.site.test/a", "https://site.test/a");
+    crawl.redirected(&at_site("/old"), &at_site("/new"));
+
+    let answers = [
+        crawl.enqueue(&at_site("/"), "https://www.site.test/a"),
+        crawl.enqueue(&at_site("/"), "https://site.test/a"),
+        crawl.enqueue(&at_site("/"), "http://www.site.test/b"),
+        crawl.enqueue(&at_site("/"), "https://site.test/b"),
+        crawl.enqueue(&at_site("/"), &at_site("/new")),
+    ];
+
+    assert_eq!(
+        (answers.to_vec(), crawl.rules()),
+        (
+            strings(&["duplicate", "duplicate", "added", "duplicate", "added"]),
+            vec![
+                LearnedRule {
+                    host: "www.site.test".to_owned(),
+                    ..form_rule(
+                        EquivalentForm::Scheme,
+                        "http://www.site.test/a redirected to https://www.site.test/a, which \
+                         differs from it only by the scheme."
+                            .to_owned(),
+                        &["https://site.test/b"],
+                    )
+                },
+                form_rule(
+                    EquivalentForm::Www,
+                    "https://www.site.test/a redirected to https://site.test/a, which differs \
+                     from it only by `www.`."
+                        .to_owned(),
+                    &["https://www.site.test/a", "https://site.test/a"],
+                ),
+            ],
+        )
+    );
+}
+
+/// Three pages whose `rel=canonical` differs from their URL only by an
+/// index file teach that form, and two do not: the folder of a page
+/// fetched then is a `duplicate`, and one admitted before and pending
+/// ends `skipped` with `duplicate`.
+///
+/// Covers: story:6-217, story:6-219, story:6-222
+#[test]
+fn three_canonicals_teach_a_form_and_two_do_not() {
+    let mut crawl = Crawl::new();
+    crawl.seed(&at_site("/"));
+    let page = |number: u32| at_site(&format!("/d{number}/index.html"));
+    let folder = |number: u32| at_site(&format!("/d{number}/"));
+    for number in 1..=2 {
+        crawl.enqueue(&at_site("/"), &page(number));
+        crawl.fetched_naming(&page(number), "Docs", Some(&folder(number)));
+    }
+    let one_short = crawl.enqueue(&at_site("/"), &folder(1));
+    crawl.enqueue(&at_site("/"), &page(3));
+    crawl.fetched_naming(&page(3), "Docs", Some(&folder(3)));
+
+    let answer = crawl.enqueue(&at_site("/"), &folder(2));
+
+    assert_eq!(
+        (
+            one_short,
+            answer,
+            crawl.rules(),
+            crawl.requests.skipped.clone()
+        ),
+        (
+            "added".to_owned(),
+            "duplicate".to_owned(),
+            vec![form_rule(
+                EquivalentForm::IndexHtml,
+                format!(
+                    "3 pages named as their `rel=canonical` their own URL but for `index.html`: \
+                     {} names {}; {} names {}; {} names {}.",
+                    page(1),
+                    folder(1),
+                    page(2),
+                    folder(2),
+                    page(3),
+                    folder(3)
+                ),
+                &[&folder(1), &folder(2)],
+            )],
+            strings(&[&folder(1)]),
+        )
+    );
+}
+
+/// A `rel=canonical` to another path, such as a templated site's home page
+/// on every page, or to another registrable domain, is no evidence: the
+/// site keeps every page.
+///
+/// Covers: story:6-219
+#[test]
+fn a_canonical_to_another_path_or_domain_is_ignored() {
+    let mut crawl = Crawl::new();
+    crawl.seed(&at_site("/"));
+    for number in 1..=4 {
+        let url = at_site(&format!("/p{number}"));
+        crawl.enqueue(&at_site("/"), &url);
+        crawl.fetched_naming(&url, &format!("Page {number}"), Some(&at_site("/")));
+        let elsewhere = at_site(&format!("/q{number}"));
+        crawl.enqueue(&at_site("/"), &elsewhere);
+        crawl.fetched_naming(
+            &elsewhere,
+            &format!("Other {number}"),
+            Some(&format!("http://www.mirror.test/q{number}")),
+        );
+    }
+
+    let answers = [
+        crawl.enqueue(&at_site("/"), &at_site("/p5")),
+        crawl.enqueue(&at_site("/"), &at_site("/p1/")),
+        crawl.enqueue(&at_site("/"), &at_site("/q1/")),
+    ];
+
+    assert_eq!(
+        (answers.to_vec(), crawl.rules()),
+        (strings(&["added", "added", "added"]), Vec::new())
+    );
+}
+
+/// On a host whose `www.` and bare pages differ, a pair of them keeps the
+/// form from being learned, whatever evidence follows: both are fetched
+/// and kept.
+///
+/// Covers: story:6-217
+#[test]
+fn a_site_whose_forms_differ_keeps_both() {
+    let mut crawl = Crawl::new();
+    for path in ["/a", "/b"] {
+        let bare = at_site(path);
+        let www = format!("http://www.site.test{path}");
+        crawl.seed(&bare);
+        crawl.seed(&www);
+        crawl.fetched(&bare, &format!("Bare {path}"));
+        crawl.fetched(&www, &format!("Www {path}"));
+    }
+    crawl.redirected("http://www.site.test/c", &at_site("/c"));
+
+    let answers = [
+        crawl.enqueue(&at_site("/"), &at_site("/d")),
+        crawl.enqueue(&at_site("/"), "http://www.site.test/d"),
+    ];
+
+    assert_eq!(
+        (answers.to_vec(), crawl.rules()),
+        (strings(&["added", "added"]), Vec::new())
+    );
+}
+
+/// A learned form that meets a contradicting pair, both its URLs fetched
+/// with no redirect and their pages differing, stops: it merges no URL
+/// from then on, and the report gives the pair beside the URLs it had
+/// merged.
+///
+/// Covers: story:6-218, story:6-310
+#[test]
+fn a_contradicting_pair_stops_a_learned_form() {
+    let mut crawl = Crawl::new();
+    crawl.seed(&at_site("/"));
+    crawl.fetched(&at_site("/"), "Home");
+    crawl.enqueue(&at_site("/"), &at_site("/c"));
+    crawl.enqueue(&at_site("/"), &at_site("/c/"));
+    crawl.fetched(&at_site("/c"), "A page");
+    let in_flight = crawl.ids[&at_site("/c/")].clone();
+    crawl.requests.fetched.insert(in_flight);
+    slash_pair(&mut crawl, "/a1", "Page 1");
+    slash_pair(&mut crawl, "/a2", "Page 2");
+    crawl.enqueue(&at_site("/"), &at_site("/a3"));
+    let merged = crawl.enqueue(&at_site("/"), &at_site("/a3/"));
+
+    crawl.fetched(&at_site("/c/"), "A list of pages");
+    let answers = [
+        crawl.enqueue(&at_site("/"), &at_site("/a4")),
+        crawl.enqueue(&at_site("/"), &at_site("/a4/")),
+        crawl.enqueue(&at_site("/"), &at_site("/a3/")),
+    ];
+
+    assert_eq!(
+        (merged, answers.to_vec(), crawl.rules()),
+        (
+            "duplicate".to_owned(),
+            strings(&["added", "added", "added"]),
+            vec![LearnedRule {
+                contradiction: Some(format!(
+                    "{SITE}/c and {SITE}/c/, both fetched and neither redirected, served pages \
+                     of differing signatures."
+                )),
+                ..form_rule(
+                    EquivalentForm::TrailingSlash,
+                    format!(
+                        "2 pairs of URLs differing only by a trailing slash served pages of \
+                         matching signatures, and no pair pages of differing ones: {SITE}/a1 and \
+                         {SITE}/a1/; {SITE}/a2 and {SITE}/a2/."
+                    ),
+                    &[&at_site("/a3/")],
+                )
+            }],
+        )
+    );
+}
+
+/// A learned parameter stops the same way once a pair of pages differing
+/// only by it differs.
+///
+/// Covers: story:6-218
+#[test]
+fn a_contradicting_pair_stops_a_learned_parameter() {
+    let mut crawl = Crawl::new();
+    crawl.seed(&format!("{ITEM}?n=0"));
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=7"));
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=7&ref=x"));
+    crawl.fetched(&format!("{ITEM}?n=7"), "Item 7");
+    let in_flight = crawl.ids[&format!("{ITEM}?n=7&ref=x")].clone();
+    crawl.requests.fetched.insert(in_flight);
+    for (number, reference) in [(1, "a"), (2, "b"), (3, "c")] {
+        pair(&mut crawl, number, reference, None);
+    }
+    let merged = crawl.enqueue(ITEM, &format!("{ITEM}?n=1&ref=z"));
+
+    crawl.fetched(&format!("{ITEM}?n=7&ref=x"), "Item 7, as x sees it");
+    let after = crawl.enqueue(ITEM, &format!("{ITEM}?n=2&ref=z"));
+
+    let rule = crawl.rules().remove(0);
+    assert_eq!(
+        (merged, after, rule.contradiction, rule.merged),
+        (
+            "duplicate".to_owned(),
+            "added".to_owned(),
+            Some(format!(
+                "{ITEM}?n=7 and {ITEM}?n=7&ref=x, both fetched and neither redirected, served \
+                 pages of differing signatures."
+            )),
+            strings(&[&format!("{ITEM}?n=1&ref=z")]),
+        )
     );
 }

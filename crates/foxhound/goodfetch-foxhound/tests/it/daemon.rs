@@ -153,9 +153,8 @@ fn a_foxhound_installed_but_never_run_becomes_the_pick_when_the_fixs_daemon_rest
         "{}",
         refused.stderr
     );
-    let mut settings = snapshot_settings(&SnapshotValues::of(&env));
-    settings.add_filter(&regex_escape(FOXHOUND), "[FOXHOUND]");
-    settings.bind(|| {
+    let values = SnapshotValues::of(&env).with_path(FOXHOUND, "[FOXHOUND]");
+    snapshot_settings(&values).bind(|| {
         insta::assert_snapshot!("busy_collie_daemon_refuses_foxhound", refused.stderr.trim());
     });
 }
@@ -214,21 +213,11 @@ fn a_refused_collie_client_is_told_to_install_foxhound_while_a_foxhound_is_the_p
     daemon.child().wait().unwrap();
 
     assert_eq!(refused.exit, Some(11), "{}", refused.stderr);
-    let mut settings = snapshot_settings(&SnapshotValues::of(&env));
-    settings.add_filter(&regex_escape(&collie().display().to_string()), "[COLLIE]");
-    settings.bind(|| {
+    let values = SnapshotValues::of(&env).with_path(&collie().display().to_string(), "[COLLIE]");
+    snapshot_settings(&values).bind(|| {
         insta::assert_snapshot!(
             "refused_collie_told_to_install_foxhound",
             refused.stderr.trim()
         );
     });
-}
-
-fn regex_escape(text: &str) -> String {
-    text.chars()
-        .flat_map(|character| {
-            let escaped = "\\.+*?()|[]{}^$".contains(character);
-            escaped.then_some('\\').into_iter().chain([character])
-        })
-        .collect()
 }

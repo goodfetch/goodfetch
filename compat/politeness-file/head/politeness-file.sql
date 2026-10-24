@@ -31,7 +31,14 @@ CREATE TABLE proxy_limits (
 INSERT INTO "proxy_limits" VALUES('proxy http://proxy.test:3128 corpus',1,1767603610300,1767603610000);
 CREATE TABLE returns (key TEXT NOT NULL PRIMARY KEY, generation INTEGER NOT NULL) STRICT;
 INSERT INTO "returns" VALUES('shop.test',2);
-INSERT INTO "returns" VALUES('proxy http://proxy.test:3128 corpus',1);
+CREATE TABLE robots_txt (
+            location TEXT NOT NULL PRIMARY KEY,
+            fetched_at INTEGER NOT NULL,
+            status INTEGER NOT NULL,
+            body BLOB NOT NULL
+        ) STRICT;
+INSERT INTO "robots_txt" VALUES('https://shop.test/robots.txt',1767603620000,200,X'557365722D6167656E743A202A0A446973616C6C6F773A202F707269766174652F0A437261776C2D64656C61793A20320A');
+INSERT INTO "robots_txt" VALUES('https://hold.test/robots.txt',1767603620000,404,X'6E6F7420666F756E64');
 CREATE TABLE waiters (
         key TEXT NOT NULL,
         run_id TEXT NOT NULL,

@@ -1731,6 +1731,7 @@ checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 name = "goodfetch-cdp"
 version = "0.0.0"
 dependencies = [
+ "bytes",
  "goodfetch-test-support",
  "rstest",
  "serde",
@@ -1982,6 +1983,7 @@ dependencies = [
  "toml 1.1.8+spec-1.1.0",
  "tower-layer",
  "tower-service",
+ "tracing",
  "url",
  "webpki-root-certs",
  "wreq",
@@ -2000,7 +2002,6 @@ dependencies = [
  "goodfetch-fetch-tier",
  "goodfetch-foxhound",
  "goodfetch-frontier",
- "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-session-pool",
  "goodfetch-test-support",
@@ -2024,6 +2025,7 @@ dependencies = [
  "goodfetch-protocol",
  "goodfetch-test-support",
  "gungraun",
+ "jsonschema",
  "proptest",
  "proptest-state-machine",
  "psl",
@@ -2032,6 +2034,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
+ "tracing",
  "url",
 ]
 

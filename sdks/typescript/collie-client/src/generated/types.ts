@@ -552,6 +552,12 @@ export type NothingDone =
     }
   | {
       reason: "no_seed_handled";
+      /**
+       * How many seeds each reason kept from a handler: the reason an
+       * enqueue answered, or how the request ended, by its skip reason,
+       * Error code or Block cause, in the order of the reasons.
+       */
+      seeds?: SeedsKept[];
     }
   | {
       reason: "nothing_pending";
@@ -1064,6 +1070,14 @@ export interface ExportedAuditEntry {
         kind: "engine";
       };
   /**
+   * Whether its hash chains it to the entry before it: `false` for an
+   * entry of a Run whose `security.audit_chain` was off, whose hash is
+   * `SHA-256` of 32 zero bytes and its own canonical JSON alone, and
+   * which `audit verify` steps over while it verifies the chain around
+   * it; left out when chained.
+   */
+  chained?: boolean;
+  /**
    * What its kind records, such as a Secret reference and the domain it
    * was sent to, never a secret's value.
    */
@@ -1149,6 +1163,11 @@ export interface AxisReason {
    * not know is kept as it is.
    */
   code: string;
+  /**
+   * How many it counts, when it counts some: the URLs a bound refused,
+   * the pages left at a Block cause, or the requests a stop left.
+   */
+  count?: number | null;
   /**
    * What it says, for people.
    */
@@ -2902,6 +2921,12 @@ export interface LocatorWaitForParams {
    * The state; `visible` when absent.
    */
   state?: ElementState | null;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
 }
 /**
  * The locator.
@@ -3097,7 +3122,10 @@ export interface NeedsYouItem {
    * for `storage_level`, `level` and `folder`; for
    * `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
    * `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for
-   * `consent_wall`, `domain`.
+   * `consent_wall`, `domain`; for `wall_refetch_stopped`, `domain`,
+   * `cause`, the `layer` and `file` that list it and `only_star`; for
+   * `certificate_changed`, `host`, `person`, `pinned_spki_sha256` and
+   * `presented_spki_sha256`.
    */
   details?: {
     [k: string]: unknown;
@@ -3130,6 +3158,22 @@ export interface NeedsYouItem {
    * it has no words of its own for.
    */
   summary: string;
+}
+/**
+ * What `needs_you.deny_wall_domain` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NeedsYouDenyWallDomainParams".
+ */
+export interface NeedsYouDenyWallDomainParams {
+  /**
+   * The registrable domain to deny.
+   */
+  domain: string;
+  /**
+   * Why, such as the site's objection; required.
+   */
+  reason: string;
 }
 /**
  * What `needs_you.dismiss` takes.
@@ -3174,7 +3218,10 @@ export interface NeedsYouItem1 {
    * for `storage_level`, `level` and `folder`; for
    * `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
    * `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for
-   * `consent_wall`, `domain`.
+   * `consent_wall`, `domain`; for `wall_refetch_stopped`, `domain`,
+   * `cause`, the `layer` and `file` that list it and `only_star`; for
+   * `certificate_changed`, `host`, `person`, `pinned_spki_sha256` and
+   * `presented_spki_sha256`.
    */
   details?: {
     [k: string]: unknown;
@@ -3241,6 +3288,23 @@ export interface NeedsYouListParams {
    * Only the items of these kinds; every kind when absent.
    */
   kinds?: string[] | null;
+}
+/**
+ * What `needs_you.remove_refetch_domain` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NeedsYouRemoveRefetchDomainParams".
+ */
+export interface NeedsYouRemoveRefetchDomainParams {
+  /**
+   * The registrable domain, as a `wall_refetch_stopped` item names it.
+   */
+  domain: string;
+  /**
+   * When only `*` covers the domain in its layer, the registrable
+   * domains that replace `*` there, the domain itself not among them.
+   */
+  instead_of_star?: string[] | null;
 }
 /**
  * What `run.new_page` takes: the Run whose default Session opens the page.
@@ -3323,6 +3387,23 @@ export interface LimitScope3 {
    * The scope's kind.
    */
   kind: string;
+}
+/**
+ * How many seeds one reason kept from a handler.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SeedsKept".
+ */
+export interface SeedsKept {
+  /**
+   * How many seeds it kept.
+   */
+  count: number;
+  /**
+   * The reason: an enqueue's not-added reason, a skip reason, an Error
+   * code or a Block cause.
+   */
+  reason: string;
 }
 /**
  * What `page.body` takes: the body to read.
@@ -3979,6 +4060,33 @@ export interface RecordingReport {
   written_by?: string | null;
 }
 /**
+ * What `needs_you.remove_refetch_domain` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RefetchDomainRemoved".
+ */
+export interface RefetchDomainRemoved {
+  /**
+   * The domain.
+   */
+  domain: string;
+  /**
+   * That layer's `wall.refetch_domains` now.
+   */
+  domains: string[];
+  /**
+   * The layer that listed it, and now does not; none when no layer was
+   * changed.
+   */
+  layer?: SettingsLayer | null;
+  /**
+   * Whether its layer changed: false when neither user configuration
+   * nor the Operator policy lists it, which then changed nothing and
+   * recorded nothing.
+   */
+  removed: boolean;
+}
+/**
  * What `response.body` takes: the page and the request whose response's
  * body it reads.
  *
@@ -4169,6 +4277,11 @@ export interface RouteRequest {
    */
   method: string;
   /**
+   * Its body, in Base64 (RFC 4648, with padding), when it has one: as
+   * the page sent it, or as a route before replaced it.
+   */
+  post_data?: string | null;
+  /**
    * What the page loads with it, as the browser names it, such as
    * `Document`, `Script` or `XHR`.
    */
@@ -4242,6 +4355,11 @@ export interface RouteRequest1 {
    * Its method, such as `GET`.
    */
   method: string;
+  /**
+   * Its body, in Base64 (RFC 4648, with padding), when it has one: as
+   * the page sent it, or as a route before replaced it.
+   */
+  post_data?: string | null;
   /**
    * What the page loads with it, as the browser names it, such as
    * `Document`, `Script` or `XHR`.
@@ -5701,6 +5819,12 @@ export interface UsageSetParams {
 export interface WaitForCountParams {
   count: Count1;
   locator: Locator5;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
 }
 /**
  * The count.
@@ -5742,6 +5866,12 @@ export interface WaitForExchangeParams {
    */
   page_id: string;
   /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
+  /**
    * The URLs it waits for.
    */
   url?: UrlMatcher | null;
@@ -5775,6 +5905,12 @@ export interface WaitForFunctionParams {
    */
   polling_interval?: number | null;
   /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
+  /**
    * Where it runs; the main world when absent.
    */
   world?: World | null;
@@ -5794,6 +5930,12 @@ export interface WaitForLoadStateParams {
    * The state; `load` when absent.
    */
   state?: LoadState | null;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
 }
 /**
  * What `page.wait_for_request_finished` takes: the page, and the URLs of
@@ -5807,6 +5949,12 @@ export interface WaitForRequestFinishedParams {
    * A page of a Run, named by the engine when it opens it.
    */
   page_id: string;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
   /**
    * The URLs it waits for.
    */
@@ -5824,6 +5972,12 @@ export interface WaitForUrlParams {
    * A page of a Run, named by the engine when it opens it.
    */
   page_id: string;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
   /**
    * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
    * one, or a regular expression in the `regex` crate's syntax. A predicate
@@ -5850,6 +6004,27 @@ export interface WaitForUrlParams {
    * absent. A change within the document waits for none.
    */
   wait_until?: LoadState | null;
+}
+/**
+ * What `needs_you.deny_wall_domain` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WallDomainDenied".
+ */
+export interface WallDomainDenied {
+  /**
+   * Whether it was added: false when the Operator policy denied it
+   * already, which then changed nothing and recorded nothing.
+   */
+  added: boolean;
+  /**
+   * The domain, as `wall.denied_domains` now lists it.
+   */
+  domain: string;
+  /**
+   * The reason, as the Audit log records it.
+   */
+  reason: string;
 }
 /**
  * What `page.page_error` reports, `WebError`: an exception the page did

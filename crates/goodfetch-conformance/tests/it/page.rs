@@ -180,7 +180,7 @@ fn prove((name, capabilities): Part) {
     );
 }
 
-/// Covers: story:5-61, story:5-60, story:5-62, operation:run.new_session, operation:session.new_page, operation:session.close, error:closed, error:setting_not_applicable, error:capability_unavailable, error:run_ended, story:5-79, setting:session.page_check, error:logged_out, error:page_check_failed, operation:run.new_page, operation:page.goto, error:setting_invalid, story:5-88, story:5-89, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server, story:5-91, story:8-63, story:8-58, story:8-59, error:blocked, operation:locator.click, operation:page.wait_for_url, operation:page.evaluate, operation:page.request, operation:session.pages
+/// Covers: story:5-61, story:5-60, story:5-62, operation:run.new_session, operation:session.new_page, operation:session.close, error:closed, error:setting_not_applicable, error:capability_unavailable, error:run_ended, story:5-79, setting:session.page_check, error:logged_out, error:page_check_failed, operation:run.new_page, operation:page.goto, error:setting_invalid, story:5-88, story:5-89, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server, setting:proxy.password, error:setting_locked, story:5-91, story:8-63, story:8-58, story:8-59, error:blocked, operation:locator.click, operation:page.wait_for_url, operation:page.evaluate, operation:page.request, operation:session.pages
 #[test]
 fn the_page_suite_proves_sessions_against_collies_attached_engine() {
     prove(SESSIONS);
@@ -192,7 +192,7 @@ fn the_page_suite_proves_proxy_limits_against_collies_attached_engine() {
     prove(PROXY_LIMITS);
 }
 
-/// Covers: story:5-61, story:5-23, story:5-24, story:5-26, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, error:navigation_failed, error:navigation_interrupted, story:5-29, story:5-30, story:5-31, error:too_many_redirects, error:response_truncated, event:page.download
+/// Covers: story:5-61, story:5-23, story:5-24, story:5-26, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, operation:page.wait_for_url, operation:page.wait_for_response, error:navigation_failed, error:navigation_interrupted, story:5-29, story:5-30, story:5-31, error:too_many_redirects, error:response_truncated, event:page.download, story:3-52, setting:timeout.navigation, error:deadline_exceeded
 #[test]
 fn the_page_suite_proves_navigation_against_collies_attached_engine() {
     prove(NAVIGATION);
@@ -216,7 +216,7 @@ fn the_page_suite_proves_locators_against_collies_attached_engine() {
     prove(LOCATORS);
 }
 
-/// Covers: operation:page.goto, story:5-40, story:5-41, story:5-42, operation:page.route, operation:session.route, operation:route.continue, operation:route.fallback, operation:route.fulfill, operation:route.abort, operation:route.fetch, error:page_handler_failed, error:route_already_handled, error:egress_refused, error:header_value_invalid
+/// Covers: operation:page.goto, story:5-40, story:5-41, story:5-42, operation:page.route, operation:session.route, operation:route.continue, operation:route.fallback, operation:route.fulfill, operation:route.abort, operation:route.fetch, error:page_handler_failed, error:route_already_handled, error:egress_refused, error:header_value_invalid, error:closed
 #[test]
 fn the_page_suite_proves_routes_against_collies_attached_engine() {
     prove(ROUTES);
@@ -240,7 +240,7 @@ fn the_page_suite_proves_events_against_collies_attached_engine() {
     prove(EVENTS);
 }
 
-/// Covers: operation:run.new_session, operation:page.route, operation:session.route, event:page.request, event:page.response, story:5-49, story:5-50, setting:browser.service_workers, operation:page.wait_for_response, operation:page.wait_for_load_state
+/// Covers: operation:run.new_session, operation:page.route, operation:session.route, event:page.request, event:page.response, story:5-49, story:5-50, setting:browser.service_workers, operation:page.wait_for_response, operation:page.wait_for_load_state, story:5-56, setting:browser.headless, operation:page.goto
 #[test]
 fn the_page_suite_proves_page_states_against_collies_attached_engine() {
     prove(PAGE_STATES);
@@ -270,7 +270,7 @@ fn the_page_suite_proves_page_functions_against_collies_attached_engine() {
     prove(PAGE_FUNCTIONS);
 }
 
-/// Covers: story:5-19, story:5-20, story:5-21, story:5-22, operation:page.wait_for_url, operation:page.wait_for_request, operation:page.wait_for_response, operation:page.wait_for_load_state, operation:page.wait_for_function, operation:locator.wait_for, operation:locator.wait_for_count, operation:page.evaluate, operation:locator.click, error:deadline_exceeded, setting:timeout.wait
+/// Covers: story:5-19, story:5-20, story:5-21, story:5-22, operation:page.wait_for_url, operation:page.wait_for_request, operation:page.wait_for_response, operation:page.wait_for_load_state, operation:page.wait_for_function, operation:locator.wait_for, operation:locator.wait_for_count, operation:page.evaluate, operation:locator.click, error:deadline_exceeded, setting:timeout.wait, story:5-43, error:pattern_unsupported, operation:page.route
 #[test]
 fn the_page_suite_proves_waits_against_collies_attached_engine() {
     prove(WAITS);

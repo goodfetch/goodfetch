@@ -13,19 +13,21 @@
 
 use std::time::Duration;
 
-use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
+use goodfetch_protocol::connection::{CALL_CANCELLED, DEADLINE_EXCEEDED};
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
+use goodfetch_protocol::page::route::PAGE_ROUTE;
+use goodfetch_protocol::page::session_pages::PAGE_CLOSE;
 use goodfetch_protocol::page::waits::{
     LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_LOAD_STATE,
     PAGE_WAIT_FOR_REQUEST, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL,
 };
-use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_GOTO};
+use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_GOTO, PATTERN_UNSUPPORTED};
 use goodfetch_protocol::settings::TIMEOUT_WAIT;
 use serde_json::{Value, json};
 
-use super::{Checks, Site, finish_run, new_page, start_run};
+use super::exchange::Exchange;
+use super::{Checks, Site, clean_up, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
-use crate::protocol::target::BROWSER_DEADLINE;
 
 /// `timeout.wait` where a case expects its waits to pass: 10 s.
 const LONG_WAIT: u64 = 10_000;
@@ -44,6 +46,9 @@ pub(crate) enum Case {
     ResponseBeforeAwaited,
     ReRenderingPages,
     Deadlines,
+    UnsupportedPatterns,
+    OwnTimeouts,
+    PageCloses,
 }
 
 impl Case {
@@ -61,6 +66,15 @@ impl Case {
             }
             "locator-and-function-waits-resolve-on-re-rendering-pages" => Self::ReRenderingPages,
             "each-wait-ends-at-timeout-wait-naming-what-it-waited-for" => Self::Deadlines,
+            "a-route-or-a-wait-whose-pattern-the-engine-cannot-match-is-refused-at-the-call" => {
+                Self::UnsupportedPatterns
+            }
+            "a-waits-own-timeout-is-its-deadline-at-the-run-layer-and-null-is-none" => {
+                Self::OwnTimeouts
+            }
+            "a-wait-in-flight-when-its-page-closes-raises-call-cancelled-naming-the-page" => {
+                Self::PageCloses
+            }
             _ => return None,
         })
     }
@@ -72,65 +86,25 @@ impl Case {
         site: &Site,
         checks: &mut Checks,
     ) -> Result<(), Gone> {
-        let mut exchange = Exchange {
-            connection,
-            answers: Vec::new(),
-        };
+        let mut exchange = Exchange::new(connection);
         match self {
             Self::UrlWithinTheDocument => url_within_the_document(&mut exchange, site, checks),
             Self::NetworkIdle => network_idle(&mut exchange, site, checks),
             Self::ResponseBeforeAwaited => response_before_awaited(&mut exchange, site, checks),
             Self::ReRenderingPages => re_rendering_pages(&mut exchange, site, checks),
             Self::Deadlines => deadlines(&mut exchange, site, checks),
+            Self::UnsupportedPatterns => unsupported_patterns(&mut exchange, site, checks),
+            Self::OwnTimeouts => own_timeouts(&mut exchange, site, checks),
+            Self::PageCloses => page_closes(&mut exchange, site, checks),
         }
     }
 }
 
-/// The Connection as these cases read it: several calls in flight at once,
-/// each answer kept until its call's is asked for.
-struct Exchange<'connection> {
-    connection: &'connection mut Connection,
-    answers: Vec<Value>,
-}
-
+/// What these cases do on the Connection besides reading it.
 impl Exchange<'_> {
-    fn request(&mut self, method: &str, params: &Value) -> Result<i64, Gone> {
-        self.connection.request(method, params)
-    }
-
-    /// The answer to the request `id`, read within `deadline`.
-    fn answer_within(&mut self, id: i64, deadline: Duration) -> Result<Value, Gone> {
-        loop {
-            if let Some(at) = self
-                .answers
-                .iter()
-                .position(|answer| answer["id"] == json!(id))
-            {
-                return Ok(self.answers.remove(at));
-            }
-            let message = self.connection.next_within(deadline)?;
-            if message.get("method").is_none() {
-                self.answers.push(message);
-            }
-        }
-    }
-
-    fn answer(&mut self, id: i64) -> Result<Value, Gone> {
-        self.answer_within(id, BROWSER_DEADLINE)
-    }
-
     /// The answer to the request `id` if it comes within [`QUIET`].
     fn answered_at_once(&mut self, id: i64) -> Result<Option<Value>, Gone> {
-        match self.answer_within(id, QUIET) {
-            Ok(answer) => Ok(Some(answer)),
-            Err(Gone::Silent(_)) => Ok(None),
-            Err(gone) => Err(gone),
-        }
-    }
-
-    fn call(&mut self, method: &str, params: &Value) -> Result<Value, Gone> {
-        let id = self.request(method, params)?;
-        self.answer(id)
+        self.answered_within(id, QUIET)
     }
 
     /// The value `page.evaluate` of `function` answers on `page`.
@@ -262,7 +236,9 @@ fn url_within_the_document(
 
 /// B03: `networkidle` comes on the live board, whose WebSocket and
 /// server-sent events stay open, once its periodic requests stopped, and
-/// on the late board only once its request 400 ms after `load` finished.
+/// on the late board only once its request 400 ms after `load` finished,
+/// on a page framing another site, whose frame the browser loads in a
+/// process of its own, and at once on a committed `about:blank`.
 fn network_idle(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-waits-network-idle";
     let Some(live) = task_url(site, "live/1", checks) else {
@@ -297,6 +273,34 @@ fn network_idle(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -
             );
         }
     }
+    let framing = site
+        .named_url(clean_up::HOST, "/cross-site")
+        .unwrap_or_default();
+    exchange.go(&page, &framing, false, checks)?;
+    let idle = exchange.call(
+        PAGE_WAIT_FOR_LOAD_STATE.name,
+        &json!({ "page_id": page, "state": "networkidle" }),
+    )?;
+    let framed = exchange.evaluated(&page, "() => document.querySelector('iframe').src")?;
+    checks.check(
+        "`networkidle` comes on a page framing another site, whose frame runs in a process of its own",
+        idle.get("result").is_some()
+            && framed
+                .as_str()
+                .is_some_and(|src| src.contains(clean_up::FRAME_HOST)),
+    );
+    let blank = exchange.call(
+        PAGE_GOTO.name,
+        &json!({ "page_id": page, "url": "about:blank" }),
+    )?;
+    let idle = exchange.call(
+        PAGE_WAIT_FOR_LOAD_STATE.name,
+        &json!({ "page_id": page, "state": "networkidle" }),
+    )?;
+    checks.check(
+        "`networkidle` comes on a committed `about:blank`",
+        blank.get("result").is_some() && idle.get("result").is_some(),
+    );
     exchange.finish(run_id)
 }
 
@@ -442,9 +446,36 @@ fn deadlines(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> R
         return Ok(());
     };
     exchange.go(&page, &board, false, checks)?;
+    let mut sent = Vec::new();
+    for (method, params, waited_for) in never_passing(&page) {
+        sent.push((method, exchange.request(method, &params)?, waited_for));
+    }
+    for (method, id, waited_for) in sent {
+        let answer = exchange.answer(id)?;
+        let data = &answer["error"]["data"];
+        checks.check(
+            format!(
+                "`{method}` ends with `{}` naming `{waited_for}` and `{}`, at its deadline",
+                DEADLINE_EXCEEDED.name, TIMEOUT_WAIT.name
+            ),
+            data["code"] == DEADLINE_EXCEEDED.name
+                && data["waited_for"] == waited_for
+                && data["limit"]["key"] == TIMEOUT_WAIT.name
+                && data["elapsed"]
+                    .as_u64()
+                    .is_some_and(|elapsed| elapsed >= SHORT_WAIT),
+        );
+    }
+    exchange.finish(run_id)
+}
+
+/// Each wait, with what it waits for on `page`, the live board, where none
+/// passes: its operation, its params and the `waited_for` its deadline
+/// names.
+fn never_passing(page: &Value) -> [(&'static str, Value, &'static str); 7] {
     let never = json!({ "kind": "glob", "pattern": "**/never" });
     let locator = |selector: &str| json!({ "page_id": page, "selector": selector });
-    let waits = [
+    [
         (
             PAGE_WAIT_FOR_URL.name,
             json!({ "page_id": page, "url": never }),
@@ -480,25 +511,150 @@ fn deadlines(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> R
             json!({ "locator": locator("[data-id=board]"), "count": { "min": 2 } }),
             "target_count",
         ),
-    ];
+    ]
+}
+
+/// A wait's own `timeout` is its deadline in place of `timeout.wait`, which
+/// its `deadline_exceeded` names at the run layer with the call's value;
+/// one whose `timeout` is `null` has none, and is still waiting once the
+/// Run's `timeout.wait` passed.
+fn own_timeouts(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
+    let run_id = "conformance-waits-own-timeouts";
+    let Some(board) = task_url(site, "live/2", checks) else {
+        return Ok(());
+    };
+    let Some(page) = exchange.page_of_run(site, run_id, LONG_WAIT, checks)? else {
+        return Ok(());
+    };
+    exchange.go(&page, &board, false, checks)?;
     let mut sent = Vec::new();
-    for (method, params, waited_for) in waits {
+    for (method, mut params, waited_for) in never_passing(&page) {
+        params["timeout"] = json!(SHORT_WAIT);
         sent.push((method, exchange.request(method, &params)?, waited_for));
     }
     for (method, id, waited_for) in sent {
-        let answer = exchange.answer(id)?;
+        let answer = exchange.answer_within(id, Duration::from_millis(LONG_WAIT / 2))?;
         let data = &answer["error"]["data"];
         checks.check(
             format!(
-                "`{method}` ends with `{}` naming `{waited_for}` and `{}`, at its deadline",
+                "`{method}` given `timeout` ends with `{}` naming `{waited_for}` and `{}` at the run layer, at the call's deadline",
                 DEADLINE_EXCEEDED.name, TIMEOUT_WAIT.name
             ),
             data["code"] == DEADLINE_EXCEEDED.name
                 && data["waited_for"] == waited_for
-                && data["limit"]["key"] == TIMEOUT_WAIT.name
+                && data["limit"]
+                    == json!({ "key": TIMEOUT_WAIT.name, "value": SHORT_WAIT, "layer": "run" })
                 && data["elapsed"]
                     .as_u64()
-                    .is_some_and(|elapsed| elapsed >= SHORT_WAIT),
+                    .is_some_and(|elapsed| (SHORT_WAIT..LONG_WAIT).contains(&elapsed)),
+        );
+    }
+    exchange.finish(run_id)?;
+
+    let run_id = "conformance-waits-no-timeout";
+    let Some(page) = exchange.page_of_run(site, run_id, SHORT_WAIT, checks)? else {
+        return Ok(());
+    };
+    exchange.go(&page, &board, false, checks)?;
+    let never = json!({ "kind": "glob", "pattern": "**/never" });
+    let unbounded = exchange.request(
+        PAGE_WAIT_FOR_URL.name,
+        &json!({ "page_id": page, "url": never, "timeout": null }),
+    )?;
+    let bounded = exchange.request(
+        PAGE_WAIT_FOR_URL.name,
+        &json!({ "page_id": page, "url": never }),
+    )?;
+    let ended = exchange.answer(bounded)?;
+    let waiting = exchange.answered_at_once(unbounded)?;
+    checks.check(
+        "a wait whose `timeout` is `null` is still waiting once `timeout.wait` ended another",
+        ended["error"]["data"]["code"] == DEADLINE_EXCEEDED.name && waiting.is_none(),
+    );
+    let refused = exchange.call(
+        PAGE_WAIT_FOR_URL.name,
+        &json!({ "page_id": page, "url": never, "timeout": 0 }),
+    )?;
+    checks.check(
+        "a `timeout` of 0 is refused with `invalid_params`",
+        refused["error"]["code"] == json!(-32602),
+    );
+    exchange.finish(run_id)
+}
+
+/// Each wait in flight when its page closes ends with `call_cancelled`,
+/// stopped by the program, naming the page as what closed.
+fn page_closes(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
+    let run_id = "conformance-waits-page-closes";
+    let Some(board) = task_url(site, "live/2", checks) else {
+        return Ok(());
+    };
+    let Some(page) = exchange.page_of_run(site, run_id, LONG_WAIT, checks)? else {
+        return Ok(());
+    };
+    exchange.go(&page, &board, false, checks)?;
+    let mut sent = Vec::new();
+    for (method, params, _) in never_passing(&page) {
+        sent.push((method, exchange.request(method, &params)?));
+    }
+    let early = exchange.answered_at_once(sent[0].1)?;
+    let closed = exchange.call(PAGE_CLOSE.name, &json!({ "page_id": page }))?;
+    checks.check(
+        "the waits are in flight, and the page closes",
+        early.is_none() && closed.get("result").is_some(),
+    );
+    for (method, id) in sent {
+        let answer = exchange.answer(id)?;
+        checks.check(
+            format!(
+                "`{method}` in flight ends with `{}` by the program, naming the page",
+                CALL_CANCELLED.name
+            ),
+            answer["error"]["data"]["code"] == CALL_CANCELLED.name
+                && answer["error"]["data"]["by"] == "program"
+                && answer["error"]["data"]["closed"] == "page",
+        );
+    }
+    exchange.finish(run_id)
+}
+
+/// A route whose regular expression uses look-around and a URL wait whose
+/// pattern uses a back-reference are refused when their calls arrive, with
+/// `pattern_unsupported` naming the construct, never later when a request
+/// or a navigation would have been matched (ADR 0081).
+fn unsupported_patterns(
+    exchange: &mut Exchange<'_>,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-waits-unsupported-patterns";
+    let Some(page) = exchange.page_of_run(site, run_id, LONG_WAIT, checks)? else {
+        return Ok(());
+    };
+    let refusals = [
+        (
+            PAGE_ROUTE.name,
+            json!({ "page_id": page, "url": { "kind": "regex", "pattern": "/items(?=x)" } }),
+            "look_around",
+        ),
+        (
+            PAGE_WAIT_FOR_URL.name,
+            json!({ "page_id": page, "url": { "kind": "regex", "pattern": r"/(\w+)/\1" } }),
+            "backreference",
+        ),
+    ];
+    for (method, params, construct) in refusals {
+        let id = exchange.request(method, &params)?;
+        let refused = exchange.answered_at_once(id)?;
+        let data = refused.as_ref().map(|refused| &refused["error"]["data"]);
+        checks.check(
+            format!(
+                "`{method}` is refused at once with `{}` naming `{construct}`",
+                PATTERN_UNSUPPORTED.name
+            ),
+            data.is_some_and(|data| {
+                data["code"] == PATTERN_UNSUPPORTED.name && data["construct"] == construct
+            }),
         );
     }
     exchange.finish(run_id)

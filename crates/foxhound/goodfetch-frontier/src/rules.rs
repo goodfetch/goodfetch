@@ -17,11 +17,27 @@
 //!   the offset, with a parameter that does not step), the cursor is
 //!   preferred and later offset URLs are `duplicate`. A listing paged only
 //!   by its offset leaves the Run `unverified`.
+//! - **An equivalent form** (`forms`: `www.`, the scheme, an index file or
+//!   a trailing slash) is learned for a host on 1 redirect from one form
+//!   to the other, or 2 pairs of pages in the two forms with matching
+//!   signatures and none differing, or 3 pages whose `rel=canonical`
+//!   differs from their URL only by that form (ADR 0120); a canonical to
+//!   another path or another registrable domain is no evidence. A URL is
+//!   then keyed in the form the rule keeps.
+//! - **A contradicting pair** (pages fetched in both spellings, neither a
+//!   redirect, of differing signatures) keeps a parameter or a form from
+//!   being learned, and stops a learned one: from then on it merges
+//!   nothing more, and the report gives the pair beside the URLs it had
+//!   merged.
 //!
 //! The rules read a URL by its key (`identity`'s fixed rules), so its query
 //! pairs are already normalized and sorted by name. Nothing is held in
 //! memory between calls (STYLE.md: the Frontier keeps its state in the run
 //! file).
+//!
+//! Size: one concern, the evidence the learned rules keep in the run file
+//! and what it teaches; every rule reads the same pages, pairs and rule
+//! rows, so their thresholds stay side by side.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -29,10 +45,14 @@ use std::fmt::Write as _;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_protocol::foxhound::frontier::NotAddedReason;
-use goodfetch_protocol::foxhound::report::{LearnedRule, LearnedRuleKind};
+use goodfetch_protocol::foxhound::report::{
+    EquivalentForm, LearnedRule, LearnedRuleKind, OFFSET_PAGINATION, TRAP_PATH as TRAP_PATH_REASON,
+};
 use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::{Connection, OptionalExtension as _};
 use url::Url;
+
+use crate::forms;
 
 /// The rules learned, each with the URLs it merged, and the evidence they
 /// are learned from: the pages fetched with their signatures, by their
@@ -48,8 +68,10 @@ pub const TABLES: RunStateTables = RunStateTables {
             host TEXT NOT NULL,
             path TEXT NOT NULL,
             parameter TEXT NOT NULL,
+            form TEXT NOT NULL,
             evidence TEXT NOT NULL,
-            UNIQUE (kind, host, path, parameter)
+            contradiction TEXT,
+            UNIQUE (kind, host, path, parameter, form)
         ) STRICT",
         "CREATE TABLE IF NOT EXISTS learned_merges (
             rule INTEGER NOT NULL REFERENCES learned_rules (id),
@@ -65,6 +87,7 @@ pub const TABLES: RunStateTables = RunStateTables {
             signature BLOB NOT NULL
         ) STRICT, WITHOUT ROWID",
         "CREATE INDEX IF NOT EXISTS rules_pages_by_query ON rules_pages (host, path, query)",
+        "CREATE INDEX IF NOT EXISTS rules_pages_by_url ON rules_pages (url)",
         "CREATE TABLE IF NOT EXISTS rules_residues (
             crawl_request TEXT NOT NULL,
             parameter TEXT NOT NULL,
@@ -80,11 +103,19 @@ pub const TABLES: RunStateTables = RunStateTables {
         "CREATE TABLE IF NOT EXISTS rules_pairs (
             host TEXT NOT NULL,
             parameter TEXT NOT NULL,
+            form TEXT NOT NULL,
             one TEXT NOT NULL,
             other TEXT NOT NULL,
             matching INTEGER NOT NULL,
-            UNIQUE (host, parameter, one, other)
+            UNIQUE (host, parameter, form, one, other)
         ) STRICT",
+        "CREATE TABLE IF NOT EXISTS rules_canonicals (
+            host TEXT NOT NULL,
+            form TEXT NOT NULL,
+            url TEXT NOT NULL,
+            canonical TEXT NOT NULL,
+            PRIMARY KEY (host, form, url)
+        ) STRICT, WITHOUT ROWID",
         "CREATE TABLE IF NOT EXISTS rules_signatures (
             host TEXT NOT NULL,
             signature BLOB NOT NULL,
@@ -133,25 +164,87 @@ const OFFSET_VALUES: i64 = 3;
 /// The smallest step of an offset: a page size; page numbers step by 1.
 const OFFSET_STEP: i64 = 2;
 
+/// How many pairs of matching pages in two forms teach that they are one.
+const MATCHING_FORM_PAIRS: i64 = 2;
+
+/// How many pages whose canonical differs from their URL only by a form
+/// teach that form.
+const CANONICAL_PAGES: i64 = 3;
+
 const NO_EFFECT_PARAMETER: &str = "no_effect_parameter";
 const TRAP_PATH: &str = "trap_path";
 const CURSOR_PAGINATION: &str = "cursor_pagination";
+const EQUIVALENT_FORM: &str = "equivalent_form";
 
-/// The Completeness reason of the URLs learned traps refused.
-const TRAP_REASON: &str = "trap_path";
-
-/// The Completeness reason of listings paged only by an offset.
-const OFFSET_REASON: &str = "offset_pagination";
-
-/// A parameter learned to have no effect on a host's pages.
+/// What a page or a redirect changed of the rules that merge URLs: a
+/// parameter or a form learned, or one a contradicting pair stopped.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct NoEffect {
+pub(crate) enum Change {
+    /// The rule `rule` was learned and merges from now on.
+    Learned(Merging),
+    /// The rule `rule` met a contradicting pair and merges no more.
+    Contradicted(Merging),
+}
+
+/// A rule that merges URLs, and the hosts whose URLs it reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Merging {
     /// The rule's ID.
     pub(crate) rule: i64,
-    /// The host.
-    pub(crate) host: String,
-    /// The parameter.
-    pub(crate) parameter: String,
+    /// The hosts: its own, and for a `www` form the `www.` host too.
+    pub(crate) hosts: Vec<String>,
+}
+
+/// What a merging rule is about: a query parameter, or a form.
+#[derive(Clone, Copy, Debug)]
+enum Subject<'a> {
+    Parameter(&'a str),
+    Form(EquivalentForm),
+}
+
+impl Subject<'_> {
+    /// Its kind, parameter and form, as the run file writes them.
+    fn columns(self) -> (&'static str, String, &'static str) {
+        match self {
+            Self::Parameter(parameter) => (NO_EFFECT_PARAMETER, parameter.to_owned(), ""),
+            Self::Form(form) => (EQUIVALENT_FORM, String::new(), forms::name(form)),
+        }
+    }
+
+    /// How many matching pairs teach it.
+    fn threshold(self) -> i64 {
+        match self {
+            Self::Parameter(_) => MATCHING_PAIRS,
+            Self::Form(_) => MATCHING_FORM_PAIRS,
+        }
+    }
+
+    /// What two URLs differ by, in its evidence.
+    fn difference(self) -> String {
+        match self {
+            Self::Parameter(parameter) => format!("`{parameter}`"),
+            Self::Form(form) => described(form).to_owned(),
+        }
+    }
+
+    /// The hosts its rule on `host` reads.
+    fn hosts(self, host: &str) -> Vec<String> {
+        match self {
+            Self::Form(EquivalentForm::Www) => vec![host.to_owned(), format!("www.{host}")],
+            _ => vec![host.to_owned()],
+        }
+    }
+}
+
+/// A form, as evidence names it.
+fn described(form: EquivalentForm) -> &'static str {
+    match form {
+        EquivalentForm::Www => "`www.`",
+        EquivalentForm::Scheme => "the scheme",
+        EquivalentForm::TrailingSlash => "a trailing slash",
+        EquivalentForm::IndexHtml => "`index.html`",
+        EquivalentForm::IndexPhp => "`index.php`",
+    }
 }
 
 /// The parts of a URL's key the rules read.
@@ -206,8 +299,9 @@ fn value(pair: &str) -> &str {
     pair.split_once('=').map_or("", |(_, value)| value)
 }
 
-/// `key` without the parameters learned to have no effect on its host,
-/// and the rules that took one away.
+/// `key` under the rules that merge on its host and still hold: without
+/// the parameters learned to have no effect, then in the spelling each
+/// learned form keeps; and the rules that changed it.
 ///
 /// # Errors
 ///
@@ -216,12 +310,52 @@ pub(crate) fn without_learned(
     connection: &Connection,
     key: &Url,
 ) -> rusqlite::Result<(Url, Vec<i64>)> {
+    let (mut merged, mut applied) = without_parameters(connection, key)?;
+    for form in forms::FORMS {
+        let Some(kept) = forms::kept(form, &merged) else {
+            continue;
+        };
+        // A rule learned on the URL's own host still holds once a `www`
+        // form took that host's `www.` away.
+        let hosts = [forms::rule_host(form, &merged), forms::rule_host(form, key)];
+        for host in hosts.iter().flatten() {
+            if let Some(rule) = holding(connection, host, Subject::Form(form))? {
+                applied.push(rule);
+                merged = kept;
+                break;
+            }
+        }
+    }
+    Ok((merged, applied))
+}
+
+/// The ID of the rule about `subject` on `host`, while it holds: learned
+/// and never contradicted.
+fn holding(
+    connection: &Connection,
+    host: &str,
+    subject: Subject<'_>,
+) -> rusqlite::Result<Option<i64>> {
+    let (kind, parameter, form) = subject.columns();
+    connection
+        .prepare_cached(
+            "SELECT id FROM learned_rules WHERE kind = ?1 AND host = ?2 AND path = ''
+             AND parameter = ?3 AND form = ?4 AND contradiction IS NULL",
+        )?
+        .query_row((kind, host, parameter, form), |row| row.get(0))
+        .optional()
+}
+
+/// `key` without the parameters learned to have no effect on its host,
+/// and the rules that took one away.
+fn without_parameters(connection: &Connection, key: &Url) -> rusqlite::Result<(Url, Vec<i64>)> {
     let parts = Parts::of(key);
     if parts.pairs.is_empty() {
         return Ok((key.clone(), Vec::new()));
     }
     let mut statement = connection.prepare_cached(
-        "SELECT id, parameter FROM learned_rules WHERE kind = ?1 AND host = ?2 ORDER BY id",
+        "SELECT id, parameter FROM learned_rules
+         WHERE kind = ?1 AND host = ?2 AND contradiction IS NULL ORDER BY id",
     )?;
     let learned = statement
         .query_map((NO_EFFECT_PARAMETER, parts.host), |row| {
@@ -297,12 +431,12 @@ pub(crate) fn refuses(
 /// # Errors
 ///
 /// When the run file cannot be written.
-pub(crate) fn merged(connection: &Connection, rule: i64, url: &Url) -> rusqlite::Result<()> {
+pub(crate) fn merged(connection: &Connection, rule: i64, url: &str) -> rusqlite::Result<()> {
     connection
         .prepare_cached(
             "INSERT INTO learned_merges (rule, url) VALUES (?1, ?2) ON CONFLICT DO NOTHING",
         )?
-        .execute((rule, url.as_str()))?;
+        .execute((rule, url))?;
     Ok(())
 }
 
@@ -480,49 +614,57 @@ fn cursor(
         );
         learn_rule(
             connection,
-            CURSOR_PAGINATION,
-            parts.host,
-            parts.path,
-            offset,
+            (CURSOR_PAGINATION, parts.host, parts.path),
+            (offset, ""),
             &evidence,
         )?;
     }
     Ok(())
 }
 
-/// Adds a rule, unless it is learned already.
+/// Adds a rule of `kind` on `host` and `path`, about `parameter` and
+/// `form`, unless it is learned already.
 fn learn_rule(
     connection: &Connection,
-    kind: &str,
-    host: &str,
-    path: &str,
-    parameter: &str,
+    (kind, host, path): (&str, &str, &str),
+    (parameter, form): (&str, &str),
     evidence: &str,
 ) -> rusqlite::Result<Option<i64>> {
     let added = connection
         .prepare_cached(
-            "INSERT INTO learned_rules (kind, host, path, parameter, evidence)
-             VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT DO NOTHING",
+            "INSERT INTO learned_rules (kind, host, path, parameter, form, evidence)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT DO NOTHING",
         )?
-        .execute((kind, host, path, parameter, evidence))?;
+        .execute((kind, host, path, parameter, form, evidence))?;
     Ok((added == 1).then(|| connection.last_insert_rowid()))
 }
 
-/// Learns from the page of the crawl request `crawl_request`, fetched at
-/// the URL whose key is `key` and read with `signature`, once per crawl
-/// request: its pairs with the pages fetched before whose URLs differ from
-/// its own only by one parameter, and its path pattern's run of pages that
-/// brought nothing new; answers each parameter it taught has no effect.
+/// A page as [`learn`] reads it: the crawl request it was fetched for,
+/// the key of the URL it was fetched at, its page signature and the key of
+/// its `rel=canonical`, if it names one.
+pub(crate) struct Page<'a> {
+    pub(crate) crawl_request: &'a str,
+    pub(crate) key: &'a Url,
+    pub(crate) signature: &'a [u8; 32],
+    pub(crate) canonical: Option<&'a Url>,
+}
+
+/// Learns from `page`, once per crawl request: its pairs with the pages
+/// fetched before whose URLs differ from its own only by one parameter or
+/// one form, its canonical when that differs from its URL only by a form,
+/// and its path pattern's run of pages that brought nothing new; answers
+/// each merging rule it taught or stopped.
 ///
 /// # Errors
 ///
 /// When the run file cannot be read or written.
-pub(crate) fn learn(
-    connection: &Connection,
-    crawl_request: &str,
-    key: &Url,
-    signature: &[u8; 32],
-) -> rusqlite::Result<Vec<NoEffect>> {
+pub(crate) fn learn(connection: &Connection, page: &Page<'_>) -> rusqlite::Result<Vec<Change>> {
+    let Page {
+        crawl_request,
+        key,
+        signature,
+        canonical,
+    } = *page;
     let parts = Parts::of(key);
     let query = parts.query_without(None);
     let first_time = connection
@@ -548,7 +690,226 @@ pub(crate) fn learn(
         .execute((parts.host, &signature[..]))?
         == 1;
     trap(connection, &parts, key, new_signature)?;
-    pairs(connection, crawl_request, &parts, &query, key, signature)
+    let mut changes = Vec::new();
+    for parameter in pairs(connection, crawl_request, &parts, &query, key, signature)? {
+        changes.extend(judge(
+            connection,
+            parts.host,
+            Subject::Parameter(&parameter),
+        )?);
+    }
+    for (form, host) in form_pairs(connection, crawl_request, key, signature)? {
+        changes.extend(judge(connection, &host, Subject::Form(form))?);
+    }
+    if let Some(canonical) = canonical {
+        changes.extend(canonical_evidence(connection, key, canonical)?);
+    }
+    Ok(changes)
+}
+
+/// Pairs the page of `crawl_request` at `key` with each page fetched
+/// before at the URL that differs from `key` only by one form, and
+/// answers each form it paired, with the host of its rule.
+fn form_pairs(
+    connection: &Connection,
+    crawl_request: &str,
+    key: &Url,
+    signature: &[u8; 32],
+) -> rusqlite::Result<Vec<(EquivalentForm, String)>> {
+    let mut touched = Vec::new();
+    for form in forms::FORMS {
+        let (Some(other), Some(host)) = (forms::other(form, key), forms::rule_host(form, key))
+        else {
+            continue;
+        };
+        let mut statement = connection.prepare_cached(
+            "SELECT signature FROM rules_pages WHERE url = ?1 AND crawl_request != ?2",
+        )?;
+        let signatures = statement
+            .query_map((other.as_str(), crawl_request), |row| {
+                row.get::<_, Vec<u8>>(0)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for other_signature in &signatures {
+            connection
+                .prepare_cached(
+                    "INSERT INTO rules_pairs (host, parameter, form, one, other, matching)
+                     VALUES (?1, '', ?2, ?3, ?4, ?5) ON CONFLICT DO NOTHING",
+                )?
+                .execute((
+                    &host,
+                    forms::name(form),
+                    other.as_str(),
+                    key.as_str(),
+                    *other_signature == signature[..],
+                ))?;
+        }
+        if !signatures.is_empty() {
+            touched.push((form, host));
+        }
+    }
+    Ok(touched)
+}
+
+/// Counts the page at `key` toward the form its canonical, whose key is
+/// `canonical`, differs from its URL by, when it differs by one form
+/// alone, and learns that form at [`CANONICAL_PAGES`]. A canonical to
+/// another path or another registrable domain, or the page's own URL, is
+/// no evidence.
+fn canonical_evidence(
+    connection: &Connection,
+    key: &Url,
+    canonical: &Url,
+) -> rusqlite::Result<Option<Change>> {
+    let Some((form, host)) = forms::differ_by(key, canonical) else {
+        return Ok(None);
+    };
+    let name = forms::name(form);
+    connection
+        .prepare_cached(
+            "INSERT INTO rules_canonicals (host, form, url, canonical)
+             VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
+        )?
+        .execute((&host, name, key.as_str(), canonical.as_str()))?;
+    let mut statement = connection.prepare_cached(
+        "SELECT url, canonical FROM rules_canonicals WHERE host = ?1 AND form = ?2 ORDER BY url",
+    )?;
+    let pages = statement
+        .query_map((&host, name), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let count = i64::try_from(pages.len()).unwrap_or(i64::MAX);
+    if count < CANONICAL_PAGES {
+        return Ok(None);
+    }
+    let mut evidence = format!(
+        "{count} pages named as their `rel=canonical` their own URL but for {}:",
+        described(form)
+    );
+    for (index, (url, canonical)) in pages.iter().enumerate() {
+        let separator = if index == 0 { " " } else { "; " };
+        write!(evidence, "{separator}{url} names {canonical}")
+            .expect("invariant: writing to a String succeeds");
+    }
+    evidence.push('.');
+    learn_merging(connection, &host, Subject::Form(form), &evidence)
+}
+
+/// Learns the form a redirect from the URL whose key is `from` to the one
+/// whose key is `to` shows, when they differ by one form alone: one
+/// redirect is evidence enough (RFC 3986 §6.2.4).
+///
+/// # Errors
+///
+/// When the run file cannot be read or written.
+pub(crate) fn learn_redirect(
+    connection: &Connection,
+    from: &Url,
+    to: &Url,
+) -> rusqlite::Result<Option<Change>> {
+    let Some((form, host)) = forms::differ_by(from, to) else {
+        return Ok(None);
+    };
+    let evidence = format!(
+        "{from} redirected to {to}, which differs from it only by {}.",
+        described(form)
+    );
+    learn_merging(connection, &host, Subject::Form(form), &evidence)
+}
+
+/// Learns the rule about `subject` on `host` from `evidence`, unless it
+/// is learned already, stopped, or a pair of its pages differs.
+fn learn_merging(
+    connection: &Connection,
+    host: &str,
+    subject: Subject<'_>,
+    evidence: &str,
+) -> rusqlite::Result<Option<Change>> {
+    let (kind, parameter, form) = subject.columns();
+    let differing: bool = connection
+        .prepare_cached(
+            "SELECT EXISTS (SELECT 1 FROM rules_pairs
+             WHERE host = ?1 AND parameter = ?2 AND form = ?3 AND matching = 0)",
+        )?
+        .query_row((host, &parameter, form), |row| row.get(0))?;
+    if differing {
+        return Ok(None);
+    }
+    Ok(
+        learn_rule(connection, (kind, host, ""), (&parameter, form), evidence)?.map(|rule| {
+            Change::Learned(Merging {
+                rule,
+                hosts: subject.hosts(host),
+            })
+        }),
+    )
+}
+
+/// What the pairs of `subject` on `host` now say: a rule that holds and
+/// met a differing pair stops, naming it; one not yet learned is learned
+/// once its matching pairs reach its threshold and none differs.
+fn judge(
+    connection: &Connection,
+    host: &str,
+    subject: Subject<'_>,
+) -> rusqlite::Result<Option<Change>> {
+    let (kind, parameter, form) = subject.columns();
+    let mut statement = connection.prepare_cached(
+        "SELECT one, other, matching FROM rules_pairs
+         WHERE host = ?1 AND parameter = ?2 AND form = ?3 ORDER BY rowid",
+    )?;
+    let pairs = statement
+        .query_map((host, &parameter, form), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, bool>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let rule = connection
+        .prepare_cached(
+            "SELECT id, contradiction IS NOT NULL FROM learned_rules
+             WHERE kind = ?1 AND host = ?2 AND path = '' AND parameter = ?3 AND form = ?4",
+        )?
+        .query_row((kind, host, &parameter, form), |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, bool>(1)?))
+        })
+        .optional()?;
+    let differing = pairs.iter().rev().find(|(_, _, matching)| !matching);
+    match (rule, differing) {
+        (Some((rule, false)), Some((one, other, _))) => {
+            let contradiction = format!(
+                "{one} and {other}, both fetched and neither redirected, served pages of differing signatures."
+            );
+            connection
+                .prepare_cached("UPDATE learned_rules SET contradiction = ?1 WHERE id = ?2")?
+                .execute((&contradiction, rule))?;
+            Ok(Some(Change::Contradicted(Merging {
+                rule,
+                hosts: subject.hosts(host),
+            })))
+        }
+        (Some(_), _) | (None, Some(_)) => Ok(None),
+        (None, None) => {
+            let count = i64::try_from(pairs.len()).unwrap_or(i64::MAX);
+            if count < subject.threshold() {
+                return Ok(None);
+            }
+            let mut evidence = format!(
+                "{count} pairs of URLs differing only by {} served pages of matching signatures, and no pair pages of differing ones:",
+                subject.difference()
+            );
+            for (index, (one, other, _)) in pairs.iter().enumerate() {
+                let separator = if index == 0 { " " } else { "; " };
+                write!(evidence, "{separator}{one} and {other}")
+                    .expect("invariant: writing to a String succeeds");
+            }
+            evidence.push('.');
+            learn_merging(connection, host, subject, &evidence)
+        }
+    }
 }
 
 /// Counts the page at `key` in its path pattern's run of pages that
@@ -586,15 +947,19 @@ fn trap(
             "{TRAP_PAGES} pages under `{pattern}` in a row, from {} to {key}, brought no new page signature and no URL outside it.",
             first.unwrap_or_default()
         );
-        learn_rule(connection, TRAP_PATH, parts.host, &pattern, "", &evidence)?;
+        learn_rule(
+            connection,
+            (TRAP_PATH, parts.host, &pattern),
+            ("", ""),
+            &evidence,
+        )?;
     }
     Ok(())
 }
 
 /// Pairs the page of `crawl_request` at `key` with each page fetched
 /// before whose URL differs from it only by one parameter, on either side,
-/// and learns each such parameter that now has [`MATCHING_PAIRS`] matching
-/// pairs and no differing one.
+/// and answers each parameter it paired.
 fn pairs(
     connection: &Connection,
     crawl_request: &str,
@@ -602,7 +967,7 @@ fn pairs(
     query: &str,
     key: &Url,
     signature: &[u8; 32],
-) -> rusqlite::Result<Vec<NoEffect>> {
+) -> rusqlite::Result<BTreeSet<String>> {
     let mut found: Vec<(String, String, Vec<u8>)> = Vec::new();
     for parameter in parts.names() {
         let residue = parts.query_without(Some(parameter));
@@ -649,8 +1014,8 @@ fn pairs(
     for (parameter, other, other_signature) in found {
         connection
             .prepare_cached(
-                "INSERT INTO rules_pairs (host, parameter, one, other, matching)
-                 VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT DO NOTHING",
+                "INSERT INTO rules_pairs (host, parameter, form, one, other, matching)
+                 VALUES (?1, ?2, '', ?3, ?4, ?5) ON CONFLICT DO NOTHING",
             )?
             .execute((
                 parts.host,
@@ -661,60 +1026,7 @@ fn pairs(
             ))?;
         touched.insert(parameter);
     }
-    let mut learned = Vec::new();
-    for parameter in touched {
-        if let Some(no_effect) = no_effect(connection, parts.host, &parameter)? {
-            learned.push(no_effect);
-        }
-    }
-    Ok(learned)
-}
-
-/// Learns that `parameter` has no effect on `host` when its pairs say so.
-fn no_effect(
-    connection: &Connection,
-    host: &str,
-    parameter: &str,
-) -> rusqlite::Result<Option<NoEffect>> {
-    let mut statement = connection.prepare_cached(
-        "SELECT one, other, matching FROM rules_pairs WHERE host = ?1 AND parameter = ?2 ORDER BY rowid",
-    )?;
-    let pairs = statement
-        .query_map((host, parameter), |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, bool>(2)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let matching: Vec<_> = pairs.iter().filter(|(_, _, matching)| *matching).collect();
-    let count = i64::try_from(matching.len()).unwrap_or(i64::MAX);
-    if count < MATCHING_PAIRS || matching.len() != pairs.len() {
-        return Ok(None);
-    }
-    let mut evidence = format!(
-        "{count} pairs of URLs differing only by `{parameter}` served pages of matching signatures, and no pair pages of differing ones:"
-    );
-    for (index, (one, other, _)) in matching.iter().enumerate() {
-        let separator = if index == 0 { " " } else { "; " };
-        write!(evidence, "{separator}{one} and {other}")
-            .expect("invariant: writing to a String succeeds");
-    }
-    evidence.push('.');
-    Ok(learn_rule(
-        connection,
-        NO_EFFECT_PARAMETER,
-        host,
-        "",
-        parameter,
-        &evidence,
-    )?
-    .map(|rule| NoEffect {
-        rule,
-        host: host.to_owned(),
-        parameter: parameter.to_owned(),
-    }))
+    Ok(touched)
 }
 
 /// The path pattern of `path`: each segment that is a number, a date or a
@@ -772,7 +1084,8 @@ fn is_hexadecimal(segment: &str) -> bool {
 /// When the run file cannot be read.
 pub fn learned_rules(connection: &Connection) -> rusqlite::Result<Vec<LearnedRule>> {
     let mut statement = connection.prepare(
-        "SELECT id, kind, host, path, parameter, evidence FROM learned_rules ORDER BY id",
+        "SELECT id, kind, host, path, parameter, form, evidence, contradiction
+         FROM learned_rules ORDER BY id",
     )?;
     let rules = statement
         .query_map([], |row| {
@@ -783,16 +1096,19 @@ pub fn learned_rules(connection: &Connection) -> rusqlite::Result<Vec<LearnedRul
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, Option<String>>(7)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut merges =
         connection.prepare("SELECT url FROM learned_merges WHERE rule = ?1 ORDER BY rowid")?;
     let mut learned = Vec::with_capacity(rules.len());
-    for (id, kind, host, path, parameter, evidence) in rules {
+    for (id, kind, host, path, parameter, form, evidence, contradiction) in rules {
         let kind = match kind.as_str() {
             NO_EFFECT_PARAMETER => LearnedRuleKind::NoEffectParameter,
             TRAP_PATH => LearnedRuleKind::TrapPath,
+            EQUIVALENT_FORM => LearnedRuleKind::EquivalentForm,
             _ => LearnedRuleKind::CursorPagination,
         };
         let urls = merges
@@ -803,7 +1119,9 @@ pub fn learned_rules(connection: &Connection) -> rusqlite::Result<Vec<LearnedRul
             host,
             path: (!path.is_empty()).then_some(path),
             parameter: (!parameter.is_empty()).then_some(parameter),
+            form: forms::named(&form),
             evidence,
+            contradiction,
             merged: urls,
         });
     }
@@ -840,8 +1158,9 @@ pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<Com
             "Learned traps"
         };
         reasons.push(unverified(
-            TRAP_REASON,
+            TRAP_PATH_REASON,
             format!("{traps} refused {refused} {urls} the crawl would otherwise have admitted."),
+            refused,
         ));
     }
     if offset_only > 0 {
@@ -851,21 +1170,23 @@ pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<Com
             ("listings were", "them")
         };
         reasons.push(unverified(
-            OFFSET_REASON,
+            OFFSET_PAGINATION,
             format!(
                 "{offset_only} {listings} paged only by an offset parameter, so a row that moved while the crawl paged {it} may be missed."
             ),
+            offset_only,
         ));
     }
     Ok(reasons)
 }
 
-fn unverified(code: &str, message: String) -> CompletenessReason {
+fn unverified(code: &str, message: String, count: i64) -> CompletenessReason {
     CompletenessReason {
         completeness: Completeness::Unverified,
         reason: AxisReason {
             code: code.to_owned(),
             message,
+            count: Some(u64::try_from(count).unwrap_or(0)),
             call_id: None,
         },
     }

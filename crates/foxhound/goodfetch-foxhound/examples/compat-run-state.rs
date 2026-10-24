@@ -3,14 +3,18 @@
 //! both Products' compositions add, over the in-memory network, on the test
 //! `Clock` and a fixed `Entropy` seed, in a home of its own: under an
 //! install Limit, whose Slices its run state journals, a tagged crawl of
-//! six seeds, one with a Payload, one the Frontier answers `duplicate`,
+//! six seeds, one with a Payload of a Label declared with its schema, beside
+//! one declared without, one the Frontier answers `duplicate`,
 //! one sent as a `POST` with a body under a declared key and one
 //! `crawl.max_segment_repeats` refuses, under a scope of every host
 //! narrowed by an `include` and an `exclude` pattern and under a depth and
-//! a request bound, and nine more seeds on `list.test`, three pairs of
-//! items with and without `ref` and three offsets of one listing, whose
-//! pages the writer's own contribution hands the Frontier, which learns
-//! that `ref` has no effect and merges a seed it admits then,
+//! a request bound, and eleven more seeds on `list.test`, three pairs of
+//! items with and without `ref`, three offsets of one listing and a guide
+//! with and without its trailing slash, whose pages the writer's own
+//! contribution hands the Frontier, which learns that `ref` has no effect
+//! and merges a seed it admits then, counts item 1's `rel=canonical`, and
+//! learns the guide's trailing slash from its redirect until its two pages
+//! differ and stop the rule,
 //! whose handler enqueues a `forefront` request on another domain from the
 //! first, pushes Records for the first, the `POST` and that request and
 //! fails on the second, whose first byte never came, so its
@@ -24,9 +28,9 @@
 //! bound to a
 //! Browser host and holding to a Clean-up rules digest, started through a
 //! contribution of the writer's own since no Client sets those yet, with a
-//! warning and `nothingDone` its owners handed over, and two Sessions its
-//! program opened, its default one open and another closed, with a proxy
-//! of its own, which that
+//! warning and `nothingDone` its owners handed over, and three Sessions its
+//! program opened, its default one open, another closed, with a proxy of
+//! its own, and a third closed, on a Borrowed browser, which that
 //! contribution records since no browser runs here, and a Download's file
 //! it keeps, which its Checkpoints carry, whose program sets a progress
 //! message, which `run.checkpoint` checkpoints and
@@ -89,6 +93,10 @@ fn scenario() -> Vec<Value> {
             json!({
                 "run_id": "crawl",
                 "tags": ["schedule:nightly"],
+                "labels": {
+                    "home": { "payload": { "type": ["object", "null"] } },
+                    "product": {},
+                },
                 "seeds": [
                     { "url": "https://shop.test/", "label": "home", "payload": { "depth": 0 } },
                     { "url": "https://shop.test/broken", "label": "product" },
@@ -107,6 +115,8 @@ fn scenario() -> Vec<Value> {
                     { "url": "https://list.test/rows?offset=40", "label": "listed" },
                     { "url": "https://shop.test/pages/1", "label": "home" },
                     { "url": "https://shop.test/pages/2", "label": "home" },
+                    { "url": "https://list.test/guide", "label": "listed" },
+                    { "url": "https://list.test/guide/", "label": "listed" },
                 ],
                 "settings": { "crawl": {
                     "scope": { "strategy": "all", "include": ["**/sale"], "exclude": ["**/admin/**"] },
@@ -234,6 +244,12 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                     .query_pairs()
                     .find(|(name, _)| name == "n")
                     .map_or(0, |(_, value)| value.bytes().next().unwrap_or(0));
+                // Item 1 names its `http` URL as its canonical, evidence
+                // short of the `scheme` form.
+                let canonical = (url.query() == Some("n=1"))
+                    .then(|| goodfetch_frontier::Url::parse("http://list.test/items?n=1"))
+                    .transpose()
+                    .expect("a canonical parses");
                 goodfetch_frontier::learn(
                     connection,
                     PageSeen {
@@ -242,7 +258,46 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                         method: &get,
                         body: None,
                         signature: [item; 32],
+                        canonical: canonical.as_ref(),
                     },
+                    &mut Unended,
+                )?;
+            }
+            // The guide redirects to its slashed URL, which teaches the
+            // trailing slash's form, and then both URLs serve pages that
+            // differ, which stops it.
+            let mut statement = connection.prepare(
+                "SELECT id, url FROM work_items WHERE url LIKE 'https://list.test/guide%' ORDER BY position",
+            )?;
+            let guides = statement
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let urls: Vec<goodfetch_frontier::Url> = guides
+                .iter()
+                .map(|(_, url)| goodfetch_frontier::Url::parse(url).expect("a seed's URL parses"))
+                .collect();
+            goodfetch_frontier::learn_redirect(
+                connection,
+                goodfetch_frontier::Redirect {
+                    from: &urls[0],
+                    to: &urls[1],
+                    method: &get,
+                    body: None,
+                },
+                &mut Unended,
+            )?;
+            for (index, ((crawl_request, _), url)) in guides.iter().zip(&urls).enumerate() {
+                goodfetch_frontier::learn(
+                    connection,
+                    PageSeen {
+                        crawl_request,
+                        url,
+                        method: &get,
+                        body: None,
+                        signature: [u8::try_from(index).expect("two guides") + b'g'; 32],
+                        canonical: None,
+                    },
+                    &mut Unended,
                 )?;
             }
             let merged = goodfetch_frontier::admit(
@@ -269,6 +324,20 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
         .await
         .expect("the pages are learned from");
     Ok(json!({ "learned": true }))
+}
+
+/// The writer's crawl ends no request a rule it hands the Frontier
+/// merges: its requests stay as the crawl left them.
+struct Unended;
+
+impl goodfetch_frontier::EndMerged for Unended {
+    fn end_merged(
+        &mut self,
+        _: &rusqlite::Connection,
+        _: &std::collections::BTreeSet<String>,
+    ) -> rusqlite::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
 }
 
 fn bound() -> Contribution {
@@ -325,7 +394,7 @@ fn bound() -> Contribution {
                     .write(|connection| {
                         connection
                             .execute(
-                                r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed) VALUES (1, 1, 0, '{}', 6178731391398722387), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115)"#,
+                                r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed, source) VALUES (1, 1, 0, '{}', 6178731391398722387, NULL), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115, NULL), (3, 0, 1, '{}', 4417291851073961183, '{"url":"ws://127.0.0.1:9222/devtools/browser/lent","layer":"run","acting_for_model":false}')"#,
                                 [],
                             )
                             .map(drop)

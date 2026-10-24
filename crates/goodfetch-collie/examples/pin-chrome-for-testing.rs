@@ -22,12 +22,9 @@ use std::fs;
 use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 
-use goodfetch_engine::browser_cache::content_digest;
+use goodfetch_engine::browser_cache::{BuildPlatform, content_digest};
 use goodfetch_engine::pinned_download::Digest;
 use serde_json::{Value, json};
-
-/// The platforms Chrome for Testing builds, by its own names.
-const PLATFORMS: [&str; 4] = ["linux64", "mac-arm64", "mac-x64", "win64"];
 
 fn pins_file() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src/pins.json")
@@ -38,7 +35,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut platforms = BTreeMap::new();
     let build = match arguments.as_slice() {
         [command, build] if command == "download" => {
-            for platform in PLATFORMS {
+            for platform in BuildPlatform::CHROME_FOR_TESTING
+                .into_iter()
+                .filter_map(BuildPlatform::chrome_for_testing_name)
+            {
                 platforms.insert(platform.to_owned(), downloaded(build, platform)?);
             }
             build.clone()

@@ -100,6 +100,24 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
     });
   const report = (outcome) => send({ kind: "outcome", url: location.href, ...outcome });
 
+  // The document's first detection pass and wall test, which the engine
+  // waits on (ADR 0048): `detected` once the pass found a vendor's prompt, a
+  // pre-hide rule's or a prompt the heuristics know, and `settled` once the
+  // pass ended, so a navigation's call waits for the verdict and live hiding
+  // starts only after it.
+  let firstDetected = false;
+  let firstSettled = false;
+  const detected = () => {
+    if (firstDetected || firstSettled) return;
+    firstDetected = true;
+    send({ kind: "detected" });
+  };
+  const settle = () => {
+    if (firstSettled) return;
+    firstSettled = true;
+    send({ kind: "settled" });
+  };
+
   // The invisible style sheet the engine keeps for this document: pre-hiding
   // while a prompt is being looked for, and every rule that hides one.
   const hiding = { prehide: "", pending: "", rules: new Map(), synced: "" };
@@ -131,6 +149,7 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
   const prehide = (selector) => {
     hiding.pending = selector;
     if (matches(selector)) {
+      detected();
       hiding.pending = "";
       hiding.prehide = `${selector} { ${hidingStyle("opacity")} }`;
       void sync();
@@ -333,8 +352,12 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
         }
         case "popupFound":
           found = true;
+          detected();
           if (answering) acting = true;
-          else report({ action: "left", rule: message.cmp });
+          else {
+            report({ action: "left", rule: message.cmp });
+            settle();
+          }
           break;
         case "optOutResult":
           acting = false;
@@ -346,6 +369,7 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
         case "autoconsentDone":
           acting = false;
           report({ action: message.isCosmetic ? "hidden" : "refused", rule: message.cmp });
+          settle();
           break;
         case "report":
           if (
@@ -510,8 +534,16 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
   };
 
   const heuristicPass = async (generation) => {
+    try {
+      await heuristicLook(generation);
+    } finally {
+      settle();
+    }
+  };
+  const heuristicLook = async (generation) => {
     const prompt = findPrompt();
     if (prompt === null || generation !== passes) return;
+    detected();
     answered.add(prompt);
     acting = true;
     try {
@@ -593,12 +625,12 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
         return false;
       }
     };
-    const detected = nodes.some(
+    const found = nodes.some(
       (node) =>
         (selectors ?? []).some((union) => ruleDetects(node, union)) ||
         heuristics.checkHeuristicPatterns(textOf(node).slice(0, 10000)).patterns.length > 0,
     );
-    if (detected) pass();
+    if (found) pass();
   };
   const watch = () => {
     new MutationObserver((records) => {
@@ -636,6 +668,17 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
     restart() {
       if (running && !acting) pass();
       return "restarted";
+    },
+    // Where the document's first pass stands, which a navigation's call asks
+    // once its document loaded: `settled` once it ended; `detecting` while it
+    // acts on a prompt, or when the page shows one a rule or the heuristics
+    // would detect; `none` otherwise, and before the runner started.
+    detecting() {
+      if (!running) return "none";
+      if (firstSettled) return "settled";
+      if (firstDetected || acting) return "detecting";
+      const vendor = (selectors ?? []).some((union) => matches(union));
+      return vendor || (top && findPrompt() !== null) ? "detecting" : "none";
     },
     // The engine's answer to request `id`.
     answer(id, value) {

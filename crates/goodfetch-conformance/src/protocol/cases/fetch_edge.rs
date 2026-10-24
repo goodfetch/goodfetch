@@ -12,8 +12,6 @@
 //! HTTP/1.1, since the browser does not trust the Proving ground's
 //! authority until the engine's TLS relay does (ADR 0042).
 
-use std::time::{Duration, Instant};
-
 use goodfetch_protocol::connection::CANCEL;
 use goodfetch_protocol::events::{CREDIT, EVENTS, EVENTS_SUBSCRIBE};
 use goodfetch_protocol::page::{
@@ -88,9 +86,6 @@ const BROWSER_REDIRECTS: usize = 20;
 /// navigation: its chain's requests but the first.
 const FOLLOWED: usize = BROWSER_REDIRECTS - 1;
 
-/// The `Retry-After` the fetch edge's 302 sends, in seconds.
-const RETRY_AFTER: Duration = Duration::from_secs(2);
-
 /// The network error of a body whose listed coding does not decode.
 const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
 
@@ -139,40 +134,32 @@ fn redirect_loop(
 }
 
 /// A redirect carrying `Retry-After` is followed at once: the navigation
-/// answers its target sooner than the site asked to wait (ADR 0118).
+/// answers its target, though the site asked to wait an hour, far past
+/// `timeout.navigation`, so no measured time decides it (ADR 0118).
 fn retry_after_on_a_redirect(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-retry-after-on-a-redirect";
-    let redirect = site.named_url("fetch-edge.test", "/retry-after/302/seconds");
+    let redirect = site.named_url("fetch-edge.test", "/retry-after/302/seconds/long");
     let target = site.named_url("fetch-edge.test", "/target");
     let Some(page) = open(connection, site, run_id, &[&redirect, &target], checks)? else {
         return finish_if(connection, run_id, &[&redirect, &target]);
     };
     let (redirect, target) = (redirect.unwrap_or_default(), target.unwrap_or_default());
-    let started = now();
     let answer = call(
         connection,
         PAGE_GOTO.name,
         &page,
         &json!({ "url": redirect }),
     )?;
-    let took = now().duration_since(started);
     answered(
         &answer,
-        "`page.goto` to a 302 with `Retry-After`",
+        "`page.goto` to a 302 whose `Retry-After` asks for an hour",
         &target,
         200,
         checks,
-    );
-    checks.check(
-        format!(
-            "the redirect is followed sooner than its `Retry-After` of {} s",
-            RETRY_AFTER.as_secs()
-        ),
-        took < RETRY_AFTER,
     );
     finish_run(connection, run_id)
 }
@@ -409,13 +396,4 @@ fn finish_if(
 /// without trusting the Proving ground's authority.
 fn plain_http(url: &str) -> String {
     url.replacen("https://", "http://", 1)
-}
-
-/// The harness's own clock, outside the engine.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the synchronous harness times a call on its own thread, outside any async worker (ADR 0060's note for the harness)"
-)]
-fn now() -> Instant {
-    Instant::now()
 }

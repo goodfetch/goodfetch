@@ -50,7 +50,7 @@ const SLICE: Duration = Duration::from_secs(1);
 fn ready(id: &Value) -> Vec<u8> {
     let mut bytes = serde_json::to_vec(&json!({
         "id": id,
-        "result": { "result": { "type": "object", "value": { "state": "ready", "x": 180.5, "y": 120.0 } } },
+        "result": { "result": { "type": "object", "value": { "state": "armed", "x": 180.5, "y": 120.0 } } },
     }))
     .expect("invariant: an answer encodes");
     bytes.push(0);
@@ -100,14 +100,7 @@ pub(crate) fn check_and_arm(count: usize) -> usize {
                         .expect("invariant: the browser end answers every check");
                     let seen = check::Seen::read(&returned.result.value.unwrap_or_default())
                         .expect("invariant: the browser end answers a ready target");
-                    if matches!(
-                        seen,
-                        check::Seen::Ready {
-                            x: Some(_),
-                            y: Some(_),
-                            ..
-                        }
-                    ) {
+                    if matches!(seen, check::Seen::Armed { .. }) {
                         ready += 1;
                     }
                 }
@@ -262,7 +255,7 @@ pub(crate) fn intercept(count: usize, blocking: &steps::Blocking) -> usize {
         let (_, sent_on, ()) = tokio::join!(
             driver.run(),
             async {
-                let mut events = connection.subscribe(None).await;
+                let mut events = connection.subscribe(None);
                 sent(&connection, &fetch::EnableParams::default()).await;
                 let mut sent_on = 0;
                 for _ in 0..count {

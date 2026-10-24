@@ -58,8 +58,10 @@ CREATE TABLE learned_rules (
             host TEXT NOT NULL,
             path TEXT NOT NULL,
             parameter TEXT NOT NULL,
+            form TEXT NOT NULL,
             evidence TEXT NOT NULL,
-            UNIQUE (kind, host, path, parameter)
+            contradiction TEXT,
+            UNIQUE (kind, host, path, parameter, form)
         ) STRICT;
 CREATE TABLE outcomes (
             position INTEGER NOT NULL PRIMARY KEY,
@@ -69,9 +71,23 @@ CREATE TABLE outcomes (
             attempts INTEGER NOT NULL,
             outcome TEXT NOT NULL
         ) STRICT;
-CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL) STRICT;
-INSERT INTO "page_sessions" VALUES(1,1,0,'{}',6178731391398722387);
-INSERT INTO "page_sessions" VALUES(2,0,1,'{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}',-2937466112876520115);
+CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source TEXT) STRICT;
+INSERT INTO "page_sessions" VALUES(1,1,0,'{}',6178731391398722387,NULL);
+INSERT INTO "page_sessions" VALUES(2,0,1,'{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}',-2937466112876520115,NULL);
+INSERT INTO "page_sessions" VALUES(3,0,1,'{}',4417291851073961183,'{"url":"ws://127.0.0.1:9222/devtools/browser/lent","layer":"run","acting_for_model":false}');
+CREATE TABLE payload_cap (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            max_size INTEGER NOT NULL
+        ) STRICT;
+CREATE TABLE payload_labels (
+            label TEXT NOT NULL PRIMARY KEY,
+            schema TEXT,
+            hash TEXT
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE payloads (
+            request TEXT NOT NULL PRIMARY KEY,
+            payload TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE pool_sessions (
             position INTEGER NOT NULL PRIMARY KEY,
             proxy_tier TEXT NOT NULL,
@@ -91,6 +107,13 @@ CREATE TABLE records (
             data TEXT NOT NULL,
             PRIMARY KEY (dataset, number)
         ) STRICT;
+CREATE TABLE rules_canonicals (
+            host TEXT NOT NULL,
+            form TEXT NOT NULL,
+            url TEXT NOT NULL,
+            canonical TEXT NOT NULL,
+            PRIMARY KEY (host, form, url)
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE rules_offset_values (
             host TEXT NOT NULL,
             path TEXT NOT NULL,
@@ -122,10 +145,11 @@ CREATE TABLE rules_pages (
 CREATE TABLE rules_pairs (
             host TEXT NOT NULL,
             parameter TEXT NOT NULL,
+            form TEXT NOT NULL,
             one TEXT NOT NULL,
             other TEXT NOT NULL,
             matching INTEGER NOT NULL,
-            UNIQUE (host, parameter, one, other)
+            UNIQUE (host, parameter, form, one, other)
         ) STRICT;
 CREATE TABLE rules_patterns (
             host TEXT NOT NULL,
@@ -172,7 +196,7 @@ CREATE TABLE run (
         nothing_done TEXT,
         report TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('paused','collie','collie','os_user',1,'{}','stopped','{"kind":"pause"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'[]',10,'{"kind":"browser_host","browser_host":"laptop"}','6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b',0,'Waiting for the next page','{"reason":"nothing_pending"}','{"run_id":"paused","lifecycle":"stopped","stop_reason":{"kind":"pause"},"verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: paused."}],"started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":4096,"proxy_bytes_by_kind":[{"kind":"datacenter","bytes":4096}],"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":985,"set_by":"client"}]},"warnings":[{"code":"clean_up_rules_fallback","message":"The Run''s Clean-up rules are not the version asked for: the Run''s recorded Clean-up rules, 6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b, is gone from this machine: it holds to the embedded part, sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9, instead."},{"code":"storage_low","message":"The run folder''s filesystem met the `low` storage level.","sessions":["laptop"],"folder":"runs/paused"}],"nothing_done":{"reason":"nothing_pending"}}');
+INSERT INTO "run" VALUES('paused','collie','collie','os_user',1,'{}','stopped','{"kind":"pause"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'[]',10,'{"kind":"browser_host","browser_host":"laptop"}','6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b',0,'Waiting for the next page','{"reason":"nothing_pending"}','{"run_id":"paused","lifecycle":"stopped","stop_reason":{"kind":"pause"},"verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: paused."}],"started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":4096,"proxy_bytes_by_kind":[{"kind":"datacenter","bytes":4096}],"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":983,"set_by":"client"}]},"warnings":[{"code":"clean_up_rules_fallback","message":"The Run''s Clean-up rules are not the version asked for: the Run''s recorded Clean-up rules, 6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b, is not on this machine, and no source the Run names fetches it: the Run holds to the embedded part, sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9, instead."},{"code":"storage_low","message":"The run folder''s filesystem met the `low` storage level.","sessions":["laptop"],"folder":"runs/paused"}],"nothing_done":{"reason":"nothing_pending"}}');
 CREATE TABLE run_file_chunks (sha256 TEXT NOT NULL, offset INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sha256, offset)) STRICT;
 CREATE TABLE run_files (position INTEGER NOT NULL PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL) STRICT;
 INSERT INTO "run_files" VALUES(1,'download','books.csv','a5413d351b5da27721fae2446832bdbb181cf8c62f5131ba4101d4f47bcb8f56',22);
@@ -230,7 +254,7 @@ CREATE TABLE warnings (
         sessions TEXT NOT NULL,
         folder TEXT
     ) STRICT;
-INSERT INTO "warnings" VALUES(1,'clean_up_rules_fallback','The Run''s Clean-up rules are not the version asked for: the Run''s recorded Clean-up rules, 6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b, is gone from this machine: it holds to the embedded part, sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9, instead.','[]',NULL);
+INSERT INTO "warnings" VALUES(1,'clean_up_rules_fallback','The Run''s Clean-up rules are not the version asked for: the Run''s recorded Clean-up rules, 6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b, is not on this machine, and no source the Run names fetches it: the Run holds to the embedded part, sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9, instead.','[]',NULL);
 INSERT INTO "warnings" VALUES(2,'storage_low','The run folder''s filesystem met the `low` storage level.','["laptop"]','runs/paused');
 CREATE TABLE work_items (
             id TEXT NOT NULL PRIMARY KEY,
@@ -240,7 +264,6 @@ CREATE TABLE work_items (
             body BLOB,
             label TEXT NOT NULL,
             depth INTEGER NOT NULL,
-            payload TEXT,
             status TEXT NOT NULL,
             attempts INTEGER NOT NULL,
             lease_epoch INTEGER NOT NULL,
@@ -253,6 +276,7 @@ CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (position)
             WHERE retired_because IS NULL;
 CREATE INDEX rules_pages_by_query ON rules_pages (host, path, query);
+CREATE INDEX rules_pages_by_url ON rules_pages (url);
 CREATE INDEX rules_residues_by_residue
             ON rules_residues (host, path, residue, parameter);
 CREATE INDEX scope_seeds_by_domain ON scope_seeds (domain);

@@ -29,7 +29,6 @@ use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::PermitRule;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::settings::Resolved;
-use goodfetch_protocol::foxhound::crawl::CRAWL_DOMAIN_KEYS;
 use rusqlite::Connection;
 use tokio::time::Instant;
 
@@ -208,6 +207,23 @@ impl Gate for DomainQueues {
             self.ids.remove(&put_out);
         }
         true
+    }
+
+    fn withdraw(&mut self, key: &str, id: &str) {
+        if !self.ids.remove(id) {
+            return;
+        }
+        let Some(domain) = self.domains.get_mut(key) else {
+            return;
+        };
+        domain.waiting.retain(|(_, waiting)| waiting != id);
+        if domain.waiting.is_empty() {
+            domain.outside = false;
+            self.turns.retain(|turn| turn != key);
+            if domain.in_flight == 0 {
+                self.idle.insert(key.to_owned());
+            }
+        }
     }
 
     fn ready_at(&self, now: Instant) -> Option<Instant> {
@@ -415,13 +431,7 @@ impl Gates for DomainGates {
         now: Instant,
         entropy: Entropy,
     ) -> rusqlite::Result<Box<dyn Gate>> {
-        let overrides = settings
-            .value(CRAWL_DOMAIN_KEYS.name)
-            .as_object()
-            .into_iter()
-            .flatten()
-            .filter_map(|(host, key)| Some((host.clone(), key.as_str()?.to_owned())));
-        let mut queues = DomainQueues::new(DomainKeys::new(overrides), BOUND, entropy);
+        let mut queues = DomainQueues::new(DomainKeys::of(settings), BOUND, entropy);
         let wall = milliseconds(wall);
         let mut rows = journal.prepare("SELECT key, ready_at, backoffs FROM domains")?;
         let rows = rows.query_map([], |row| {

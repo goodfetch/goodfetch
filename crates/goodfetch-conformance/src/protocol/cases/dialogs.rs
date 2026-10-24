@@ -18,10 +18,10 @@ use goodfetch_protocol::page::route::PAGE_HANDLER_FAILED;
 use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_GOTO};
 use serde_json::{Value, json};
 
+use super::exchange::Exchange;
 use super::launch::{reports, reports_once};
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
-use crate::protocol::target::BROWSER_DEADLINE;
 
 /// The dialogs page's path on the access family.
 const DIALOGS: &str = "/dialogs";
@@ -167,7 +167,7 @@ fn defaults(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Re
         "a navigation away from a page whose `beforeunload` asks to stay completes",
         left["result"]["response"]["status"] == json!(200),
     );
-    finish_run(handlers.connection, run_id)
+    finish_run(handlers.exchange.connection, run_id)
 }
 
 /// What a scripted dialog handler does with a dialog it is asked about.
@@ -181,12 +181,10 @@ enum Does {
     Throw,
 }
 
-/// The Connection as the dialog cases drive it: the messages read while
-/// waiting for something else, kept for whoever waits for them, and what
-/// the handlers were asked.
+/// The Connection as the dialog cases drive it, through the shared reader,
+/// and what the handlers were asked.
 struct Handlers<'connection> {
-    connection: &'connection mut Connection,
-    kept: Vec<Value>,
+    exchange: Exchange<'connection>,
     /// The call of each handler asked so far, in order, with the dialog it
     /// was asked about.
     asked: Vec<(Value, Value)>,
@@ -198,42 +196,28 @@ struct Handlers<'connection> {
 impl<'connection> Handlers<'connection> {
     fn new(connection: &'connection mut Connection) -> Self {
         Self {
-            connection,
-            kept: Vec::new(),
+            exchange: Exchange::new(connection),
             asked: Vec::new(),
             answers: Vec::new(),
         }
     }
 
-    /// The next message, a kept one first.
-    fn next(&mut self) -> Result<Value, Gone> {
-        if self.kept.is_empty() {
-            return self.connection.next_within(BROWSER_DEADLINE);
-        }
-        Ok(self.kept.remove(0))
-    }
-
     /// The answer to the request `id`, keeping every other message.
     fn answer(&mut self, id: i64) -> Result<Value, Gone> {
-        if let Some(at) = self
-            .kept
-            .iter()
-            .position(|message| message.get("method").is_none() && message["id"] == json!(id))
-        {
-            return Ok(self.kept.remove(at));
-        }
-        loop {
-            let message = self.connection.next_within(BROWSER_DEADLINE)?;
-            if message.get("method").is_none() && message["id"] == json!(id) {
-                return Ok(message);
-            }
-            self.kept.push(message);
-        }
+        self.exchange.answer(id)
+    }
+
+    /// Cancels the call `id`.
+    fn cancel(&mut self, id: i64) -> Result<(), Gone> {
+        self.exchange
+            .connection
+            .notify(CANCEL, &json!({ "id": id }))
     }
 
     /// Arms a dialog handler on `page`, answering its call's id.
     fn arm(&mut self, page: &Value) -> Result<i64, Gone> {
-        self.connection
+        self.exchange
+            .connection
             .request(PAGE_ON_DIALOG.name, &json!({ "page_id": page }))
     }
 
@@ -247,13 +231,13 @@ impl<'connection> Handlers<'connection> {
         params: &Value,
         script: &[(i64, Does)],
     ) -> Result<Value, Gone> {
-        let call = self.connection.request(method, params)?;
+        let call = self.exchange.request(method, params)?;
         let mut others = Vec::new();
         let answer = loop {
-            let message = match self.next() {
+            let message = match self.exchange.next() {
                 Ok(message) => message,
                 Err(gone) => {
-                    self.kept.append(&mut others);
+                    self.exchange.keep_all(others);
                     return Err(gone);
                 }
             };
@@ -265,7 +249,7 @@ impl<'connection> Handlers<'connection> {
                 others.push(message);
             }
         };
-        self.kept.append(&mut others);
+        self.exchange.keep_all(others);
         Ok(answer)
     }
 
@@ -298,22 +282,24 @@ impl<'connection> Handlers<'connection> {
             .map_or(Does::Nothing, |(_, does)| *does);
         let dialog_id = params["dialog_id"].clone();
         match does {
-            Does::Nothing => self.connection.reply(&asked["id"], &json!({})),
+            Does::Nothing => self.exchange.connection.reply(&asked["id"], &json!({})),
             Does::Accept(text) => {
-                let accepting = self.connection.request(
+                let accepting = self.exchange.connection.request(
                     DIALOG_ACCEPT.name,
                     &json!({ "dialog_id": dialog_id, "prompt_text": text }),
                 )?;
                 let accepted = self.answer(accepting)?;
                 let dismissing = self
+                    .exchange
                     .connection
                     .request(DIALOG_DISMISS.name, &json!({ "dialog_id": dialog_id }))?;
                 let dismissed = self.answer(dismissing)?;
                 self.answers.push((accepted, dismissed));
-                self.connection.reply(&asked["id"], &json!({}))
+                self.exchange.connection.reply(&asked["id"], &json!({}))
             }
             Does::Throw => {
-                self.connection
+                self.exchange
+                    .connection
                     .fail(&asked["id"], "handler_failed", "the handler threw")
             }
         }
@@ -365,9 +351,7 @@ fn handlers(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Re
         }),
     )?;
     // With the later one cancelled, the earlier one throws.
-    handlers
-        .connection
-        .notify(CANCEL, &json!({ "id": later }))?;
+    handlers.cancel(later)?;
     let removed = handlers.answer(later)?;
     let alerted = handlers.click(&page, "#alert", &[(earlier, Does::Throw)])?;
     let about_alert = handlers.take_asked();
@@ -443,5 +427,5 @@ fn handlers(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Re
                 ("confirm", "false"),
             ])),
     );
-    finish_run(handlers.connection, run_id)
+    finish_run(handlers.exchange.connection, run_id)
 }

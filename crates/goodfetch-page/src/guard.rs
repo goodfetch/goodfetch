@@ -46,6 +46,9 @@ use crate::hiding::PageHiding;
 /// The disarm, which says where the gesture landed.
 const DISARM: &str = include_str!("guard/disarm.js");
 
+/// The fill of an input whose value a person picks rather than types.
+const SET_VALUE: &str = include_str!("guard/set_value.js");
+
 /// A function that does nothing, called in the guard's world once a key
 /// press's input was sent.
 const SETTLED: &str = "function settled() {}";
@@ -120,7 +123,10 @@ enum Landed {
     Intercepted { observed: String },
 }
 
-/// Performs `request` on `page`, through the guard, timed by `clock`.
+/// Performs `request` on `page`, through the guard, timed by `clock`. The
+/// deadline holds however long the page takes to answer: an action whose
+/// page answers none of its checks, its main thread busy, or that never
+/// gets its turn, ends one check's slice after it (ADR 0080).
 ///
 /// # Errors
 ///
@@ -138,6 +144,34 @@ pub(crate) async fn act(
     request: Request<'_>,
     clock: &Clock,
 ) -> Result<(), CallError> {
+    let started = clock.now();
+    let asked = Asked {
+        operation: request.operation,
+        selector: request.selector,
+        surface: request.surface,
+        limit: request.window.limit.clone(),
+    };
+    // A check answers within its slice of the deadline, so the guard's own
+    // loop reports what it saw last; past that, the page is not answering.
+    let unanswered = started + request.window.duration + SLICE;
+    tokio::select! {
+        biased;
+        acted = Box::pin(attempt(page, request, clock)) => acted,
+        () = clock.sleep_until(unanswered) => Err(at_deadline(
+            asked,
+            Seen::Waiting {
+                step: "attached".to_owned(),
+                observed: "the page answered none of the action's checks in time: its main thread is busy, or another action holds its turn".to_owned(),
+                matches: Vec::new(),
+            },
+            clock.now() - started,
+        )),
+    }
+}
+
+/// Performs `request` on `page` through the guard, as [`act`] does, until
+/// it lands, fails or its deadline passes between two checks.
+async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Result<(), CallError> {
     let started = clock.now();
     let end = started + request.window.duration;
     let mut turn = page.turn(request.operation).await;
@@ -173,15 +207,14 @@ pub(crate) async fn act(
             Err(Unanswered::Failed(error)) => return Err(error),
         };
         match seen {
-            Seen::Ready { x, y, .. } => match &request.action {
+            Seen::Armed { x, y } => match &request.action {
                 Action::Click => {
-                    let mut watch = page.watch_gesture().await;
+                    let mut watch = page.watch_gesture();
                     // The disarm is the round trip into the renderer after
                     // the input that a key press makes with `settled`.
                     // Boxed, as the wait below: the action's future stays small.
                     let landed = Box::pin(watch.during(async {
-                        turn.click(x.unwrap_or_default(), y.unwrap_or_default())
-                            .await?;
+                        turn.click(x, y).await?;
                         landed(&mut turn).await
                     }))
                     .await?;
@@ -200,9 +233,17 @@ pub(crate) async fn act(
                         }
                     }
                 }
+                Action::Fill(_) | Action::Press(_) => return Err(mismatched(&seen)),
+            },
+            Seen::Focused { set_value } => match &request.action {
+                Action::Fill(value) if set_value => {
+                    if set_picked(&mut turn, value).await? {
+                        return Ok(());
+                    }
+                }
                 Action::Fill(value) => return fill(&mut turn, value).await,
                 Action::Press(events) => {
-                    let mut watch = page.watch_gesture().await;
+                    let mut watch = page.watch_gesture();
                     Box::pin(watch.during(async {
                         for event in events {
                             turn.key(event).await?;
@@ -214,16 +255,10 @@ pub(crate) async fn act(
                     Box::pin(page.settle_gesture(watch)).await;
                     return Ok(());
                 }
+                Action::Click => return Err(mismatched(&seen)),
             },
-            Seen::Invalid { message } => {
-                return Err(CallError::protocol(
-                    ProtocolFailure::InvalidParams,
-                    format!(
-                        "`{}` is no CSS selector the page parses: {message}",
-                        request.selector
-                    ),
-                ));
-            }
+            Seen::Ready { .. } => return Err(mismatched(&seen)),
+            Seen::Invalid { message } => return Err(unparsed(request.selector, &message)),
             Seen::Waiting { ref step, .. } if step == "visible" && request.hiding.is_some() => {
                 let hiding = request.hiding.expect("invariant: matched as some");
                 match hiding
@@ -284,11 +319,7 @@ pub(crate) async fn check_element(
         return Readiness::Gone;
     };
     match Seen::read(&value) {
-        Ok(Seen::Ready {
-            x: Some(x),
-            y: Some(y),
-            ..
-        }) => Readiness::Ready { x, y },
+        Ok(Seen::Armed { x, y }) => Readiness::Ready { x, y },
         Ok(Seen::Waiting { .. }) => Readiness::Waiting,
         _ => Readiness::Gone,
     }
@@ -350,6 +381,57 @@ async fn fill(turn: &mut Turn<'_>, value: &str) -> Result<(), CallError> {
     Ok(())
 }
 
+/// `invalid_params` for `selector`, which the page does not parse as CSS,
+/// saying so in its `message`.
+fn unparsed(selector: &str, message: &str) -> CallError {
+    CallError::protocol(
+        ProtocolFailure::InvalidParams,
+        format!("`{selector}` is no CSS selector the page parses: {message}"),
+    )
+}
+
+/// What the guard's fill of a picked value answered.
+#[derive(Deserialize)]
+struct ValueSet {
+    set: bool,
+    gone: bool,
+}
+
+/// Sets `value` on the input the check made ready, as a person picks it,
+/// firing `input` and `change`; answers whether it was set, or `false`
+/// when the input went with its document or a re-render, so the guard
+/// checks again.
+///
+/// # Errors
+///
+/// `invalid_params` for a value the input does not take, which keeps its
+/// own.
+async fn set_picked(turn: &mut Turn<'_>, value: &str) -> Result<bool, CallError> {
+    let answer = match turn.call(SET_VALUE, serde_json::json!(value)).await {
+        Ok(answer) => answer,
+        Err(Unanswered::WorldGone) => return Ok(false),
+        Err(Unanswered::Failed(error)) => return Err(error),
+    };
+    match ValueSet::deserialize(&answer).map_err(|error| unreadable(&answer, &error))? {
+        ValueSet { set: true, .. } => Ok(true),
+        ValueSet { gone: true, .. } => Ok(false),
+        ValueSet { .. } => Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("`{value}` is not a value the input takes, so it keeps its own"),
+        )),
+    }
+}
+
+/// The guard's script answered `seen`, which is not an answer to the
+/// check it was asked: a pointer action's answer for a text action, or an
+/// action's for a locator wait.
+fn mismatched(seen: &impl std::fmt::Debug) -> CallError {
+    CallError::protocol(
+        ProtocolFailure::InternalError,
+        format!("the guard's script answered {seen:?}, which is not the check it was asked"),
+    )
+}
+
 /// The guard's script answered `value`, which does not read as what it
 /// returns.
 fn unreadable(value: &serde_json::Value, error: &serde_json::Error) -> CallError {
@@ -357,6 +439,15 @@ fn unreadable(value: &serde_json::Value, error: &serde_json::Error) -> CallError
         ProtocolFailure::InternalError,
         format!("the guard's script answered {value}, which does not read: {error}"),
     )
+}
+
+/// What a locator wait reached.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Waited {
+    /// Its element's state.
+    State,
+    /// A count its matches' number is within: that number.
+    Count(u64),
 }
 
 /// What a locator wait waits for.
@@ -376,15 +467,17 @@ pub(crate) struct Wait<'a> {
     pub(crate) selector: &'a str,
     /// What it waits for.
     pub(crate) awaited: Awaited,
-    /// How long it may wait: `timeout.wait`.
-    pub(crate) window: Window,
+    /// How long it may wait: its call's own `timeout`, else
+    /// `timeout.wait`; none for a call whose `timeout` is `null`.
+    pub(crate) window: Option<Window>,
     /// The Client's surface, in whose language its errors show targets.
     pub(crate) surface: Surface,
 }
 
 /// Waits on `page` until the matches of `wait`'s locator are as it waits
 /// for, checking them in the guard's world once a frame, outside any
-/// gesture's turn, timed by `clock`; answers how many matched for a count.
+/// gesture's turn, timed by `clock`; answers what it reached, for a count
+/// how many matched.
 ///
 /// # Errors
 ///
@@ -399,46 +492,52 @@ pub(crate) async fn wait(
     page: &PageDriver,
     wait: Wait<'_>,
     clock: &Clock,
-) -> Result<Option<u64>, CallError> {
+) -> Result<Waited, CallError> {
     let started = clock.now();
-    let end = started + wait.window.duration;
+    let end = wait.window.as_ref().map(|window| started + window.duration);
     let (state, bounds) = match wait.awaited {
         Awaited::State(state) => (state_name(state), (None, None)),
-        Awaited::Count(count) => ("count", (count.min, count.max)),
+        Awaited::Count(count) => ("count".to_owned(), (count.min, count.max)),
     };
     let mut last = Seen::Waiting {
-        step: state.to_owned(),
+        step: state.clone(),
         observed: "the page was not checked yet".to_owned(),
         matches: Vec::new(),
     };
     loop {
-        let remaining = end.saturating_duration_since(clock.now());
-        if remaining.is_zero() {
+        let remaining = end.map_or(SLICE, |end| end.saturating_duration_since(clock.now()));
+        if remaining.is_zero()
+            && let Some(window) = wait.window
+        {
             let asked = Asked {
                 operation: wait.operation,
                 selector: wait.selector,
                 surface: wait.surface,
-                limit: wait.window.limit,
+                limit: window.limit,
             };
             return Err(at_deadline(asked, last, clock.now() - started));
         }
-        let argument = check::wait_argument(wait.selector, state, bounds, remaining.min(SLICE));
+        let argument = check::wait_argument(wait.selector, &state, bounds, remaining.min(SLICE));
         let Some(value) = page.read_in_page(CHECK, argument, wait.operation).await? else {
             // The document went, or is not yet: checked again in the next.
             clock.sleep(remaining.min(RECHECK)).await;
             continue;
         };
         match Seen::read(&value).map_err(|error| unreadable(&value, &error))? {
-            Seen::Ready { count, .. } => return Ok(count),
-            Seen::Invalid { message } => {
-                return Err(CallError::protocol(
-                    ProtocolFailure::InvalidParams,
-                    format!(
-                        "`{}` is no CSS selector the page parses: {message}",
-                        wait.selector
-                    ),
-                ));
+            Seen::Ready { count } => {
+                return match (wait.awaited, count) {
+                    (Awaited::State(_), _) => Ok(Waited::State),
+                    (Awaited::Count(_), Some(count)) => Ok(Waited::Count(count)),
+                    (Awaited::Count(_), None) => Err(CallError::protocol(
+                        ProtocolFailure::InternalError,
+                        format!(
+                            "the guard's script answered {value} to a count wait, with no count"
+                        ),
+                    )),
+                };
             }
+            Seen::Armed { .. } | Seen::Focused { .. } => return Err(mismatched(&value)),
+            Seen::Invalid { message } => return Err(unparsed(wait.selector, &message)),
             waiting @ Seen::Waiting { .. } => last = waiting,
         }
     }
@@ -448,14 +547,12 @@ pub(crate) async fn wait(
 /// it checks again.
 const RECHECK: Duration = Duration::from_millis(20);
 
-/// The name the check takes for `state`.
-fn state_name(state: ElementState) -> &'static str {
-    match state {
-        ElementState::Attached => "attached",
-        ElementState::Detached => "detached",
-        ElementState::Visible => "visible",
-        ElementState::Hidden => "hidden",
-    }
+/// The name the check takes for `state`: its name on the wire.
+fn state_name(state: ElementState) -> String {
+    serde_json::to_value(state)
+        .ok()
+        .and_then(|name| name.as_str().map(str::to_owned))
+        .expect("invariant: an element state serializes as its name")
 }
 
 /// What a call at its deadline asked: its operation, its locator's
@@ -479,7 +576,7 @@ fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
             observed,
             matches,
         } => (step, observed, matches),
-        Seen::Ready { .. } | Seen::Invalid { .. } => (
+        Seen::Armed { .. } | Seen::Focused { .. } | Seen::Ready { .. } | Seen::Invalid { .. } => (
             "receives_events".to_owned(),
             "the target was ready".to_owned(),
             Vec::new(),

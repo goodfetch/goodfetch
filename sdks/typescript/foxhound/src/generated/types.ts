@@ -98,6 +98,16 @@ export type CrawlRequestOutcome1 =
  */
 export type NothingCommitted = "none_pushed" | "none_kept";
 /**
+ * Two spellings of one host's URLs a learned `equivalent_form` merges
+ * (ADR 0120), each learned on evidence: a redirect from one to the
+ * other, pairs of pages of matching signatures, or pages whose
+ * `rel=canonical` differs from their URL only by it.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "EquivalentForm".
+ */
+export type EquivalentForm = "www" | "scheme" | "trailing_slash" | "index_html" | "index_php";
+/**
  * The requests the crawl starts from.
  *
  * @minItems 1
@@ -159,7 +169,7 @@ export type HttpMethod = string;
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "LearnedRuleKind".
  */
-export type LearnedRuleKind = "no_effect_parameter" | "trap_path" | "cursor_pagination";
+export type LearnedRuleKind = "no_effect_parameter" | "trap_path" | "equivalent_form" | "cursor_pagination";
 /**
  * Why the Frontier did not add a request (ADRs 0093 and 0120).
  *
@@ -595,9 +605,19 @@ export interface CrawlRunReport {
  */
 export interface LearnedRule {
   /**
+   * The pair of pages that contradicted it, naming their URLs: both
+   * forms fetched, neither redirected, and their page signatures
+   * differ. From then on it merges nothing more; absent while it holds.
+   */
+  contradiction?: string | null;
+  /**
    * What it was learned from, naming the URLs.
    */
   evidence: string;
+  /**
+   * The form it merges, for an `equivalent_form`.
+   */
+  form?: EquivalentForm | null;
   /**
    * The host it holds on.
    */
@@ -605,10 +625,11 @@ export interface LearnedRule {
   /**
    * What it learned.
    */
-  kind: "no_effect_parameter" | "trap_path" | "cursor_pagination";
+  kind: "no_effect_parameter" | "trap_path" | "equivalent_form" | "cursor_pagination";
   /**
    * Each URL it merged with another or refused, in the order the crawl
-   * met them.
+   * met them, a pending request it ended `skipped` with `duplicate`
+   * included.
    */
   merged: string[];
   /**
@@ -726,6 +747,15 @@ export interface SitemapReport {
  */
 export interface CrawlStartParams {
   /**
+   * The crawl's Labels, by name, each with its Payload's JSON Schema or
+   * none (ADRs 0082 and 0093). A Payload of a declared schema is checked
+   * against it at every enqueue; a Label the crawl does not declare
+   * takes any Payload.
+   */
+  labels?: {
+    [k: string]: LabelDeclaration;
+  };
+  /**
    * The project configuration the Client found, layer 3 (ADR 0083).
    */
   project?: ProjectSettings | null;
@@ -744,6 +774,21 @@ export interface CrawlStartParams {
    * The Run's opaque tags.
    */
   tags?: Tags;
+}
+/**
+ * One Label a crawl declares (ADRs 0082 and 0093).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "LabelDeclaration".
+ */
+export interface LabelDeclaration {
+  /**
+   * The JSON Schema its requests' Payloads are checked against, the
+   * side the program's schema parses from; none takes any Payload.
+   */
+  payload?: {
+    [k: string]: unknown;
+  };
 }
 /**
  * One request a crawl starts from (ADR 0093): a URL, the Label that picks

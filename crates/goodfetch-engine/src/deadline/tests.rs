@@ -13,7 +13,9 @@
 use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
+use goodfetch_protocol::settings::{
+    SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION,
+};
 use serde_json::{Value, json};
 
 use super::Deadline;
@@ -81,5 +83,25 @@ fn a_navigation_answered_within_its_default_thirty_seconds_ends_well() {
     assert_eq!(
         (deadline.duration(), answered.ok()),
         (Duration::from_secs(30), Some("loaded"))
+    );
+}
+
+/// A Run with no settings waits under the timeout's declared default, which
+/// the catalog gives, set by the default layer.
+/// Covers: setting:timeout.action
+#[test]
+fn a_timeout_no_layer_set_takes_its_declared_default() {
+    let deadline = Deadline::declared(&TIMEOUT_ACTION);
+
+    assert_eq!(
+        (deadline.duration(), deadline.limit().clone()),
+        (
+            Duration::from_secs(30),
+            SettingLimit {
+                key: "timeout.action".to_owned(),
+                value: json!(30_000),
+                layer: SettingsLayer::Default,
+            }
+        )
     );
 }

@@ -437,6 +437,11 @@
           "arrived_in": "0.1",
           "description": "Who did what it records."
         },
+        "chained": {
+          "arrived_in": "0.1",
+          "description": "Whether its hash chains it to the entry before it: `false` for an\nentry of a Run whose `security.audit_chain` was off, whose hash is\n`SHA-256` of 32 zero bytes and its own canonical JSON alone, and\nwhich `audit verify` steps over while it verifies the chain around\nit; left out when chained.",
+          "type": "boolean"
+        },
         "details": {
           "arrived_in": "0.1",
           "description": "What its kind records, such as a Secret reference and the domain it\nwas sent to, never a secret's value."
@@ -590,6 +595,16 @@
           "arrived_in": "0.1",
           "description": "What it is, such as `stopped` or `failed`; a reason this reader does\nnot know is kept as it is.",
           "type": "string"
+        },
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many it counts, when it counts some: the URLs a bound refused,\nthe pages left at a Block cause, or the requests a stop left.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "message": {
           "arrived_in": "0.1",
@@ -2587,6 +2602,14 @@
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
         },
+        "labels": {
+          "additionalProperties": {
+            "$ref": "#/$defs/LabelDeclaration"
+          },
+          "arrived_in": "0.1",
+          "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone (ADRs 0082 and 0093). A Payload of a declared schema is checked\nagainst it at every enqueue; a Label the crawl does not declare\ntakes any Payload.",
+          "type": "object"
+        },
         "project": {
           "anyOf": [
             {
@@ -3490,6 +3513,36 @@
       ],
       "type": "object"
     },
+    "EquivalentForm": {
+      "description": "Two spellings of one host's URLs a learned `equivalent_form` merges\n(ADR 0120), each learned on evidence: a redirect from one to the\nother, pairs of pages of matching signatures, or pages whose\n`rel=canonical` differs from their URL only by it.",
+      "oneOf": [
+        {
+          "const": "www",
+          "description": "One leading `www.` label against the bare host, the rule's host.",
+          "type": "string"
+        },
+        {
+          "const": "scheme",
+          "description": "`http` against `https`.",
+          "type": "string"
+        },
+        {
+          "const": "trailing_slash",
+          "description": "A path with a trailing slash against the same path without it.",
+          "type": "string"
+        },
+        {
+          "const": "index_html",
+          "description": "A final `index.html` against its folder.",
+          "type": "string"
+        },
+        {
+          "const": "index_php",
+          "description": "A final `index.php` against its folder.",
+          "type": "string"
+        }
+      ]
+    },
     "ErrorData": {
       "additionalProperties": true,
       "description": "What a failure's `data` holds: its Error code, whether the same call may\nsucceed when made again, and the code's own details.",
@@ -3879,6 +3932,11 @@
           "$ref": "#/$defs/Actor",
           "arrived_in": "0.1",
           "description": "Who did what it records."
+        },
+        "chained": {
+          "arrived_in": "0.1",
+          "description": "Whether its hash chains it to the entry before it: `false` for an\nentry of a Run whose `security.audit_chain` was off, whose hash is\n`SHA-256` of 32 zero bytes and its own canonical JSON alone, and\nwhich `audit verify` steps over while it verifies the chain around\nit; left out when chained.",
+          "type": "boolean"
         },
         "details": {
           "arrived_in": "0.1",
@@ -5105,6 +5163,17 @@
       ],
       "type": "object"
     },
+    "LabelDeclaration": {
+      "additionalProperties": false,
+      "description": "One Label a crawl declares (ADRs 0082 and 0093).",
+      "properties": {
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema its requests' Payloads are checked against, the\nside the program's schema parses from; none takes any Payload."
+        }
+      },
+      "type": "object"
+    },
     "LastRead": {
       "additionalProperties": false,
       "description": "The last event a Client read: its position, and the engine instance\nthat gave it.",
@@ -5129,10 +5198,30 @@
     "LearnedRule": {
       "description": "A URL rule the Frontier learned from the pages it fetched (ADRs 0005\nand 0120), on one host and so never across a registrable domain, with\nits evidence and every URL it merged, so each merge can be audited.",
       "properties": {
+        "contradiction": {
+          "arrived_in": "0.1",
+          "description": "The pair of pages that contradicted it, naming their URLs: both\nforms fetched, neither redirected, and their page signatures\ndiffer. From then on it merges nothing more; absent while it holds.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "evidence": {
           "arrived_in": "0.1",
           "description": "What it was learned from, naming the URLs.",
           "type": "string"
+        },
+        "form": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EquivalentForm"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The form it merges, for an `equivalent_form`."
         },
         "host": {
           "arrived_in": "0.1",
@@ -5146,7 +5235,7 @@
         },
         "merged": {
           "arrived_in": "0.1",
-          "description": "Each URL it merged with another or refused, in the order the crawl\nmet them.",
+          "description": "Each URL it merged with another or refused, in the order the crawl\nmet them, a pending request it ended `skipped` with `duplicate`\nincluded.",
           "items": {
             "type": "string"
           },
@@ -5188,6 +5277,11 @@
         {
           "const": "trap_path",
           "description": "A path pattern is a trap: its pages brought no new page signature\nand no URL outside it, so its URLs are not added, with\n`trap_path`.",
+          "type": "string"
+        },
+        {
+          "const": "equivalent_form",
+          "description": "Two forms of the host's URLs serve one page, so a URL in one form\nis a `duplicate` of an admitted one in the other.",
           "type": "string"
         },
         {
@@ -5483,6 +5577,16 @@
           ],
           "arrived_in": "0.1",
           "description": "The state; `visible` when absent."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -5873,6 +5977,31 @@
         }
       ]
     },
+    "NeedsYouDenyWallDomainParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.deny_wall_domain` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The registrable domain to deny.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why, such as the site's objection; required.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "reason"
+      ],
+      "type": "object"
+    },
     "NeedsYouDismissParams": {
       "additionalProperties": false,
       "description": "What `needs_you.dismiss` takes.",
@@ -5920,7 +6049,7 @@
         "details": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,\n`limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for\n`consent_wall`, `domain`.",
+          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,\n`limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for\n`consent_wall`, `domain`; for `wall_refetch_stopped`, `domain`,\n`cause`, the `layer` and `file` that list it and `only_star`; for\n`certificate_changed`, `host`, `person`, `pinned_spki_sha256` and\n`presented_spki_sha256`.",
           "type": "object"
         },
         "id": {
@@ -6042,6 +6171,36 @@
           "type": "string"
         }
       ]
+    },
+    "NeedsYouRemoveRefetchDomainParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.remove_refetch_domain` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The registrable domain, as a `wall_refetch_stopped` item names it.",
+          "type": "string"
+        },
+        "instead_of_star": {
+          "arrived_in": "0.1",
+          "description": "When only `*` covers the domain in its layer, the registrable\ndomains that replace `*` there, the domain itself not among them.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
     },
     "NewPageParams": {
       "additionalProperties": false,
@@ -6252,11 +6411,19 @@
           "type": "object"
         },
         {
-          "description": "No seed reached a handler: each was refused when added or skipped\nwhen fetched.",
+          "description": "No seed reached a handler: each was refused when added or ended\nbefore its handler ran, counted by why.",
           "properties": {
             "reason": {
               "const": "no_seed_handled",
               "type": "string"
+            },
+            "seeds": {
+              "arrived_in": "0.1",
+              "description": "How many seeds each reason kept from a handler: the reason an\nenqueue answered, or how the request ended, by its skip reason,\nError code or Block cause, in the order of the reasons.",
+              "items": {
+                "$ref": "#/$defs/SeedsKept"
+              },
+              "type": "array"
             }
           },
           "required": [
@@ -7749,6 +7916,47 @@
       ],
       "type": "object"
     },
+    "RefetchDomainRemoved": {
+      "description": "What `needs_you.remove_refetch_domain` answers.",
+      "properties": {
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain.",
+          "type": "string"
+        },
+        "domains": {
+          "arrived_in": "0.1",
+          "description": "That layer's `wall.refetch_domains` now.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "layer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsLayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The layer that listed it, and now does not; none when no layer was\nchanged."
+        },
+        "removed": {
+          "arrived_in": "0.1",
+          "description": "Whether its layer changed: false when neither user configuration\nnor the Operator policy lists it, which then changed nothing and\nrecorded nothing.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "domain",
+        "removed",
+        "domains"
+      ],
+      "type": "object"
+    },
     "Release": {
       "additionalProperties": false,
       "description": "What one Product version shipped.",
@@ -8331,6 +8539,14 @@
           "arrived_in": "0.1",
           "description": "Its method, such as `GET`.",
           "type": "string"
+        },
+        "post_data": {
+          "arrived_in": "0.1",
+          "description": "Its body, in Base64 (RFC 4648, with padding), when it has one: as\nthe page sent it, or as a route before replaced it.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "resource_type": {
           "arrived_in": "0.1",
@@ -10426,6 +10642,28 @@
       "minItems": 1,
       "type": "array"
     },
+    "SeedsKept": {
+      "description": "How many seeds one reason kept from a handler.",
+      "properties": {
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many seeds it kept.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "The reason: an enqueue's not-added reason, a skip reason, an Error\ncode or a Block cause.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "count"
+      ],
+      "type": "object"
+    },
     "ServiceManager": {
       "description": "The OS's service manager a Daemon is installed with (ADR 0024).",
       "oneOf": [
@@ -12328,6 +12566,16 @@
           "$ref": "#/$defs/Locator",
           "arrived_in": "0.1",
           "description": "The locator."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -12348,6 +12596,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "anyOf": [
@@ -12399,6 +12657,16 @@
             "null"
           ]
         },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "world": {
           "anyOf": [
             {
@@ -12442,6 +12710,16 @@
           ],
           "arrived_in": "0.1",
           "description": "The state; `load` when absent."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -12461,6 +12739,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "anyOf": [
@@ -12492,6 +12780,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "$ref": "#/$defs/UrlMatcher",
@@ -12536,6 +12834,32 @@
           "type": "string"
         }
       ]
+    },
+    "WallDomainDenied": {
+      "description": "What `needs_you.deny_wall_domain` answers.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "Whether it was added: false when the Operator policy denied it\nalready, which then changed nothing and recorded nothing.",
+          "type": "boolean"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain, as `wall.denied_domains` now lists it.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "The reason, as the Audit log records it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "added",
+        "reason"
+      ],
+      "type": "object"
     },
     "WeakenedSetting": {
       "description": "A setting that weakened a safeguard for a Run (ADR 0028): its key, its\nvalue, the layer that set it and, for the run layer, where the value came\nfrom.",
@@ -12953,6 +13277,17 @@
                 },
                 "type": "object"
               },
+              "clean_up": {
+                "additionalProperties": false,
+                "properties": {
+                  "fetch_timeout": {
+                    "description": "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "console": {
                 "additionalProperties": false,
                 "properties": {
@@ -13048,6 +13383,17 @@
                       }
                     ],
                     "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
+                  },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   },
                   "retry": {
                     "additionalProperties": false,
@@ -13336,7 +13682,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. None by default."
+                        "description": "How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap."
                       },
                       "rate": {
                         "anyOf": [
@@ -13348,7 +13694,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run starts one, its own navigation included, only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
+                        "description": "How many page navigations a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run starts one only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
                       }
                     },
                     "type": "object"
@@ -13649,18 +13995,23 @@
                 "additionalProperties": false,
                 "properties": {
                   "channel": {
-                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "type": "string"
+                  },
+                  "fetch_timeout": {
+                    "description": "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "lists": {
                     "additionalProperties": {
                       "type": "string"
                     },
-                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "type": "object"
                   },
                   "update": {
-                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
                     "enum": [
                       "release",
                       "daily",
@@ -13860,6 +14211,17 @@
                       "type": "object"
                     },
                     "type": "array"
+                  },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   },
                   "retry": {
                     "additionalProperties": false,
@@ -14436,7 +14798,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. None by default."
+                        "description": "How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap."
                       },
                       "rate": {
                         "anyOf": [
@@ -14448,7 +14810,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run starts one, its own navigation included, only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
+                        "description": "How many page navigations a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run starts one only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
                       }
                     },
                     "type": "object"
@@ -14716,6 +15078,40 @@
                 "properties": {
                   "by_reference": {
                     "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "security": {
+                "additionalProperties": false,
+                "properties": {
+                  "audit_chain": {
+                    "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
+                    "type": "boolean"
+                  },
+                  "browser_sandbox": {
+                    "description": "Whether Chromium's renderers run in their namespace sandbox (ADR 0017). On by default; off, they run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "field_encryption": {
+                    "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "raw_cdp_egress_proxy": {
+                    "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
+                    "type": "boolean"
+                  },
+                  "redaction": {
+                    "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "resolved_ip_check": {
+                    "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "secure_delete": {
+                    "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
                     "type": "boolean"
                   }
                 },
@@ -15376,6 +15772,23 @@
                       }
                     ],
                     "description": "Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users."
+                  }
+                },
+                "type": "object"
+              },
+              "site_preferences": {
+                "additionalProperties": false,
+                "properties": {
+                  "robots_txt_user_agent": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder."
                   }
                 },
                 "type": "object"
@@ -15700,18 +16113,23 @@
                 "additionalProperties": false,
                 "properties": {
                   "channel": {
-                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "type": "string"
+                  },
+                  "fetch_timeout": {
+                    "description": "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "lists": {
                     "additionalProperties": {
                       "type": "string"
                     },
-                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "type": "object"
                   },
                   "update": {
-                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
                     "enum": [
                       "release",
                       "daily",
@@ -15911,6 +16329,17 @@
                       "type": "object"
                     },
                     "type": "array"
+                  },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   },
                   "retry": {
                     "additionalProperties": false,
@@ -16487,7 +16916,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. None by default."
+                        "description": "How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap."
                       },
                       "rate": {
                         "anyOf": [
@@ -16499,7 +16928,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run starts one, its own navigation included, only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
+                        "description": "How many page navigations a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run starts one only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
                       }
                     },
                     "type": "object"
@@ -16767,6 +17196,40 @@
                 "properties": {
                   "by_reference": {
                     "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "security": {
+                "additionalProperties": false,
+                "properties": {
+                  "audit_chain": {
+                    "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
+                    "type": "boolean"
+                  },
+                  "browser_sandbox": {
+                    "description": "Whether Chromium's renderers run in their namespace sandbox (ADR 0017). On by default; off, they run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "field_encryption": {
+                    "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "raw_cdp_egress_proxy": {
+                    "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
+                    "type": "boolean"
+                  },
+                  "redaction": {
+                    "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "resolved_ip_check": {
+                    "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "secure_delete": {
+                    "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
                     "type": "boolean"
                   }
                 },
@@ -17427,6 +17890,23 @@
                       }
                     ],
                     "description": "Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users."
+                  }
+                },
+                "type": "object"
+              },
+              "site_preferences": {
+                "additionalProperties": false,
+                "properties": {
+                  "robots_txt_user_agent": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder."
                   }
                 },
                 "type": "object"
@@ -17767,18 +18247,23 @@
                 "additionalProperties": false,
                 "properties": {
                   "channel": {
-                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "type": "string"
+                  },
+                  "fetch_timeout": {
+                    "description": "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "lists": {
                     "additionalProperties": {
                       "type": "string"
                     },
-                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "type": "object"
                   },
                   "update": {
-                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
                     "enum": [
                       "release",
                       "daily",
@@ -17978,6 +18463,17 @@
                       "type": "object"
                     },
                     "type": "array"
+                  },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   },
                   "retry": {
                     "additionalProperties": false,
@@ -18554,7 +19050,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. None by default."
+                        "description": "How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap."
                       },
                       "rate": {
                         "anyOf": [
@@ -18566,7 +19062,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run starts one, its own navigation included, only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
+                        "description": "How many page navigations a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run starts one only once a second divided by its own value has passed since the last start there by any sharing run. None by default."
                       }
                     },
                     "type": "object"
@@ -18834,6 +19330,40 @@
                 "properties": {
                   "by_reference": {
                     "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "security": {
+                "additionalProperties": false,
+                "properties": {
+                  "audit_chain": {
+                    "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
+                    "type": "boolean"
+                  },
+                  "browser_sandbox": {
+                    "description": "Whether Chromium's renderers run in their namespace sandbox (ADR 0017). On by default; off, they run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "field_encryption": {
+                    "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "raw_cdp_egress_proxy": {
+                    "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
+                    "type": "boolean"
+                  },
+                  "redaction": {
+                    "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "resolved_ip_check": {
+                    "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "type": "boolean"
+                  },
+                  "secure_delete": {
+                    "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
                     "type": "boolean"
                   }
                 },
@@ -19494,6 +20024,23 @@
                       }
                     ],
                     "description": "Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users."
+                  }
+                },
+                "type": "object"
+              },
+              "site_preferences": {
+                "additionalProperties": false,
+                "properties": {
+                  "robots_txt_user_agent": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder."
                   }
                 },
                 "type": "object"

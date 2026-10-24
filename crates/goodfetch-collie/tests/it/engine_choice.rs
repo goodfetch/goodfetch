@@ -13,12 +13,12 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_test_support::{RuntimeFile, SnapshotValues, TestEnv, cli, snapshot_settings};
+use goodfetch_test_support::{
+    RuntimeFile, SnapshotValues, TestEnv, cli, redact, snapshot_settings,
+};
 use serde_json::{Value, json};
 
-use crate::daemon::{
-    StopsTheDaemon, json_of, regex_escape, runtime_file, scripted_daemon, short_idle,
-};
+use crate::daemon::{StopsTheDaemon, json_of, runtime_file, scripted_daemon, short_idle};
 #[cfg(unix)]
 use crate::daemon_run::{ANY_PORT, Foreground, token};
 
@@ -26,9 +26,8 @@ const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
 /// Snapshots a command's `stderr`, this executable's path as `[COLLIE]`.
 fn stderr_snapshot(env: &TestEnv, name: &str, stderr: &str) {
-    let mut settings = snapshot_settings(&SnapshotValues::of(env));
-    settings.add_filter(&regex_escape(COLLIE), "[COLLIE]");
-    settings.bind(|| insta::assert_snapshot!(name, stderr.trim()));
+    let values = SnapshotValues::of(env).with_path(COLLIE, "[COLLIE]");
+    snapshot_settings(&values).bind(|| insta::assert_snapshot!(name, stderr.trim()));
 }
 
 /// The running Daemon's status, `null` when none runs.
@@ -164,8 +163,13 @@ fn by_default_a_daemon_refusing_the_version_leaves_the_command_to_an_attached_en
         .stderr
         .lines()
         .find(|line| line.starts_with("warning:"))
-        .unwrap_or_default()
-        .replace(COLLIE, "[COLLIE]");
+        .map(|line| {
+            redact(
+                line,
+                &SnapshotValues::of(&env).with_path(COLLIE, "[COLLIE]"),
+            )
+        })
+        .unwrap_or_default();
     assert_eq!(
         (output.exit, output.stdout.as_str(), warning.as_str()),
         (

@@ -14,6 +14,7 @@ use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 
 use crate::clock::Clock;
 use crate::composition::CallError;
+use crate::runs::Run;
 use crate::settings::Resolved;
 
 /// A timeout's deadline, as its setting resolved.
@@ -53,6 +54,29 @@ impl Deadline {
         }
     }
 
+    /// The deadline the timeout `setting` declares as its default, set by
+    /// the default layer: a Run whose settings resolve none waits under it,
+    /// so it follows the catalog when the default changes.
+    ///
+    /// # Panics
+    ///
+    /// When `setting` declares no default in milliseconds, which no timeout
+    /// setting does.
+    pub fn declared(setting: &Setting) -> Self {
+        let millis = (setting.default)()
+            .as_u64()
+            .expect("invariant: a timeout setting declares its default in milliseconds");
+        Self::given(setting, millis, SettingsLayer::Default)
+    }
+
+    /// The deadline `run` waits under for the timeout `setting`: as its
+    /// settings resolve it, else the setting's declared default.
+    pub fn of_run(run: &Run, setting: &Setting) -> Self {
+        run.settings()
+            .and_then(|settings| Self::of(settings.resolved(), setting))
+            .unwrap_or_else(|| Self::declared(setting))
+    }
+
     /// How long it allows.
     pub fn duration(&self) -> Duration {
         self.duration
@@ -85,21 +109,27 @@ impl Deadline {
             biased;
             answer = work => Ok(answer),
             () = clock.sleep_until(started + self.duration) => {
-                let elapsed = u64::try_from((clock.now() - started).as_millis()).unwrap_or(u64::MAX);
-                Err(CallError::new(
-                    &DEADLINE_EXCEEDED,
-                    format!(
-                        "`{}` ({} ms) passed before the {waited_for} came; raise it, or wait for the right thing.",
-                        self.limit.key, self.limit.value,
-                    ),
-                    &DeadlineExceededDetails {
-                        limit: self.limit.clone(),
-                        elapsed,
-                        waited_for: waited_for.to_owned(),
-                    },
-                ))
+                Err(self.exceeded(waited_for, clock.now() - started))
             }
         }
+    }
+
+    /// The `deadline_exceeded` of a call that waited `elapsed` under this
+    /// deadline for `waited_for`, which did not come, for a caller that
+    /// counts its own time, such as one that leaves some waits out of it.
+    pub fn exceeded(&self, waited_for: &str, elapsed: Duration) -> CallError {
+        CallError::new(
+            &DEADLINE_EXCEEDED,
+            format!(
+                "`{}` ({} ms) passed before the {waited_for} came; raise it, or wait for the right thing.",
+                self.limit.key, self.limit.value,
+            ),
+            &DeadlineExceededDetails {
+                limit: self.limit.clone(),
+                elapsed: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
+                waited_for: waited_for.to_owned(),
+            },
+        )
     }
 }
 

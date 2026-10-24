@@ -189,6 +189,11 @@ class AxisReason(BaseModel):
     What it is, such as `stopped` or `failed`; a reason this reader does
     not know is kept as it is.
     """
+    count: Annotated[int | None, Field(ge=0)] = None
+    """
+    How many it counts, when it counts some: the URLs a bound refused,
+    the pages left at a Block cause, or the requests a stop left.
+    """
     message: str
     """What it says, for people."""
 
@@ -933,6 +938,18 @@ class NeedsYouAllowConsentDomainParams(BaseModel):
     """
 
 
+class NeedsYouDenyWallDomainParams(BaseModel):
+    """What `needs_you.deny_wall_domain` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domain: str
+    """The registrable domain to deny."""
+    reason: str
+    """Why, such as the site's objection; required."""
+
+
 class NeedsYouDismissParams(BaseModel):
     """What `needs_you.dismiss` takes."""
 
@@ -978,6 +995,21 @@ class NeedsYouRemoval(StrEnum):
     """
     dismissed = "dismissed"
     """A person dismissed it."""
+
+
+class NeedsYouRemoveRefetchDomainParams(BaseModel):
+    """What `needs_you.remove_refetch_domain` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domain: str
+    """The registrable domain, as a `wall_refetch_stopped` item names it."""
+    instead_of_star: list[str] | None = None
+    """
+    When only `*` covers the domain in its layer, the registrable
+    domains that replace `*` there, the domain itself not among them.
+    """
 
 
 class NotAddedReason(StrEnum):
@@ -1026,18 +1058,6 @@ class NotAddedReason(StrEnum):
     (ADR 0005): a path pattern whose pages brought no new page and no
     URL outside it, which leaves a finished Run `unverified`.
     """
-
-
-class NothingDone2(BaseModel):
-    """
-    No seed reached a handler: each was refused when added or skipped
-    when fetched.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    reason: Literal["no_seed_handled"]
 
 
 class NothingDone3(BaseModel):
@@ -1603,6 +1623,11 @@ class RouteRequest(BaseModel):
     """Whether it loads the document of the page's main frame."""
     method: str
     """Its method, such as `GET`."""
+    post_data: str | None = None
+    """
+    Its body, in Base64 (RFC 4648, with padding), when it has one: as
+    the page sent it, or as a route before replaced it.
+    """
     resource_type: str
     """
     What the page loads with it, as the browser names it, such as
@@ -1945,6 +1970,21 @@ class SeedBatch(BaseModel):
     """The id of the `run.add_seeds` call."""
     seeds: Annotated[list[Seed] | None, Field(validate_default=True)] = []
     """The seeds, in order."""
+
+
+class SeedsKept(BaseModel):
+    """How many seeds one reason kept from a handler."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """How many seeds it kept."""
+    reason: str
+    """
+    The reason: an enqueue's not-added reason, a skip reason, an Error
+    code or a Block cause.
+    """
 
 
 class SessionClosed(BaseModel):
@@ -2549,6 +2589,12 @@ class WaitForExchangeParams(BaseModel):
     )
     page_id: PageId
     """The page."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
     url: UrlMatcher | None = None
     """The URLs it waits for."""
 
@@ -2563,6 +2609,12 @@ class WaitForLoadStateParams(BaseModel):
     """The page."""
     state: LoadState | None = None
     """The state; `load` when absent."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
 
 
 class WaitForRequestFinishedParams(BaseModel):
@@ -2576,6 +2628,12 @@ class WaitForRequestFinishedParams(BaseModel):
     )
     page_id: PageId
     """The page."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
     url: UrlMatcher | None = None
     """The URLs it waits for."""
 
@@ -2591,6 +2649,12 @@ class WaitForUrlParams(BaseModel):
     )
     page_id: PageId
     """The page."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
     url: UrlMatcher
     """The URL it waits for."""
     wait_until: LoadState | None = None
@@ -2615,6 +2679,23 @@ class WaitUntil(StrEnum):
     """Once the document fired `DOMContentLoaded`."""
     load = "load"
     """Once the document fired `load`."""
+
+
+class WallDomainDenied(BaseModel):
+    """What `needs_you.deny_wall_domain` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    added: bool
+    """
+    Whether it was added: false when the Operator policy denied it
+    already, which then changed nothing and recorded nothing.
+    """
+    domain: str
+    """The domain, as `wall.denied_domains` now lists it."""
+    reason: str
+    """The reason, as the Audit log records it."""
 
 
 class WeakenedSetting(BaseModel):
@@ -3236,6 +3317,14 @@ class ExportedAuditEntry(BaseModel):
     )
     actor: Actor
     """Who did what it records."""
+    chained: bool | None = None
+    """
+    Whether its hash chains it to the entry before it: `false` for an
+    entry of a Run whose `security.audit_chain` was off, whose hash is
+    `SHA-256` of 32 zero bytes and its own canonical JSON alone, and
+    which `audit verify` steps over while it verifies the chain around
+    it; left out when chained.
+    """
     details: Any
     """
     What its kind records, such as a Secret reference and the domain it
@@ -3511,6 +3600,12 @@ class LocatorWaitForParams(BaseModel):
     """The locator."""
     state: ElementState | None = None
     """The state; `visible` when absent."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
 
 
 class LogEvent(BaseModel):
@@ -3589,7 +3684,10 @@ class NeedsYouItem(BaseModel):
     for `storage_level`, `level` and `folder`; for
     `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
     `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for
-    `consent_wall`, `domain`.
+    `consent_wall`, `domain`; for `wall_refetch_stopped`, `domain`,
+    `cause`, the `layer` and `file` that list it and `only_star`; for
+    `certificate_changed`, `host`, `person`, `pinned_spki_sha256` and
+    `presented_spki_sha256`.
     """
     id: str
     """
@@ -3652,6 +3750,24 @@ class NothingDone1(BaseModel):
     ended_at: PointInTime
     """When it ended."""
     reason: Literal["already_ended"]
+
+
+class NothingDone2(BaseModel):
+    """
+    No seed reached a handler: each was refused when added or ended
+    before its handler ran, counted by why.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reason: Literal["no_seed_handled"]
+    seeds: list[SeedsKept] | None = None
+    """
+    How many seeds each reason kept from a handler: the reason an
+    enqueue answered, or how the request ended, by its skip reason,
+    Error code or Block cause, in the order of the reasons.
+    """
 
 
 class NothingDone(RootModel[NothingDone1 | NothingDone2 | NothingDone3]):
@@ -3870,6 +3986,29 @@ class ReachedLimit(BaseModel):
     """The Limit's scope."""
     usage_kind: str
     """The Usage kind it caps."""
+
+
+class RefetchDomainRemoved(BaseModel):
+    """What `needs_you.remove_refetch_domain` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    domain: str
+    """The domain."""
+    domains: list[str]
+    """That layer's `wall.refetch_domains` now."""
+    layer: SettingsLayer | None = None
+    """
+    The layer that listed it, and now does not; none when no layer was
+    changed.
+    """
+    removed: bool
+    """
+    Whether its layer changed: false when neither user configuration
+    nor the Operator policy lists it, which then changed nothing and
+    recorded nothing.
+    """
 
 
 class RouteAbortParams(BaseModel):
@@ -4392,6 +4531,12 @@ class WaitForCountParams(BaseModel):
     """The count."""
     locator: Locator
     """The locator."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
 
 
 class WaitForFunctionParams(BaseModel):
@@ -4416,6 +4561,12 @@ class WaitForFunctionParams(BaseModel):
     """
     The milliseconds between two checks, at least 1; absent, about one
     frame's, 16.
+    """
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
     """
     world: World | None = None
     """Where it runs; the main world when absent."""

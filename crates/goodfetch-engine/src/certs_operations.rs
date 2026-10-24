@@ -2,7 +2,7 @@
 //! reads the caller's pins in the user's known-certificates store, and
 //! nothing of another person's partition on a shared Daemon. `certs.accept`
 //! pins the changed key that stopped a host in place of its pin, recorded
-//! in the Audit log, and `certs.forget` removes a pin: both are a person's
+//! in the Audit log, and `certs.forget` removes a pin, recorded too: both are a person's
 //! answers, which the catalog marks person only, so the RPC layer refuses
 //! them to every surface but the Console's and the CLI's with
 //! `person_required`. A store of another major is refused with
@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use goodfetch_protocol::audit::{Actor, CERTIFICATE_CHANGE_ACCEPTED};
+use goodfetch_protocol::audit::{Actor, CERTIFICATE_CHANGE_ACCEPTED, CERTIFICATE_PIN_FORGOTTEN};
 use goodfetch_protocol::formats::KNOWN_CERTIFICATES;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::tls::{
@@ -99,12 +99,32 @@ async fn forget(
     context: CallContext,
 ) -> Result<CertsForgotten, CallError> {
     let host = host_of(&params.host)?;
-    let limits = context.runs().limits();
-    let store = limits.known_certificates.clone();
+    let runs = context.runs();
+    let limits = runs.limits().clone();
+    let audit = runs.audit().clone();
+    let origin = Origin {
+        actor: Actor::Person {
+            name: CALLER.to_owned(),
+        },
+        surface: Some(context.surface()),
+        layer: None,
+        run_id: None,
+    };
     let owner = Arc::clone(&limits.owner);
     let removed = host.clone();
     let forgotten = owner
-        .blocking(move || store.forget(CALLER, &removed))
+        .blocking(move || {
+            let forgotten = limits.known_certificates.forget(CALLER, &removed)?;
+            if forgotten {
+                let details = json!({ "host": removed });
+                if let Err(error) =
+                    audit.record(&origin, &CERTIFICATE_PIN_FORGOTTEN, details, limits.now())
+                {
+                    tracing::warn!(%error, "the Audit log cannot record a forgotten pin");
+                }
+            }
+            Ok(forgotten)
+        })
         .await
         .map_err(|error| refusal(error, "written"))?;
     Ok(CertsForgotten { host, forgotten })

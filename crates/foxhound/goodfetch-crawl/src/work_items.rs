@@ -21,7 +21,7 @@ use std::collections::BTreeSet;
 use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run_state::RunStateTables;
-use goodfetch_frontier::{Candidate, Declared, Scope, Url, admit};
+use goodfetch_frontier::{Candidate, Declared, Scope, Url, admit, payload};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, PushedRecord, Seed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod};
@@ -45,7 +45,6 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             body BLOB,
             label TEXT NOT NULL,
             depth INTEGER NOT NULL,
-            payload TEXT,
             status TEXT NOT NULL,
             attempts INTEGER NOT NULL,
             lease_epoch INTEGER NOT NULL,
@@ -215,7 +214,8 @@ pub(crate) fn admit_seeds(
 }
 
 /// Adds a request to `url`, the URL it is fetched at, as a pending work
-/// item, next in order, and answers its ID, its position.
+/// item, next in order, its Payload kept apart in the Frontier's own table,
+/// and answers its ID, its position.
 pub(crate) fn add(
     connection: &Connection,
     url: &Url,
@@ -223,8 +223,8 @@ pub(crate) fn add(
 ) -> rusqlite::Result<String> {
     connection.query_row(
         "INSERT INTO work_items
-             (id, position, url, method, body, label, depth, payload, status, attempts, lease_epoch, priority, forefront)
-         SELECT CAST(next AS TEXT), next, ?1, ?2, ?3, ?4, ?5, ?6, 'pending', 0, 0, ?7, CASE WHEN ?8 THEN next END
+             (id, position, url, method, body, label, depth, status, attempts, lease_epoch, priority, forefront)
+         SELECT CAST(next AS TEXT), next, ?1, ?2, ?3, ?4, ?5, 'pending', 0, 0, ?6, CASE WHEN ?7 THEN next END
          FROM (SELECT coalesce(max(position), 0) + 1 AS next FROM work_items)
          RETURNING id",
         (
@@ -233,12 +233,27 @@ pub(crate) fn add(
             adding.body.map(HttpBody::bytes),
             adding.label,
             adding.depth,
-            adding.payload.map(Value::to_string),
             adding.priority,
             adding.forefront,
         ),
         |row| row.get(0),
     )
+    .and_then(|id: String| {
+        payload::store(connection, &id, adding.payload)?;
+        Ok(id)
+    })
+}
+
+/// The IDs of the work items of `label` not ended, pending or leased, in
+/// order: those a resume would deliver.
+pub(crate) fn pending_of(connection: &Connection, label: &str) -> rusqlite::Result<Vec<String>> {
+    connection
+        .prepare(
+            "SELECT id FROM work_items WHERE label = ?1 AND status IN ('pending', 'leased')
+             ORDER BY position",
+        )?
+        .query_map([label], |row| row.get(0))?
+        .collect()
 }
 
 /// The URL and depth of the work item `id` while its attempt under
@@ -340,42 +355,44 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
     let mut statement = connection.prepare(
         "UPDATE work_items SET status = 'leased', attempts = attempts + 1, lease_epoch = lease_epoch + 1
          WHERE id = ?1 AND status = 'pending'
-         RETURNING id, url, label, payload, attempts, lease_epoch, domain_key, priority, position,
+         RETURNING id, url, label, attempts, lease_epoch, domain_key, priority, position,
              forefront IS NOT NULL, method, body",
     )?;
     let mut leased = Vec::with_capacity(ids.len());
     for id in ids {
         let row = statement
             .query_row([id], |row| {
-                let payload: Option<String> = row.get(3)?;
                 Ok(Leased {
                     crawl_request: CrawlRequest {
                         id: row.get(0)?,
                         url: row.get(1)?,
                         label: row.get(2)?,
-                        payload: payload.and_then(|payload| serde_json::from_str(&payload).ok()),
-                        method: HttpMethod::parse(&row.get::<_, String>(10)?).map_err(|error| {
+                        payload: None,
+                        method: HttpMethod::parse(&row.get::<_, String>(9)?).map_err(|error| {
                             rusqlite::Error::FromSqlConversionFailure(
-                                10,
+                                9,
                                 rusqlite::types::Type::Text,
                                 Box::new(error),
                             )
                         })?,
-                        body: row.get::<_, Option<Vec<u8>>>(11)?.map(HttpBody::new),
+                        body: row.get::<_, Option<Vec<u8>>>(10)?.map(HttpBody::new),
                     },
-                    attempt: row.get(4)?,
-                    lease_epoch: u64::try_from(row.get::<_, i64>(5)?).unwrap_or_default(),
+                    attempt: row.get(3)?,
+                    lease_epoch: u64::try_from(row.get::<_, i64>(4)?).unwrap_or_default(),
                     waiting: Waiting {
                         id: row.get(0)?,
-                        key: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
-                        priority: row.get(7)?,
-                        order: row.get(8)?,
-                        forefront: row.get(9)?,
+                        key: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+                        priority: row.get(6)?,
+                        order: row.get(7)?,
+                        forefront: row.get(8)?,
                     },
                 })
             })
             .optional()?;
-        leased.extend(row);
+        if let Some(mut row) = row {
+            row.crawl_request.payload = payload::of_request(connection, &row.crawl_request.id)?;
+            leased.push(row);
+        }
     }
     Ok(leased)
 }
@@ -481,6 +498,69 @@ pub(crate) fn end(
     };
     write_outcome(connection, id, ended_at, ending)?;
     Ok(true)
+}
+
+/// Ends the pending work items a rule the Frontier learned later merged
+/// (ADR 0093): given the crawl requests it showed to be one page, each
+/// still pending ends `skipped` with `duplicate` at `ended_at`, its
+/// handler never run, unless none of them was leased or ended otherwise
+/// than so, when the first pending one stays. Answers each one it ended,
+/// with its URL and the domain key it waits under, if keyed.
+pub(crate) fn end_merged(
+    connection: &Connection,
+    ids: &BTreeSet<String>,
+    ended_at: &PointInTime,
+) -> rusqlite::Result<Vec<(String, String, Option<String>)>> {
+    let mut members = Vec::with_capacity(ids.len());
+    for id in ids {
+        let member = connection
+            .query_row(
+                "SELECT position, status, url, domain_key, EXISTS (
+                     SELECT 1 FROM outcomes WHERE work_item = ?1 AND kind = ?2
+                         AND json_extract(outcome, '$.reason') = 'duplicate')
+                 FROM work_items WHERE id = ?1",
+                (id, SKIPPED),
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, bool>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        members.extend(member.map(|member| (id.clone(), member)));
+    }
+    members.sort_by_key(|(_, (position, ..))| *position);
+    let kept = members
+        .iter()
+        .any(|(_, (_, status, _, _, merged))| status != PENDING && !merged);
+    let mut pending = members
+        .into_iter()
+        .filter(|(_, (_, status, ..))| status == PENDING);
+    if !kept {
+        pending.next();
+    }
+    let mut ended = Vec::new();
+    for (id, (_, _, url, key, _)) in pending {
+        connection.execute(
+            "UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2",
+            (SKIPPED, &id),
+        )?;
+        write_outcome(
+            connection,
+            &id,
+            ended_at,
+            Ending::Skipped {
+                reason: SkipReason::Duplicate,
+                message: None,
+            },
+        )?;
+        ended.push((id, url, key));
+    }
+    Ok(ended)
 }
 
 /// Keeps the error of the work item `id`'s current attempt for its next
@@ -672,17 +752,6 @@ pub(crate) fn recover_leases(
         (error_code, i64::from(retry_max), PENDING, FAILED, LEASED),
     )?;
     Ok(())
-}
-
-/// Whether any work item failed with the Error code `code`, such as
-/// `response_unavailable` for a site that was failing or held its requests
-/// unsent, which leaves a finished crawl `incomplete` (ADR 0118).
-pub(crate) fn any_failed_with(connection: &Connection, code: &str) -> rusqlite::Result<bool> {
-    connection.query_row(
-        "SELECT EXISTS (SELECT 1 FROM work_items WHERE status = ?1 AND error_code = ?2)",
-        (FAILED, code),
-        |row| row.get(0),
-    )
 }
 
 /// Whether any work item is still pending.

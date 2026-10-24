@@ -432,3 +432,17 @@ fn a_private_range_that_is_no_range_is_refused(#[case] entry: &str) {
         }
     );
 }
+
+/// Only a policy that refuses some host needs the browser's own
+/// connections held by a proxy auto-config script.
+#[rstest]
+#[case::every_host_allowed(&["*"], &[], false)]
+#[case::a_list_allowed(&["scope.test"], &[], true)]
+#[case::every_host_but_one(&["*"], &["elsewhere.test"], true)]
+fn only_a_policy_refusing_a_host_holds_the_browsers_own_connections(
+    #[case] allowed: &[&str],
+    #[case] blocked: &[&str],
+    #[case] held: bool,
+) {
+    assert_eq!(policy(allowed, blocked).proxy_script().is_some(), held);
+}

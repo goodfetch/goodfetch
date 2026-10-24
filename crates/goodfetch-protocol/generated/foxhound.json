@@ -468,6 +468,16 @@
           "description": "What it is, such as `stopped` or `failed`; a reason this reader does\nnot know is kept as it is.",
           "type": "string"
         },
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many it counts, when it counts some: the URLs a bound refused,\nthe pages left at a Block cause, or the requests a stop left.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "message": {
           "arrived_in": "0.1",
           "description": "What it says, for people.",
@@ -1878,6 +1888,14 @@
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
         },
+        "labels": {
+          "additionalProperties": {
+            "$ref": "#/$defs/LabelDeclaration"
+          },
+          "arrived_in": "0.1",
+          "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone (ADRs 0082 and 0093). A Payload of a declared schema is checked\nagainst it at every enqueue; a Label the crawl does not declare\ntakes any Payload.",
+          "type": "object"
+        },
         "project": {
           "anyOf": [
             {
@@ -2556,6 +2574,36 @@
         }
       ]
     },
+    "EquivalentForm": {
+      "description": "Two spellings of one host's URLs a learned `equivalent_form` merges\n(ADR 0120), each learned on evidence: a redirect from one to the\nother, pairs of pages of matching signatures, or pages whose\n`rel=canonical` differs from their URL only by it.",
+      "oneOf": [
+        {
+          "const": "www",
+          "description": "One leading `www.` label against the bare host, the rule's host.",
+          "type": "string"
+        },
+        {
+          "const": "scheme",
+          "description": "`http` against `https`.",
+          "type": "string"
+        },
+        {
+          "const": "trailing_slash",
+          "description": "A path with a trailing slash against the same path without it.",
+          "type": "string"
+        },
+        {
+          "const": "index_html",
+          "description": "A final `index.html` against its folder.",
+          "type": "string"
+        },
+        {
+          "const": "index_php",
+          "description": "A final `index.php` against its folder.",
+          "type": "string"
+        }
+      ]
+    },
     "ErrorData": {
       "additionalProperties": true,
       "description": "What a failure's `data` holds: its Error code, whether the same call may\nsucceed when made again, and the code's own details.",
@@ -2735,6 +2783,11 @@
           "$ref": "#/$defs/Actor",
           "arrived_in": "0.1",
           "description": "Who did what it records."
+        },
+        "chained": {
+          "arrived_in": "0.1",
+          "description": "Whether its hash chains it to the entry before it: `false` for an\nentry of a Run whose `security.audit_chain` was off, whose hash is\n`SHA-256` of 32 zero bytes and its own canonical JSON alone, and\nwhich `audit verify` steps over while it verifies the chain around\nit; left out when chained.",
+          "type": "boolean"
         },
         "details": {
           "arrived_in": "0.1",
@@ -3350,6 +3403,17 @@
       ],
       "type": "object"
     },
+    "LabelDeclaration": {
+      "additionalProperties": false,
+      "description": "One Label a crawl declares (ADRs 0082 and 0093).",
+      "properties": {
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema its requests' Payloads are checked against, the\nside the program's schema parses from; none takes any Payload."
+        }
+      },
+      "type": "object"
+    },
     "LastRead": {
       "additionalProperties": false,
       "description": "The last event a Client read: its position, and the engine instance\nthat gave it.",
@@ -3374,10 +3438,30 @@
     "LearnedRule": {
       "description": "A URL rule the Frontier learned from the pages it fetched (ADRs 0005\nand 0120), on one host and so never across a registrable domain, with\nits evidence and every URL it merged, so each merge can be audited.",
       "properties": {
+        "contradiction": {
+          "arrived_in": "0.1",
+          "description": "The pair of pages that contradicted it, naming their URLs: both\nforms fetched, neither redirected, and their page signatures\ndiffer. From then on it merges nothing more; absent while it holds.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "evidence": {
           "arrived_in": "0.1",
           "description": "What it was learned from, naming the URLs.",
           "type": "string"
+        },
+        "form": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EquivalentForm"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The form it merges, for an `equivalent_form`."
         },
         "host": {
           "arrived_in": "0.1",
@@ -3391,7 +3475,7 @@
         },
         "merged": {
           "arrived_in": "0.1",
-          "description": "Each URL it merged with another or refused, in the order the crawl\nmet them.",
+          "description": "Each URL it merged with another or refused, in the order the crawl\nmet them, a pending request it ended `skipped` with `duplicate`\nincluded.",
           "items": {
             "type": "string"
           },
@@ -3433,6 +3517,11 @@
         {
           "const": "trap_path",
           "description": "A path pattern is a trap: its pages brought no new page signature\nand no URL outside it, so its URLs are not added, with\n`trap_path`.",
+          "type": "string"
+        },
+        {
+          "const": "equivalent_form",
+          "description": "Two forms of the host's URLs serve one page, so a URL in one form\nis a `duplicate` of an admitted one in the other.",
           "type": "string"
         },
         {
@@ -3728,6 +3817,16 @@
           ],
           "arrived_in": "0.1",
           "description": "The state; `visible` when absent."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -3974,6 +4073,31 @@
         }
       ]
     },
+    "NeedsYouDenyWallDomainParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.deny_wall_domain` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The registrable domain to deny.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why, such as the site's objection; required.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "reason"
+      ],
+      "type": "object"
+    },
     "NeedsYouDismissParams": {
       "additionalProperties": false,
       "description": "What `needs_you.dismiss` takes.",
@@ -4021,7 +4145,7 @@
         "details": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,\n`limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for\n`consent_wall`, `domain`.",
+          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,\n`limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for\n`consent_wall`, `domain`; for `wall_refetch_stopped`, `domain`,\n`cause`, the `layer` and `file` that list it and `only_star`; for\n`certificate_changed`, `host`, `person`, `pinned_spki_sha256` and\n`presented_spki_sha256`.",
           "type": "object"
         },
         "id": {
@@ -4143,6 +4267,36 @@
           "type": "string"
         }
       ]
+    },
+    "NeedsYouRemoveRefetchDomainParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.remove_refetch_domain` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The registrable domain, as a `wall_refetch_stopped` item names it.",
+          "type": "string"
+        },
+        "instead_of_star": {
+          "arrived_in": "0.1",
+          "description": "When only `*` covers the domain in its layer, the registrable\ndomains that replace `*` there, the domain itself not among them.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
     },
     "NewPageParams": {
       "additionalProperties": false,
@@ -4343,11 +4497,19 @@
           "type": "object"
         },
         {
-          "description": "No seed reached a handler: each was refused when added or skipped\nwhen fetched.",
+          "description": "No seed reached a handler: each was refused when added or ended\nbefore its handler ran, counted by why.",
           "properties": {
             "reason": {
               "const": "no_seed_handled",
               "type": "string"
+            },
+            "seeds": {
+              "arrived_in": "0.1",
+              "description": "How many seeds each reason kept from a handler: the reason an\nenqueue answered, or how the request ended, by its skip reason,\nError code or Block cause, in the order of the reasons.",
+              "items": {
+                "$ref": "#/$defs/SeedsKept"
+              },
+              "type": "array"
             }
           },
           "required": [
@@ -5566,6 +5728,47 @@
       ],
       "type": "object"
     },
+    "RefetchDomainRemoved": {
+      "description": "What `needs_you.remove_refetch_domain` answers.",
+      "properties": {
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain.",
+          "type": "string"
+        },
+        "domains": {
+          "arrived_in": "0.1",
+          "description": "That layer's `wall.refetch_domains` now.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "layer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsLayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The layer that listed it, and now does not; none when no layer was\nchanged."
+        },
+        "removed": {
+          "arrived_in": "0.1",
+          "description": "Whether its layer changed: false when neither user configuration\nnor the Operator policy lists it, which then changed nothing and\nrecorded nothing.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "domain",
+        "removed",
+        "domains"
+      ],
+      "type": "object"
+    },
     "RequestCounts": {
       "description": "How a crawl's requests ended (ADR 0079).",
       "properties": {
@@ -6002,6 +6205,14 @@
           "arrived_in": "0.1",
           "description": "Its method, such as `GET`.",
           "type": "string"
+        },
+        "post_data": {
+          "arrived_in": "0.1",
+          "description": "Its body, in Base64 (RFC 4648, with padding), when it has one: as\nthe page sent it, or as a route before replaced it.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "resource_type": {
           "arrived_in": "0.1",
@@ -7820,6 +8031,28 @@
       "minItems": 1,
       "type": "array"
     },
+    "SeedsKept": {
+      "description": "How many seeds one reason kept from a handler.",
+      "properties": {
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many seeds it kept.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "The reason: an enqueue's not-added reason, a skip reason, an Error\ncode or a Block cause.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "count"
+      ],
+      "type": "object"
+    },
     "ServingSession": {
       "description": "The Session of the crawl's Session pool that serves one attempt.",
       "properties": {
@@ -9360,6 +9593,16 @@
           "$ref": "#/$defs/Locator",
           "arrived_in": "0.1",
           "description": "The locator."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -9380,6 +9623,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "anyOf": [
@@ -9431,6 +9684,16 @@
             "null"
           ]
         },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "world": {
           "anyOf": [
             {
@@ -9474,6 +9737,16 @@
           ],
           "arrived_in": "0.1",
           "description": "The state; `load` when absent."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -9493,6 +9766,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "anyOf": [
@@ -9524,6 +9807,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "$ref": "#/$defs/UrlMatcher",
@@ -9568,6 +9861,32 @@
           "type": "string"
         }
       ]
+    },
+    "WallDomainDenied": {
+      "description": "What `needs_you.deny_wall_domain` answers.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "Whether it was added: false when the Operator policy denied it\nalready, which then changed nothing and recorded nothing.",
+          "type": "boolean"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain, as `wall.denied_domains` now lists it.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "The reason, as the Audit log records it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "added",
+        "reason"
+      ],
+      "type": "object"
     },
     "WeakenedSetting": {
       "description": "A setting that weakened a safeguard for a Run (ADR 0028): its key, its\nvalue, the layer that set it and, for the run layer, where the value came\nfrom.",
@@ -10231,6 +10550,26 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A crawl request's Payload was refused when it was enqueued, as a seed, an added seed or a handler's enqueue: it does not fit its Label's JSON Schema, each issue named by its path, or its JSON is longer than `crawl.payload.max_size`, which `limit` names. Nothing was added. Large content goes to the Key-value store, and the Payload carries its key.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "payload_invalid",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawl now declares a Label's Payload JSON Schema that the Run did not begin with, and Payloads of that Label's pending requests fail it, so the Run was not resumed and did no work. The details name the Label, how many pending Payloads fail out of how many, and the first failure. Give the new field a default in the schema, or start a new Run: a Payload is never migrated silently.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "payload_schema_changed",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.",
       "exit_code": null,
       "group": "refused",
@@ -10771,7 +11110,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The page opened a popup, `window.open()` or a link to a new tab: a page of the same Session, already under its routes and its interception, published before the popup's first request leaves. Published while `page.on` listens to `popup`.",
+      "description": "The page opened a popup, `window.open()` or a link opening another window: a page of the same Session, already under its routes and its interception, published before the popup's first request leaves. Published while `page.on` listens to `popup`.",
       "name": "page.popup",
       "payload": {
         "$ref": "#/$defs/PagePopup"
@@ -11933,7 +12272,7 @@
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
-      "description": "Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.",
+      "description": "Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`.",
       "events": [],
       "kind": "round_trip",
       "name": "locator.fill",
@@ -11971,7 +12310,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Waits until the element the locator matches is in the state: attached or visible, one element; detached, none; hidden, none or one not visible. The locator is resolved again at each check, so a re-render that replaces its element changes nothing. Past `timeout.wait`, several matches raise `target_not_unique` listing them, and anything else `deadline_exceeded` naming the state.",
+      "description": "Waits until the element the locator matches is in the state: attached or visible, one element; detached, none; hidden, none or one not visible. The locator is resolved again at each check, so a re-render that replaces its element changes nothing. Past its `timeout`, `timeout.wait` when the call gives none, several matches raise `target_not_unique` listing them, and anything else `deadline_exceeded` naming the state.",
       "events": [],
       "kind": "waiter",
       "name": "locator.wait_for",
@@ -11990,7 +12329,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Waits until the number of elements the locator matches is within the count, and answers it. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "description": "Waits until the number of elements the locator matches is within the count, and answers it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
       "events": [],
       "kind": "waiter",
       "name": "locator.wait_for_count",
@@ -12022,6 +12361,27 @@
       "reach": "person_only",
       "result": {
         "$ref": "#/$defs/ConsentDomainAllowed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Adds a registrable domain, with its required reason, to `wall.denied_domains` in the Operator policy, creating the file when there is none, so no run reads past its Walls or refetches its pages whatever another layer allows (ADR 0052), and records the denial and its reason in the Audit log; answers whether it added it. One call, no confirmation asked. A managed Operator policy refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `wall_refetch_stopped` item of the domain leaves the list with `needs_you.changed`.",
+      "events": [
+        "needs_you.changed"
+      ],
+      "kind": "round_trip",
+      "name": "needs_you.deny_wall_domain",
+      "params": {
+        "$ref": "#/$defs/NeedsYouDenyWallDomainParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/WallDomainDenied"
       },
       "stability": "experimental"
     },
@@ -12062,6 +12422,27 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/NeedsYouList"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Removes a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that lists it, user configuration or else the Operator policy, every other entry and byte of the file kept, and records the answer in the Audit log; answers whether it removed it. When only `*` covers the domain there, `instead_of_star` gives the registrable domains that replace `*`, and without it the call is refused with `invalid_params`. A domain only project configuration lists is changed in that file, never here. A managed Operator policy, or one that locks the key against user configuration, refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `wall_refetch_stopped` item leaves the list with `needs_you.changed`.",
+      "events": [
+        "needs_you.changed"
+      ],
+      "kind": "round_trip",
+      "name": "needs_you.remove_refetch_domain",
+      "params": {
+        "$ref": "#/$defs/NeedsYouRemoveRefetchDomainParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/RefetchDomainRemoved"
       },
       "stability": "experimental"
     },
@@ -12336,7 +12717,7 @@
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
-      "description": "Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "description": "Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
       "events": [],
       "kind": "waiter",
       "name": "page.wait_for_function",
@@ -12355,7 +12736,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "description": "Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
       "events": [],
       "kind": "waiter",
       "name": "page.wait_for_load_state",
@@ -12374,7 +12755,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Waits, armed when the call arrives, until the page sends a request whose URL matches, and answers it, so a request an action triggers is caught by a waiter sent before the action. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "description": "Waits, armed when the call arrives, until the page sends a request whose URL matches, and answers it, so a request an action triggers is caught by a waiter sent before the action. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
       "events": [],
       "kind": "waiter",
       "name": "page.wait_for_request",
@@ -12393,7 +12774,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "description": "Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
       "events": [],
       "kind": "waiter",
       "name": "page.wait_for_request_finished",
@@ -12412,7 +12793,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Waits, armed when the call arrives, until a request of the page whose URL matches gets its response, a redirect's included, and answers both, so a response an action triggers is caught by a waiter sent before the action, even one that arrives before the program awaits it. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "description": "Waits, armed when the call arrives, until a request of the page whose URL matches gets its response, a redirect's included, and answers both, so a response an action triggers is caught by a waiter sent before the action, even one that arrives before the program awaits it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
       "events": [],
       "kind": "waiter",
       "name": "page.wait_for_response",
@@ -12431,7 +12812,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Waits, armed when the call arrives, until the page's URL matches: at once when it already does, else on a committed navigation, then until its document reaches `wait_until`, or on a change within the document, a `pushState`, a `replaceState` or a hash change. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "description": "Waits, armed when the call arrives, until the page's URL matches: at once when it already does, else on a committed navigation, then until its document reaches `wait_until`, or on a change within the document, a `pushState`, a `replaceState` or a hash change. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
       "events": [],
       "kind": "waiter",
       "name": "page.wait_for_url",
@@ -13405,10 +13786,10 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "configuration",
       "clearable": false,
       "default": "ghcr.io/goodfetch/clean-up-rules",
-      "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+      "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
       "name": "clean_up.channel",
       "product": "collie",
       "products": [
@@ -13424,13 +13805,32 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": 30000,
+      "description": "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
+      "name": "clean_up.fetch_timeout",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": false,
       "default": {
         "ads": "https://easylist.to/easylist/easylist.txt",
         "annoyances": "https://secure.fanboy.co.nz/fanboy-annoyance.txt",
         "trackers": "https://easylist.to/easylist/easyprivacy.txt",
         "unbreak": "https://raw.githubusercontent.com/brave/adblock-lists/master/brave-unbreak.txt"
       },
-      "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+      "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
       "name": "clean_up.lists",
       "product": "collie",
       "products": [
@@ -13450,7 +13850,7 @@
       "authority": "every",
       "clearable": false,
       "default": "release",
-      "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+      "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
       "name": "clean_up.update",
       "product": "collie",
       "products": [
@@ -13797,6 +14197,23 @@
           "type": "object"
         },
         "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 65536,
+      "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+      "name": "crawl.payload.max_size",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
       },
       "weakens": false
     },
@@ -14985,7 +15402,7 @@
       "authority": "every",
       "clearable": true,
       "default": null,
-      "description": "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. None by default.",
+      "description": "How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap.",
       "name": "politeness.proxy.concurrency",
       "product": "collie",
       "products": [
@@ -15003,7 +15420,7 @@
       "authority": "every",
       "clearable": true,
       "default": null,
-      "description": "How many requests a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run starts one, its own navigation included, only once a second divided by its own value has passed since the last start there by any sharing run. None by default.",
+      "description": "How many page navigations a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run starts one only once a second divided by its own value has passed since the last start there by any sharing run. None by default.",
       "name": "politeness.proxy.rate",
       "product": "collie",
       "products": [
@@ -15423,6 +15840,125 @@
         "type": "boolean"
       },
       "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
+      "name": "security.audit_chain",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether Chromium's renderers run in their namespace sandbox (ADR 0017). On by default; off, they run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "name": "security.browser_sandbox",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "name": "security.field_encryption",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
+      "name": "security.raw_cdp_egress_proxy",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "name": "security.redaction",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "name": "security.resolved_ip_check",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "name": "security.secure_delete",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
     },
     {
       "arrived_in": "0.1",
@@ -16134,6 +16670,22 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder.",
+      "name": "site_preferences.robots_txt_user_agent",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "machine",
       "clearable": true,
       "default": null,
@@ -16587,8 +17139,22 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A pinned host whose certificate presented another public key, stopped with `certificate_changed` (ADR 0042); `details` give the `host`, the `person` whose known-certificates store holds the pin, and both keys' SHA-256 as `pinned_spki_sha256` and `presented_spki_sha256`; `run` is the Run that met it. Its actions offer `certs.accept` and `certs.forget`, which that person alone answers. It leaves the list once they answer.",
+      "name": "certificate_changed",
+      "product": "collie",
+      "type": "needs_you_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The certificate exceptions a run used, once per run, by host and kind (ADR 0042).",
       "name": "certificate_exceptions_used",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person removed their pin of a host, and any change waiting for it, so its next connection under trust on first use pins again (ADR 0042).",
+      "name": "certificate_pin_forgotten",
       "product": "collie",
       "type": "audit_kind"
     },
@@ -16643,6 +17209,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Pages in the crawl's scope were left `blocked` with `consent_required`, counted: `unverified`.",
+      "name": "consent_required",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A domain whose consent wall a Run met and left at `consent_required` (ADR 0048), offered for `consent.domains` with `needs_you.allow_consent_domain`, a domain in `wall.denied_domains` too (ADR 0052); `details` give the `domain`, and `run` the last Run that met it. It leaves the list once `consent.domains` in the Operator policy or user configuration covers the domain, or when a person dismisses it.",
       "name": "consent_wall",
       "product": "collie",
@@ -16661,6 +17234,48 @@
       "name": "cpu_throttled",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`crawl.max_depth` refused URLs the crawl would otherwise have admitted, counted: `incomplete`.",
+      "name": "crawl.max_depth",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`crawl.max_path_segments` refused URLs the crawl would otherwise have admitted, counted: `unverified`.",
+      "name": "crawl.max_path_segments",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`crawl.max_requests` refused URLs the crawl would otherwise have admitted, counted: `incomplete`.",
+      "name": "crawl.max_requests",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`crawl.max_segment_repeats` refused URLs the crawl would otherwise have admitted, counted: `unverified`.",
+      "name": "crawl.max_segment_repeats",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`crawl.max_url_length` refused URLs the crawl would otherwise have admitted, counted: `unverified`.",
+      "name": "crawl.max_url_length",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "One entry of `crawl.path_budgets` refused URLs past its count, named with its pattern and counted: `incomplete`.",
+      "name": "crawl.path_budgets",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
     },
     {
       "arrived_in": "0.1",
@@ -16689,6 +17304,13 @@
       "name": "exposed_daemon_set_up",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "An error ended it before its end, `incomplete`.",
+      "name": "failed",
+      "product": "collie",
+      "type": "completeness_reason_code"
     },
     {
       "arrived_in": "0.1",
@@ -16762,6 +17384,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Model allowance skipped requests the crawl would otherwise have handled, counted: `incomplete`.",
+      "name": "model_allowance",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Model calls a run made, retries and Repairs included (ADR 0101).",
       "name": "model_calls",
       "product": "collie",
@@ -16773,6 +17402,13 @@
       "name": "model_tokens",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Listings were paged only by an offset parameter, counted: `unverified`.",
+      "name": "offset_pagination",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
     },
     {
       "arrived_in": "0.1",
@@ -16815,6 +17451,13 @@
       "name": "payment_required",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Pages in the crawl's scope were left `blocked` with `payment_required`, counted: `unverified`.",
+      "name": "payment_required",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
     },
     {
       "arrived_in": "0.1",
@@ -16888,10 +17531,24 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A person removed a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that listed it, or replaced `*` there with a list (ADR 0052); `details` give the `domain` and the layer's `domains` after.",
+      "name": "refetch_domain_removed",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Requests a run sent: a crawl's Crawl requests, and a page's navigations.",
       "name": "requests",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Requests failed with `response_unavailable`, a site asking to wait longer than `politeness.retry_after.max`, counted: `incomplete`.",
+      "name": "response_unavailable",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
     },
     {
       "arrived_in": "0.1",
@@ -16965,6 +17622,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "It stopped before its end, `incomplete`; a crawl's counts the requests it left.",
+      "name": "stopped",
+      "product": "collie",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A filesystem a Run writes to is at the `low` or `critical` storage level (ADR 0122); `details` give its `level` and a `folder` on it. It leaves the list at the first sample that finds the space again.",
       "name": "storage_level",
       "product": "collie",
@@ -16997,6 +17661,27 @@
       "name": "trap_links_off",
       "product": "foxhound",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Learned traps refused URLs the crawl would otherwise have admitted, counted: `unverified`.",
+      "name": "trap_path",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person added a domain to `wall.denied_domains` in the Operator policy, so no run reads past its Walls or refetches its pages (ADR 0052); `details` give the `domain` and the `reason`.",
+      "name": "wall_domain_denied",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A domain on which a Run's refetch without the site's stored data stopped, at a Block cause, a 401 or 403 status or a login page (ADR 0052); `details` give the `domain`, the `cause`, and the `layer` of `wall.refetch_domains` that lists it with its `file`, and whether `only_star` covers it there; `run` is the last Run whose refetch stopped there. Its actions offer `needs_you.remove_refetch_domain`, except for a domain project configuration lists, which is changed in its file, and `needs_you.deny_wall_domain`. It leaves the list once no layer lists the domain, once `wall.denied_domains` denies it, or when a person dismisses it.",
+      "name": "wall_refetch_stopped",
+      "product": "collie",
+      "type": "needs_you_kind"
     }
   ]
 }

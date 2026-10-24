@@ -29,6 +29,7 @@ const SEED: u64 = 851;
 struct Crawled {
     answers: BTreeMap<String, String>,
     fetched: BTreeMap<String, usize>,
+    handled: Vec<String>,
     report: Value,
 }
 
@@ -61,11 +62,14 @@ fn crawl(
             json!({ "url": proving_ground.url(host, path), "label": "page" })
         })
         .collect();
+    // The `www.` host the `/forms/` pages link.
+    resolve.insert("www.learning.test".to_owned(), json!([ip]));
     let settings = json!({ "fetch": { "tier": "http" }, "network": { "resolve": resolve } });
     let mut engine = Attached::start(env);
 
     let mut answers = BTreeMap::new();
     let mut fetched: BTreeMap<String, usize> = BTreeMap::new();
+    let mut handled = Vec::new();
     let report = crawl_with(
         &mut engine,
         run_id,
@@ -75,6 +79,7 @@ fn crawl(
             let url = handle["crawl_request"]["url"].as_str().unwrap();
             let host = url.trim_start_matches("http://").split(':').next().unwrap();
             *fetched.entry(host.to_owned()).or_default() += 1;
+            handled.push(url.to_owned());
             let read = inside.call(
                 "page.formats",
                 &json!({ "page_id": handle["page_id"], "formats": { "markdown": true } }),
@@ -98,6 +103,7 @@ fn crawl(
     Crawled {
         answers,
         fetched,
+        handled,
         report: report["result"].clone(),
     }
 }
@@ -239,6 +245,7 @@ fn a_calendar_trap_closes_after_a_hundred_months_and_leaves_the_run_unverified()
             &json!([{
                 "code": "trap_path",
                 "message": "A learned trap refused 1 URL the crawl would otherwise have admitted.",
+                "count": 1,
             }]),
         )
     );
@@ -323,5 +330,93 @@ fn an_offset_listing_gives_way_to_its_cursor() {
             &json!([]),
             &json!("complete"),
         )
+    );
+}
+
+/// The URL identity conformance cases of learned forms (ADR 0120) on the
+/// Proving ground's `/forms/` pages: two pairs of a guide with and without
+/// its trailing slash teach that form, and the third guide's slashed URL,
+/// still pending, ends `skipped` with `duplicate` and is never handed a
+/// handler; three docs pages naming their folder as `rel=canonical` teach
+/// the `index.html` form, ending the folders already pending and making
+/// the next a `duplicate`; news pages whose canonical names the section's
+/// index teach nothing and are each fetched; and pages that read otherwise
+/// on `www.` and on the bare host are both kept. The report lists each
+/// `equivalent_form` rule with its evidence and the URLs it merged.
+///
+/// Covers: story:6-217, story:6-219, story:6-222, story:6-310, operation:crawl_request.enqueue, setting:fetch.tier
+#[test]
+fn equivalent_forms_merge_only_on_evidence() {
+    let (env, proving_ground) = ground();
+    let crawled = crawl(
+        &env,
+        &proving_ground,
+        "forms",
+        &[("learning.test", "/forms/")],
+    );
+
+    let on = |path: &str| proving_ground.url("learning.test", path);
+    let on_www = |path: &str| proving_ground.url("www.learning.test", path);
+    let handled = |url: &str| crawled.handled.iter().any(|handled| handled == url);
+    let skipped = crawled.report["requests"]["by_skip_reason"].clone();
+    assert_eq!(
+        (
+            handled(&on("/forms/slash/3")),
+            handled(&on("/forms/slash/3/")),
+            handled(&on("/forms/docs/1/")),
+            handled(&on("/forms/docs/2/")),
+            crawled.answers.get(&on("/forms/docs/3/")),
+            [1, 2, 3].map(|page| handled(&on(&format!("/forms/news/{page}")))),
+            [1, 2, 3].map(|page| {
+                let path = format!("/forms/split/{page}");
+                (handled(&on(&path)), handled(&on_www(&path)))
+            }),
+            skipped,
+        ),
+        (
+            true,
+            false,
+            false,
+            false,
+            Some(&"duplicate".to_owned()),
+            [true; 3],
+            [(true, true); 3],
+            json!([{ "name": "duplicate", "count": 3 }]),
+        )
+    );
+    assert_eq!(
+        crawled.report["learned_rules"],
+        json!([
+            {
+                "kind": "equivalent_form",
+                "host": "learning.test",
+                "form": "trailing_slash",
+                "evidence": format!(
+                    "2 pairs of URLs differing only by a trailing slash served pages of matching \
+                     signatures, and no pair pages of differing ones: {} and {}; {} and {}.",
+                    on("/forms/slash/1"),
+                    on("/forms/slash/1/"),
+                    on("/forms/slash/2"),
+                    on("/forms/slash/2/"),
+                ),
+                "merged": [on("/forms/slash/3/"), on("/forms/docs/3/")],
+            },
+            {
+                "kind": "equivalent_form",
+                "host": "learning.test",
+                "form": "index_html",
+                "evidence": format!(
+                    "3 pages named as their `rel=canonical` their own URL but for `index.html`: \
+                     {} names {}; {} names {}; {} names {}.",
+                    on("/forms/docs/1/index.html"),
+                    on("/forms/docs/1/"),
+                    on("/forms/docs/2/index.html"),
+                    on("/forms/docs/2/"),
+                    on("/forms/docs/3/index.html"),
+                    on("/forms/docs/3/"),
+                ),
+                "merged": [on("/forms/docs/1/"), on("/forms/docs/2/"), on("/forms/docs/3/")],
+            },
+        ])
     );
 }

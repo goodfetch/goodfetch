@@ -29,23 +29,19 @@
 use std::collections::BTreeMap;
 
 use data_encoding::BASE64;
-use goodfetch_cdp::Subscription;
 use goodfetch_cdp::generated::{emulation, fetch, network, page};
+use goodfetch_cdp::{NetError, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_protocol::page::{
     PageResponse, RedirectLimit, TOO_MANY_REDIRECTS, TooManyRedirectsDetails,
 };
-use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use secrecy::ExposeSecret as _;
 
 use crate::driver::PageDriver;
 use crate::errors::{network_error, site_preferences_refused};
 use crate::interception::{EngineRequests, Overrides};
 use crate::page_value::{Navigation, NavigationKind, Permit};
-
-/// The network error of a body whose content coding did not decode.
-const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
 
 /// The headers the page's copy of the response loses, so that nothing
 /// renders it or turns it into a download.
@@ -115,13 +111,20 @@ pub(crate) enum Body {
 /// stops; `too_many_redirects` past the request's count; the Session's
 /// proxy's codes; `navigation_failed` with the browser's network error for
 /// a request that got no response, or whose content coding failed to
-/// decode; and the page's codes when the browser fails a command.
+/// decode; `deadline_exceeded` naming `timeout.navigation` for one with no
+/// response by then; and the page's codes when the browser fails a command.
+///
+/// # Cancel safety
+///
+/// Dropping the future leaves the page's request, or its response, paused:
+/// its caller closes the page, as the Session's engine page does when
+/// dropped.
 pub(crate) async fn send(
     driver: &PageDriver,
     sender: &EngineRequests,
     request: &Request<'_>,
 ) -> Result<Fetched, CallError> {
-    let events = driver.events().await;
+    let events = driver.events();
     driver
         .opening_command(&emulation::SetScriptExecutionDisabledParams { value: true })
         .await?;
@@ -142,18 +145,12 @@ pub(crate) async fn send(
         })
         .await?;
     // A wait for the navigation gate's permits counts against no timeout.
-    let followed = driver
-        .within(
-            driver.navigation_timeout(),
+    driver
+        .within_navigation_deadline(
+            "response",
             Load::new(driver, sender, request).follow(events),
         )
-        .await;
-    followed.unwrap_or_else(|| {
-        Err(network_error(
-            request.url,
-            &format!("no response within `{}`", TIMEOUT_NAVIGATION.name),
-        ))
-    })
+        .await?
 }
 
 /// The document load that carries one request, as it goes.
@@ -212,7 +209,7 @@ impl<'a> Load<'a> {
                         Ok(page::NavigateReturns { error_text: Some(error), .. })
                             if self.network_id.is_none() =>
                         {
-                            return Err(network_error(self.request.url, &error));
+                            return Err(network_error(self.request.url, NetError::of(&error).name()));
                         }
                         Ok(_) => {}
                         Err(failure) => return Err(network_error(self.request.url, &failure.to_string())),
@@ -236,7 +233,7 @@ impl<'a> Load<'a> {
                     } else if let Some(failed) = event.read::<network::LoadingFailedEvent>()
                         && self.ours(&failed.request_id)
                     {
-                        return self.failed(&failed.error_text);
+                        return self.failed(&NetError::of(&failed.error_text));
                     }
                 }
             }
@@ -480,9 +477,9 @@ impl<'a> Load<'a> {
     /// The outcome of a load the browser failed with `error`: a body that
     /// broke off after its response arrived is cut, one whose content coding
     /// failed to decode, or a request with no response, fails.
-    fn failed(&mut self, error: &str) -> Result<Fetched, CallError> {
+    fn failed(&mut self, error: &NetError) -> Result<Fetched, CallError> {
         match self.answered.take() {
-            Some((response, bytes)) if error != DECODING_FAILED => {
+            Some((response, bytes)) if *error != NetError::ContentDecodingFailed => {
                 let expected = response
                     .headers
                     .get("content-length")
@@ -500,8 +497,8 @@ impl<'a> Load<'a> {
                 Err(self
                     .driver
                     .proxy()
-                    .and_then(|proxy| proxy.failure(url, error))
-                    .unwrap_or_else(|| network_error(url, error)))
+                    .and_then(|proxy| proxy.failure(url, error.name()))
+                    .unwrap_or_else(|| network_error(url, error.name())))
             }
         }
     }

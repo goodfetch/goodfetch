@@ -12,7 +12,9 @@
 //! which the worker's own requests, of no page, never hold back (ticket
 //! #705). With `block`, `register()` rejects as the
 //! browser's own refusal does, `register` stays native, no worker controls
-//! the page, and the page's own calls reach its route and the site.
+//! the page, and the page's own calls reach its route and the site. In a
+//! headless Run, the worker's own requests show the site the user agent
+//! the build shows with a window, as its pages' do (ticket #696).
 
 use goodfetch_protocol::connection::CANCEL;
 use goodfetch_protocol::events::{CREDIT, EVENTS, EVENTS_SUBSCRIBE};
@@ -36,6 +38,7 @@ use crate::protocol::target::{BROWSER_DEADLINE, EngineTarget};
 pub(crate) enum Case {
     UnderTheInterception,
     Blocked,
+    Identity,
 }
 
 impl Case {
@@ -47,6 +50,9 @@ impl Case {
             }
             "with-service-workers-blocked-register-rejects-natively-and-the-pages-calls-reach-its-route" => {
                 Self::Blocked
+            }
+            "a-headless-service-workers-requests-show-the-site-its-windows-identity" => {
+                Self::Identity
             }
             _ => return None,
         })
@@ -63,6 +69,7 @@ impl Case {
         match self {
             Self::UnderTheInterception => under_the_interception(connection, target, site, checks),
             Self::Blocked => blocked(connection, site, checks),
+            Self::Identity => identity(connection, site, checks),
         }
     }
 }
@@ -175,11 +182,12 @@ impl<'connection> Watch<'connection> {
     }
 
     /// Serves the engine until a `page.response` event arrived for each
-    /// URL ending in one of `suffixes`, or the wait runs out. The page
-    /// reports to the Proving ground on its own connection, so its report
-    /// can arrive before the engine's events of the calls it made before
-    /// it: only the events' arrival says they were all read.
-    fn until_responded(&mut self, suffixes: &[&str]) -> Result<(), Gone> {
+    /// URL ending in one of `suffixes`, or the wait runs out: whether they
+    /// all arrived. The page reports to the Proving ground on its own
+    /// connection, so its report can arrive before the engine's events of
+    /// the calls it made before it: only the events' arrival says they
+    /// were all read.
+    fn until_responded(&mut self, suffixes: &[&str]) -> Result<bool, Gone> {
         let polls = BROWSER_DEADLINE.as_millis() / POLL.as_millis();
         for _ in 0..polls {
             let responses = self.data("page.response");
@@ -188,11 +196,11 @@ impl<'connection> Watch<'connection> {
                     .iter()
                     .any(|exchange| url_of(&exchange["response"]).ends_with(suffix))
             }) {
-                break;
+                return Ok(true);
             }
             self.read(POLL)?;
         }
-        Ok(())
+        Ok(false)
     }
 
     /// Subscribes to the event stream with credits to spare.
@@ -361,7 +369,11 @@ fn under_the_interception(
         "the call the worker answers from its cache reaches no network",
         received(site, IDENTITY_HOST, &cached) == 0,
     );
-    watch.until_responded(&[&cached, &network])?;
+    let responded = watch.until_responded(&[&cached, &network])?;
+    checks.check(
+        "a `page.response` event arrives for both calls within the wait",
+        responded,
+    );
     let responses = watch.data("page.response");
     let from_worker = |suffix: &str| {
         responses.iter().any(|exchange| {
@@ -519,4 +531,66 @@ fn blocked(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Res
         ) == (1, 1, 0),
     );
     watch.end(run_id, &[page_route])
+}
+
+/// The `User-Agent` of each request to `target` the Proving ground saw.
+fn user_agents_of(observations: &Value, target: &str) -> Vec<String> {
+    observations["requests"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|request| request["target"] == json!(target))
+        .flat_map(|request| request["headers"].as_array().cloned().unwrap_or_default())
+        .filter(|header| {
+            header[0]
+                .as_str()
+                .is_some_and(|name| name.eq_ignore_ascii_case("user-agent"))
+        })
+        .filter_map(|header| header[1].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// In a headless Run, the requests a service worker sends itself carry the
+/// user agent the build shows with a window, as its pages' do: no
+/// `HeadlessChrome` reaches the site from a worker either (story 5-56).
+fn identity(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
+    let run_id = "conformance-service-worker-identity";
+    let (path, url) = page_of(site, "identity");
+    start_run(connection, site, run_id, &settings(), checks)?;
+    let Some(page) = new_page(connection, run_id, checks)? else {
+        return finish_run(connection, run_id);
+    };
+    let mut watch = Watch::new(connection);
+    let loaded = watch.call(
+        PAGE_GOTO.name,
+        &json!({ "page_id": page.page_id, "url": url }),
+    )?;
+    checks.check(
+        "the service worker page loads",
+        loaded.get("result").is_some(),
+    );
+    let reports = watch.until_reported(site, &path)?;
+    checks.check(
+        "the page's worker registers and controls the page",
+        (
+            reported(&reports, "register"),
+            reported(&reports, "controlled"),
+        ) == (Some("registered"), Some("true")),
+    );
+    let user_agents = site
+        .proving_ground
+        .observations()
+        .map(|observations| user_agents_of(&observations, "/service-worker/own.json?case=identity"))
+        .unwrap_or_default();
+    checks.check(
+        "the worker's own request reached the site",
+        !user_agents.is_empty(),
+    );
+    checks.check(
+        "the worker's request shows the window's `Chrome/` user agent, with no `HeadlessChrome`",
+        user_agents
+            .iter()
+            .all(|agent| agent.contains(" Chrome/") && !agent.contains("HeadlessChrome")),
+    );
+    watch.end(run_id, &[])
 }

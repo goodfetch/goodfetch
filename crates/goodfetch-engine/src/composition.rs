@@ -18,7 +18,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
-use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation};
+use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation, Setting};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::daemon::{DaemonHealth, DaemonStatus, DaemonStopping};
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
@@ -30,6 +30,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::admission::Gates;
 use crate::client::Client;
+use crate::controls::Controls;
 use crate::events::{Credits, Events};
 use crate::log::ConnectionLog;
 use crate::needs_you::NeedsYouSource;
@@ -481,6 +482,7 @@ pub struct Contribution {
     progress_parts: Vec<Arc<dyn ProgressPart>>,
     clean_up_versions: Option<Arc<dyn CleanUpVersions>>,
     needs_you_sources: Vec<NeedsYouSource>,
+    controls: Vec<&'static Setting>,
 }
 
 impl Contribution {
@@ -497,7 +499,18 @@ impl Contribution {
             progress_parts: Vec::new(),
             clean_up_versions: None,
             needs_you_sources: Vec::new(),
+            controls: Vec::new(),
         }
+    }
+
+    /// The same, reporting `setting` as a switchable control (ADR 0016): a
+    /// Run that starts with a value of it that weakens is recorded once in
+    /// the Audit log, warned of once through the host's logging and lists
+    /// it in its report's `weakened`, as the `security.*` keys are.
+    #[must_use]
+    pub fn with_control(mut self, setting: &'static Setting) -> Self {
+        self.controls.push(setting);
+        self
     }
 
     /// The same, driving the Runs of `kind` it starts with `driver`, which a
@@ -759,6 +772,14 @@ impl Composition {
             .iter()
             .flat_map(|contribution| contribution.progress_parts.iter().cloned())
             .collect()
+    }
+
+    /// Every contribution's switchable controls.
+    pub(crate) fn controls(&self) -> Controls {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.controls.iter().copied())
+            .fold(Controls::default(), Controls::with)
     }
 
     /// Every contribution's sources of "Needs you", in order.

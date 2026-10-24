@@ -5,19 +5,24 @@
 //! asks for credentials the Session does not give each raise the proxy's
 //! own Error code, never `navigation_failed`; two Sessions of one Run reach
 //! the site each through its own proxy; a proxy on a page or a request is
-//! refused; and `proxy.server`'s URL takes neither `socks4` nor
-//! credentials.
+//! refused; `proxy.server`'s URL takes neither `socks4` nor credentials;
+//! and a Client acting for a model sets no proxy, on a Run, a Session or
+//! the project configuration it sends.
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::proxy::{PROXY_AUTH_FAILED, PROXY_UNAVAILABLE};
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
 use goodfetch_protocol::page::{PAGE_GOTO, PageOpened, RUN_NEW_PAGE};
 use goodfetch_protocol::run::RUN_START;
-use goodfetch_protocol::settings::SETTING_INVALID;
+use goodfetch_protocol::settings::{SETTING_INVALID, SETTING_LOCKED};
 use serde_json::{Value, json};
 
 use super::{Checks, Site, finish_run, new_page, refused_as, start_run};
 use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::hello_as;
+use crate::protocol::target::EngineTarget;
 
 /// One proxy case of the page suite.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +31,7 @@ pub(crate) enum Case {
     OwnProxies,
     NonePerPage,
     ServerUrl,
+    NoneByAModel,
 }
 
 impl Case {
@@ -36,14 +42,16 @@ impl Case {
             "two-sessions-of-a-run-reach-the-site-each-through-its-own-proxy" => Self::OwnProxies,
             "a-proxy-per-page-or-per-request-is-refused" => Self::NonePerPage,
             "socks4-and-credentials-in-the-proxy-url-are-setting-invalid" => Self::ServerUrl,
+            "a-client-acting-for-a-model-sets-no-proxy" => Self::NoneByAModel,
             _ => return None,
         })
     }
 
-    /// Runs the case on the open Connection against `site`.
+    /// Runs the case on the open Connection to `target` against `site`.
     pub(crate) fn run(
         self,
         connection: &mut Connection,
+        target: &EngineTarget,
         site: &Site,
         checks: &mut Checks,
     ) -> Result<(), Gone> {
@@ -52,6 +60,7 @@ impl Case {
             Self::OwnProxies => own_proxies(connection, site, checks),
             Self::NonePerPage => none_per_page(connection, site, checks),
             Self::ServerUrl => server_url(connection, site, checks),
+            Self::NoneByAModel => none_by_a_model(connection, target, site, checks),
         }
     }
 }
@@ -65,7 +74,7 @@ fn call(connection: &mut Connection, method: &str, params: &Value) -> Result<Val
 
 /// `proxy.server` for the Proving ground's proxy `name`, checked to be one
 /// it serves.
-fn server(site: &Site, name: &str, checks: &mut Checks) -> Option<String> {
+pub(super) fn server(site: &Site, name: &str, checks: &mut Checks) -> Option<String> {
     let address = site.proxy(name);
     checks.check(
         format!("the Proving ground serves its `{name}` proxy"),
@@ -278,4 +287,98 @@ fn server_url(connection: &mut Connection, _site: &Site, checks: &mut Checks) ->
         );
     }
     Ok(())
+}
+
+/// The Error code, key and layer of a refusal `answer` names.
+fn locked(answer: &Value) -> (&Value, &Value, &Value) {
+    let data = &answer["error"]["data"];
+    (&data["code"], &data["key"], &data["layer"])
+}
+
+/// On a Connection of the MCP server, a Client acting for a model sets no
+/// proxy: `proxy.server` on a Run and in the project configuration it
+/// sends, and `proxy.password` on a Session, each fail with
+/// `setting_locked` naming the key and its layer (ADR 0092).
+fn none_by_a_model(
+    connection: &mut Connection,
+    target: &EngineTarget,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let mut agent = connection
+        .another(target)
+        .map_err(|error| Gone::Failed(error.to_string()))?;
+    let opened = hello_as(&mut agent, Product::Collie, Surface::Mcp);
+    checks.check(
+        "an Agent's Client, through the MCP server, opens its own Connection",
+        opened.is_ok(),
+    );
+    let ran = if opened.is_ok() {
+        refused_to_a_model(&mut agent, site, checks)
+    } else {
+        Ok(())
+    };
+    connection.keep(agent.take_exchanged());
+    agent.close();
+    ran
+}
+
+/// The model's three refusals, on `agent`, its Connection; no proxy is
+/// reached, since each is refused before its scope opens.
+fn refused_to_a_model(
+    agent: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let server = "http://127.0.0.1:3128";
+    let code = json!(SETTING_LOCKED.name);
+    let on_the_run = call(
+        agent,
+        RUN_START.name,
+        &json!({ "run_id": "conformance-proxy-model", "settings": { "proxy": { "server": server } } }),
+    )?;
+    checks.check(
+        "a model's `proxy.server` on a Run fails with `setting_locked` on the run layer",
+        locked(&on_the_run) == (&code, &json!("proxy.server"), &json!("run")),
+    );
+    let in_the_project = call(
+        agent,
+        RUN_START.name,
+        &json!({
+            "run_id": "conformance-proxy-model-project",
+            "project": {
+                "path": "goodfetch.toml",
+                "settings": { "proxy": { "server": server } },
+            },
+        }),
+    )?;
+    checks.check(
+        "a model's `proxy.server` in the project configuration it sends fails with `setting_locked`",
+        locked(&in_the_project)
+            == (
+                &code,
+                &json!("proxy.server"),
+                &json!("project_configuration"),
+            ),
+    );
+    start_run(
+        agent,
+        site,
+        "conformance-proxy-model-session",
+        &json!({}),
+        checks,
+    )?;
+    let on_a_session = call(
+        agent,
+        RUN_NEW_SESSION.name,
+        &json!({
+            "run_id": "conformance-proxy-model-session",
+            "settings": { "proxy": { "password": "env:GOODFETCH_CONFORMANCE_PROXY_PASSWORD" } },
+        }),
+    )?;
+    checks.check(
+        "a model's `proxy.password` on a Session fails with `setting_locked`",
+        locked(&on_a_session) == (&code, &json!("proxy.password"), &json!("run")),
+    );
+    finish_run(agent, "conformance-proxy-model-session")
 }

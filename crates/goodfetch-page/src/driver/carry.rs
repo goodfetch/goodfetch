@@ -218,18 +218,8 @@ async fn run_on(
     (function, argument): (&str, Value),
     call: &Call,
 ) -> Result<Value, CallError> {
-    let attached = browser
-        .send(
-            None,
-            &target::AttachToTargetParams {
-                target_id: page_target.clone(),
-                flatten: Some(true),
-            },
-            call,
-        )
-        .await?;
-    let session = TargetSession(attached.session_id);
-    let mut events = browser.connection.subscribe(Some(&session)).await;
+    let session = browser.attach_own(page_target, call).await?;
+    let mut events = browser.connection.subscribe(Some(&session));
     browser
         .send(
             Some(&session),
@@ -248,10 +238,12 @@ async fn run_on(
         .send(Some(&session), &page::EnableParams::default(), call)
         .await?;
     let committed = tokio::time::timeout(
-        super::COMMAND_TIMEOUT,
+        browser.deadlines.navigation.duration(),
         commit(browser, &session, &mut events, origin, call),
     )
     .await;
+    // No later command waits on a subscription nobody reads.
+    drop(events);
     match committed {
         Ok(Ok(true)) => {}
         Ok(Ok(false)) | Err(_) => {

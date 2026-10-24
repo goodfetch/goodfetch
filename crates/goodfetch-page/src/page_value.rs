@@ -11,11 +11,12 @@
 //!   Collie program does is refused, delayed or counted by them (its
 //!   Session's proxy's limits alone hold its navigation, ADR 0088).
 //! - **The response observer** ([`ResponseObserver`]), no part of the
-//!   value, receives the responses the engine observes on a page, a
-//!   service worker's included, whose URLs its patterns match, each body up
-//!   to its byte cap (ADR 0110). A page that registers none keeps nothing.
+//!   value, receives the responses the engine observes on a page, those a
+//!   service worker answered included, whose URLs its patterns match, each
+//!   body up to its byte cap (ADR 0110). A page that registers none keeps
+//!   nothing.
 //!
-//! [`HandlerPages`] is the hook that gives a page both when it opens; a
+//! [`HandlerPages`] is the seam that gives a page both when it opens; a
 //! Collie engine's gives every page none. The pages opened in a page's
 //! Session, the engine's own page that sends its `page.request` among
 //! them, take the value its Session's pages take.
@@ -165,11 +166,12 @@ impl PageValue {
         Self::default()
     }
 
-    /// A value whose navigation gate is `gate` and lease check `lease`.
-    pub fn new(gate: Arc<dyn NavigationGate>, lease: Arc<dyn LeaseCheck>) -> Self {
+    /// A value whose navigation gate is `gate` and lease check `lease`;
+    /// every page that takes it shares them.
+    pub fn new(gate: impl NavigationGate + 'static, lease: impl LeaseCheck + 'static) -> Self {
         Self {
-            gate: Some(gate),
-            lease: Some(lease),
+            gate: Some(Arc::new(gate)),
+            lease: Some(Arc::new(lease)),
         }
     }
 
@@ -184,17 +186,24 @@ impl PageValue {
     }
 }
 
-/// A response the engine observed on a page, or on a service worker of its
-/// Session.
+/// A response the engine observed on a page, one a service worker of its
+/// Session answered included.
 #[derive(Clone, Copy, Debug)]
 pub struct ObservedResponse<'a> {
+    /// The page whose request got it, so a page a handler opened in its
+    /// Session is told from the handler's own (ADR 0110).
+    pub page_id: &'a PageId,
     /// The URL that answered.
     pub url: &'a str,
+    /// The length of its whole body, after any content coding: more than
+    /// the observer receives when its byte cap cut it.
+    pub body_length: usize,
     /// Its status.
     pub status: u16,
     /// Its headers, as the browser gives them.
     pub headers: &'a [(String, String)],
-    /// Whether a service worker's own request got it.
+    /// Whether a service worker's fetch handler answered it, from its cache
+    /// or its own fetch, as the browser marks it (`fromServiceWorker()`).
     pub from_service_worker: bool,
 }
 
@@ -217,6 +226,28 @@ pub trait ResponseObserver: Debug + Send + Sync {
 
     /// Receives `response` and its `body`, cut at [`Kept::byte_cap`].
     fn on_response(&self, response: &ObservedResponse<'_>, body: &[u8]);
+}
+
+/// A registered [`ResponseObserver`], which every page of its Session
+/// shares.
+#[derive(Clone, Debug)]
+pub struct Observer(Arc<dyn ResponseObserver>);
+
+impl Observer {
+    /// `observer`, registered.
+    pub fn new(observer: impl ResponseObserver + 'static) -> Self {
+        Self(Arc::new(observer))
+    }
+
+    /// What it keeps, read once when its page opens.
+    pub(crate) fn kept(&self) -> Kept {
+        self.0.kept()
+    }
+
+    /// Passes it `response` and its `body`, cut at [`Kept::byte_cap`].
+    pub(crate) fn on_response(&self, response: &ObservedResponse<'_>, body: &[u8]) {
+        self.0.on_response(response, body);
+    }
 }
 
 /// A document a Product's fetch tier fetched without the browser, served
@@ -246,7 +277,7 @@ impl Debug for ServedDocument {
     }
 }
 
-/// The hook through which a Product sets what the pages it hands to
+/// The seam through which a Product sets what the pages it hands to
 /// handlers carry, asked as each page of the Session `session` of the Run
 /// `run` opens; every page of one Session takes the same.
 pub trait HandlerPages: Send + Sync {
@@ -254,7 +285,7 @@ pub trait HandlerPages: Send + Sync {
     fn value(&self, run: &RunId, session: &SessionId) -> PageValue;
 
     /// The page's response observer, when one is registered.
-    fn observer(&self, run: &RunId, session: &SessionId) -> Option<Arc<dyn ResponseObserver>>;
+    fn observer(&self, run: &RunId, session: &SessionId) -> Option<Observer>;
 
     /// The document the page `page_id` serves, when a fetch tier opened it
     /// from a document rather than in a browser; none by default.
@@ -264,7 +295,7 @@ pub trait HandlerPages: Send + Sync {
     }
 }
 
-/// The hook of an engine that hands no pages to handlers, Collie's: every
+/// The seam of an engine that hands no pages to handlers, Collie's: every
 /// page's value is empty and none registers an observer.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ProgramPages;
@@ -274,7 +305,7 @@ impl HandlerPages for ProgramPages {
         PageValue::empty()
     }
 
-    fn observer(&self, _run: &RunId, _session: &SessionId) -> Option<Arc<dyn ResponseObserver>> {
+    fn observer(&self, _run: &RunId, _session: &SessionId) -> Option<Observer> {
         None
     }
 }

@@ -6,20 +6,22 @@
 //! load passes: its Page check, or the challenge cleared. The second load
 //! answers the call that waited for the navigation; it is neither a Run's
 //! retry nor a failure, and Provenance records that blocking was off, why,
-//! and whether it was learned off. A page later loaded on a domain blocking
-//! was learned off for is recorded too.
+//! and whether it was learned off, a load that failed included. The first
+//! load's Block cause is the one its navigation judged, and the second's is
+//! judged the same way, so no document is read twice for it. A page later
+//! loaded on a domain blocking was learned off for is recorded too.
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::events::Events;
-use goodfetch_protocol::page::{
-    Navigated, PAGE_CHECK_FAILED, PageId, PageResponse, SessionId, WaitUntil,
-};
+use goodfetch_protocol::page::PageResponse;
+use goodfetch_protocol::page::{Navigated, PAGE_CHECK_FAILED, PageId, SessionId, WaitUntil};
 use serde_json::{Value, json};
 
 use super::Pages;
 use super::arrival::{arrived, judging};
-use crate::blocks::{Block, BlockClassifier};
-use crate::driver::{Destination, PageDriver};
+use super::blocked::{block_of, blocked};
+use crate::blocks::Block;
+use crate::driver::Destination;
 use crate::interception::{self, Lists};
 use crate::recovery;
 use crate::sessions::{OpenPage, PageEvent};
@@ -36,9 +38,10 @@ pub(super) struct FirstLoad<'a> {
     pub(super) response: PageResponse,
     /// Its Page check's verdict.
     pub(super) judged: Result<(), CallError>,
-    /// How many of the page's requests the Filter lists had blocked before
-    /// it began.
-    pub(super) blocked_before: u64,
+    /// Its document's Block cause, as its navigation judged it.
+    pub(super) block: Option<Block>,
+    /// Whether the Filter lists blocked a request of its navigation.
+    pub(super) touched: bool,
 }
 
 impl Pages {
@@ -56,7 +59,8 @@ impl Pages {
         let FirstLoad {
             response,
             judged,
-            blocked_before,
+            block,
+            touched,
             ..
         } = &first;
         let loaded = |domain| Loaded {
@@ -67,10 +71,7 @@ impl Pages {
         };
         match self.interception.lists_for(page_id, &response.url) {
             Lists::On => {
-                let touched = self.interception.lists_blocked(page_id) > *blocked_before;
-                let blocks = self.blocks.as_ref();
-                if let Some(reason) = reason(&page.driver, blocks, response, judged, touched).await
-                {
+                if let Some(reason) = reason(*block, judged, *touched) {
                     return self
                         .again_without_lists(page_id, page, &first, reason, events)
                         .await;
@@ -92,7 +93,9 @@ impl Pages {
     /// `first` failed for `reason`: to the URL its destination names, or
     /// else its document again. Blocking is learned off for the first
     /// document's domain only when this load passes; Provenance records it,
-    /// and this load's outcome answers the call.
+    /// a load that failed included, and this load's outcome answers the
+    /// call: its document's Block cause, judged as the first's was, raises
+    /// `blocked`.
     async fn again_without_lists(
         &self,
         page_id: &PageId,
@@ -113,21 +116,78 @@ impl Pages {
                 page.driver.navigate(again, first.wait_until),
             )
             .await;
-        if let Some(failure) = self.left_failure(page_id) {
-            return Err(failure);
-        }
-        let response = arrived(page_id, navigated?, events).await;
-        let (judged, passed) = match &response {
-            Some(response) => {
-                let judged = recovery::judge(&judging(page, page_id, again), response).await;
-                let blocks = self.blocks.as_ref();
-                let passed = passed(reason, &page.driver, blocks, response, &judged).await;
-                (judged, passed)
+        let navigated = match self.left_failure(page_id) {
+            Some(failure) => Err(failure),
+            None => navigated,
+        };
+        let loaded = match navigated {
+            Ok(navigated) => {
+                self.judged_again(page_id, page, again, navigated, events)
+                    .await
             }
-            None => (Ok(()), false),
+            Err(failure) => Err(failure),
         };
         drop(lists_off);
-        let url = &first.response.url;
+        let passed = match &loaded {
+            Ok(Some((_, judged, block))) => passed(reason, judged, *block),
+            _ => false,
+        };
+        self.retried(page_id, page, &first.response.url, reason, passed)
+            .await;
+        let Some((response, judged, block)) = loaded? else {
+            return Ok(Navigated { response: None });
+        };
+        judged?;
+        if let Some(block) = block {
+            let received = self
+                .events
+                .get(page_id)?
+                .answered_at(&response.request_id)
+                .unwrap_or_else(|| page.clock.wall());
+            return Err(blocked(block, &response, received));
+        }
+        Ok(Navigated {
+            response: Some(response),
+        })
+    }
+
+    /// The second load's document, `navigated` to `again`: its response,
+    /// its Page check's verdict and its Block cause, judged as the first
+    /// load's were; none when no document arrived.
+    async fn judged_again(
+        &self,
+        page_id: &PageId,
+        page: &OpenPage,
+        again: Destination<'_>,
+        navigated: crate::driver::Arrived,
+        events: &Events,
+    ) -> Result<Option<(PageResponse, Result<(), CallError>, Option<Block>)>, CallError> {
+        let Some(response) = arrived(page_id, navigated, events).await else {
+            return Ok(None);
+        };
+        self.events.get(page_id)?.judged(&response.request_id);
+        let block = block_of(
+            &page.driver,
+            self.blocks.as_ref(),
+            &response,
+            Some(again.operation()),
+        )
+        .await?;
+        let judged = recovery::judge(&judging(page, page_id, again), &response).await;
+        Ok(Some((response, judged, block)))
+    }
+
+    /// Records in Provenance that the page `page_id`'s document at `url`
+    /// was loaded once more with blocking off for `reason`, and whether that
+    /// load `passed`, which learns blocking off for its domain.
+    async fn retried(
+        &self,
+        page_id: &PageId,
+        page: &OpenPage,
+        url: &str,
+        reason: Reason,
+        passed: bool,
+    ) {
         let domain = if passed {
             self.interception.learn_off(page_id, url)
         } else {
@@ -140,8 +200,6 @@ impl Pages {
             domain: domain.as_deref(),
         };
         trace::provenance(&page.run, &loaded.retried(reason, passed)).await;
-        judged?;
-        Ok(Navigated { response })
     }
 }
 
@@ -165,24 +223,18 @@ impl Reason {
     }
 }
 
-/// Why the document `response` answered, which its Page check judged
+/// Why a document whose Block cause is `block`, which its Page check judged
 /// `judged`, is loaded once more with blocking off, the page's Filter lists
 /// being on and `touched` saying whether they blocked a request of its
 /// navigation; none when it is not.
-async fn reason(
-    driver: &PageDriver,
-    blocks: &dyn BlockClassifier,
-    response: &PageResponse,
-    judged: &Result<(), CallError>,
-    touched: bool,
-) -> Option<Reason> {
+fn reason(block: Option<Block>, judged: &Result<(), CallError>, touched: bool) -> Option<Reason> {
     let failed = judged
         .as_ref()
         .is_err_and(|error| error.code() == PAGE_CHECK_FAILED.name);
     if !failed && !touched {
         return None;
     }
-    match block(driver, blocks, response).await {
+    match block {
         Some(block) if touched && block.checks_the_browser() => Some(Reason::Challenge(block)),
         // Any other Block cause is the site's refusal, never blocking's.
         Some(_) => None,
@@ -190,33 +242,14 @@ async fn reason(
     }
 }
 
-/// Whether the load with blocking off for `reason` passed: the document
-/// `response` answered passes its Page check, as `judged` says, or no
-/// longer checks the browser.
-async fn passed(
-    reason: Reason,
-    driver: &PageDriver,
-    blocks: &dyn BlockClassifier,
-    response: &PageResponse,
-    judged: &Result<(), CallError>,
-) -> bool {
+/// Whether the load with blocking off for `reason` passed: its document
+/// passes its Page check, as `judged` says, or, its Block cause being
+/// `block`, no longer checks the browser.
+fn passed(reason: Reason, judged: &Result<(), CallError>, block: Option<Block>) -> bool {
     match reason {
         Reason::PageCheckFailed => judged.is_ok(),
-        Reason::Challenge(_) => block(driver, blocks, response)
-            .await
-            .is_none_or(|block| !block.checks_the_browser()),
+        Reason::Challenge(_) => block.is_none_or(|block| !block.checks_the_browser()),
     }
-}
-
-/// The Block cause of the document `response` answered, as the page now
-/// holds it; none when no rule decides one or the document is gone.
-async fn block(
-    driver: &PageDriver,
-    blocks: &dyn BlockClassifier,
-    response: &PageResponse,
-) -> Option<Block> {
-    let document = driver.document().await.ok()?;
-    blocks.classify(response, &document.html)
 }
 
 /// The page whose document a Provenance entry names.

@@ -436,6 +436,7 @@ fn budget_reasons(connection: &Connection) -> rusqlite::Result<Vec<CompletenessR
                     CRAWL_PATH_BUDGETS.name,
                     plural(refused, "URL", "URLs"),
                 ),
+                count: Some(refused),
                 call_id: None,
             },
         })
@@ -461,6 +462,7 @@ fn refused_by(name: String, count: u64) -> AxisReason {
             "`{name}` refused {count} {urls} the crawl would otherwise have admitted."
         ),
         code: name,
+        count: Some(count),
         call_id: None,
     }
 }

@@ -88,16 +88,25 @@ impl PermitWaits {
         let start = self.clock.now();
         let waited_before = self.waited(start);
         let mut future = std::pin::pin!(future);
+        let mut changes = self.state.subscribe();
         loop {
+            changes.borrow_and_update();
             let now = self.clock.now();
             let deadline = start + limit + self.waited(now).saturating_sub(waited_before);
-            if now >= deadline {
+            // While a wait is under way the deadline moves with the clock:
+            // only its end, or another wait's start, moves it again.
+            let waiting = self.state.borrow().pending > 0;
+            if !waiting && now >= deadline {
                 return Err(Elapsed);
             }
             tokio::select! {
                 output = &mut future => return Ok(output),
-                () = self.clock.sleep_until(deadline) => {}
+                () = self.clock.sleep_until(deadline), if !waiting => {}
+                _ = changes.changed() => {}
             }
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

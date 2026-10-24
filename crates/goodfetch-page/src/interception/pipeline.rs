@@ -2,7 +2,7 @@
 //! steps the interception lists, in order, as a task of the page's Run.
 //! Steps 3 to 8 for what the last route sends on are [`steps`]'s; step 6,
 //! the page's navigation gate, waits, so it is asked here. A document's
-//! response, and every response a response observer keeps, pause too.
+//! response pauses too, for the gate to judge.
 //!
 //! Size: one paused request's way through the steps, each of which reads
 //! and answers the same held request on the same page; the steps' pure
@@ -14,11 +14,11 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 use data_encoding::BASE64;
-use goodfetch_cdp::Subscription;
 use goodfetch_cdp::generated::{fetch, network, page};
+use goodfetch_cdp::{NetError, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::{self, Policy, Refused, RequestKind};
@@ -33,7 +33,8 @@ use goodfetch_protocol::page::route::{
     RouteFetched, RouteHandleParams, RouteHandled, RouteId, RouteRequest,
 };
 use goodfetch_protocol::page::{
-    NAVIGATION_FAILED, NavigationFailedDetails, PageId, ServiceWorkerRequest, SessionId,
+    NAVIGATION_FAILED, NavigationFailedDetails, PageId, RequestFailed, ServiceWorkerRequest,
+    SessionId,
 };
 use secrecy::ExposeSecret as _;
 use tokio::sync::oneshot;
@@ -45,17 +46,18 @@ use super::steps::{self, Blocking, Overrides, Stopped, entries};
 use super::{PageState, lock};
 use crate::driver::PageDriver;
 use crate::errors::{site_preferences_failure, site_preferences_refused};
-use crate::page_events::Refusals;
-use crate::page_value::{
-    DocumentResponse, Kept, Navigation, NavigationKind, ObservedResponse, Permit, Refusal,
-    ResponseObserver,
-};
+use crate::page_events::{Refusals, post_data};
+use crate::page_value::{DocumentResponse, Navigation, NavigationKind, Permit, Refusal};
 use crate::proxy::{self, PROXY_STATUS, ProxyPermit};
 
 /// Whose requests a pipeline holds.
 pub(crate) enum Sender {
     /// A page's.
     Page(PageId),
+    /// An out-of-process frame's of the page `page`, whose target is not
+    /// the page's: they pass the page's routes, and its page's events never
+    /// see them, so each one refused is recorded in the Run trace at once.
+    Frame(PageId),
     /// A site's service worker's, which belongs to no page, of the Session
     /// `session`: each one is recorded in the Run trace's request `log`
     /// (ADR 0121).
@@ -63,15 +65,25 @@ pub(crate) enum Sender {
         session: SessionId,
         log: Arc<RequestLog>,
     },
+    /// A shared worker's, which belongs to no page: each one refused is
+    /// recorded in the Run trace at once.
+    SharedWorker,
 }
 
 impl Sender {
-    /// The page, when a page sends the requests.
+    /// The page, when a page or one of its frames sends the requests.
     fn page_id(&self) -> Option<&PageId> {
         match self {
-            Self::Page(page_id) => Some(page_id),
-            Self::ServiceWorker { .. } => None,
+            Self::Page(page_id) | Self::Frame(page_id) => Some(page_id),
+            Self::ServiceWorker { .. } | Self::SharedWorker => None,
         }
+    }
+
+    /// Whether a refusal is recorded in the Run trace at once, since no
+    /// page's events report the sender's requests: a frame's or a shared
+    /// worker's.
+    fn records_at_once(&self) -> bool {
+        matches!(self, Self::Frame(_) | Self::SharedWorker)
     }
 }
 
@@ -85,15 +97,18 @@ pub(super) struct PageContext {
     blocking: Blocking,
     /// The refusals the page's requests then carry.
     refusals: Refusals,
-    /// The response observer its Session registered, and what it keeps.
-    observing: Option<Observing>,
     run: Run,
     /// The requests a `fetch` sent on, waiting for their response to be
-    /// paused, by the interception's ID.
-    responses: Mutex<BTreeMap<fetch::RequestId, oneshot::Sender<fetch::RequestPausedEvent>>>,
+    /// paused, by the interception's ID, each with its network ID: a
+    /// request that fails first, or a target that goes, drops its waiter.
+    responses: Mutex<BTreeMap<fetch::RequestId, Fetching>>,
+    /// A service worker's requests that carry a page's navigation, sent on
+    /// with their response paused for the gate to judge, by the
+    /// interception's ID: the page each carries a navigation of.
+    carried: Mutex<BTreeMap<fetch::RequestId, Weak<PageState>>>,
     /// The URL of the main frame's document last sent on: the source the
     /// Filter lists judge a request without a `Referer` by.
-    document: Mutex<String>,
+    document: Mutex<Arc<str>>,
     /// The requests the Session's proxy credentials were given for.
     authenticated: Mutex<Authenticated>,
     /// The permit the page's navigation gate gave the main frame's
@@ -109,6 +124,16 @@ pub(super) struct PageContext {
     /// which the engine resolves each request's host itself and judges its
     /// answers, since no relay is under that browser (ADR 0056).
     lookups: Option<Arc<Resolve>>,
+    /// The Run trace's request log, where a refusal no page's event
+    /// reports is recorded.
+    log: Arc<RequestLog>,
+}
+
+/// A request a `fetch` sent on: its network ID, and where its paused
+/// response goes.
+struct Fetching {
+    network_id: Option<network::RequestId>,
+    response: oneshot::Sender<fetch::RequestPausedEvent>,
 }
 
 /// The latest requests the Session's proxy credentials were given for, so a
@@ -153,7 +178,6 @@ impl PageContext {
         policy: Policy,
         blocking: Blocking,
         refusals: Refusals,
-        observing: Option<Observing>,
         run: Run,
     ) -> Self {
         Self {
@@ -164,14 +188,25 @@ impl PageContext {
             policy,
             blocking,
             refusals,
-            observing,
-            run,
             responses: Mutex::new(BTreeMap::new()),
-            document: Mutex::new(String::new()),
+            carried: Mutex::new(BTreeMap::new()),
+            document: Mutex::new(Arc::from("")),
             authenticated: Mutex::new(Authenticated::default()),
             permit: Mutex::new(None),
             proxy_permit: Mutex::new(None),
             lookups: None,
+            log: Arc::new(RequestLog::new(run.owner().child(), run.folder())),
+            run,
+        }
+    }
+
+    /// The same, on an out-of-process frame whose document the browser
+    /// named `url` when it attached it: the source the Filter lists judge
+    /// its requests without a `Referer` by.
+    pub(super) fn with_document(self, url: &str) -> Self {
+        Self {
+            document: Mutex::new(Arc::from(url)),
+            ..self
         }
     }
 
@@ -182,32 +217,13 @@ impl PageContext {
     }
 }
 
-/// A response observer and what it keeps, read once when its page opened
-/// (ADR 0110).
-#[derive(Clone)]
-pub(crate) struct Observing {
-    observer: Arc<dyn ResponseObserver>,
-    kept: Kept,
-}
-
-impl Observing {
-    /// `observer`, keeping what it says it keeps now.
-    pub(crate) fn of(observer: Arc<dyn ResponseObserver>) -> Self {
-        let kept = observer.kept();
-        Self { observer, kept }
-    }
-
-    /// Whether it keeps the response to `url`.
-    fn keeps(&self, url: &str) -> bool {
-        self.kept.urls.iter().any(|pattern| pattern.matches(url))
-    }
-}
-
 /// Reads the page's paused requests until its target goes, each through the
 /// pipeline as a task of its own.
 pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>) {
     while let Some(event) = events.next().await {
-        if event.read::<page::LoadEventFiredEvent>().is_some() {
+        if matches!(context.sender, Sender::Page(_))
+            && event.read::<page::LoadEventFiredEvent>().is_some()
+        {
             // The navigation's last hop ends with the page's `load`.
             drop(lock(&context.permit).take());
             drop(lock(&context.proxy_permit).take());
@@ -222,7 +238,11 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
                 && started.navigation_type
                     != page::FrameStartedNavigatingNavigationType::SameDocument
             {
-                context.state.pending.started(page_id, &started.url);
+                context.state.pending.started(
+                    page_id,
+                    &started.url,
+                    &Arc::downgrade(&context.state),
+                );
             }
             continue;
         }
@@ -241,6 +261,9 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
             continue;
         }
         if let Some(failed) = event.read::<network::LoadingFailedEvent>() {
+            // A request a `fetch` sent on that fails gets no response.
+            lock(&context.responses)
+                .retain(|_, fetching| fetching.network_id.as_ref() != Some(&failed.request_id));
             let mut permit = lock(&context.permit);
             if permit
                 .as_ref()
@@ -250,6 +273,10 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
             }
             drop(permit);
             context.proxy_hop_failed(&failed);
+            continue;
+        }
+        if let Some(created) = event.read::<network::WebSocketCreatedEvent>() {
+            context.web_socket(&created.url);
             continue;
         }
         if let Some(required) = event.read::<fetch::AuthRequiredEvent>() {
@@ -264,7 +291,7 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
         let at_response =
             paused.response_status_code.is_some() || paused.response_error_reason.is_some();
         if at_response && let Some(waiting) = lock(&context.responses).remove(&paused.request_id) {
-            let _ = waiting.send(paused);
+            let _ = waiting.response.send(paused);
             continue;
         }
         let context = Arc::clone(&context);
@@ -279,6 +306,8 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
             }
         });
     }
+    // The target went: no `fetch` it sent on gets a response now.
+    lock(&context.responses).clear();
 }
 
 /// A paused request as it goes: as the page sent it, with the overrides of
@@ -311,7 +340,6 @@ impl Held {
         self.overrides = std::mem::take(&mut self.overrides).then(overrides);
     }
 
-    /// The request as a route sees it.
     /// The request as a route sees it: without the Session's cookies.
     fn view(&self) -> RouteRequest {
         let headers = self.overrides.headers.clone().unwrap_or_else(|| {
@@ -329,6 +357,11 @@ impl Held {
             headers,
             resource_type: resource_type(self.paused.resource_type),
             is_navigation_request: self.navigation,
+            post_data: self
+                .overrides
+                .post_data
+                .clone()
+                .or_else(|| post_data(&self.paused.request)),
         }
     }
 }
@@ -427,11 +460,17 @@ impl PageContext {
         }
     }
 
+    /// Whether `paused` is a request, or a response, of the document of
+    /// the page's main frame: a service worker has none.
+    fn main_document(&self, paused: &fetch::RequestPausedEvent) -> bool {
+        self.sender.page_id().is_some()
+            && paused.resource_type == network::ResourceType::Document
+            && &paused.frame_id == self.driver.main_frame()
+    }
+
     /// Runs one paused request through the pipeline.
     async fn intercept(&self, paused: fetch::RequestPausedEvent) {
-        let navigation = self.sender.page_id().is_some()
-            && paused.resource_type == network::ResourceType::Document
-            && &paused.frame_id == self.driver.main_frame();
+        let navigation = self.main_document(&paused);
         let mut held = Held {
             paused,
             overrides: Overrides::default(),
@@ -519,17 +558,43 @@ impl PageContext {
             (Answer::Fetch(overrides), Stage::Unanswered) => {
                 held.apply(overrides);
                 let (response, responded) = oneshot::channel();
-                lock(&self.responses).insert(id.clone(), response);
+                let network_id = held.paused.network_id.clone();
+                lock(&self.responses).insert(
+                    id.clone(),
+                    Fetching {
+                        network_id,
+                        response,
+                    },
+                );
                 if let Err(refused) = self.send_on(held, true).await {
                     lock(&self.responses).remove(&id);
                     return (Err(refused), Some(Routed::Ended));
                 }
-                match responded.await {
-                    Ok(paused) => {
+                // Its response pauses, or its waiter goes with the request
+                // or the target; the Run's end stops the wait too.
+                let paused = tokio::select! {
+                    paused = responded => paused.ok(),
+                    () = self.run.cancellation().cancelled() => None,
+                };
+                lock(&self.responses).remove(&id);
+                match paused {
+                    Some(paused) => {
+                        // The gate judges a main-frame document before the
+                        // route gets it.
+                        let status = paused
+                            .response_status_code
+                            .and_then(|status| u16::try_from(status).ok())
+                            .unwrap_or_default();
+                        if held.navigation
+                            && let Some(refused) =
+                                self.refused_document(&paused, status, None).await
+                        {
+                            return (Err(refused), Some(Routed::Ended));
+                        }
                         *stage = Stage::Fetched;
                         (self.fetched(&paused).await, None)
                     }
-                    Err(_) => (Err(gone(held.url())), Some(Routed::Ended)),
+                    None => (Err(gone(held.url())), Some(Routed::Ended)),
                 }
             }
             (Answer::Fulfill(fulfillment), _) => {
@@ -551,20 +616,7 @@ impl PageContext {
 
     /// The response a `fetch` got, its body read.
     async fn fetched(&self, paused: &fetch::RequestPausedEvent) -> Result<Reply, CallError> {
-        let body = self
-            .driver
-            .command(&fetch::GetResponseBodyParams {
-                request_id: paused.request_id.clone(),
-            })
-            .await
-            .map(|read| {
-                if read.base64_encoded {
-                    read.body
-                } else {
-                    BASE64.encode(read.body.as_bytes())
-                }
-            })
-            .unwrap_or_default();
+        let body = BASE64.encode(&self.body(&paused.request_id).await);
         let headers = paused
             .response_headers
             .iter()
@@ -649,13 +701,20 @@ impl PageContext {
     ///
     /// `egress_refused` when the domain policy refuses it: the request is
     /// failed carrying the refusal, and the navigation waiting on it raises
-    /// it, or else the Run trace records it.
+    /// it, or else the Run trace records it; for a `fetch`, `closed` when
+    /// the request went before it was sent on.
     async fn send_on(&self, held: &Held, fetch: bool) -> Result<(), CallError> {
         let id = &held.paused.request_id;
-        let source = if held.navigation {
-            held.url().to_owned()
+        // Borrowed from the request where it can be, so no request
+        // allocates its source.
+        let document;
+        let source: &str = if held.navigation {
+            held.url()
+        } else if let Some(referer) = referer(&held.paused.request.headers) {
+            referer
         } else {
-            referer(&held.paused.request.headers).unwrap_or_else(|| lock(&self.document).clone())
+            document = Arc::clone(&*lock(&self.document));
+            &document
         };
         let paused = steps::Paused {
             id,
@@ -663,14 +722,14 @@ impl PageContext {
             method: held.method(),
             overrides: &held.overrides,
             kind: steps::kind(held.paused.resource_type, held.navigation),
-            source_url: &source,
+            source_url: source,
             egress: self.egress_kind(held),
         };
         // Step 4 without the Filter lists while the page loads once more
         // with blocking off, or for a document on a domain its Run learned
         // blocking off for (ADR 0047).
         let without_lists;
-        let blocking = if self.state.lists_off(&source) {
+        let blocking = if self.state.lists_off(source) {
             without_lists = self.blocking.without_lists();
             &without_lists
         } else {
@@ -688,12 +747,24 @@ impl PageContext {
                 // Step 6: the page's navigation gate; its lease check is
                 // asked before the command that sends the request on.
                 let admitted = if held.navigation {
-                    self.admit(held).await
+                    self.admit(held)
+                        .await
+                        .map(|()| None)
+                        .map_err(|refusal| (refusal, None))
                 } else {
                     self.admit_for_worker(held).await
                 };
-                if let Err(refusal) = admitted {
-                    return Err(self.gate_refused(held, &refusal).await);
+                let mut command = command;
+                match admitted {
+                    Err((refusal, carried)) => {
+                        return Err(self.gate_refused(held, &refusal, carried.as_deref()).await);
+                    }
+                    // The document it brings back is judged when it arrives.
+                    Ok(Some(carried)) => {
+                        lock(&self.carried).insert(id.clone(), Arc::downgrade(&carried));
+                        command.intercept_response = Some(true);
+                    }
+                    Ok(None) => {}
                 }
                 self.trace_service_worker(held, None);
                 command
@@ -728,10 +799,14 @@ impl PageContext {
             }
         };
         if held.navigation {
-            held.url().clone_into(&mut lock(&self.document));
+            *lock(&self.document) = Arc::from(held.url());
         }
         if let Err(failure) = self.driver.command(&command).await {
             tracing::debug!(?failure, "a paused request went before it was sent on");
+            // A `fetch` whose request was never sent on gets no response.
+            if fetch {
+                return Err(gone(held.url()));
+            }
         }
         Ok(())
     }
@@ -785,7 +860,8 @@ impl PageContext {
     /// the main frame's navigation, a program's own included, keeping it
     /// until the hop ends, once the limits admit it (ADRs 0053 and 0088):
     /// the hop before gives its Permit back first. The wait counts against
-    /// no deadline of the page. A page without a proxy goes at once.
+    /// no deadline of the page. A page without a proxy, and a hop
+    /// `proxy.bypass` sends around it, go at once.
     async fn admit_through_proxy(&self, held: &Held) {
         if self.driver.proxy().is_none() {
             return;
@@ -820,12 +896,15 @@ impl PageContext {
         let Some(permit) = self.proxy_hop(Some(&failed.request_id)) else {
             return;
         };
-        if proxy::refusal(
-            proxy::Answer::Failure {
-                error: &failed.error_text,
-            },
-            None,
-        ) {
+        let refused = self.driver.proxy().is_some_and(|proxy| {
+            proxy.refusal(
+                proxy::Answer::Failure {
+                    error: &failed.error_text,
+                },
+                None,
+            )
+        });
+        if refused {
             self.run.spawn(permit.refused());
         }
     }
@@ -837,16 +916,17 @@ impl PageContext {
     /// lowered by the time the navigation's call answers. A site's
     /// response, of any status, leaves the Permit to its hop's end.
     async fn proxy_answered(&self, paused: &fetch::RequestPausedEvent, status: u16) {
-        if self.driver.proxy().is_none() {
+        let Some(proxy) = self.driver.proxy() else {
             return;
-        }
+        };
         let proxy_status = paused
             .response_headers
             .iter()
             .flatten()
             .find(|header| header.name.eq_ignore_ascii_case(PROXY_STATUS))
             .map(|header| header.value.as_str());
-        if !proxy::refusal(proxy::Answer::Response { proxy_status }, Some(status)) {
+        let answer = proxy.response(&paused.request.url, proxy_status);
+        if !proxy.refusal(answer, Some(status)) {
             return;
         }
         if let Some(permit) = self.proxy_hop(paused.network_id.as_ref()) {
@@ -888,45 +968,83 @@ impl PageContext {
     /// Asks the navigation gate to admit `held`, a service worker's request,
     /// when it carries a navigation pending on a page of its Session: one to
     /// that navigation's URL, fragment removed, in `navigate` mode or any
-    /// other. Its permit is the navigation's, held until the page's `load`.
-    /// Any other request is admitted at once.
-    async fn admit_for_worker(&self, held: &Held) -> Result<(), Refusal> {
+    /// other. Its permit is the navigation's, held until the page's `load`,
+    /// and the navigation stays its page's: the page's gate admits it, the
+    /// wait counting against none of the page's deadlines. Any other
+    /// request is admitted at once. Answers the page whose navigation it
+    /// carries, whose gate judges the document it brings back.
+    ///
+    /// # Errors
+    ///
+    /// The gate's refusal, with the page whose navigation it carries.
+    async fn admit_for_worker(
+        &self,
+        held: &Held,
+    ) -> Result<Option<Arc<PageState>>, (Refusal, Option<Arc<PageState>>)> {
         if !matches!(self.sender, Sender::ServiceWorker { .. })
             || self.driver.value().gate().is_none()
         {
-            return Ok(());
+            return Ok(None);
         }
-        let Some(page) = self.state.pending.take(held.url()) else {
-            return Ok(());
+        let Some((page, carried)) = self.state.pending.take(held.url()) else {
+            return Ok(None);
         };
+        let carried = carried.upgrade();
+        let driver = carried
+            .as_ref()
+            .and_then(|state| state.navigating.as_ref())
+            .map_or(&self.driver, |navigating| &navigating.driver);
         let navigation = Navigation {
             url: held.url().to_owned(),
             method: held.method().to_owned(),
             kind: NavigationKind::ServiceWorker,
         };
-        if let Some(permit) = self.driver.admit(&navigation).await? {
-            self.state.pending.hold(&page, permit);
+        match driver.admit(&navigation).await {
+            Ok(Some(permit)) => self.state.pending.hold(&page, permit),
+            Ok(None) => {}
+            Err(refusal) => return Err((refusal, carried)),
         }
-        Ok(())
+        Ok(carried)
     }
 
     /// Aborts `held`, which the page's navigation gate refused, and answers
     /// `site_preferences_refused`: a navigation call waiting on the page
-    /// raises it; with none waiting, its `page.request_failed` carries it
-    /// and the Run trace records it. Aborted, the page keeps its document.
-    async fn gate_refused(&self, held: &Held, refusal: &Refusal) -> CallError {
+    /// raises it; with none waiting, its `page.request_failed` carries it,
+    /// the Run trace records it and the waiters armed for it raise it.
+    /// Aborted, the page keeps its document. A service worker's request
+    /// that carried the navigation of the page `carried` raises it from
+    /// that page's navigation call or waiters.
+    async fn gate_refused(
+        &self,
+        held: &Held,
+        refusal: &Refusal,
+        carried: Option<&PageState>,
+    ) -> CallError {
         let url = held.url();
-        let waiting = self.driver.navigation_waits();
-        if matches!(self.sender, Sender::ServiceWorker { .. }) {
-            // A worker's request, which no page's event reports, is
-            // recorded refused at once.
+        let page = carried.and_then(|state| state.navigating.as_ref().map(|page| (state, page)));
+        let waiting = match page {
+            Some((_, page)) => page.driver.navigation_waits(),
+            None => self.driver.navigation_waits(),
+        };
+        if !matches!(self.sender, Sender::Page(_)) {
+            // A worker's or a frame's request, which no page's event
+            // reports, is recorded refused at once.
             self.leave_refusal(held, site_preferences_failure(url, refusal));
         } else if let Some(network_id) = &held.paused.network_id {
             self.refusals
                 .leave(network_id, site_preferences_failure(url, refusal), !waiting);
         }
-        if waiting {
-            self.state.leave(site_preferences_refused(url, refusal));
+        match page {
+            Some((state, _)) if waiting => state.leave(site_preferences_refused(url, refusal)),
+            // No call waits on it: the waiters armed for it raise it.
+            Some((_, page)) => page
+                .refusals
+                .refuse_navigation(url, site_preferences_refused(url, refusal)),
+            None if waiting => self.state.leave(site_preferences_refused(url, refusal)),
+            None if held.navigation => self
+                .refusals
+                .refuse_navigation(url, site_preferences_refused(url, refusal)),
+            None => {}
         }
         self.fail(&held.paused.request_id, network::ErrorReason::Aborted)
             .await;
@@ -962,10 +1080,14 @@ impl PageContext {
     /// carrying the refusal, which the navigation waiting on it raises, or
     /// else the Run trace records.
     async fn refuse_redirect(&self, paused: &fetch::RequestPausedEvent, refused: &Refused) {
-        let navigation = self.sender.page_id().is_some()
-            && paused.resource_type == network::ResourceType::Document
-            && &paused.frame_id == self.driver.main_frame();
-        if let Some(network_id) = &paused.network_id {
+        let navigation = self.main_document(paused);
+        if self.sender.records_at_once() {
+            self.record_refusal(
+                &paused.request.url,
+                &paused.request.method,
+                refused.failure(),
+            );
+        } else if let Some(network_id) = &paused.network_id {
             self.refusals
                 .leave(network_id, refused.failure(), !navigation);
         }
@@ -978,14 +1100,16 @@ impl PageContext {
 
     /// Acts on the response paused at `paused`, which no `fetch` waits for:
     /// a redirect to a scheme no request may use is refused; a main-frame
-    /// document's goes on once the page's navigation gate
+    /// document's, or the one a service worker's request carrying a page's
+    /// navigation brought back, goes on once the page's navigation gate
     /// judged it, and on its refusal the page is left on a blank document,
     /// the navigation call waiting on it raising the refusal; any other
     /// response goes on as it came.
     async fn responded(&self, paused: &fetch::RequestPausedEvent) {
-        let document = self.sender.page_id().is_some()
-            && paused.resource_type == network::ResourceType::Document
-            && &paused.frame_id == self.driver.main_frame();
+        let document = self.main_document(paused);
+        let carried = lock(&self.carried)
+            .remove(&paused.request_id)
+            .and_then(|page| page.upgrade());
         let status = paused
             .response_status_code
             .and_then(|status| u16::try_from(status).ok())
@@ -1002,18 +1126,39 @@ impl PageContext {
             self.refuse_redirect(paused, &refused).await;
             return;
         }
+        // A response that never came (an error-stage pause) has no document
+        // to judge.
+        if (document || carried.is_some())
+            && paused.response_status_code.is_some()
+            && self
+                .refused_document(paused, status, carried.as_deref())
+                .await
+                .is_some()
+        {
+            return;
+        }
+        self.continue_response(&paused.request_id).await;
+    }
+
+    /// Judges the main-frame document whose response is paused at `paused`
+    /// with `status` by the page's navigation gate, before anything renders
+    /// it or a route gets it: `carried` is the page whose navigation a
+    /// service worker's request carried, none for this pipeline's own page.
+    /// On a refusal the request is answered with a blank document, and the
+    /// refusal raises from the page's navigation call, or else from the
+    /// waiters armed for it; the refusal is answered. A redirect, and a page
+    /// with no gate, are never judged.
+    async fn refused_document(
+        &self,
+        paused: &fetch::RequestPausedEvent,
+        status: u16,
+        carried: Option<&PageState>,
+    ) -> Option<CallError> {
         let gate = self
             .driver
             .value()
             .gate()
-            .filter(|_| document && !(300..400).contains(&status));
-        let observing = self.observing.as_ref().filter(|observing| {
-            paused.response_status_code.is_some() && observing.keeps(&paused.request.url)
-        });
-        if gate.is_none() && observing.is_none() {
-            self.continue_response(&paused.request_id).await;
-            return;
-        }
+            .filter(|_| !(300..400).contains(&status))?;
         let body = self.body(&paused.request_id).await;
         let headers: Vec<(String, String)> = paused
             .response_headers
@@ -1021,35 +1166,30 @@ impl PageContext {
             .flatten()
             .map(|header| (header.name.to_ascii_lowercase(), header.value.clone()))
             .collect();
-        if let Some(observing) = observing {
-            let observed = ObservedResponse {
-                url: &paused.request.url,
-                status,
-                headers: &headers,
-                from_service_worker: matches!(self.sender, Sender::ServiceWorker { .. }),
-            };
-            let cut = body.len().min(observing.kept.byte_cap);
-            observing.observer.on_response(&observed, &body[..cut]);
-        }
-        let Some(gate) = gate else {
-            self.continue_response(&paused.request_id).await;
-            return;
-        };
         let response = DocumentResponse {
             url: &paused.request.url,
             status,
             headers: &headers,
             body: &body,
         };
-        let Err(refusal) = gate.judge_document(&response) else {
-            self.continue_response(&paused.request_id).await;
-            return;
-        };
+        let refusal = gate.judge_document(&response).err()?;
         let error = site_preferences_refused(&paused.request.url, &refusal);
-        if self.driver.navigation_waits() {
-            self.state.leave(error);
+        let page = carried.and_then(|state| state.navigating.as_ref().map(|page| (state, page)));
+        let (state, driver, refusals) = match page {
+            Some((state, page)) => (state, &page.driver, &page.refusals),
+            None => (&*self.state, &self.driver, &self.refusals),
+        };
+        if driver.navigation_waits() {
+            state.leave(error.clone());
         } else {
-            tracing::info!(%error, "the navigation gate refused a document no call waited on: the page is left blank");
+            tracing::info!(
+                code = error.code(),
+                url.origin = goodfetch_engine::log::origin(&paused.request.url),
+                "the navigation gate refused a document no call waited on: the page is left blank"
+            );
+            refusals.refuse_navigation(&paused.request.url, error.clone());
+            // The Run trace holds the Error code no reply carries (ADR 0072).
+            self.run.record_outcome(error.code());
         }
         self.fulfill(
             &paused.request_id,
@@ -1060,25 +1200,33 @@ impl PageContext {
             },
         )
         .await;
+        Some(error)
     }
 
     /// The body of the response paused at `id`, after any content coding;
-    /// empty when the browser gives none.
+    /// empty, and logged why, when the browser gives none or one that does
+    /// not decode.
     async fn body(&self, id: &fetch::RequestId) -> Vec<u8> {
-        let Ok(read) = self
+        let read = match self
             .driver
             .command(&fetch::GetResponseBodyParams {
                 request_id: id.clone(),
             })
             .await
-        else {
-            return Vec::new();
+        {
+            Ok(read) => read,
+            Err(failure) => {
+                tracing::debug!(%failure, "the browser gave no body of a paused response");
+                return Vec::new();
+            }
         };
-        if read.base64_encoded {
-            BASE64.decode(read.body.as_bytes()).unwrap_or_default()
-        } else {
-            read.body.into_bytes()
+        if !read.base64_encoded {
+            return read.body.into_bytes();
         }
+        BASE64.decode(read.body.as_bytes()).unwrap_or_else(|error| {
+            tracing::warn!(%error, "the browser gave a paused response's body in Base64 that does not decode");
+            Vec::new()
+        })
     }
 
     /// Fails `held`, which step 4 blocked, as `BlockedByClient`, as a
@@ -1088,8 +1236,8 @@ impl PageContext {
     async fn blocked(&self, held: &Held) -> CallError {
         let url = held.url().to_owned();
         let details = NavigationFailedDetails {
-            url: url.clone(),
-            error: Some(BLOCKED_BY_CLIENT.to_owned()),
+            url: Some(url.clone()),
+            error: Some(NetError::BlockedByClient.name().to_owned()),
         };
         let error = CallError::new(
             &NAVIGATION_FAILED,
@@ -1118,20 +1266,66 @@ impl PageContext {
 
     /// Leaves `refusal` for `held`'s failure to carry, before the browser
     /// fails it: the Run trace records it unless the request is the
-    /// navigation's, which raises it. A service worker's request, which no
-    /// page's event reports, is recorded refused at once.
+    /// navigation a call waits on, which raises it. A request no page's
+    /// event reports, a frame's or a worker's, is recorded refused at once.
     fn leave_refusal(&self, held: &Held, refusal: ErrorData) {
-        if matches!(self.sender, Sender::ServiceWorker { .. }) {
+        if self.sender.records_at_once() {
+            self.record_refusal(held.url(), held.method(), refusal);
+        } else if matches!(self.sender, Sender::ServiceWorker { .. }) {
             self.trace_service_worker(
                 held,
                 Some(RequestFailure {
-                    error_text: BLOCKED_BY_CLIENT.to_owned(),
+                    error_text: NetError::BlockedByClient.name().to_owned(),
                     error: Some(refusal),
                 }),
             );
         } else if let Some(network_id) = &held.paused.network_id {
-            self.refusals.leave(network_id, refusal, !held.navigation);
+            // A navigation the page sent itself, which no call waits on, is
+            // recorded too.
+            let recorded = !held.navigation || !self.driver.navigation_waits();
+            self.refusals.leave(network_id, refusal, recorded);
         }
+    }
+
+    /// Judges the WebSocket the page opened to `url`, whose handshake no
+    /// interception sees: the browser itself holds it to the domain policy
+    /// where it connects (`launch`'s proxy script), and the engine records
+    /// the refusal in the Run trace, as a request no call waited for that
+    /// failed. On a Borrowed browser or behind the Session's own proxy
+    /// nothing holds it, which is logged.
+    fn web_socket(&self, url: &str) {
+        let request = egress::Request {
+            url,
+            kind: RequestKind::Page,
+        };
+        let egress::Judgment::Refused(refused) = egress::judge(&request, &self.policy) else {
+            return;
+        };
+        if self.lookups.is_some() || self.driver.proxy().is_some() {
+            tracing::warn!(%refused, "a WebSocket the domain policy refuses is not held where it connects: the Session's browser or proxy is not the engine's");
+            return;
+        }
+        self.record_refusal(url, "GET", refused.failure());
+    }
+
+    /// Records the request to `url` that `method` sent, refused with
+    /// `refusal`, in the sender's request log, as a request that no call
+    /// waited for failed, and its Error code in the Run's outcome record.
+    fn record_refusal(&self, url: &str, method: &str, refusal: ErrorData) {
+        self.run.record_outcome(&refusal.code);
+        let (log, failed) = (
+            Arc::clone(&self.log),
+            RequestFailed {
+                url: url.to_owned(),
+                method: method.to_owned(),
+                failure: refusal,
+            },
+        );
+        self.run.spawn(async move {
+            if let Err(error) = log.request_failed(&failed).await {
+                tracing::warn!(%error, "the Run trace did not take a refused request");
+            }
+        });
     }
 
     /// Records `held`, a service worker's own request, in the Run trace,
@@ -1206,16 +1400,13 @@ impl PageContext {
     }
 }
 
-/// The browser's network error for a request a blocker failed.
-const BLOCKED_BY_CLIENT: &str = "net::ERR_BLOCKED_BY_CLIENT";
-
 /// The URL in `headers`' `Referer`, which names the document that sent the
 /// request.
-fn referer(headers: &network::Headers) -> Option<String> {
+fn referer(headers: &network::Headers) -> Option<&str> {
     headers
         .iter()
         .find(|(name, _)| name.eq_ignore_ascii_case("referer"))
-        .and_then(|(_, value)| value.as_str().map(str::to_owned))
+        .and_then(|(_, value)| value.as_str())
 }
 
 /// The browser's network error for `reason`.
@@ -1238,12 +1429,12 @@ fn abort_reason(reason: AbortReason) -> network::ErrorReason {
     }
 }
 
-/// `closed` for a fetched request whose response never came: its page
-/// went first.
+/// `closed` for a fetched request whose response never came: its page,
+/// its request or its Run went first.
 fn gone(url: &str) -> CallError {
     CallError::new(
         &CLOSED,
-        format!("the page closed before the response to {url} came"),
+        format!("the response to {url} never came: its page, its request or its Run went first"),
         &serde_json::json!({ "url": url }),
     )
 }

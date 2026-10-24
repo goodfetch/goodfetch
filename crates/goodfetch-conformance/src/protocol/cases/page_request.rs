@@ -19,8 +19,6 @@
 //! does not trust the Proving ground's authority until the engine's TLS
 //! relay does (ADR 0042).
 
-use std::time::Duration;
-
 use goodfetch_protocol::egress::EGRESS_REFUSED;
 use goodfetch_protocol::page::PAGE_GOTO;
 use goodfetch_protocol::page::events::RESPONSE_BODY;
@@ -31,7 +29,7 @@ use goodfetch_protocol::settings::SETTING_INVALID;
 use serde_json::{Value, json};
 
 use super::hostile_input;
-use super::launch::{IDENTITY_HOST, reports};
+use super::launch::{IDENTITY_HOST, reports_once};
 use super::navigation::{call, failed_with, open, url_on};
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
@@ -560,33 +558,6 @@ fn domain_policy(
     finish_run(connection, run_id)
 }
 
-/// How often, and how many times, the harness reads the observations while
-/// it waits for the service worker page to report: 20 s in all.
-const POLL: Duration = Duration::from_millis(100);
-const POLLS: u32 = 200;
-
-/// The service worker page's reports, as `(check, observed)`, once it
-/// reported whether a worker controls it, or the polls run out.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the harness polls the Proving ground on its own thread, never an async worker"
-)]
-fn worker_reports(site: &Site, path: &str) -> Vec<(String, String)> {
-    let mut seen = Vec::new();
-    for _ in 0..POLLS {
-        seen = site
-            .proving_ground
-            .observations()
-            .map(|observations| reports(&observations, path))
-            .unwrap_or_default();
-        if seen.iter().any(|(check, _)| check == "controlled") {
-            break;
-        }
-        std::thread::sleep(POLL);
-    }
-    seen
-}
-
 /// No service worker answers `page.request`: on a page a worker controls,
 /// which answers `cached.json` from its own cache, the request reaches the
 /// site and answers the site's body (ADR 0121).
@@ -609,7 +580,10 @@ fn service_worker(
         &page,
         &json!({ "url": format!("{origin}{path}") }),
     )?;
-    let reports = worker_reports(site, path);
+    let reports = reports_once(site, path, |seen| {
+        seen.iter().any(|(check, _)| check == "controlled")
+    })
+    .unwrap_or_default();
     checks.check(
         "a service worker registers and controls the page",
         reports.contains(&("register".to_owned(), "registered".to_owned()))

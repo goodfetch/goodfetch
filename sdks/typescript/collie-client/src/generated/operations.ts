@@ -284,7 +284,7 @@ export class CollieOperations {
   }
 
   /**
-   * Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.
+   * Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`.
    *
    * @experimental
    */
@@ -302,7 +302,7 @@ export class CollieOperations {
   }
 
   /**
-   * Waits until the element the locator matches is in the state: attached or visible, one element; detached, none; hidden, none or one not visible. The locator is resolved again at each check, so a re-render that replaces its element changes nothing. Past `timeout.wait`, several matches raise `target_not_unique` listing them, and anything else `deadline_exceeded` naming the state.
+   * Waits until the element the locator matches is in the state: attached or visible, one element; detached, none; hidden, none or one not visible. The locator is resolved again at each check, so a re-render that replaces its element changes nothing. Past its `timeout`, `timeout.wait` when the call gives none, several matches raise `target_not_unique` listing them, and anything else `deadline_exceeded` naming the state.
    *
    * @experimental
    */
@@ -311,7 +311,7 @@ export class CollieOperations {
   }
 
   /**
-   * Waits until the number of elements the locator matches is within the count, and answers it. Past `timeout.wait`, it fails with `deadline_exceeded`.
+   * Waits until the number of elements the locator matches is within the count, and answers it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
    *
    * @experimental
    */
@@ -455,7 +455,7 @@ export class CollieOperations {
   }
 
   /**
-   * Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past `timeout.wait`, it fails with `deadline_exceeded`.
+   * Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
    *
    * @experimental
    */
@@ -464,7 +464,7 @@ export class CollieOperations {
   }
 
   /**
-   * Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past `timeout.wait`, it fails with `deadline_exceeded`.
+   * Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
    *
    * @experimental
    */
@@ -473,7 +473,7 @@ export class CollieOperations {
   }
 
   /**
-   * Waits, armed when the call arrives, until the page sends a request whose URL matches, and answers it, so a request an action triggers is caught by a waiter sent before the action. Past `timeout.wait`, it fails with `deadline_exceeded`.
+   * Waits, armed when the call arrives, until the page sends a request whose URL matches, and answers it, so a request an action triggers is caught by a waiter sent before the action. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
    *
    * @experimental
    */
@@ -482,7 +482,7 @@ export class CollieOperations {
   }
 
   /**
-   * Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past `timeout.wait`, it fails with `deadline_exceeded`.
+   * Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
    *
    * @experimental
    */
@@ -491,7 +491,7 @@ export class CollieOperations {
   }
 
   /**
-   * Waits, armed when the call arrives, until a request of the page whose URL matches gets its response, a redirect's included, and answers both, so a response an action triggers is caught by a waiter sent before the action, even one that arrives before the program awaits it. Past `timeout.wait`, it fails with `deadline_exceeded`.
+   * Waits, armed when the call arrives, until a request of the page whose URL matches gets its response, a redirect's included, and answers both, so a response an action triggers is caught by a waiter sent before the action, even one that arrives before the program awaits it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
    *
    * @experimental
    */
@@ -500,7 +500,7 @@ export class CollieOperations {
   }
 
   /**
-   * Waits, armed when the call arrives, until the page's URL matches: at once when it already does, else on a committed navigation, then until its document reaches `wait_until`, or on a change within the document, a `pushState`, a `replaceState` or a hash change. Past `timeout.wait`, it fails with `deadline_exceeded`.
+   * Waits, armed when the call arrives, until the page's URL matches: at once when it already does, else on a committed navigation, then until its document reaches `wait_until`, or on a change within the document, a `pushState`, a `replaceState` or a hash change. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
    *
    * @experimental
    */

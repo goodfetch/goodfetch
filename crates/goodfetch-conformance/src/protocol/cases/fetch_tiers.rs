@@ -3,8 +3,9 @@
 //! under `fetch.tier: http` is fetched by the engine over HTTP, its content
 //! coding decoded, and its handler, the harness, is handed a page served
 //! from the document, which `page.formats` reads; the site sees one
-//! request. The harness names the crawl's operations by their wire names,
-//! since only `goodfetch-protocol` names its Foxhound module (ADR 0099).
+//! request for the page, beside the robots.txt the crawl reads (ADR 0086).
+//! The harness names the crawl's operations by their wire names, since
+//! only `goodfetch-protocol` names its Foxhound module (ADR 0099).
 //! The page is the `content-coding` family's gzip page, over plain HTTP.
 //! The fetch edge cases of the `http` tier (ADR 0118) are `edge`'s.
 
@@ -81,9 +82,16 @@ fn page_url(site: &Site) -> Option<String> {
         .map(|url| url.replacen("https://", "http://", 1))
 }
 
+/// The request target `url` names: its path and query.
+fn target_of(url: &str) -> Option<&str> {
+    let (_, rest) = url.split_once("://")?;
+    rest.find('/').map(|slash| &rest[slash..])
+}
+
 /// A crawl of the page under `fetch.tier: http`: the handler request names
 /// the tier and a page whose Markdown holds the page's decoded text; the
-/// Proving ground saw one request for it.
+/// Proving ground saw one request for it. The site's robots.txt, which the
+/// crawl also reads (ADR 0086), is not a request for the page.
 fn http_tier(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-fetch-tier-http";
     let url = page_url(site);
@@ -150,9 +158,10 @@ fn http_tier(connection: &mut Connection, site: &Site, checks: &mut Checks) -> R
         .ok()
         .and_then(|observations| observations["requests"].as_array().cloned())
         .unwrap_or_default();
+    let target = target_of(&url);
     let seen = requests
         .iter()
-        .filter(|request| request["task"] == json!(TASK))
+        .filter(|request| request["task"] == json!(TASK) && request["target"].as_str() == target)
         .count();
     checks.check("the site saw one request for the page", seen == 1);
     let closed = connection.request(

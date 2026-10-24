@@ -10,8 +10,8 @@
 //! A navigation is admitted through its own event (`Goto`), but the page
 //! stays `Open` while it runs: the engine lets a later navigation supersede
 //! one not yet committed (#698, ADR 0085), where the table's `Navigating`
-//! row would have it wait, so `Navigating` is left for the ticket that
-//! settles which holds.
+//! row would have it wait, so `Navigating` is never entered, as ADR 0085's
+//! note of 2026-10-24 records for the owner to decide.
 
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -244,10 +244,17 @@ impl PageLife {
     /// The code a call that failed with `error` raises: what ended its page,
     /// when the failure was the page going and its end is known in time.
     async fn settled(&self, error: CallError) -> CallError {
-        let mut ended = self.shared.ended.subscribe();
         if error.code() != PAGE_CRASHED.name {
             return error;
         }
+        self.ending_or(error).await
+    }
+
+    /// What ended the page, once it is known in time, else `error`: the
+    /// code a call raises that learnt otherwise that its page went, such as
+    /// a wait whose page's events ended.
+    pub(crate) async fn ending_or(&self, error: CallError) -> CallError {
+        let mut ended = self.shared.ended.subscribe();
         match tokio::time::timeout(ENDING_WAIT, ending(&mut ended)).await {
             Ok(Some(ending)) => ending,
             Ok(None) | Err(_) => error,

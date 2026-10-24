@@ -21,8 +21,14 @@
 //! minor only adds. Its calls block: callers run them under their owner's
 //! blocking policy.
 
+#![expect(
+    clippy::disallowed_types,
+    reason = "the set of unchained Runs is read or changed in one step, never across an `.await` or under another lock, so there is no lock order to test under loom (ADR 0060)"
+)]
+
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use goodfetch_protocol::audit::{
@@ -152,6 +158,8 @@ pub struct AuditLog {
     vfs: Option<String>,
     retained_under: Option<(SettingsFiles, Product)>,
     events: Option<AuditEvents>,
+    /// The Runs whose entries are written unchained, shared by its clones.
+    unchained: Arc<Mutex<BTreeSet<RunId>>>,
 }
 
 impl AuditLog {
@@ -164,7 +172,38 @@ impl AuditLog {
             vfs,
             retained_under: None,
             events: None,
+            unchained: Arc::default(),
         }
+    }
+
+    /// Writes every later entry of `run_id` unchained, as a Run whose
+    /// `security.audit_chain` is off has them (ADR 0016), here and in every
+    /// clone of this log, but those [`AuditLog::record_chained`] records;
+    /// answers whether the Run was chained until now.
+    pub fn unchain(&self, run_id: RunId) -> bool {
+        self.unchained
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(run_id)
+    }
+
+    /// Chains every later entry of `run_id` again; answers whether it was
+    /// unchained.
+    pub fn rechain(&self, run_id: &RunId) -> bool {
+        self.unchained
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(run_id)
+    }
+
+    /// Whether the entries of `run_id` are written unchained.
+    fn is_unchained(&self, run_id: Option<&RunId>) -> bool {
+        run_id.is_some_and(|run_id| {
+            self.unchained
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .contains(run_id)
+        })
     }
 
     /// The same, each entry it appends also sent to `events`.
@@ -195,9 +234,11 @@ impl AuditLog {
     }
 
     /// Appends an entry of `kind`, a value of the shared type `audit_kind`,
-    /// holding `details`, from `origin`, recorded at `now`, chained
-    /// to the last entry, then writes the head file; answers the entry.
-    /// Under an `audit.retention`, it first prunes what it prunes at `now`.
+    /// holding `details`, from `origin`, recorded at `now`, chained to the
+    /// last chained entry, or unchained when its Run is (see
+    /// [`AuditLog::unchain`]), then writes the head file; answers the
+    /// entry. Under an `audit.retention`, it first prunes what it prunes at
+    /// `now`.
     ///
     /// # Errors
     ///
@@ -209,6 +250,34 @@ impl AuditLog {
         kind: &SharedTypeValue,
         details: Value,
         now: Timestamp,
+    ) -> Result<AuditEntry, AuditError> {
+        let chained = !self.is_unchained(origin.run_id.as_ref());
+        self.record_as(origin, kind, details, now, chained)
+    }
+
+    /// As [`AuditLog::record`], but chained whatever its Run: the record
+    /// of the switch that unchains a Run is itself chained (ADR 0016).
+    ///
+    /// # Errors
+    ///
+    /// As [`AuditLog::record`].
+    pub fn record_chained(
+        &self,
+        origin: &Origin,
+        kind: &SharedTypeValue,
+        details: Value,
+        now: Timestamp,
+    ) -> Result<AuditEntry, AuditError> {
+        self.record_as(origin, kind, details, now, true)
+    }
+
+    fn record_as(
+        &self,
+        origin: &Origin,
+        kind: &SharedTypeValue,
+        details: Value,
+        now: Timestamp,
+        chained: bool,
     ) -> Result<AuditEntry, AuditError> {
         debug_assert_eq!(kind.shared_type, SharedType::AuditKind);
         if let Some((retention, layer)) = self.retention() {
@@ -229,6 +298,7 @@ impl AuditLog {
             layer: origin.layer,
             run_id: origin.run_id.clone(),
             details,
+            chained,
         };
         let hash = self.append(&transaction, &previous, &entry)?;
         transaction.commit().map_err(|error| failed(&error))?;
@@ -301,6 +371,7 @@ impl AuditLog {
                 "last_pruned_hash": last_pruned_hash,
                 "retention": u64::try_from(retention.as_millis()).unwrap_or(u64::MAX),
             }),
+            chained: true,
         };
         let hash = self.append(&transaction, &previous, &pruned)?;
         transaction.commit().map_err(|error| failed(&error))?;
@@ -348,24 +419,27 @@ impl AuditLog {
         }
     }
 
-    /// The sequence the next entry takes and the hash it chains to.
+    /// The sequence the next entry takes and the hash a chained one chains
+    /// to: the last chained entry's, past the unchained ones after it.
     fn after_last(&self, transaction: &Transaction<'_>) -> Result<(u64, [u8; 32]), AuditError> {
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let last: Option<(i64, String)> = transaction
-            .query_row(
-                "SELECT sequence, hash FROM entries ORDER BY sequence DESC LIMIT 1",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()
+        let mut statement = transaction
+            .prepare("SELECT sequence, entry, hash FROM entries ORDER BY sequence DESC")
             .map_err(|error| failed(&error))?;
-        Ok(match last {
-            Some((sequence, hash)) => (
-                u64::try_from(sequence).unwrap_or(0) + 1,
-                decode(&hash).ok_or_else(|| failed(&"the last entry's hash is no SHA-256"))?,
-            ),
-            None => (1, NO_PREVIOUS),
-        })
+        let mut rows = statement.query([]).map_err(|error| failed(&error))?;
+        let mut next = None;
+        while let Some(row) = rows.next().map_err(|error| failed(&error))? {
+            let sequence: i64 = row.get(0).map_err(|error| failed(&error))?;
+            let entry: String = row.get(1).map_err(|error| failed(&error))?;
+            let hash: String = row.get(2).map_err(|error| failed(&error))?;
+            let next = *next.get_or_insert(u64::try_from(sequence).unwrap_or(0) + 1);
+            if !is_unchained(&entry) {
+                let previous = decode(&hash)
+                    .ok_or_else(|| failed(&"the last chained entry's hash is no SHA-256"))?;
+                return Ok((next, previous));
+            }
+        }
+        Ok((next.unwrap_or(1), NO_PREVIOUS))
     }
 
     /// Writes `entry`, chained to `previous`, and answers its hash.
@@ -378,7 +452,14 @@ impl AuditLog {
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
         let canonical =
             serde_json_canonicalizer::to_string(entry).map_err(|error| failed(&error))?;
-        let hash = chained(previous, &canonical);
+        let hash = chained(
+            if entry.chained {
+                previous
+            } else {
+                &NO_PREVIOUS
+            },
+            &canonical,
+        );
         transaction
             .execute(
                 "INSERT INTO entries (sequence, entry, hash) VALUES (?1, ?2, ?3)",
@@ -402,11 +483,17 @@ impl AuditLog {
             .map_err(|error| failed(&error))?;
         let mut rows = statement.query([]).map_err(|error| failed(&error))?;
         let (mut through, mut first) = (None, true);
+        // The hash the next chained entry chains to, which an anchor at the
+        // last pruned sequence carries: an unchained entry leaves it.
+        let mut chain = data_encoding::HEXLOWER.encode(&NO_PREVIOUS);
         while let Some(row) = rows.next().map_err(|error| failed(&error))? {
             let sequence: i64 = row.get(0).map_err(|error| failed(&error))?;
             let entry: String = row.get(1).map_err(|error| failed(&error))?;
             let hash: String = row.get(2).map_err(|error| failed(&error))?;
             let value: Value = serde_json::from_str(&entry).unwrap_or(Value::Null);
+            if value["chained"] != Value::Bool(false) {
+                chain = hash;
+            }
             let is_anchor = value["kind"].as_str() == Some(AUDIT_LOG_ANCHOR.name);
             if std::mem::take(&mut first) && is_anchor {
                 continue;
@@ -415,7 +502,9 @@ impl AuditLog {
                 .as_str()
                 .and_then(|time| time.parse::<Timestamp>().ok());
             match (time, u64::try_from(sequence)) {
-                (Some(time), Ok(sequence)) if time < cutoff => through = Some((sequence, hash)),
+                (Some(time), Ok(sequence)) if time < cutoff => {
+                    through = Some((sequence, chain.clone()));
+                }
                 _ => break,
             }
         }
@@ -713,6 +802,15 @@ impl Walk {
             self.previous = previous;
             return;
         }
+        if is_unchained(entry) {
+            // An unchained entry holds its place and its own hash, and the
+            // chain goes on past it from the entry before it.
+            if !stands_alone(stored(self.expected), sequence, entry, hash) {
+                self.first_broken = Some(self.expected);
+            }
+            self.expected += 1;
+            return;
+        }
         match chains(stored(self.expected), &self.previous, sequence, entry, hash) {
             Some((next, value)) => {
                 if value["kind"].as_str() == Some(AUDIT_LOG_PRUNED.name) {
@@ -779,6 +877,20 @@ fn chains(
     Some((decode(hash)?, value))
 }
 
+/// Whether the text of a row, `entry`, is an unchained entry's: one
+/// marked `chained: false`.
+fn is_unchained(entry: &str) -> bool {
+    serde_json::from_str::<Value>(entry).is_ok_and(|value| value["chained"] == Value::Bool(false))
+}
+
+/// Whether an unchained row, stored at `sequence` with the text `entry`
+/// and the hash `hash`, is the entry expected at `expected`: its place and
+/// the sequence its text holds agree, and its hash is over its canonical
+/// form alone.
+fn stands_alone(expected: i64, sequence: i64, entry: &str, hash: &str) -> bool {
+    chains(expected, &NO_PREVIOUS, sequence, entry, hash).is_some()
+}
+
 /// The anchor a log's first row is, stored at `sequence` with the text
 /// `entry` and the hash `hash`: an entry of the anchor's kind at its own
 /// sequence, carrying that hash as the last pruned one. Answers its
@@ -813,6 +925,7 @@ fn anchor_entry(
         layer,
         run_id: None,
         details: json!({ "last_pruned_hash": last_pruned_hash }),
+        chained: true,
     }
 }
 

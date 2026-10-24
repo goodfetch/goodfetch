@@ -180,3 +180,5 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
 > Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): `goodfetch-test-support` supplies values, the start time and the seed, not the handles: a bench target builds `Clock::paused` and `Entropy::seeded` from them, as a test does (ADR 0062).
 
 > Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): `TESTING.md` names bench target roots in its rule on which roots opt into `Clock::paused` and `Entropy::seeded`.
+
+> Note (agent decision, pending owner review), 2026-10-24, review of spec #577 (L27): a bench target that times a crate's private code compiles the crate's pure modules in through `#[path]` (no I/O, no task), as the page crate's scenarios compile its guard check, its guard world's call and the interception's steps, rather than the crate making them `pub` for its benchmarks; `TESTING.md`'s Benchmarks section records the rule.

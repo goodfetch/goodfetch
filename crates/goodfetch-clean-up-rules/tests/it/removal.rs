@@ -62,7 +62,7 @@ fn removal_walks_open_and_closed_shadow_roots_and_exposes_what_it_matched() {
         .map(|element| {
             (
                 element.rule.as_str(),
-                element.list,
+                element.list.expect("a Filter list's rule names its list"),
                 element.in_shadow_root,
                 element.links.iter().map(String::as_str).collect(),
             )
@@ -113,4 +113,47 @@ fn a_removal_over_a_fifth_of_the_main_contents_text_is_flagged() {
         .map(|(before, after)| Share::of(before, after).flagged());
 
     assert_eq!(shares, [false, false, true, true, false]);
+}
+
+/// A page with a cookie notice the Consent prompt runner hid, in its light
+/// DOM and in a shadow root.
+const NOTICED: &str = r#"<!DOCTYPE html>
+<html><head><title>An article</title></head><body>
+<main><h1>An article</h1><p>The article's own text.</p></main>
+<div id="cookie-notice"><p>This website uses cookies.</p><button>Got it</button></div>
+<div id="host"><template shadowrootmode="open"><div class="banner">Cookies in a root.</div></template></div>
+</body></html>"#;
+
+/// The prompts the Consent prompt runner hid go from extracted content as
+/// the cosmetic rules' matches do, each recorded with its selector and no
+/// Filter list (ADR 0048).
+/// Covers: story:5-98
+#[test]
+fn the_prompts_the_runner_hid_go_from_extracted_content_with_no_list() {
+    let removal = removal::remove(NOTICED, "https://news.example/article", &LISTS, &defaults());
+
+    let removal = removal::remove_selected(
+        removal,
+        &["#cookie-notice".to_owned(), ".banner".to_owned()],
+    );
+
+    assert_eq!(
+        (
+            [
+                "The article's own text.",
+                "This website uses cookies.",
+                "Cookies in a root."
+            ]
+            .map(|text| removal.html.contains(text)),
+            removal
+                .removed
+                .iter()
+                .map(|element| (element.rule.as_str(), element.list, element.in_shadow_root))
+                .collect::<Vec<_>>(),
+        ),
+        (
+            [true, false, false],
+            vec![("#cookie-notice", None, false), (".banner", None, true)],
+        )
+    );
 }

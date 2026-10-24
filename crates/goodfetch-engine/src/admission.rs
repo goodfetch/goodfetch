@@ -186,6 +186,13 @@ pub trait Gate: Send {
     /// A request of `key` it admitted ended at `now`, as `ended` says.
     fn ended(&mut self, key: &str, now: Instant, ended: Ended);
 
+    /// Takes the waiting request `id` of `key` out of its queue, never to
+    /// be admitted: its Run ended it before it was sent, such as a crawl
+    /// request a learned rule merged. Nothing by default.
+    fn withdraw(&mut self, key: &str, id: &str) {
+        let _ = (key, id);
+    }
+
     /// What changed since its last journal, to write into the run file, its
     /// moments as wall time read at `wall` when the monotonic clock read
     /// `now`.
@@ -384,6 +391,12 @@ impl Admission {
     /// it out (see [`Gate::enqueue`]).
     pub fn enqueue(&mut self, request: Waiting) -> bool {
         self.gate.enqueue(request)
+    }
+
+    /// Takes the waiting request `id` of `key` out of the gate, never to be
+    /// admitted (see [`Gate::withdraw`]).
+    pub fn withdraw(&mut self, key: &str, id: &str) {
+        self.gate.withdraw(key, id);
     }
 
     /// When it next admits a request: at or before `now` when one may go

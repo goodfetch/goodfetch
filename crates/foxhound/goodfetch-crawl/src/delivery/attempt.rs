@@ -11,14 +11,29 @@
 //! ends; a fetch that fails ends the attempt with its error, as a
 //! handler's failure would, and sends the handler nothing. The fetch is
 //! sent from the attempt's Session, whose identical requests in flight it
-//! may share, and hedged under its domain key's room (ADR 0040).
+//! may share, and hedged under its domain key's room (ADR 0040). Before
+//! it, the attempt reads its origin's robots.txt from the copy the user's
+//! runs share (ADR 0086), which the crawl's Run reads from then on in
+//! place of its own; when that copy has none to use, the robots.txt is
+//! fetched under the attempt's own Permit of its domain key, and the
+//! document then waits the domain's delay between starts, its start
+//! recorded for every run sharing the domain. What robots.txt allows is
+//! read here and applied by the gate of #883.
 
+use std::sync::Arc;
+
+use std::collections::BTreeSet;
+
+use goodfetch_engine::CallError;
 use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
+use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
+use goodfetch_engine::politeness::Politeness;
+use goodfetch_engine::robots_txt::{self, Fetch};
 use goodfetch_engine::runs::Run;
-use goodfetch_fetch_tier::{FetchTiers, HttpTier, Requester};
-use goodfetch_frontier::PageSeen;
+use goodfetch_fetch_tier::{FetchTiers, HandOver, HandedOver, HttpTier, Requester, RobotsTxtFetch};
+use goodfetch_frontier::{DomainKeys, EndMerged, PageSeen, SharedRobotsTxt};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled, HANDLER_FAILED,
@@ -28,13 +43,18 @@ use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::frontier::HttpBody;
 use goodfetch_protocol::foxhound::progress::InFlightPhase;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
+use goodfetch_protocol::foxhound::settings::{
+    POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
+};
 use goodfetch_protocol::page::PageId;
+use goodfetch_protocol::run::PointInTime;
 use goodfetch_session_pool::Effect;
 use serde_json::{Map, Value};
+use tokio::sync::oneshot;
 
 use crate::lease::{CommitError, WorkItemLease};
 use crate::progress::SharedInFlight;
-use crate::work_items::Leased;
+use crate::work_items::{self, Leased};
 
 /// The Error code of a page the site refused, which Collie's page raises
 /// with the Block cause in its details (ADRs 0035 and 0079); declared with
@@ -82,6 +102,164 @@ impl DocumentFetch {
     }
 }
 
+/// What an attempt's handler pages are gated with (the fetch tiers'
+/// `gate`): the tiers that hand them over, room beside the Run's own
+/// requests and how robots.txt is fetched.
+pub(super) struct Gating {
+    pub(super) tiers: FetchTiers,
+    pub(super) second_copies: SecondCopies,
+    pub(super) robots: Option<RobotsTxtFetch>,
+}
+
+impl Gating {
+    /// Hands the Run's pages over to the attempt of `leased` holding
+    /// `lease`, while its handler runs; `in_flight` names its waits.
+    async fn hand_over(
+        &self,
+        run: &Run,
+        leased: &Leased,
+        lease: &WorkItemLease,
+        in_flight: &SharedInFlight,
+    ) -> HandedOver {
+        let politeness = share_robots_txt(run).await;
+        let settings = run.settings().map(|settings| settings.resolved().clone());
+        let domain_delay = settings
+            .as_ref()
+            .and_then(|settings| settings.duration(POLITENESS_DOMAIN_DELAY.name))
+            .unwrap_or_default();
+        self.tiers.hand_over(HandOver {
+            run: run.clone(),
+            domain_key: leased.waiting.key.clone(),
+            keys: settings.as_ref().map(DomainKeys::of).unwrap_or_default(),
+            second_copies: self.second_copies.clone(),
+            politeness,
+            robots: self.robots.clone(),
+            operator_token: settings.as_ref().and_then(|settings| {
+                settings
+                    .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
+                    .as_str()
+                    .map(str::to_owned)
+            }),
+            domain_delay,
+            lease: Arc::new(HandlerLease {
+                lease: lease.clone(),
+                run: run.clone(),
+                request_id: leased.crawl_request.id.clone(),
+                in_flight: Arc::clone(in_flight),
+            }),
+        })
+    }
+}
+
+/// The lease check of an attempt's handler pages: the attempt's lease,
+/// renewed while a page waits for a navigation gate's permit, the wait
+/// named in the Run's live status, so a handler waiting for a permit is not
+/// timed out meanwhile (ADR 0093).
+#[derive(Clone, Debug)]
+struct HandlerLease {
+    lease: WorkItemLease,
+    run: Run,
+    request_id: String,
+    in_flight: SharedInFlight,
+}
+
+/// How often a permit's wait renews its lease, as a share of its length.
+const RENEWALS_PER_LENGTH: u32 = 4;
+
+impl LeaseCheck for HandlerLease {
+    fn check(&self) -> Result<(), LeaseEnded> {
+        self.lease.check()
+    }
+
+    fn withheld(&self, ended: LeaseEnded, method: &str) -> CallError {
+        self.lease.withheld(ended, method)
+    }
+
+    fn permit_wait(&self, _url: &str) -> PermitWait {
+        let (stop, mut stopped) = oneshot::channel::<()>();
+        let waiting = self.clone();
+        self.run.spawn(async move {
+            let id = &waiting.request_id;
+            waiting
+                .in_flight
+                .lock()
+                .await
+                .permit_wait_began(&waiting.run, id);
+            let (length, clock) = (waiting.lease.length(), waiting.run.clock());
+            loop {
+                waiting.lease.renew(length);
+                tokio::select! {
+                    _ = &mut stopped => break,
+                    () = clock.sleep(length / RENEWALS_PER_LENGTH) => {}
+                }
+            }
+            // The handler's timeout runs again from the wait's end.
+            waiting.lease.renew(length);
+            waiting
+                .in_flight
+                .lock()
+                .await
+                .permit_wait_ended(&waiting.run, id);
+        });
+        PermitWait::holding(stop)
+    }
+}
+
+/// The Politeness the crawl's Run shares, once it opened: from then on
+/// the Run reads robots.txt from the copy its user's runs share there
+/// (ADR 0086). A Politeness file that cannot open leaves the Run its own
+/// copy.
+async fn share_robots_txt(run: &Run) -> Option<Politeness> {
+    let settings = run.settings()?.resolved();
+    match run.politeness(settings).await {
+        Ok((politeness, _)) => {
+            let shared = politeness.clone();
+            run.share_robots_txt(|| Arc::new(SharedRobotsTxt::new(shared, run.clock())));
+            Some(politeness)
+        }
+        Err(error) => {
+            tracing::warn!(%error, run_id = %run.id(), "the shared robots.txt copy is out of reach; the crawl reads its own");
+            None
+        }
+    }
+}
+
+/// Reads the robots.txt of `leased`'s origin, as the crawl's Run reads it:
+/// from the copy its user's runs share, fetched on `http` only when the
+/// copy has none to use. A fetch made here is a request of the domain:
+/// the document then waits `politeness.domain.delay`, and its start is
+/// recorded for every run sharing the domain.
+async fn read_robots_txt(run: &Run, http: &HttpTier, leased: &Leased) {
+    let Some(location) = goodfetch_frontier::Url::parse(&leased.crawl_request.url)
+        .ok()
+        .and_then(|url| robots_txt::location(&url))
+    else {
+        return;
+    };
+    let politeness = share_robots_txt(run).await;
+    let (sending, sent) = oneshot::channel::<()>();
+    let fetch: Fetch<'_> = Box::pin(async {
+        let _ = sending.send(());
+        http.robots_txt(run, &location).await
+    });
+    let _read = run.robots_txt().copy(&location, fetch).await;
+    let delay = run
+        .settings()
+        .and_then(|settings| settings.resolved().duration(POLITENESS_DOMAIN_DELAY.name))
+        .filter(|delay| !delay.is_zero());
+    let (Ok(()), Some(delay)) = (sent.await, delay) else {
+        return;
+    };
+    run.clock().sleep(delay).await;
+    if let Some(politeness) = &politeness
+        && let Err(error) =
+            goodfetch_frontier::started_again(politeness, &leased.waiting.key, run.clock().wall())
+                .await
+    {
+        tracing::warn!(%error, run_id = %run.id(), "a document's start after its robots.txt was not recorded");
+    }
+}
+
 pub(super) struct Attempt {
     /// The server, by its place in the delivery's list, its request went to.
     pub(super) server: usize,
@@ -92,6 +270,10 @@ pub(super) struct Attempt {
     pub(super) session: ServingSession,
     pub(super) lease: WorkItemLease,
     pub(super) answer: Answer,
+    /// The pending requests a rule its page taught merged, which it ended
+    /// `skipped` with `duplicate`, by ID with their domain key: they leave
+    /// their queues.
+    pub(super) merged: Vec<(String, String)>,
 }
 
 /// One attempt: the handler request, bounded by its lease. When the lease
@@ -102,7 +284,7 @@ pub(super) async fn attempt(
     client: Client,
     (leased, session, counted): (Leased, ServingSession, Counted),
     lease: WorkItemLease,
-    fetching: Option<DocumentFetch>,
+    (fetching, gating): (Option<DocumentFetch>, Gating),
     in_flight: SharedInFlight,
 ) -> Attempt {
     let fetched = match &fetching {
@@ -122,7 +304,10 @@ pub(super) async fn attempt(
             };
             tokio::select! {
             biased;
-            document = fetch.tiers.serve(&fetch.http, &run, &leased.crawl_request, &requester) => document
+            document = async {
+                read_robots_txt(&run, &fetch.http, &leased).await;
+                fetch.tiers.serve(&fetch.http, &run, &leased.crawl_request, &requester).await
+            } => document
                 .map(Some)
                 .map_err(|error| Answer::Failed {
                     code: error.code().to_owned(),
@@ -134,11 +319,12 @@ pub(super) async fn attempt(
             }
         }
     };
+    let mut merged = Vec::new();
     let answer = match fetched {
         Err(answer) => answer,
         Ok(document) => {
             if let (Some(fetch), Some(page_id)) = (&fetching, &document) {
-                learn(&run, &fetch.tiers, page_id, &leased).await;
+                merged = learn(&run, &fetch.tiers, page_id, &leased).await;
             }
             if document.is_some() {
                 in_flight.lock().await.went_on(
@@ -156,7 +342,9 @@ pub(super) async fn attempt(
                 tier: document.as_ref().map(|_| FetchTier::Http),
                 page_id: document.clone(),
             };
+            let handed_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
             let answer = handled(&run, &client, &params, &lease).await;
+            drop(handed_over);
             if let (Some(fetch), Some(page_id)) = (&fetching, &document) {
                 fetch.tiers.close(page_id);
             }
@@ -170,25 +358,39 @@ pub(super) async fn attempt(
         session,
         lease,
         answer,
+        merged,
     }
 }
 
 /// Hands the Frontier the page `page_id` the tiers fetched for `leased`'s
-/// crawl request, with its page signature, before its handler runs, so the
-/// links the handler then enqueues count against what the page taught
-/// (ADR 0005). A run file that cannot take it loses only what the page
-/// would have taught.
-async fn learn(run: &Run, tiers: &FetchTiers, page_id: &PageId, leased: &Leased) {
-    let Some((url, signature)) = tiers.signature(page_id).await else {
-        return;
+/// crawl request, with its page signature and its `rel=canonical`, before
+/// its handler runs, so the links the handler then enqueues count against
+/// what the page taught (ADRs 0005 and 0120); in the same commit, each
+/// pending request a rule it taught merges ends `skipped` with
+/// `duplicate`. Answers those requests, by ID with the domain key they
+/// wait under, which leave their queues. A run file that cannot take it
+/// loses only what the page would have taught.
+async fn learn(
+    run: &Run,
+    tiers: &FetchTiers,
+    page_id: &PageId,
+    leased: &Leased,
+) -> Vec<(String, String)> {
+    let Some(signed) = tiers.signature(page_id).await else {
+        return Vec::new();
     };
-    let Ok(url) = goodfetch_frontier::Url::parse(&url) else {
-        return;
+    let Ok(url) = goodfetch_frontier::Url::parse(&signed.url) else {
+        return Vec::new();
     };
     let request = leased.crawl_request.clone();
+    let ended_at = run.point_in_time();
     let learned = run
         .state()
         .write(move |connection| {
+            let mut merged = Merged {
+                ended_at,
+                ended: Vec::new(),
+            };
             goodfetch_frontier::learn(
                 connection,
                 PageSeen {
@@ -196,13 +398,43 @@ async fn learn(run: &Run, tiers: &FetchTiers, page_id: &PageId, leased: &Leased)
                     url: &url,
                     method: &request.method,
                     body: request.body.as_ref().map(HttpBody::bytes),
-                    signature,
+                    signature: signed.signature,
+                    canonical: signed.canonical.as_ref(),
                 },
-            )
+                &mut merged,
+            )?;
+            Ok(merged.ended)
         })
         .await;
-    if let Err(error) = learned {
+    learned.unwrap_or_else(|error| {
         tracing::warn!(%error, run_id = %run.id(), "the Frontier could not learn from a fetched page");
+        Vec::new()
+    })
+}
+
+/// The crawl's side of a rule learned later: the pending requests it
+/// merged, ended at `ended_at`, by ID with their domain key.
+struct Merged {
+    ended_at: PointInTime,
+    ended: Vec<(String, String)>,
+}
+
+impl EndMerged for Merged {
+    fn end_merged(
+        &mut self,
+        connection: &rusqlite::Connection,
+        crawl_requests: &BTreeSet<String>,
+    ) -> rusqlite::Result<Vec<String>> {
+        let ended = work_items::end_merged(connection, crawl_requests, &self.ended_at)?;
+        Ok(ended
+            .into_iter()
+            .map(|(id, url, key)| {
+                if let Some(key) = key {
+                    self.ended.push((id, key));
+                }
+                url
+            })
+            .collect())
     }
 }
 

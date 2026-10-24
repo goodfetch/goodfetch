@@ -1,4 +1,4 @@
-//! A Session's tabs (ADR 0085): there is no active page, and each tab is a
+//! A Session's pages (ADR 0085): there is no active page, and each one is a
 //! Page of its Session, whether the program opened it or a page opened it
 //! as a popup. A popup is a page of its opener's Session, announced by its
 //! opener's `page.popup` and its Session's `session.page`, both published
@@ -87,7 +87,7 @@ pub struct PageClosed {}
 /// Playwright's `popup`.
 pub const PAGE_POPUP: Event = Event {
     name: "page.popup",
-    description: "The page opened a popup, `window.open()` or a link to a new tab: a page of the same Session, already under its routes and its interception, published before the popup's first request leaves. Published while `page.on` listens to `popup`.",
+    description: "The page opened a popup, `window.open()` or a link opening another window: a page of the same Session, already under its routes and its interception, published before the popup's first request leaves. Published while `page.on` listens to `popup`.",
     class: EventClass::Lossless,
     payload: schema_of::<PagePopup>,
     stability: Stability::Experimental,

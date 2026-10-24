@@ -125,6 +125,22 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 27
+title = "As a person, I want a stop of the refetch without the site's stored data listed in \"Needs you\", to dismiss it, remove the domain from the layer of `wall_refetch_domains` that lists it (or, when only `*` covers it, replace `*` with a list), or add it to `wall_denied_domains` with a reason, removal and denial needing the operator role and denial step-up on a Daemon with accounts, and a domain listed in project configuration shown with its file rather than removed from the Console, so that a site's objection is handled where I see it (ADR 0052)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 28
+title = "As a user, I want a certificate whose key changed listed in \"Needs you\" **(shape)**, answered as `cert accept` or `cert forget` by the person whose store holds the pin, so that only that person trusts a new key (ADR 0042)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 32
 title = "As a user, I want \"Needs you\" items to disappear as they are resolved, by me, by another person or by the run, so that the list is never stale (ADR 0031)."
 milestone = "M1 Core"

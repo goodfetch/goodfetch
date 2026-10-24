@@ -86,8 +86,9 @@ pub struct Opening {
     pub settings: Map<String, Value>,
     /// Where the run layer's values came from.
     pub origin: Option<RunOrigin>,
-    /// Whether a Client acting for a model gave the run layer's values, so
-    /// that a key no model sets is refused (ADR 0092).
+    /// Whether a Client acting for a model gave the run layer's values and
+    /// the project configuration, so that a key no model sets is refused
+    /// (ADR 0092).
     pub acting_for_model: bool,
 }
 
@@ -173,7 +174,7 @@ impl Settings {
     ) -> Result<(RunSettings, MachineLayers), SettingsError> {
         let machine = self.machine().await?;
         let engine = self.0.product;
-        let project = match &opening.project {
+        let mut project = match &opening.project {
             Some(project) => Values::read(
                 SettingsLayer::ProjectConfiguration,
                 &project.settings,
@@ -191,6 +192,9 @@ impl Settings {
             run = run.from_origin(origin);
         }
         if opening.acting_for_model {
+            // The Client sends the project configuration it found, so a
+            // model gives it as much as the run layer (ADR 0092).
+            project = project.from_model();
             run = run.from_model();
         }
         let layers = Layers {
@@ -207,6 +211,7 @@ impl Settings {
             RunSettings {
                 settings: self.clone(),
                 resolved,
+                project: opening.project,
             },
             machine,
         ))
@@ -220,12 +225,20 @@ impl Settings {
 pub struct RunSettings {
     settings: Settings,
     resolved: Resolved,
+    project: Option<ProjectSettings>,
 }
 
 impl RunSettings {
     /// What the Run opened with.
     pub fn resolved(&self) -> &Resolved {
         &self.resolved
+    }
+
+    /// The path of the project configuration the Run opened with, when it
+    /// sets `key`, nested as its file nests it.
+    pub fn project_setting(&self, key: &str) -> Option<&str> {
+        let project = self.project.as_ref()?;
+        nested(&project.settings, key).map(|_| project.path.as_str())
     }
 
     /// What the Run takes at an admission point: its values under the
@@ -244,4 +257,18 @@ impl RunSettings {
             }
         }
     }
+}
+
+/// The value of `key` in `settings`, nested as a file nests it, or written
+/// whole as one dotted key.
+pub fn nested<'a>(settings: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
+    if let Some(value) = settings.get(key) {
+        return Some(value);
+    }
+    let mut segments = key.split('.');
+    let mut value = settings.get(segments.next()?)?;
+    for segment in segments {
+        value = value.get(segment)?;
+    }
+    Some(value)
 }

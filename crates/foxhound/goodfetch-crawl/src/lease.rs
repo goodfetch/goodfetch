@@ -20,10 +20,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::run_state::{RunState, RunStateError};
-use goodfetch_protocol::foxhound::crawl::PushedRecord;
+use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, PushedRecord};
 use goodfetch_protocol::run::PointInTime;
 use tokio::sync::watch;
 use tokio::time::Instant;
@@ -117,6 +118,7 @@ impl Leases {
         let granted = WorkItemLease(Arc::new(Shared {
             leases: self.clone(),
             work_item: Arc::from(work_item),
+            length,
             state,
         }));
         granted.trace("grant", &lease, None);
@@ -133,6 +135,8 @@ pub(crate) struct WorkItemLease(Arc<Shared>);
 struct Shared {
     leases: Leases,
     work_item: Arc<str>,
+    /// How long it was granted for, which each renewal grants again.
+    length: Duration,
     state: watch::Sender<Held>,
 }
 
@@ -156,13 +160,6 @@ pub(crate) enum CommitError {
 
 impl WorkItemLease {
     /// Renews it for `length` from now; one that ended stays ended.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the engine renews it while a permit's wait holds the attempt (ADR 0093), which the page's navigation gate brings (#720)"
-        )
-    )]
     pub(crate) fn renew(&self, length: Duration) {
         let now = self.0.leases.clock.now();
         let mut renewed = None;
@@ -179,6 +176,11 @@ impl WorkItemLease {
         if let Some(lease) = renewed {
             self.trace("renew", &lease, None);
         }
+    }
+
+    /// How long it was granted for.
+    pub(crate) fn length(&self) -> Duration {
+        self.0.length
     }
 
     /// Gives it back as its attempt ends; it then lets nothing more leave.
@@ -306,6 +308,18 @@ impl LeaseCheck for WorkItemLease {
             self.trace("expire", &held.lease, None);
         }
         Err(LeaseEnded::Lost)
+    }
+
+    /// `attempt_ended`: the handler's page sent nothing more once its
+    /// attempt's lease ended (ADRs 0003 and 0087).
+    fn withheld(&self, ended: LeaseEnded, method: &str) -> CallError {
+        CallError::new(
+            &ATTEMPT_ENDED,
+            format!(
+                "the page's attempt ended with its lease ({ended}), so it sent nothing more (`{method}` withheld)"
+            ),
+            &serde_json::json!({}),
+        )
     }
 }
 

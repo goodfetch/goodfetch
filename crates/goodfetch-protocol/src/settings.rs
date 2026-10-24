@@ -625,7 +625,7 @@ pub const CLEAN_UP_UPDATES: &[&str] = &["release", "daily", "upstream"];
 /// `clean_up.update` (ADR 0047).
 pub const CLEAN_UP_UPDATE: Setting = Setting {
     name: "clean_up.update",
-    description: "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+    description: "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
     kind: ValueKind::Choice(CLEAN_UP_UPDATES),
     default: release,
     clearable: false,
@@ -653,11 +653,11 @@ fn release() -> Value {
 /// `clean_up.channel` (ADR 0047).
 pub const CLEAN_UP_CHANNEL: Setting = Setting {
     name: "clean_up.channel",
-    description: "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+    description: "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
     kind: ValueKind::Text,
     default: daily_channel,
     clearable: false,
-    authority: Authority::Every,
+    authority: Authority::Configuration,
     weakens: None,
     arrived_in: ARRIVED_IN,
 };
@@ -672,9 +672,21 @@ fn daily_channel() -> Value {
 /// `clean_up.lists` (ADR 0047).
 pub const CLEAN_UP_LISTS: Setting = Setting {
     name: "clean_up.lists",
-    description: "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+    description: "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
     kind: ValueKind::Map(&ValueKind::Text),
     default: upstream_lists,
+    clearable: false,
+    authority: Authority::Configuration,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `clean_up.fetch_timeout` (ADRs 0047 and 0080).
+pub const CLEAN_UP_FETCH_TIMEOUT: Setting = Setting {
+    name: "clean_up.fetch_timeout",
+    description: "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
     clearable: false,
     authority: Authority::Every,
     weakens: None,
@@ -930,6 +942,7 @@ pub const ENTRIES: Entries = Entries {
         CLEAN_UP_VERSION,
         CLEAN_UP_CHANNEL,
         CLEAN_UP_LISTS,
+        CLEAN_UP_FETCH_TIMEOUT,
         SESSION_SOURCE,
         SESSION_PAGE_CHECK,
         SECRETS_BY_REFERENCE,

@@ -420,6 +420,20 @@ fn wall() -> String {
     )
 }
 
+/// A consent wall a Filter list's cosmetic rule would hide: the same wall
+/// as `/wall`, under Fanboy Annoyance's `###grow-consent-modal`.
+fn hidden_wall() -> String {
+    page(
+        "hidden-wall",
+        "A consent wall a Filter list would hide",
+        "",
+        "<div id=\"grow-consent-modal\" style=\"position:fixed;inset:0;background:#fff;z-index:1000;padding:48px\" role=\"dialog\" aria-modal=\"true\">\
+<p>We use cookies and similar technologies to personalise content and ads. To read this site, accept our use of cookies.</p>\
+<button data-answer=\"accept\" data-closes=\"#grow-consent-modal\">Accept all</button></div>\
+<main><h1>The article behind the wall</h1><p>The article's text, which no one reads before the wall is answered.</p></main>",
+    )
+}
+
 /// The "accept or pay" wall: a banner offering a subscription instead of a
 /// refusal.
 fn pay_or_accept() -> String {
@@ -474,6 +488,7 @@ pub(crate) fn respond(name: &str, request: &Request<'_>) -> Option<Reply> {
         (false, "/spa" | "/spa/next") => Some(spa()),
         (false, "/notice") => Some(notice()),
         (false, "/wall") => Some(wall()),
+        (false, "/hidden-wall") => Some(hidden_wall()),
         (false, "/pay-or-accept") => Some(pay_or_accept()),
         _ => None,
     };

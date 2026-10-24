@@ -15,12 +15,14 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use goodfetch_engine::CallError;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_page::page_value::{
     Admission, DocumentResponse, HandlerPages, Kept, Navigation, NavigationGate, ObservedResponse,
-    PageValue, Permit, Refusal, ResponseObserver,
+    Observer, PageValue, Permit, Refusal, ResponseObserver,
 };
-use goodfetch_protocol::page::{SessionId, SitePreference};
+use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
+use goodfetch_protocol::page::{PageId, SessionId, SitePreference};
 use goodfetch_protocol::run::RunId;
 
 /// The recording gate, lease check and observer every page of an engine
@@ -72,12 +74,16 @@ pub struct Wait {
 /// A response the observer received.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Observed {
+    /// The page whose request got it.
+    pub page_id: PageId,
     /// Its URL.
     pub url: String,
     /// Its status.
     pub status: u16,
-    /// Whether a service worker's own request got it.
+    /// Whether a service worker's fetch handler answered it.
     pub from_service_worker: bool,
+    /// The length of its whole body.
+    pub body_length: usize,
     /// Its body as received, cut at the byte cap.
     pub body: Vec<u8>,
 }
@@ -100,12 +106,6 @@ impl RecordingGate {
     /// observer.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// The hook an engine's page crate takes, which gives every page this
-    /// gate and lease check, and this observer once [`Self::observe`] ran.
-    pub fn hooks(&self) -> Arc<dyn HandlerPages> {
-        Arc::new(self.clone())
     }
 
     /// Refuses at `admit` every request whose URL holds `part`, for
@@ -241,6 +241,20 @@ impl LeaseCheck for RecordingGate {
         }
     }
 
+    /// `call_cancelled`, stopped by the program: the Recording gate's stand-in
+    /// for the Product's own code (Foxhound's is `attempt_ended`), which a
+    /// test outside Foxhound's crates does not name.
+    fn withheld(&self, ended: LeaseEnded, method: &str) -> CallError {
+        CallError::new(
+            &CALL_CANCELLED,
+            format!("the Recording gate's lease ended ({ended}): `{method}` withheld"),
+            &CallCancelledDetails {
+                by: StoppedBy::Program,
+                closed: None,
+            },
+        )
+    }
+
     fn permit_wait(&self, url: &str) -> PermitWait {
         let mut records = lock(&self.shared.records);
         records.waits.push(Wait {
@@ -266,7 +280,9 @@ impl ResponseObserver for RecordingGate {
 
     fn on_response(&self, response: &ObservedResponse<'_>, body: &[u8]) {
         lock(&self.shared.records).observed.push(Observed {
+            page_id: response.page_id.clone(),
             url: response.url.to_owned(),
+            body_length: response.body_length,
             status: response.status,
             from_service_worker: response.from_service_worker,
             body: body.to_vec(),
@@ -276,13 +292,13 @@ impl ResponseObserver for RecordingGate {
 
 impl HandlerPages for RecordingGate {
     fn value(&self, _run: &RunId, _session: &SessionId) -> PageValue {
-        PageValue::new(Arc::new(self.clone()), Arc::new(self.clone()))
+        PageValue::new(self.clone(), self.clone())
     }
 
-    fn observer(&self, _run: &RunId, _session: &SessionId) -> Option<Arc<dyn ResponseObserver>> {
+    fn observer(&self, _run: &RunId, _session: &SessionId) -> Option<Observer> {
         lock(&self.shared.rules)
             .kept
             .is_some()
-            .then(|| Arc::new(self.clone()) as Arc<dyn ResponseObserver>)
+            .then(|| Observer::new(self.clone()))
     }
 }

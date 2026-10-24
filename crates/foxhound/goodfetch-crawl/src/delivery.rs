@@ -46,36 +46,44 @@
 //! more and waits for the Run to stop or a Connection to join. Each attempt
 //! counts in `goodfetch.work_item.leased` until it ends, and each retry in
 //! `goodfetch.work_item.retried`, on the meter the Run hands out (ADR 0050).
+//! A pending work item a rule the Frontier learned later merged leaves its
+//! domain's queue, and one the gate already took gives its turn back
+//! unsent.
+//!
+//! Size: one delivery loop, the admission, leases, attempts and settling it
+//! drives, kept whole so every work item's way from pending to its ending
+//! passes through one loop.
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
-use goodfetch_engine::admission::{Admission, SecondCopies, Waiting, Wakes};
+use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
 use goodfetch_engine::client::Client;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::run_state::RunStateError;
-use goodfetch_engine::runs::{ChargeError, CompletenessReason, Ending, Run};
+use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
-use goodfetch_fetch_tier::{FetchTiers, HttpTier};
-use goodfetch_frontier::{Bounds, completeness_reasons, learned_completeness_reasons};
+use goodfetch_fetch_tier::{FetchTiers, HttpTier, RobotsTxtFetch};
+use goodfetch_frontier::Bounds;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
-    RESPONSE_UNAVAILABLE, WORK_ITEM_RETRIED,
+    WORK_ITEM_RETRIED,
 };
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::run::{
-    AxisReason, EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, StopReason,
+    EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, StopReason,
 };
 use goodfetch_protocol::usage::REQUESTS;
 use goodfetch_session_pool::{PoolSettings, SessionPool};
-use rusqlite::Connection;
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
+use crate::completeness;
 use crate::lease::{CommitError, Leases};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
@@ -86,7 +94,7 @@ use goodfetch_protocol::foxhound::progress::{InFlightPhase, InFlightRequest};
 mod attempt;
 mod politeness;
 
-use attempt::{Answer, Attempt, DocumentFetch, attempt, block_cause, effect, leased_count};
+use attempt::{Answer, Attempt, DocumentFetch, Gating, attempt, block_cause, effect, leased_count};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
 
 /// A Connection serving the crawl's handler requests, as the delivery
@@ -148,9 +156,19 @@ pub(crate) async fn drive(
     // One HTTP tier for the Run, so its hops share connections (#763).
     match FetchTiers::http(&run, settings.resolved()) {
         Ok(http) => {
+            // The navigation gate fetches robots.txt on the Run's HTTP tier,
+            // or on one of its own when crawl requests take none.
+            let robots = match &http {
+                Some(http) => Some(http.robots_txt_fetch()),
+                None => FetchTiers::built(&run, settings.resolved())
+                    .inspect_err(|error| tracing::warn!(%error, run_id = %run.id(), "the navigation gate has no transport for robots.txt; every robots.txt it reads is unreachable"))
+                    .ok()
+                    .map(|tier| tier.robots_txt_fetch()),
+            };
             let fetching = Fetching {
                 tiers: &tiers,
                 http: http.as_ref(),
+                robots,
                 in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
             };
             deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
@@ -341,10 +359,12 @@ pub(crate) async fn resume(
     let policy = CrawlPolicy::of(&settings.at_admission().await);
     let retry_max = policy.retry_max;
     let bounds = Bounds::of_settings(settings.resolved());
+    let resolved = settings.resolved().clone();
     let left = run
         .state()
         .write(move |connection| {
             bounds.record(connection)?;
+            goodfetch_frontier::payload::record_max_size(connection, &resolved)?;
             work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)?;
             work_items::left(connection)
         })
@@ -373,11 +393,22 @@ pub(crate) async fn resume(
 struct Fetching<'a> {
     tiers: &'a FetchTiers,
     http: Option<&'a HttpTier>,
+    /// How the navigation gate fetches robots.txt.
+    robots: Option<RobotsTxtFetch>,
     /// The requests in flight, as the Run's progress shows them.
     in_flight: SharedInFlight,
 }
 
 impl Fetching<'_> {
+    /// What one attempt's handler pages are gated with.
+    fn gating(&self, second_copies: &SecondCopies) -> Gating {
+        Gating {
+            tiers: self.tiers.clone(),
+            second_copies: second_copies.clone(),
+            robots: self.robots.clone(),
+        }
+    }
+
     /// What one attempt fetches its request's document with.
     fn served(&self, second_copies: &SecondCopies) -> Option<DocumentFetch> {
         self.http
@@ -482,7 +513,10 @@ async fn lease_to_servers(
                     server.client.clone(),
                     (leased, session, leased_count(run)),
                     lease,
-                    pooled.fetching.served(&admission.second_copies()),
+                    (
+                        pooled.fetching.served(&admission.second_copies()),
+                        pooled.fetching.gating(&admission.second_copies()),
+                    ),
                     std::sync::Arc::clone(&pooled.fetching.in_flight),
                 ),
             ));
@@ -525,7 +559,7 @@ async fn drained(
         .boolean(CRAWL_KEEP_ALIVE.name)
         .expect("invariant: `crawl.keep_alive` resolves to a boolean");
     if !keeps_alive || run.is_let_finish() {
-        let ending = match run.state().read(short_of_scope).await {
+        let ending = match run.state().read(completeness::short_of_scope).await {
             Ok(reasons) => Ending::Finished(reasons),
             Err(error) => {
                 tracing::error!(%error, run_id = %run.id(), "what cut the crawl could not be read");
@@ -538,31 +572,6 @@ async fn drained(
     progress::show_waits(run, &[], resolved, run.clock().now(), Room::None);
     progress::show_idle(run, true);
     waited(run, admission, servers, arrivals, true).await
-}
-
-/// Why the finished crawl of the run file `connection` holds does not
-/// cover its scope: what its bounds and caps refused (ADRs 0093 and 0120),
-/// what its learned traps refused and its listings paged only by an offset
-/// (ADR 0005) and, when requests `failed` with `response_unavailable`, that (ADR
-/// 0118), in the order of their codes.
-fn short_of_scope(connection: &Connection) -> rusqlite::Result<Vec<CompletenessReason>> {
-    let mut reasons = completeness_reasons(connection)?;
-    reasons.extend(learned_completeness_reasons(connection)?);
-    if work_items::any_failed_with(connection, RESPONSE_UNAVAILABLE.name)? {
-        reasons.push(CompletenessReason::incomplete(unavailable_reason()));
-    }
-    reasons.sort_by(|one, other| one.reason.code.cmp(&other.reason.code));
-    Ok(reasons)
-}
-
-/// Why a crawl that ends with requests `failed` with
-/// `response_unavailable` is `incomplete` (ADR 0118).
-fn unavailable_reason() -> AxisReason {
-    AxisReason {
-        code: RESPONSE_UNAVAILABLE.name.to_owned(),
-        message: "A site asked to wait longer than `politeness.retry_after.max` allows, so some of its requests failed with `response_unavailable`; `retryFailed()` re-admits them.".to_owned(),
-        call_id: None,
-    }
 }
 
 /// Waits, with nothing to deliver now, until the Run stops at once, is
@@ -630,7 +639,7 @@ async fn settled(
     admission: &mut Admission,
     (pool, in_flight): (&mut SessionPool, &SharedInFlight),
     servers: &mut [Serving],
-    attempt: Attempt,
+    mut attempt: Attempt,
 ) {
     in_flight
         .lock()
@@ -642,6 +651,7 @@ async fn settled(
         server.gone = true;
     }
     let waiting = attempt.leased.waiting.clone();
+    let merged = std::mem::take(&mut attempt.merged);
     let domain = domain_ending(&attempt.answer, run.clock().now(), run.clock().wall());
     let resolved = settings.at_admission().await;
     pool.settle(
@@ -672,6 +682,16 @@ async fn settled(
     if retried {
         count_retry(run);
         admission.enqueue(waiting);
+    }
+    let mut keys = BTreeSet::new();
+    for (id, key) in merged {
+        admission.withdraw(&key, &id);
+        keys.insert(key);
+    }
+    for key in keys {
+        if let Err(error) = fill(run, admission, Some(key)).await {
+            tracing::warn!(%error, run_id = %run.id(), "a queue a learned rule thinned was not filled again");
+        }
     }
     if let Err(error) = key_new(run, admission).await {
         tracing::warn!(%error, run_id = %run.id(), "the requests a handler enqueued were not keyed yet");
@@ -798,6 +818,7 @@ async fn admit(
 ) -> Result<Vec<Leased>, ChargeError> {
     let now = run.clock().now();
     let mut ids = Vec::new();
+    let mut keys = Vec::new();
     let mut drained = Vec::new();
     let mut refused = Vec::new();
     while ids.len() < room {
@@ -817,13 +838,15 @@ async fn admit(
             Err(error) => return Err(error),
         }
         if admitted.drained {
-            drained.push(admitted.key);
+            drained.push(admitted.key.clone());
         }
         ids.push(admitted.id);
+        keys.push(admitted.key);
     }
     if !refused.is_empty() {
         end_unsent(run, admission, refused).await?;
     }
+    let asked = ids.clone();
     let leased = if ids.is_empty() {
         Vec::new()
     } else {
@@ -831,6 +854,13 @@ async fn admit(
             .write(move |connection| work_items::lease(connection, &ids))
             .await?
     };
+    // A work item a rule learned later merged after the gate took it is
+    // no longer pending: it gives its domain's turn back unsent.
+    for (id, key) in asked.iter().zip(&keys) {
+        if !leased.iter().any(|leased| leased.crawl_request.id == *id) {
+            admission.ended(id, key, now, Ended::Done).await;
+        }
+    }
     for key in drained {
         fill(run, admission, Some(key)).await?;
     }

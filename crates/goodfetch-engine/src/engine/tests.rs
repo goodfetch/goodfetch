@@ -11,8 +11,10 @@
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
 )]
 
+mod changed_certificates;
 mod checkpoint;
 mod consent_walls;
+mod controls;
 mod daemon;
 mod discard;
 mod durability;
@@ -29,6 +31,7 @@ mod needs_you;
 mod ops;
 mod pauses;
 mod progress;
+mod refetch_stops;
 mod refusals;
 mod report;
 mod run;

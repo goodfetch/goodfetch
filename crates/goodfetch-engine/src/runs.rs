@@ -76,7 +76,7 @@ use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure, TIMEOUT_SECRET,
 };
-use goodfetch_protocol::settings::{SettingsLayer, WeakenedSetting};
+use goodfetch_protocol::settings::{SettingsLayer, WALL_REFETCH_DOMAINS, WeakenedSetting};
 use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
@@ -85,7 +85,7 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
-pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Holding, RulesContext};
+pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext};
 pub use self::import::fuzz_run_state_import;
 pub use self::progress::{PauseHeld, ProgressPart};
 pub use self::reader::RunReader;
@@ -104,12 +104,14 @@ use self::report::EndFacts;
 pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
+use crate::CallError;
 use crate::admission::{Admission, Gates};
 use crate::audit::{AuditEvents, AuditLog};
 use crate::body;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
 use crate::client::Client;
 use crate::clock::Clock;
+use crate::controls::Controls;
 use crate::entropy::Entropy;
 use crate::events::Events;
 use crate::governor::{
@@ -121,7 +123,7 @@ use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation
 use crate::metrics::Metrics;
 use crate::needs_you::NeedsYou;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
-use crate::robots_txt::RunCopies;
+use crate::robots_txt::{Copies, RunCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept};
 use crate::run_index;
 use crate::run_key::{self, KeyError, RunKey, StoredKey};
@@ -222,6 +224,9 @@ pub(crate) struct RunsSetup {
     pub(crate) console: Option<String>,
     /// The engine's "Needs you", which `needs_you.*` reach through the Runs.
     pub(crate) needs_you: NeedsYou,
+    /// The switchable controls the composition registered, which each new
+    /// Run reports when its settings switch one off.
+    pub(crate) controls: Controls,
 }
 
 /// What drives a kind of Run, such as Foxhound's crawl's delivery, given
@@ -434,6 +439,10 @@ pub enum StartError {
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
+    /// The composition refused the start's settings, such as a version of
+    /// the Clean-up rules it cannot have (ADR 0047).
+    #[error("the start was refused: {0}")]
+    Refused(Box<CallError>),
 }
 
 /// A filesystem a Run needs at the `critical` storage level (ADR 0122).
@@ -996,6 +1005,8 @@ pub struct Runs {
     clean_up: Option<Arc<CleanUpRules>>,
     /// The engine's "Needs you".
     needs_you: NeedsYou,
+    /// The switchable controls each new Run reports.
+    controls: Arc<Controls>,
     /// The engine's Product version, whose major's Run index its Runs
     /// write.
     version: ProductVersion,
@@ -1077,6 +1088,8 @@ struct Shared {
     /// Its own copies of the robots.txt files its program's navigation
     /// read, one per origin (ADRs 0086 and 0098).
     robots_txt: RunCopies,
+    /// The copy a crawl's Run reads instead, once its crawl shared one.
+    crawls_robots_txt: std::sync::OnceLock<Arc<dyn Copies>>,
 }
 
 impl std::fmt::Debug for Run {
@@ -1194,6 +1207,43 @@ impl Run {
             .blocking(move || {
                 run_index::record_consent_wall(&path, &version, &domain, &run_id, &at)
             })
+            .await
+    }
+
+    /// Records in the Run index that the Run's refetch without the site's
+    /// stored data stopped on the registrable domain `domain` for `cause`,
+    /// the Block cause, the `401` or `403` status or the login page that
+    /// answered it, so "Needs you" lists the domain with the layer of
+    /// `wall.refetch_domains` that lists it (ADR 0052). The Run's first
+    /// stop on a domain is kept.
+    ///
+    /// # Errors
+    ///
+    /// When the Run index cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the write began still records it.
+    pub async fn record_refetch_stop(
+        &self,
+        domain: String,
+        cause: String,
+    ) -> Result<(), RunStateError> {
+        let path = self.runs.home().run_index(&self.runs.version);
+        let version = self.runs.version.clone();
+        let at = self.point_in_time();
+        let stop = run_index::RefetchStopped {
+            domain,
+            first_stopped: at.clone(),
+            last_run: self.id.clone(),
+            cause,
+            project_file: self
+                .settings()
+                .and_then(|settings| settings.project_setting(WALL_REFETCH_DOMAINS.name))
+                .map(str::to_owned),
+        };
+        self.owner
+            .blocking(move || run_index::record_refetch_stop(&path, &version, &stop, &at))
             .await
     }
 
@@ -1419,21 +1469,8 @@ impl Run {
         if !admission.shares(settings) {
             return Ok(Some(admission));
         }
-        let politeness = if settings.value(POLITENESS_SHARING.name).as_str() == Some("run") {
-            Politeness::in_memory(self.admitting.politeness.tables.clone(), &self.owner).await?
-        } else {
-            let file = self.admitting.politeness.file().await?;
-            self.stop_on_failures(
-                file.storage_failures(),
-                self.admitting.politeness.path.parent(),
-            );
-            file
-        };
-        let holder = Holder {
-            run_id: self.id.to_string(),
-            epoch: self.state.epoch(),
-            run_folder: self.folder.clone(),
-        };
+        // The one Politeness the Run shares, its proxies' limits included.
+        let (politeness, holder) = self.politeness(settings).await?;
         Ok(Some(
             admission.sharing(politeness, holder, self.clock, settings),
         ))
@@ -1511,11 +1548,23 @@ impl Run {
         });
     }
 
-    /// Its own copies of the robots.txt files its program's navigation
-    /// read, one fetch per origin while it lives, apart from the copy
-    /// Foxhound shares across a user's runs (ADRs 0086 and 0098).
-    pub fn robots_txt(&self) -> &RunCopies {
-        &self.shared.robots_txt
+    /// Where it reads robots.txt: its own copies, one fetch per origin
+    /// while it lives, apart from the copy Foxhound shares across a user's
+    /// runs (ADRs 0086 and 0098); on a crawl's Run, once its crawl shared
+    /// one ([`Run::share_robots_txt`]), that shared copy instead.
+    pub fn robots_txt(&self) -> Arc<dyn Copies> {
+        match self.shared.crawls_robots_txt.get() {
+            Some(shared) => Arc::clone(shared),
+            None => Arc::new(self.shared.robots_txt.clone()),
+        }
+    }
+
+    /// Reads robots.txt from the copies `copies` makes from now on, in
+    /// place of its own: a crawl's Run reads the copy shared across the
+    /// user's runs (ADR 0086). The first call makes them; a later one
+    /// changes nothing and makes none.
+    pub fn share_robots_txt(&self, copies: impl FnOnce() -> Arc<dyn Copies>) {
+        self.shared.crawls_robots_txt.get_or_init(copies);
     }
 
     /// Its owner, whose tasks and blocking work stop with the Run.
@@ -1963,6 +2012,7 @@ impl Runs {
             drivers: Arc::new(setup.drivers.clone()),
             clean_up: CleanUpRules::of(&setup),
             needs_you: setup.needs_you.clone(),
+            controls: Arc::new(setup.controls.clone()),
             version: setup.version.clone(),
         };
         let politeness = SharedPoliteness {
@@ -2079,7 +2129,8 @@ impl Runs {
             let chosen = rules
                 .versions
                 .choose(self.rules_context(rules, start.settings.as_ref()))
-                .await;
+                .await
+                .map_err(|refused| StartError::Refused(Box::new(refused)))?;
             start.clean_up_digest = Some(chosen.digest);
             fallback = chosen.fallback;
         }
@@ -2115,8 +2166,53 @@ impl Runs {
         }
     }
 
-    /// [`Runs::start`] once its Clean-up rules are chosen.
+    /// [`Runs::start`] once its Clean-up rules are chosen: a new Run whose
+    /// settings switch a control off reports each switch once (ADR 0016),
+    /// and with `security.audit_chain` off its entries, from its key's use
+    /// on, are written unchained; a start that answers an existing Run, or
+    /// fails, reports nothing.
     async fn start_chosen(&self, start: Start) -> Result<Started, StartError> {
+        let switched = start
+            .settings
+            .as_ref()
+            .map(|settings| self.controls.switched_off(settings.resolved()))
+            .unwrap_or_default();
+        let audit = self.audit().clone();
+        let chosen = start.run_id.clone().filter(|_| switched.unchains());
+        let newly_unchained = chosen.clone().is_some_and(|run_id| audit.unchain(run_id));
+        let started = self.start_reported(start).await;
+        match &started {
+            Ok(Started::New(run)) => {
+                if switched.unchains() {
+                    audit.unchain(run.id().clone());
+                }
+                let run_id = run.id().clone();
+                let now = jiff::Timestamp::try_from(self.limits.clock.wall())
+                    .unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+                let reported = self
+                    .limits
+                    .owner
+                    .blocking(move || switched.report(&audit, &run_id, now))
+                    .await;
+                if let Err(error) = reported {
+                    tracing::error!(
+                        run_id = %run.id(),
+                        %error,
+                        "a security control the Run switched off could not be recorded in the Audit log"
+                    );
+                }
+            }
+            _ => {
+                if let Some(run_id) = chosen.filter(|_| newly_unchained) {
+                    audit.rechain(&run_id);
+                }
+            }
+        }
+        started
+    }
+
+    /// [`Runs::start_chosen`] before its switched-off controls are reported.
+    async fn start_reported(&self, start: Start) -> Result<Started, StartError> {
         let secrets = self
             .secrets
             .for_run(secret_timeout(start.settings.as_ref()));
@@ -4147,6 +4243,7 @@ impl Registry {
                 system_info: self.setup.governor.system_info(),
                 politeness: tokio::sync::OnceCell::new(),
                 robots_txt: RunCopies::default(),
+                crawls_robots_txt: std::sync::OnceLock::new(),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),
@@ -4181,6 +4278,7 @@ impl Registry {
             drivers: Arc::clone(&self.drivers),
             clean_up: CleanUpRules::of(&self.setup),
             needs_you: self.setup.needs_you.clone(),
+            controls: Arc::new(self.setup.controls.clone()),
             version: self.setup.version.clone(),
         }
     }
@@ -4726,6 +4824,7 @@ impl Registry {
                 | StartError::LimitNotUnderstood(_)
                 | StartError::Draining { .. }
                 | StartError::Secret(_)
+                | StartError::Refused(_)
                 | StartError::Stopped => RunError::Stopped,
             })?;
         let mut after = 0;

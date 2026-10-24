@@ -2,11 +2,15 @@
 //! navigation answers its document's `Response`, a 404 or a 500 included;
 //! going back or forward loads the document again, since the back/forward
 //! cache is off, also across sites, whose renderers the browser swaps; an
-//! unreachable site fails with the browser's network error; and a
-//! navigation superseded before it committed is interrupted.
+//! unreachable site fails with the browser's network error; a navigation
+//! superseded before it committed is interrupted; and one whose document
+//! does not load within `timeout.navigation` ends with `deadline_exceeded`
+//! naming the setting (ADR 0080).
 
 use std::time::Duration;
 
+use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
+use goodfetch_protocol::page::waits::{PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL};
 use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NAVIGATION_INTERRUPTED, Navigated, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO,
     PAGE_RELOAD, PageResponse,
@@ -228,6 +232,83 @@ pub(super) fn back_loads_again(
     Ok(())
 }
 
+/// A URL waiter for the first page, until its `load`, and a response
+/// waiter for its document, both armed before going back to it, pass
+/// with the Back navigation: the page loads again from the network and
+/// fires `load`, never restored from the back/forward cache (ADR 0121;
+/// pitfall B21).
+pub(super) fn waits_armed_before_back(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-waits-armed-before-back";
+    let first = url_on(site, "navigation/2", "/");
+    let second = url_on(site, "navigation/2", "/b");
+    if let (Some(page), Some(first), Some(second)) = (
+        open(connection, site, run_id, &[&first, &second], checks)?,
+        &first,
+        &second,
+    ) {
+        call(connection, PAGE_GOTO.name, &page, &json!({ "url": first }))?;
+        call(connection, PAGE_GOTO.name, &page, &json!({ "url": second }))?;
+        let exact = json!({ "kind": "glob", "pattern": first });
+        let by_url = connection.request(
+            PAGE_WAIT_FOR_URL.name,
+            &json!({ "page_id": page, "url": exact, "wait_until": "load" }),
+        )?;
+        let by_response = connection.request(
+            PAGE_WAIT_FOR_RESPONSE.name,
+            &json!({ "page_id": page, "url": exact }),
+        )?;
+        let back = connection.request(PAGE_GO_BACK.name, &json!({ "page_id": page }))?;
+        let mut answers = answers_to(connection, &[by_url, by_response, back])?.into_iter();
+        let (url_reached, response_caught, back) = (
+            answers.next().unwrap_or_default(),
+            answers.next().unwrap_or_default(),
+            answers.next().unwrap_or_default(),
+        );
+        answered(
+            &back,
+            "`page.go_back` with waiters armed",
+            first,
+            200,
+            checks,
+        );
+        checks.check(
+            "the URL waiter armed before `page.go_back` passes once the page fired `load`",
+            url_reached.get("result").is_some(),
+        );
+        checks.check(
+            "the response waiter armed before `page.go_back` gets the document's response from the network",
+            response_caught["result"]["response"]["status"] == json!(200),
+        );
+    }
+    if first.is_some() && second.is_some() {
+        finish_run(connection, run_id)?;
+    }
+    Ok(())
+}
+
+/// The answers to the requests `ids`, in that order, whichever came first.
+fn answers_to(connection: &mut Connection, ids: &[i64]) -> Result<Vec<Value>, Gone> {
+    let mut read: Vec<Value> = Vec::new();
+    let mut answers = Vec::with_capacity(ids.len());
+    for id in ids {
+        let at = read
+            .iter()
+            .position(|message| message.get("method").is_none() && message["id"] == json!(id));
+        if let Some(at) = at {
+            answers.push(read.remove(at));
+        } else {
+            let answer = connection.browser_answer(*id)?;
+            read.extend(answer.others);
+            answers.push(answer.message);
+        }
+    }
+    Ok(answers)
+}
+
 /// Checks that `answer` fails with `navigation_failed`, retryable, naming
 /// the browser's network error `error`.
 pub(super) fn failed_with(answer: &Value, what: &str, error: &str, checks: &mut Checks) {
@@ -360,6 +441,73 @@ pub(super) fn superseded(
     );
     checks.check("it names the superseded URL", data["url"] == json!(held));
     answered(&second, "the superseding `page.goto`", next, 200, checks);
+    finish_run(connection, run_id)
+}
+
+/// The navigation deadline of the case whose document loads past it: well
+/// below the about two seconds the Proving ground holds its answer.
+const SHORT_NAVIGATION_TIMEOUT: u64 = 500;
+
+/// A navigation whose document does not load within `timeout.navigation`
+/// ends with `deadline_exceeded`, retryable, whose `limit` names the
+/// setting, its value and the layer that set it, and whose `waited_for`
+/// names the state the call waited for (ADR 0080). The Proving ground
+/// holds the document's answer past the deadline.
+pub(super) fn past_its_deadline(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-navigation-deadline";
+    let held = site.start_url("pacing/1").map(ToOwned::to_owned);
+    checks.check("the Proving ground serves the case's pages", held.is_some());
+    let Some(held) = held else {
+        return Ok(());
+    };
+    start_run(
+        connection,
+        site,
+        run_id,
+        &json!({ "timeout": { "navigation": SHORT_NAVIGATION_TIMEOUT } }),
+        checks,
+    )?;
+    let Some(page) = new_page(connection, run_id, checks)? else {
+        return finish_run(connection, run_id);
+    };
+    let slowed = site.proving_ground.set_time_step(SLOWEST_STEP).is_ok();
+    checks.check("the Proving ground holds its pacing pages' answers", slowed);
+    let answer = call(
+        connection,
+        PAGE_GOTO.name,
+        &json!(page.page_id),
+        &json!({ "url": held, "wait_until": "load" }),
+    );
+    let restored = site.proving_ground.set_time_step(0).is_ok();
+    checks.check("the Proving ground's time step is set back", restored);
+    let data = &answer?["error"]["data"];
+    checks.check(
+        format!(
+            "`page.goto` past `timeout.navigation` fails with `{}`",
+            DEADLINE_EXCEEDED.name
+        ),
+        data["code"] == json!(DEADLINE_EXCEEDED.name),
+    );
+    checks.check("a retry may succeed", data["retryable"] == json!(true));
+    checks.check(
+        "its limit names `timeout.navigation`, its value and the Run's layer",
+        data["limit"]
+            == json!({ "key": "timeout.navigation", "value": SHORT_NAVIGATION_TIMEOUT, "layer": "run" }),
+    );
+    checks.check(
+        "it waited for the `load` the call named",
+        data["waited_for"] == json!("load"),
+    );
+    checks.check(
+        "it waited at least as long as its limit",
+        data["elapsed"]
+            .as_u64()
+            .is_some_and(|elapsed| elapsed >= SHORT_NAVIGATION_TIMEOUT),
+    );
     finish_run(connection, run_id)
 }
 

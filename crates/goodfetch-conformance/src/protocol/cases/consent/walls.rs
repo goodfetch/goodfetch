@@ -187,6 +187,36 @@ pub(super) fn walls(
     finish(connection, run_id)
 }
 
+/// The call that waited for a wall's navigation raises it, so no call reads
+/// the walled page, with no wait on the Run trace between: the runner's
+/// verdict comes before the `goto` answers, for the wall covering the
+/// viewport and for one a Filter list's cosmetic rule would hide, which
+/// live hiding leaves alone until the wall test judged it.
+pub(super) fn walls_at_once(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-consent-walls-at-once";
+    let Some(page) = open(connection, site, run_id, &json!({}), checks)? else {
+        return finish(connection, run_id);
+    };
+    for path in ["/wall", "/hidden-wall"] {
+        let url = site.named_url(HOST, path).unwrap_or_default();
+        let went = call(
+            connection,
+            PAGE_GOTO.name,
+            &json!(page.page_id),
+            &json!({ "url": url }),
+        )?;
+        checks.check(
+            format!("the `goto` to the wall at {path} raises `blocked` with `consent_required`"),
+            walled(&went, path),
+        );
+    }
+    finish(connection, run_id)
+}
+
 /// With `consent.handling` off, the wall test still runs: the wall is
 /// `consent_required`, raised as `blocked`.
 pub(super) fn walls_off(

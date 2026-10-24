@@ -42,13 +42,13 @@ const IDLE: Duration = Duration::from_secs(10);
 /// How long the test's own browser has to report its debugging port.
 const PORT_DEADLINE: Duration = Duration::from_secs(30);
 
-/// The profile folder the engine launches the Run's browser on.
-fn launch_profile(env: &TestEnv, run_id: &str) -> PathBuf {
+/// The Browser data folder the engine launches the Run's browser on.
+fn launch_data_folder(env: &TestEnv, run_id: &str) -> PathBuf {
     env.home()
         .join("0.0")
         .join("runs")
         .join(run_id)
-        .join("browser-profiles")
+        .join("browser-data")
         .join("1")
 }
 
@@ -101,7 +101,7 @@ fn a_launched_browser_calls_no_vendor_host_through_navigation_and_idle_time() {
     let cache = browser_cache(&env).unwrap();
     let mut engine = started(&env, &cache, &proving_ground, "quiet");
     through_proxy(
-        &launch_profile(&env, "quiet"),
+        &launch_data_folder(&env, "quiet"),
         &proving_ground.description().fixtures.proxies["open"],
     );
 
@@ -281,7 +281,7 @@ fn an_engine_launched_browser_opens_no_port_while_a_debugging_port_launch_does()
 
     let sockets = listening_sockets();
 
-    let engines = processes_on(&env, "browser-profiles");
+    let engines = processes_on(&env, "browser-data");
     let tests = processes_on(&env, "debugging-port-profile");
     debugging.interrupt().unwrap();
     let _ = debugging.child().wait();

@@ -95,6 +95,27 @@ pub struct AuditEntry {
     /// was sent to, never a secret's value.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub details: Value,
+    /// Whether its hash chains it to the entry before it: `false` for an
+    /// entry of a Run whose `security.audit_chain` was off, whose hash is
+    /// `SHA-256` of 32 zero bytes and its own canonical JSON alone, and
+    /// which `audit verify` steps over while it verifies the chain around
+    /// it; left out when chained.
+    #[serde(default = "chained", skip_serializing_if = "is_chained")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub chained: bool,
+}
+
+/// An entry's `chained` when left out.
+const fn chained() -> bool {
+    true
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes the field by reference"
+)]
+const fn is_chained(chained: &bool) -> bool {
+    *chained
 }
 
 /// What `audit.verify` takes: nothing.
@@ -269,6 +290,12 @@ pub const CERTIFICATE_CHANGE_ACCEPTED: SharedTypeValue = kind(
     "A person accepted a pinned host's changed certificate, with both hashes (ADR 0042).",
 );
 
+/// A pinned host forgotten.
+pub const CERTIFICATE_PIN_FORGOTTEN: SharedTypeValue = kind(
+    "certificate_pin_forgotten",
+    "A person removed their pin of a host, and any change waiting for it, so its next connection under trust on first use pins again (ADR 0042).",
+);
+
 /// Any certificate accepted for a domain.
 pub const CERTIFICATE_ANY_USED: SharedTypeValue = kind(
     "certificate_any_used",
@@ -345,6 +372,7 @@ pub const ENTRIES: Entries = Entries {
         LENT_PAGE_ATTACHED,
         CERTIFICATE_PINNED,
         CERTIFICATE_CHANGE_ACCEPTED,
+        CERTIFICATE_PIN_FORGOTTEN,
         CERTIFICATE_ANY_USED,
         CERTIFICATE_EXCEPTIONS_USED,
         SESSION_EXPORTED,

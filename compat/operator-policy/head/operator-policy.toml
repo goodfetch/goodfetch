@@ -129,6 +129,15 @@ wait = 30000
 first_byte = 30000
 handler = 30000
 
+[settings.security]
+field_encryption = true
+secure_delete = true
+resolved_ip_check = true
+raw_cdp_egress_proxy = true
+browser_sandbox = true
+audit_chain = true
+redaction = true
+
 [settings.sample]
 echo_repeats = 4
 
@@ -155,6 +164,7 @@ update = "release"
 version = "example"
 channel = "example"
 lists = { "example.test" = "example" }
+fetch_timeout = 30000
 
 [settings.session]
 source = { kind = "saved_identity", name = "example" }
@@ -220,6 +230,9 @@ strategy = "same_hostname"
 include = ["example"]
 exclude = ["example"]
 
+[settings.crawl.payload]
+max_size = 4
+
 [settings.fetch]
 tier = "auto"
 coalesce = true
@@ -237,6 +250,9 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [settings.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
+
+[settings.site_preferences]
+robots_txt_user_agent = "example"
 
 [lock.log]
 level = "example"
@@ -366,6 +382,15 @@ wait = 30000
 first_byte = 30000
 handler = 30000
 
+[lock.security]
+field_encryption = true
+secure_delete = true
+resolved_ip_check = true
+raw_cdp_egress_proxy = true
+browser_sandbox = true
+audit_chain = true
+redaction = true
+
 [lock.sample]
 echo_repeats = 4
 
@@ -392,6 +417,7 @@ update = "release"
 version = "example"
 channel = "example"
 lists = { "example.test" = "example" }
+fetch_timeout = 30000
 
 [lock.session]
 source = { kind = "saved_identity", name = "example" }
@@ -457,6 +483,9 @@ strategy = "same_hostname"
 include = ["example"]
 exclude = ["example"]
 
+[lock.crawl.payload]
+max_size = 4
+
 [lock.fetch]
 tier = "auto"
 coalesce = true
@@ -474,6 +503,9 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [lock.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
+
+[lock.site_preferences]
+robots_txt_user_agent = "example"
 
 [cap.log.file]
 max_size = 4
@@ -552,6 +584,9 @@ handler = 30000
 [cap.sample]
 echo_repeats = 4
 
+[cap.clean_up]
+fetch_timeout = 30000
+
 [cap.admission]
 max_requests_per_minute = 4
 
@@ -583,6 +618,9 @@ max = 4
 
 [cap.crawl.handler]
 concurrency = 4
+
+[cap.crawl.payload]
+max_size = 4
 
 [cap.fetch.hedge]
 max_percent = 4

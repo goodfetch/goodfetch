@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use super::{SnapshotValues, rules, snapshot_settings};
+use super::{SnapshotValues, redact, snapshot_settings};
 use crate::env::TestEnv;
 
 /// The shared cases every language's `redact` passes.
@@ -16,19 +16,6 @@ struct Case {
     description: String,
     output: String,
     redacted: String,
-}
-
-/// `text` under the rules insta's settings take for `values`, applied as
-/// insta applies them.
-fn redact(text: &str, values: &SnapshotValues) -> String {
-    rules(values)
-        .into_iter()
-        .fold(text.to_owned(), |text, (pattern, replacement)| {
-            regex::Regex::new(&pattern)
-                .unwrap()
-                .replace_all(&text, replacement.as_str())
-                .into_owned()
-        })
 }
 
 /// One run's values, as an output would print them.
@@ -178,5 +165,43 @@ fn the_tests_folder_redacts_in_each_form_an_output_prints_it() {
     assert_eq!(
         redacted,
         r#"[FOLDER]/a [FOLDER]/b {"path":"[FOLDER]/c"} {"path":"[FOLDER]/d"}"#
+    );
+}
+
+/// A path the test names, such as an executable's, redacts as its path,
+/// its canonical path and both written inside a JSON string: here an
+/// executable reached through a linked build folder, which an executable
+/// names by its canonical path when the OS resolves the link for it.
+#[test]
+#[cfg(unix)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test makes and canonicalizes its own folders outside any async worker"
+)]
+fn a_named_path_redacts_in_each_form_an_output_prints_it() {
+    let env = TestEnv::new();
+    let real = env.folder().join("volume");
+    std::fs::create_dir(&real).unwrap();
+    std::fs::write(real.join("goodfetch-collie"), "").unwrap();
+    let target = env.folder().join("target");
+    std::os::unix::fs::symlink(&real, &target).unwrap();
+    let executable = target.join("goodfetch-collie").display().to_string();
+    let canonical = std::fs::canonicalize(&executable)
+        .unwrap()
+        .display()
+        .to_string();
+    let output = format!(
+        "Run `{executable} daemon restart`. Run `{canonical} daemon restart`. {{\"path\":{}}}",
+        serde_json::to_string(&canonical).unwrap(),
+    );
+
+    let redacted = redact(
+        &output,
+        &SnapshotValues::of(&env).with_path(&executable, "[COLLIE]"),
+    );
+
+    assert_eq!(
+        redacted,
+        r#"Run `[COLLIE] daemon restart`. Run `[COLLIE] daemon restart`. {"path":"[COLLIE]"}"#
     );
 }

@@ -12,6 +12,8 @@
 //! host; a request whose learned identity meets a visited one's is a
 //! `duplicate` the rules merged.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use data_encoding::HEXLOWER;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
@@ -118,10 +120,18 @@ pub(crate) fn seen(connection: &Connection, identities: &Identities) -> rusqlite
         .query_row([probe], |row| Ok((row.get::<_, i64>(0)?, row.get(1)?)))
         .optional()?;
     Ok(match learned {
-        Some((rule, crawl_request)) => Seen::Merged {
-            rules: rules.cloned().unwrap_or_else(|| vec![rule]),
-            crawl_request,
-        },
+        Some((rule, crawl_request)) => {
+            // The rules on either side merged it: its own, and the one
+            // that gave the visited request its learned identity.
+            let mut rules = rules.cloned().unwrap_or_default();
+            if !rules.contains(&rule) {
+                rules.push(rule);
+            }
+            Seen::Merged {
+                rules,
+                crawl_request,
+            }
+        }
         None => Seen::New,
     })
 }
@@ -158,50 +168,104 @@ fn learn_identity(
     Ok(())
 }
 
-/// Gives each visited identity of `no_effect`'s host whose URL carries its
-/// parameter its learned identity, so a URL that differs from it only by
-/// learned parameters is a `duplicate` from then on, whichever of the two
-/// carried them.
+/// Gives each visited identity of `merging`'s hosts that its rule changes
+/// its learned identity, so a URL that differs from it only by what the
+/// learned rules merge is a `duplicate` from then on, whichever of the two
+/// was admitted; answers each set of crawl requests the rule just showed to
+/// be one page, the requests admitted before it was learned among them.
 ///
 /// # Errors
 ///
 /// When the run file cannot be read or written.
 pub(crate) fn merge_learned(
     connection: &Connection,
-    no_effect: &rules::NoEffect,
-) -> rusqlite::Result<()> {
-    let mut statement = connection
-        .prepare("SELECT identity, crawl_request FROM visited WHERE instr(identity, ?1) > 0")?;
-    let candidates = statement
-        .query_map([format!("://{}", no_effect.host)], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (visited, crawl_request) in candidates {
-        let Some((method, rest)) = visited.split_once(' ') else {
-            continue;
-        };
-        let (key, hash) = rest
-            .split_once(' ')
-            .map_or((rest, None), |(key, hash)| (key, Some(hash)));
-        let Ok(url) = Url::parse(key) else {
-            continue;
-        };
-        if url.host_str() != Some(no_effect.host.as_str()) {
+    merging: &rules::Merging,
+) -> rusqlite::Result<Vec<BTreeSet<String>>> {
+    let mut pages: BTreeMap<String, (BTreeSet<String>, bool)> = BTreeMap::new();
+    for (learned, rules, crawl_request) in visited_on(connection, &merging.hosts)? {
+        let changed = rules.contains(&merging.rule);
+        if changed {
+            learn_identity(connection, &learned, merging.rule, &crawl_request)?;
+        }
+        let page = pages.entry(learned).or_default();
+        page.0.insert(crawl_request);
+        page.1 |= changed;
+    }
+    let mut groups = Vec::new();
+    for (learned, (mut requests, changed)) in pages {
+        if !changed {
             continue;
         }
-        let (stripped, rules) = rules::without_learned(connection, &url)?;
-        if !rules.contains(&no_effect.rule) {
-            continue;
+        requests.extend(visitor(connection, &learned)?);
+        if requests.len() > 1 {
+            groups.push(requests);
         }
-        let mut learned = format!("{method} {}", url_key(&stripped));
-        if let Some(hash) = hash {
-            learned.push(' ');
-            learned.push_str(hash);
+    }
+    Ok(groups)
+}
+
+/// Gives every visited identity of `merging`'s hosts its learned identity
+/// again under the rules that still hold, once `merging`'s rule stopped,
+/// so nothing it merged merges a URL from then on.
+///
+/// # Errors
+///
+/// When the run file cannot be read or written.
+pub(crate) fn unmerge(connection: &Connection, merging: &rules::Merging) -> rusqlite::Result<()> {
+    for host in &merging.hosts {
+        connection
+            .prepare_cached("DELETE FROM learned_identities WHERE instr(identity, ?1) > 0")?
+            .execute([format!("://{host}")])?;
+    }
+    for (learned, rules, crawl_request) in visited_on(connection, &merging.hosts)? {
+        if let Some(rule) = rules.last() {
+            learn_identity(connection, &learned, *rule, &crawl_request)?;
         }
-        learn_identity(connection, &learned, no_effect.rule, &crawl_request)?;
     }
     Ok(())
+}
+
+/// Each visited identity whose URL is on one of `hosts`, or whose URL's
+/// serialization holds one as a prefix of its host, under the learned rules
+/// that hold: its identity under them, the rules that changed it and its
+/// crawl request.
+fn visited_on(
+    connection: &Connection,
+    hosts: &[String],
+) -> rusqlite::Result<Vec<(String, Vec<i64>, String)>> {
+    let mut found = Vec::new();
+    for host in hosts {
+        let mut statement = connection.prepare_cached(
+            "SELECT identity, crawl_request FROM visited WHERE instr(identity, ?1) > 0",
+        )?;
+        let candidates = statement
+            .query_map([format!("://{host}")], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (visited, crawl_request) in candidates {
+            let Some((method, rest)) = visited.split_once(' ') else {
+                continue;
+            };
+            let (key, hash) = rest
+                .split_once(' ')
+                .map_or((rest, None), |(key, hash)| (key, Some(hash)));
+            let Ok(url) = Url::parse(key) else {
+                continue;
+            };
+            let (merged, rules) = rules::without_learned(connection, &url)?;
+            if rules.is_empty() {
+                continue;
+            }
+            let mut learned = format!("{method} {}", url_key(&merged));
+            if let Some(hash) = hash {
+                learned.push(' ');
+                learned.push_str(hash);
+            }
+            found.push((learned, rules, crawl_request));
+        }
+    }
+    Ok(found)
 }
 
 /// `url`'s key, as a URL.

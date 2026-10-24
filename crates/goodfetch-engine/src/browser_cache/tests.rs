@@ -736,3 +736,33 @@ fn browsers_install_fetches_the_builds_of_the_platform_a_host_runs(
 
     assert_eq!(platform.build_platform(), expected);
 }
+
+/// Each platform Chrome for Testing builds has its name, which reads back as
+/// it, and its executable's place in the folder its archive unpacks to;
+/// Linux on arm64, which it builds nothing for, has neither.
+#[rstest]
+#[case::linux(BuildPlatform::LinuxX64, Some(("linux64", "chrome-linux64/chrome")))]
+#[case::mac_arm(
+    BuildPlatform::MacArm64,
+    Some(("mac-arm64", "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"))
+)]
+#[case::mac_intel(
+    BuildPlatform::MacX64,
+    Some(("mac-x64", "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"))
+)]
+#[case::windows(BuildPlatform::WindowsX64, Some(("win64", "chrome-win64/chrome.exe")))]
+#[case::linux_arm(BuildPlatform::LinuxArm64, None)]
+fn each_chrome_for_testing_platform_has_its_name_and_its_executable(
+    #[case] platform: BuildPlatform,
+    #[case] expected: Option<(&str, &str)>,
+) {
+    let named = platform.chrome_for_testing_name();
+
+    assert_eq!(
+        (
+            named.zip(platform.chrome_for_testing_executable()),
+            named.and_then(BuildPlatform::of_chrome_for_testing_name),
+        ),
+        (expected, expected.map(|_| platform))
+    );
+}

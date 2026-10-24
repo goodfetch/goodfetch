@@ -7,6 +7,7 @@
 //! processes do. Foxhound's own.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
@@ -126,6 +127,17 @@ impl JsonSchema for Seeds {
     }
 }
 
+/// One Label a crawl declares (ADRs 0082 and 0093).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LabelDeclaration {
+    /// The JSON Schema its requests' Payloads are checked against, the
+    /// side the program's schema parses from; none takes any Payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub payload: Option<Value>,
+}
+
 /// What `crawl.start` takes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -141,6 +153,13 @@ pub struct CrawlStartParams {
     /// The requests the crawl starts from.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub seeds: Seeds,
+    /// The crawl's Labels, by name, each with its Payload's JSON Schema or
+    /// none (ADRs 0082 and 0093). A Payload of a declared schema is checked
+    /// against it at every enqueue; a Label the crawl does not declare
+    /// takes any Payload.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub labels: BTreeMap<String, LabelDeclaration>,
     /// The Run's settings, nested by key: the run layer (ADR 0083).
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]

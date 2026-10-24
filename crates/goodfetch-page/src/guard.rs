@@ -173,15 +173,14 @@ pub(crate) async fn act(
             Err(Unanswered::Failed(error)) => return Err(error),
         };
         match seen {
-            Seen::Ready { x, y, .. } => match &request.action {
+            Seen::Armed { x, y } => match &request.action {
                 Action::Click => {
                     let mut watch = page.watch_gesture().await;
                     // The disarm is the round trip into the renderer after
                     // the input that a key press makes with `settled`.
                     // Boxed, as the wait below: the action's future stays small.
                     let landed = Box::pin(watch.during(async {
-                        turn.click(x.unwrap_or_default(), y.unwrap_or_default())
-                            .await?;
+                        turn.click(x, y).await?;
                         landed(&mut turn).await
                     }))
                     .await?;
@@ -200,6 +199,9 @@ pub(crate) async fn act(
                         }
                     }
                 }
+                Action::Fill(_) | Action::Press(_) => return Err(mismatched(&seen)),
+            },
+            Seen::Focused => match &request.action {
                 Action::Fill(value) => return fill(&mut turn, value).await,
                 Action::Press(events) => {
                     let mut watch = page.watch_gesture().await;
@@ -214,7 +216,9 @@ pub(crate) async fn act(
                     Box::pin(page.settle_gesture(watch)).await;
                     return Ok(());
                 }
+                Action::Click => return Err(mismatched(&seen)),
             },
+            Seen::Ready { .. } => return Err(mismatched(&seen)),
             Seen::Invalid { message } => {
                 return Err(CallError::protocol(
                     ProtocolFailure::InvalidParams,
@@ -284,11 +288,7 @@ pub(crate) async fn check_element(
         return Readiness::Gone;
     };
     match Seen::read(&value) {
-        Ok(Seen::Ready {
-            x: Some(x),
-            y: Some(y),
-            ..
-        }) => Readiness::Ready { x, y },
+        Ok(Seen::Armed { x, y }) => Readiness::Ready { x, y },
         Ok(Seen::Waiting { .. }) => Readiness::Waiting,
         _ => Readiness::Gone,
     }
@@ -348,6 +348,16 @@ async fn fill(turn: &mut Turn<'_>, value: &str) -> Result<(), CallError> {
         turn.key(event).await?;
     }
     Ok(())
+}
+
+/// The guard's script answered `seen`, which is not an answer to the
+/// check it was asked: a pointer action's answer for a text action, or an
+/// action's for a locator wait.
+fn mismatched(seen: &impl std::fmt::Debug) -> CallError {
+    CallError::protocol(
+        ProtocolFailure::InternalError,
+        format!("the guard's script answered {seen:?}, which is not the check it was asked"),
+    )
 }
 
 /// The guard's script answered `value`, which does not read as what it
@@ -429,7 +439,8 @@ pub(crate) async fn wait(
             continue;
         };
         match Seen::read(&value).map_err(|error| unreadable(&value, &error))? {
-            Seen::Ready { count, .. } => return Ok(count),
+            Seen::Ready { count } => return Ok(count),
+            Seen::Armed { .. } | Seen::Focused => return Err(mismatched(&value)),
             Seen::Invalid { message } => {
                 return Err(CallError::protocol(
                     ProtocolFailure::InvalidParams,
@@ -479,7 +490,7 @@ fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
             observed,
             matches,
         } => (step, observed, matches),
-        Seen::Ready { .. } | Seen::Invalid { .. } => (
+        Seen::Armed { .. } | Seen::Focused | Seen::Ready { .. } | Seen::Invalid { .. } => (
             "receives_events".to_owned(),
             "the target was ready".to_owned(),
             Vec::new(),

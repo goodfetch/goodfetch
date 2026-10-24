@@ -167,7 +167,7 @@ async function check({ selector, handle, action, events, slice, min, max }) {
           element.select();
         }
       }
-      return { state: "ready" };
+      return { state: "focused" };
     }
     const centre = () => ({ x: box.left + box.width / 2, y: box.top + box.height / 2 });
     let { x, y } = centre();
@@ -216,7 +216,7 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     // The gesture follows at once; an arm whose call was dropped expires.
     const expiry = setTimeout(() => arm.disarm(), 10000);
     world[ARM] = arm;
-    return { state: "ready", x, y };
+    return { state: "armed", x, y };
   };
   for (;;) {
     const seen = observe();

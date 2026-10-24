@@ -3,10 +3,6 @@
 //! events: a page's synthetic event elsewhere in that window goes on as
 //! the page sent it, as Playwright's listener lets it, against real Chrome
 //! for Testing and the Proving ground.
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
 
 use goodfetch_recording_gate::RecordingGate;
 use serde_json::{Map, json};

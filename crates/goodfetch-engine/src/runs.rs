@@ -121,7 +121,7 @@ use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation
 use crate::metrics::Metrics;
 use crate::needs_you::NeedsYou;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
-use crate::robots_txt::RunCopies;
+use crate::robots_txt::{Copies, RunCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept};
 use crate::run_index;
 use crate::run_key::{self, KeyError, RunKey, StoredKey};
@@ -1075,6 +1075,8 @@ struct Shared {
     /// Its own copies of the robots.txt files its program's navigation
     /// read, one per origin (ADRs 0086 and 0098).
     robots_txt: RunCopies,
+    /// The copy a crawl's Run reads instead, once its crawl shared one.
+    crawls_robots_txt: std::sync::OnceLock<Arc<dyn Copies>>,
 }
 
 impl std::fmt::Debug for Run {
@@ -1509,11 +1511,22 @@ impl Run {
         });
     }
 
-    /// Its own copies of the robots.txt files its program's navigation
-    /// read, one fetch per origin while it lives, apart from the copy
-    /// Foxhound shares across a user's runs (ADRs 0086 and 0098).
-    pub fn robots_txt(&self) -> &RunCopies {
-        &self.shared.robots_txt
+    /// Where it reads robots.txt: its own copies, one fetch per origin
+    /// while it lives, apart from the copy Foxhound shares across a user's
+    /// runs (ADRs 0086 and 0098); on a crawl's Run, once its crawl shared
+    /// one ([`Run::share_robots_txt`]), that shared copy instead.
+    pub fn robots_txt(&self) -> Arc<dyn Copies> {
+        match self.shared.crawls_robots_txt.get() {
+            Some(shared) => Arc::clone(shared),
+            None => Arc::new(self.shared.robots_txt.clone()),
+        }
+    }
+
+    /// Reads robots.txt from `copies` from now on, in place of its own
+    /// copies: a crawl's Run reads the copy shared across the user's runs
+    /// (ADR 0086). The first call sets it; a later one changes nothing.
+    pub fn share_robots_txt(&self, copies: Arc<dyn Copies>) {
+        let _ = self.shared.crawls_robots_txt.set(copies);
     }
 
     /// Its owner, whose tasks and blocking work stop with the Run.
@@ -4141,6 +4154,7 @@ impl Registry {
                 system_info: self.setup.governor.system_info(),
                 politeness: tokio::sync::OnceCell::new(),
                 robots_txt: RunCopies::default(),
+                crawls_robots_txt: std::sync::OnceLock::new(),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),

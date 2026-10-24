@@ -11,7 +11,7 @@
 //! `page.request` sends (the browser-fetch tier), never through the copy
 //! Foxhound shares.
 
-use goodfetch_engine::robots_txt::{self, Fetched, Judgment, RobotsTxt};
+use goodfetch_engine::robots_txt::{self, Answer, Fetched, Judgment, RobotsTxt};
 use goodfetch_protocol::page::{PageId, SessionId};
 use serde_json::{Value, json};
 use url::Url;
@@ -52,9 +52,10 @@ pub(super) fn read(
     page.run.spawn(async move {
         let fetched = run
             .robots_txt()
-            .copy(&location, || {
-                fetch(&sessions, &steps, &session, &value, &location)
-            })
+            .copy(
+                &location,
+                Box::pin(fetch(&sessions, &steps, &session, &value, &location)),
+            )
             .await;
         let reading = Reading {
             page_id: &page_id,
@@ -74,10 +75,10 @@ async fn fetch(
     session: &SessionId,
     value: &PageValue,
     location: &Url,
-) -> Fetched {
+) -> Answer {
     let (driver, in_browser) = match sessions.engine_page(session, value).await {
         Ok(opened) => opened,
-        Err(error) => return Fetched::Unreachable(error.message().to_owned()),
+        Err(error) => return Answer::Unreachable(error.message().to_owned()),
     };
     let request = browser_fetch::Request {
         url: location.as_str(),
@@ -92,10 +93,13 @@ async fn fetch(
     drop(in_browser);
     match fetched {
         Ok(fetched) => match fetched.body {
-            Body::Whole(bytes) => Fetched::of_response(fetched.response.status, &bytes),
-            Body::Cut { .. } => Fetched::Unreachable("its body was cut".to_owned()),
+            Body::Whole(bytes) => Answer::Response {
+                status: fetched.response.status,
+                body: bytes.iter().copied().take(robots_txt::MAX_SIZE).collect(),
+            },
+            Body::Cut { .. } => Answer::Unreachable("its body was cut".to_owned()),
         },
-        Err(error) => Fetched::Unreachable(error.message().to_owned()),
+        Err(error) => Answer::Unreachable(error.message().to_owned()),
     }
 }
 

@@ -20,6 +20,7 @@ mod identity;
 mod learn;
 mod politeness;
 mod queues;
+mod robots_txt;
 mod rules;
 mod scope;
 pub mod seeds;
@@ -38,6 +39,7 @@ pub use identity::{
 pub use learn::{PageSeen, learn};
 pub use politeness::longest_wait;
 pub use queues::DomainQueues;
+pub use robots_txt::SharedRobotsTxt;
 pub use rules::{
     TABLES as RULES_TABLES, completeness_reasons as learned_completeness_reasons, learned_rules,
 };
@@ -62,5 +64,6 @@ pub fn contribution() -> Contribution {
         .with_run_state_tables(bounds::TABLES)
         .with_run_state_tables(rules::TABLES)
         .with_politeness_tables(politeness::TABLES)
+        .with_politeness_tables(robots_txt::TABLES)
         .with_admission_gates(Arc::new(queues::DomainGates))
 }

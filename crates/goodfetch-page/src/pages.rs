@@ -989,15 +989,17 @@ impl Pages {
             .call(
                 PageEvent::Read,
                 page.driver
-                    .add_init_script(source, PAGE_ADD_INIT_SCRIPT.name),
+                    .add_init_script(source.clone(), PAGE_ADD_INIT_SCRIPT.name),
             )
             .await?;
+        // The page's out-of-process iframes take it too (M20).
+        let key = page.frame_scripts.add(source).await;
         let registered = Registered::new(
             page.driver.clone(),
             identifier,
             page.run.clone(),
-            self.init_scripts.clone(),
-            params.page_id.clone(),
+            (self.init_scripts.clone(), params.page_id.clone()),
+            (page.frame_scripts.clone(), key),
         );
         self.injections
             .mark(

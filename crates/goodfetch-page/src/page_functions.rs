@@ -13,7 +13,7 @@
 //! same expression again at each interval until its result is truthy
 //! ([`until_truthy`]).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -32,8 +32,9 @@ use goodfetch_protocol::page::{PageId, SessionId};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
-use crate::driver::PageDriver;
+use crate::driver::{Iframe, Iframes, PageDriver};
 use crate::trace;
 
 /// The walker, a function expression the engine calls with the thunk of
@@ -524,6 +525,137 @@ impl Injections {
     }
 }
 
+/// A page's init scripts as its out-of-process iframes take them: the
+/// browser runs a script added on the page's own session in the frames of
+/// the page's process only, so each live script is also added on each
+/// iframe's session, before the iframe runs or, for one already running,
+/// for its next document. Clones share them.
+#[derive(Clone, Default)]
+pub(crate) struct FrameScripts {
+    shared: Arc<tokio::sync::Mutex<Frames>>,
+}
+
+#[derive(Default)]
+struct Frames {
+    /// The key the next script takes.
+    next: u64,
+    /// Each live script, by its key.
+    live: BTreeMap<u64, Live>,
+    /// The page's iframes attached, each until its target goes.
+    iframes: Vec<(PageDriver, CancellationToken)>,
+}
+
+/// A live script: its source, and where each iframe holds it.
+struct Live {
+    source: String,
+    held: Vec<(PageDriver, ScriptIdentifier)>,
+}
+
+impl FrameScripts {
+    /// Adds each live script to each out-of-process iframe `iframes`
+    /// attaches, before it runs.
+    pub(crate) fn follow(&self, iframes: &Iframes) {
+        let frames = self.clone();
+        iframes.on_attach(Arc::new(move |iframe: Iframe| {
+            let frames = frames.clone();
+            Box::pin(async move {
+                frames.attached(iframe).await;
+                true
+            })
+        }));
+    }
+
+    /// Adds the live scripts to `iframe`, held before it runs.
+    async fn attached(&self, iframe: Iframe) {
+        let sources: Vec<(u64, String)> = {
+            let mut frames = self.shared.lock().await;
+            frames.iframes.retain(|(_, gone)| !gone.is_cancelled());
+            frames
+                .iframes
+                .push((iframe.driver.clone(), iframe.gone.clone()));
+            frames
+                .live
+                .iter()
+                .map(|(key, live)| (*key, live.source.clone()))
+                .collect()
+        };
+        for (key, source) in sources {
+            self.hold(key, &iframe.driver, source).await;
+        }
+    }
+
+    /// Adds `source`, a script now registered on the page's own session, to
+    /// the page's iframes, those attached now and later; answers its key.
+    pub(crate) async fn add(&self, source: String) -> u64 {
+        let (key, iframes) = {
+            let mut frames = self.shared.lock().await;
+            let key = frames.next;
+            frames.next += 1;
+            frames.live.insert(
+                key,
+                Live {
+                    source: source.clone(),
+                    held: Vec::new(),
+                },
+            );
+            frames.iframes.retain(|(_, gone)| !gone.is_cancelled());
+            let iframes: Vec<PageDriver> = frames
+                .iframes
+                .iter()
+                .map(|(driver, _)| driver.clone())
+                .collect();
+            (key, iframes)
+        };
+        for driver in iframes {
+            self.hold(key, &driver, source.clone()).await;
+        }
+        key
+    }
+
+    /// Adds the script `key`, whose source is `source`, on the iframe
+    /// `driver` drives, unless it was removed meanwhile.
+    async fn hold(&self, key: u64, driver: &PageDriver, source: String) {
+        let identifier = match driver
+            .add_init_script(
+                source,
+                goodfetch_protocol::page::functions::PAGE_ADD_INIT_SCRIPT.name,
+            )
+            .await
+        {
+            Ok(identifier) => identifier,
+            Err(error) => {
+                tracing::debug!(%error, "an out-of-process iframe went before it took an init script");
+                return;
+            }
+        };
+        let kept = match self.shared.lock().await.live.get_mut(&key) {
+            Some(live) => {
+                live.held.push((driver.clone(), identifier.clone()));
+                true
+            }
+            None => false,
+        };
+        if !kept {
+            driver.remove_init_script(identifier).await;
+        }
+    }
+
+    /// Removes the script `key` from every iframe that holds it.
+    pub(crate) async fn remove(&self, key: u64) {
+        let held = self
+            .shared
+            .lock()
+            .await
+            .live
+            .remove(&key)
+            .map(|live| live.held)
+            .unwrap_or_default();
+        for (driver, identifier) in held {
+            driver.remove_init_script(identifier).await;
+        }
+    }
+}
+
 /// The init scripts each page has on their way in or out: a navigation
 /// waits for none to be left, so that one sent after `page.add_init_script`
 /// runs the script, and one sent after its call was cancelled runs without
@@ -595,17 +727,20 @@ pub(crate) struct Registered {
     run: Run,
     scripts: InitScripts,
     page_id: PageId,
+    /// Its page's iframes' scripts, and its key among them.
+    in_frames: (FrameScripts, u64),
 }
 
 impl Registered {
     /// The script `identifier`, registered on the page `page_id` that
-    /// `driver` drives for `run`, counted among `scripts` on its way out.
+    /// `driver` drives for `run` and, as the key `in_frames` names, in its
+    /// iframes, counted among `scripts` on its way out.
     pub(crate) fn new(
         driver: PageDriver,
         identifier: ScriptIdentifier,
         run: Run,
-        scripts: InitScripts,
-        page_id: PageId,
+        (scripts, page_id): (InitScripts, PageId),
+        in_frames: (FrameScripts, u64),
     ) -> Self {
         Self {
             driver,
@@ -613,6 +748,7 @@ impl Registered {
             run,
             scripts,
             page_id,
+            in_frames,
         }
     }
 
@@ -630,8 +766,10 @@ impl Drop for Registered {
         };
         let leaving = self.scripts.begin(&self.page_id);
         let driver = self.driver.clone();
+        let (frames, key) = (self.in_frames.0.clone(), self.in_frames.1);
         self.run.spawn(async move {
             driver.remove_init_script(identifier).await;
+            frames.remove(key).await;
             drop(leaving);
         });
     }

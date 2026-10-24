@@ -24,7 +24,7 @@ use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_GOTO};
 use goodfetch_protocol::settings::TIMEOUT_WAIT;
 use serde_json::{Value, json};
 
-use super::{Checks, Site, finish_run, new_page, start_run};
+use super::{Checks, Site, clean_up, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::BROWSER_DEADLINE;
 
@@ -274,7 +274,8 @@ fn url_within_the_document(
 /// B03: `networkidle` comes on the live board, whose WebSocket and
 /// server-sent events stay open, once its periodic requests stopped, and
 /// on the late board only once its request 400 ms after `load` finished,
-/// and at once on a committed `about:blank`.
+/// on a page framing another site, whose frame the browser loads in a
+/// process of its own, and at once on a committed `about:blank`.
 fn network_idle(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-waits-network-idle";
     let Some(live) = task_url(site, "live/1", checks) else {
@@ -309,6 +310,22 @@ fn network_idle(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -
             );
         }
     }
+    let framing = site
+        .named_url(clean_up::HOST, "/cross-site")
+        .unwrap_or_default();
+    exchange.go(&page, &framing, false, checks)?;
+    let idle = exchange.call(
+        PAGE_WAIT_FOR_LOAD_STATE.name,
+        &json!({ "page_id": page, "state": "networkidle" }),
+    )?;
+    let framed = exchange.evaluated(&page, "() => document.querySelector('iframe').src")?;
+    checks.check(
+        "`networkidle` comes on a page framing another site, whose frame runs in a process of its own",
+        idle.get("result").is_some()
+            && framed
+                .as_str()
+                .is_some_and(|src| src.contains(clean_up::FRAME_HOST)),
+    );
     let blank = exchange.call(
         PAGE_GOTO.name,
         &json!({ "page_id": page, "url": "about:blank" }),

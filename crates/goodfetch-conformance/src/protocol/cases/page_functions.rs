@@ -20,7 +20,7 @@ use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
 use goodfetch_protocol::page::{PAGE_GOTO, PAGE_RELOAD};
 use serde_json::{Value, json};
 
-use super::clean_up::provenance;
+use super::clean_up::{FRAME_HOST, provenance};
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::EngineTarget;
@@ -324,7 +324,8 @@ fn injections(target: &EngineTarget, run_id: &str) -> Vec<(Value, Value)> {
 }
 
 /// An init script registered before a navigation runs before the page's
-/// own script and in a frame added afterwards, its call staying in flight,
+/// own script and in a frame added afterwards, of the page's site or of
+/// another site in a process of its own, its call staying in flight,
 /// and Provenance marks the Session; once its call is cancelled, the next
 /// document runs without it; and a second Session of the Run, whose page
 /// has no init script and only isolated calls, records no injection.
@@ -335,19 +336,24 @@ fn init_script(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-page-function-init-script";
-    let Some((page, Some(script))) =
-        on_the_page(connection, site, run_id, checks, |connection, page| {
+    let Some((page, Some(script))) = on_the_page(
+        connection,
+        site,
+        run_id,
+        checks,
+        |connection, page| {
             connection
                 .request(
                     PAGE_ADD_INIT_SCRIPT.name,
                     &json!({
                         "page_id": page,
-                        "function": "(mark) => { window.initScriptMark = mark; }",
+                        "function": "(mark) => { window.initScriptMark = mark; if (window !== window.top) { window.top.postMessage({ initScriptMark: mark }, '*'); } }",
                         "arg": MARK,
                     }),
                 )
                 .map(Some)
-        })?
+        },
+    )?
     else {
         return Ok(());
     };
@@ -371,6 +377,19 @@ fn init_script(
     )?;
     checks.check(
         "the init script ran in a frame added afterwards, before its document's own script",
+        answer["result"] == json!({ "value": MARK }),
+    );
+    let answer = evaluate(
+        connection,
+        &page,
+        "async (src) => { const marked = new Promise((resolve) => { window.addEventListener('message', (event) => { if (event.data && event.data.initScriptMark !== undefined) { resolve(event.data.initScriptMark); } }); setTimeout(() => resolve(null), 5000); }); const frame = document.createElement('iframe'); frame.src = src; document.body.append(frame); return await marked; }",
+        Some(json!(
+            site.named_url(FRAME_HOST, "/framed").unwrap_or_default()
+        )),
+        "main",
+    )?;
+    checks.check(
+        "the init script ran in a frame of another site, which the browser loads in a process of its own",
         answer["result"] == json!({ "value": MARK }),
     );
     connection.notify(CANCEL, &json!({ "id": script }))?;

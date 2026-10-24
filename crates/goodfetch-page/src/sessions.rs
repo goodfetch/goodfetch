@@ -87,6 +87,7 @@ use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
 use crate::interception::{Interception, SESSION_KEYS};
 use crate::page_events;
+use crate::page_functions::FrameScripts;
 use crate::page_value::{HandlerPages, PageValue};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
 use crate::proxy::{Opening, SessionProxy};
@@ -218,6 +219,8 @@ pub(crate) struct OpenPage {
     pub(crate) hiding: Option<Arc<PageHiding>>,
     /// Its Session's Page check, when it declares one.
     pub(crate) page_check: Option<Arc<Declared>>,
+    /// Its init scripts as its out-of-process iframes take them.
+    pub(crate) frame_scripts: FrameScripts,
     /// Its admission of the governor's `browser_page` kind, given back once
     /// the page leaves and no call holds it.
     _admission: Arc<Permit>,

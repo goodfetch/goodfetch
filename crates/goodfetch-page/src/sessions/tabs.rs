@@ -34,6 +34,7 @@ use super::{OpenPage, Session, Sessions, timeouts, wait_deadline};
 use crate::driver::{Iframes, OnPopup, PageDriver, PopupHandler};
 use crate::hiding::{PageHiding, Sheets};
 use crate::page_events::{PageEvents, Refusals};
+use crate::page_functions::FrameScripts;
 use crate::page_value::ResponseObserver;
 use crate::pool::InBrowser;
 use crate::recovery::Declared;
@@ -205,6 +206,10 @@ impl Sessions {
             driver.events().await,
             wait_deadline(&run),
         );
+        let iframes = Iframes::default();
+        events.follow_iframes(&iframes);
+        let frame_scripts = FrameScripts::default();
+        frame_scripts.follow(&iframes);
         self.events.insert(page.clone(), events);
         self.dialogs
             .start(page.clone(), driver.clone(), &run, driver.events().await);
@@ -215,7 +220,7 @@ impl Sessions {
             &open,
             refusals,
             observer,
-            Iframes::default(),
+            iframes,
         );
         let hiding = match started.await {
             Ok(hiding) => hiding,
@@ -245,6 +250,7 @@ impl Sessions {
             action_timeout,
             hiding,
             page_check: Declared::of(&open.run, &open.settings).map(Arc::new),
+            frame_scripts,
             _admission: Arc::new(admission),
             in_browser: Arc::new(in_browser),
         };

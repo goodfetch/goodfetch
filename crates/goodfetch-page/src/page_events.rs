@@ -76,7 +76,7 @@ pub(crate) use self::document::WaitDeadline;
 use self::document::{Document, InFlight, UrlWaiter};
 use self::runtime_values::{console_message, web_error};
 use self::waiters::{Armed, answer_armed};
-use crate::driver::{PageDriver, response_of};
+use crate::driver::{Iframe, Iframes, PageDriver, response_of};
 use crate::url_pattern::UrlPattern;
 
 /// The error text of a request the browser cancelled.
@@ -315,6 +315,32 @@ impl PageEvents {
         run.spawn(read(subscription, Arc::clone(&shared)));
         run.spawn(document::watch_idle(Arc::clone(&shared)));
         Self { shared }
+    }
+
+    /// Follows the page's out-of-process iframes, which `iframes` attaches,
+    /// as it follows the page: each one's network is read from before it
+    /// runs, so its requests count in the page's `networkidle` and reach its
+    /// waiters and events, and a document request the page started ends
+    /// when the iframe finishes it, on the iframe's own session.
+    pub(crate) fn follow_iframes(&self, iframes: &Iframes) {
+        let shared = Arc::clone(&self.shared);
+        iframes.on_attach(Arc::new(move |iframe: Iframe| {
+            let shared = Arc::clone(&shared);
+            Box::pin(async move {
+                let events = iframe.driver.events().await;
+                match iframe
+                    .driver
+                    .opening_command(&network::EnableParams::default())
+                    .await
+                {
+                    Ok(_) => shared.run.spawn(read_frame(events, Arc::clone(&shared))),
+                    Err(error) => {
+                        tracing::debug!(%error, "an out-of-process iframe went before its network was read");
+                    }
+                }
+                true
+            })
+        }));
     }
 
     /// Marks the document whose request the browser names `request_id` as
@@ -633,6 +659,27 @@ async fn read(mut subscription: Subscription, shared: Arc<Shared>) {
     shared.gone.send_replace(true);
     shared.changed.notify_waiters();
 }
+
+/// Reads the network events of one of the page's out-of-process iframes
+/// until its target goes, as the page's own: a document request the page
+/// started and the iframe finished ends there.
+async fn read_frame(mut subscription: Subscription, shared: Arc<Shared>) {
+    while let Some(event) = subscription.next().await {
+        if !event.method.starts_with(NETWORK) {
+            continue;
+        }
+        let published = take_in(&shared, &event);
+        for (event, data) in published {
+            shared
+                .events
+                .publish(event, Some(&shared.page_id.0), &data)
+                .await;
+        }
+    }
+}
+
+/// The prefix of the `Network` domain's events.
+const NETWORK: &str = "Network.";
 
 /// One event a page's event publishes: its catalog entry and its data.
 type Published = (&'static Event, serde_json::Value);

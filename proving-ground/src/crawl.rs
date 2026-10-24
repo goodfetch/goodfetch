@@ -18,6 +18,9 @@
 //! - `fields`: Records that gain fields over time (pitfall D07);
 //! - `sitemaps`: a sitemap index past the protocol's 50,000 entries, plain
 //!   and gzip;
+//! - `learning`: pages from which a Frontier learns a parameter with no
+//!   effect, a trap and cursor pagination preferred to offset (ADR 0005),
+//!   each threshold met and one short of it;
 //! - `scope`: a site with a `www` host and a subdomain beside a sister
 //!   domain and an off-site host (pitfall U15), on host names of its own.
 //!
@@ -28,6 +31,7 @@
 
 mod facets;
 mod fields;
+mod learning;
 mod limits;
 mod links;
 mod pacing;
@@ -54,7 +58,7 @@ use crate::task::{self, Entry, Expected, Finding, Kind, Record, Task};
 pub(crate) use limits::Held;
 
 /// The family host names, each with its family's name.
-const FAMILIES: [(&str, &str); 10] = [
+const FAMILIES: [(&str, &str); 12] = [
     (statuses::HOST, statuses::FAMILY),
     (traps::HOST, traps::FAMILY),
     (limits::HOST, limits::FAMILY),
@@ -65,6 +69,8 @@ const FAMILIES: [(&str, &str); 10] = [
     (facets::HOST, facets::FAMILY),
     (fields::HOST, fields::FAMILY),
     (sitemaps::HOST, sitemaps::FAMILY),
+    (learning::HOST, learning::FAMILY),
+    (learning::SHOP_HOST, learning::FAMILY),
 ];
 
 /// The parts of a request a Crawl family reads: an
@@ -245,6 +251,7 @@ impl Families {
             fields::FAMILY => fields::respond(&visit),
             sitemaps::FAMILY => sitemaps::respond(&visit),
             scope::FAMILY => scope::respond(&visit),
+            learning::FAMILY => learning::respond(&visit),
             _ => scale::respond(&visit),
         })
     }

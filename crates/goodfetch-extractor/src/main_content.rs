@@ -30,9 +30,36 @@ pub(crate) fn main_text_length(html: &str, url: &str) -> usize {
     read(html, url).map_or(0, |(_, length)| length)
 }
 
+/// The text of `html`'s main content, read at `url`, and its title, each
+/// with every run of white space made one space and none at either end;
+/// an empty text when it has no main content.
+pub(crate) fn title_and_main_text(html: &str, url: &str) -> (String, String) {
+    let title = collapsed(&Document::from(html).select("head title").text());
+    let text = parsed(html, url)
+        .map(|article| collapsed(&article.text_content))
+        .unwrap_or_default();
+    (title, text)
+}
+
+/// `text` with each run of white space made one space, none at either end.
+fn collapsed(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// The main content of `html`, read at `url`, as HTML, and the length of
 /// its text.
 fn read(html: &str, url: &str) -> Option<(String, usize)> {
+    let article = parsed(html, url)?;
+    let length = visible(&article.text_content).chars().count();
+    if length == 0 {
+        return None;
+    }
+    Some((article.content.to_string(), length))
+}
+
+/// The article dom-smoothie reads from `html` at `url`; none when the
+/// document holds no text outside its navigation landmarks.
+fn parsed(html: &str, url: &str) -> Option<dom_smoothie::Article> {
     if !has_content_text(html) {
         return None;
     }
@@ -41,12 +68,7 @@ fn read(html: &str, url: &str) -> Option<(String, usize)> {
     let mut readability = Readability::new(html, Some(url), None)
         .or_else(|_| Readability::new(html, None, None))
         .ok()?;
-    let article = readability.parse().ok()?;
-    let length = visible(&article.text_content).chars().count();
-    if length == 0 {
-        return None;
-    }
-    Some((article.content.to_string(), length))
+    readability.parse().ok()
 }
 
 /// Whether `html` holds text outside its navigation landmarks.

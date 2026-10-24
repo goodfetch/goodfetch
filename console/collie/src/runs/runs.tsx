@@ -26,7 +26,8 @@ import {
 } from "react";
 import type { Address } from "#address.ts";
 import type { ConsoleClient, StreamItem } from "#client/client.ts";
-import { formatInstant } from "#format.ts";
+import { formatInstant, formatList } from "#format.ts";
+import { ErrorMessage } from "#errors/error-message.tsx";
 import {
   COMPLETENESSES,
   LIFECYCLES,
@@ -52,8 +53,8 @@ import {
 export type Listed =
   | { readonly kind: "reading" }
   | { readonly kind: "listed"; readonly runs: readonly RunIndexRow[] }
-  /** The engine refused; its English message, which the code's catalog message replaces once #912 maps it (ADR 0079). */
-  | { readonly kind: "failed"; readonly message: string };
+  /** The engine refused, with this error. */
+  | { readonly kind: "failed"; readonly error: unknown };
 
 /** What the Runs screen shows. */
 export interface RunsViewProps {
@@ -445,7 +446,11 @@ function Instant({ value }: { readonly value: string | null | undefined }): Reac
   if (value === undefined || value === null) {
     return null;
   }
-  return <time dateTime={value}>{formatInstant(value)}</time>;
+  return (
+    <time dateTime={value} translate="no">
+      {formatInstant(value)}
+    </time>
+  );
 }
 
 /** The mark of a run's presence, when its state is not there. */
@@ -478,7 +483,7 @@ function RunRow({ row }: { readonly row: RunIndexRow }): ReactNode {
   const occurrence = reserved(row, "occurrence");
   return (
     <tr className="border-b align-top">
-      <th scope="row" className="py-2 pr-4 text-left font-normal">
+      <th scope="row" className="py-2 pe-4 text-start font-normal">
         <a
           href={`/runs/${encodeURIComponent(row.run_id)}`}
           className="rounded-sm underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
@@ -495,40 +500,42 @@ function RunRow({ row }: { readonly row: RunIndexRow }): ReactNode {
         ) : null}
         {tags.length === 0 ? null : (
           <span className="block text-sm text-muted-foreground" translate="no">
-            {tags.join(", ")}
+            {formatList(tags)}
           </span>
         )}
       </th>
-      <td className="py-2 pr-4">{i18n._(LIFECYCLE_NAMES[row.lifecycle])}</td>
-      <td className="py-2 pr-4">
+      <td className="py-2 pe-4">{i18n._(LIFECYCLE_NAMES[row.lifecycle])}</td>
+      <td className="py-2 pe-4">
         {row.verdict === undefined || row.verdict === null
           ? null
           : i18n._(VERDICT_NAMES[row.verdict])}
       </td>
-      <td className="py-2 pr-4">
+      <td className="py-2 pe-4">
         {row.completeness === undefined || row.completeness === null
           ? null
           : i18n._(COMPLETENESS_NAMES[row.completeness])}
       </td>
-      <td className="py-2 pr-4" translate="no">
+      <td className="py-2 pe-4" translate="no">
         {PRODUCT_NAMES[row.needs]}
       </td>
-      <td className="py-2 pr-4" translate="no">
+      <td className="py-2 pe-4" translate="no">
         {reserved(row, "recipe")}
       </td>
-      <td className="py-2 pr-4" translate="no">
+      <td className="py-2 pe-4" translate="no">
         {reserved(row, "schedule")}
         {occurrence === undefined ? null : (
           <span className="block text-sm text-muted-foreground">{occurrence}</span>
         )}
       </td>
-      <td className="py-2 pr-4">
+      <td className="py-2 pe-4">
         <Instant value={row.started_at} />
       </td>
-      <td className="py-2 pr-4">
+      <td className="py-2 pe-4">
         <Instant value={row.ended_at} />
       </td>
-      <td className="py-2">{row.progress_message}</td>
+      <td className="py-2" translate="no">
+        {row.progress_message}
+      </td>
     </tr>
   );
 }
@@ -551,34 +558,34 @@ function RunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): ReactNod
       tabIndex={0}
       className="overflow-x-auto rounded-sm focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
     >
-      <table aria-label={t`Runs`} className="w-full border-collapse text-left">
+      <table aria-label={t`Runs`} className="w-full border-collapse text-start">
         <thead>
           <tr className="border-b">
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="py-2 pe-4">
               <Trans>Run</Trans>
             </th>
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="py-2 pe-4">
               <Trans>Lifecycle</Trans>
             </th>
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="py-2 pe-4">
               <Trans>Verdict</Trans>
             </th>
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="py-2 pe-4">
               <Trans>Completeness</Trans>
             </th>
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="py-2 pe-4">
               <Trans>Product</Trans>
             </th>
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="py-2 pe-4">
               <Trans>Recipe</Trans>
             </th>
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="py-2 pe-4">
               <Trans>Schedule</Trans>
             </th>
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="py-2 pe-4">
               <Trans>Started</Trans>
             </th>
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="py-2 pe-4">
               <Trans>Ended</Trans>
             </th>
             <th scope="col" className="py-2">
@@ -605,16 +612,15 @@ function ListedRuns({ listed }: { readonly listed: Listed }): ReactNode {
           <Trans>Reading the runs…</Trans>
         </p>
       );
-    case "failed": {
-      const message = listed.message;
+    case "failed":
       return (
-        <p role="alert">
-          <Trans>
-            The engine could not list the runs: <span translate="no">{message}</span>
-          </Trans>
-        </p>
+        <div role="alert">
+          <p>
+            <Trans>The engine could not list the runs:</Trans>
+          </p>
+          <ErrorMessage error={listed.error} />
+        </div>
       );
-    }
     case "listed":
       return <RunTable runs={listed.runs} />;
     default:
@@ -737,11 +743,6 @@ function reduce(state: RunsState, action: RunsAction): RunsState {
   }
 }
 
-/** A refused call's message. */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** The Runs screen over `client`, its filter kept in `address`. */
 export function Runs({
   client,
@@ -771,7 +772,7 @@ export function Runs({
       try {
         listed = { kind: "listed", runs: (await client.call("run.list", filter)).runs };
       } catch (error) {
-        listed = { kind: "failed", message: messageOf(error) };
+        listed = { kind: "failed", error };
       }
       if (current) {
         dispatch({ kind: "read", listed });

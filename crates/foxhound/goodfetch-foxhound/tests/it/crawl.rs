@@ -11,7 +11,7 @@
 )]
 
 use std::io::Write as _;
-use std::process::{ChildStdin, Stdio};
+use std::process::{ChildStdin, Command, Stdio};
 use std::time::Duration;
 
 use goodfetch_protocol::jsonrpc::Message;
@@ -28,9 +28,16 @@ pub(crate) struct Attached {
 
 impl Attached {
     pub(crate) fn start(env: &TestEnv) -> Self {
+        Self::start_with(env, |_| {})
+    }
+
+    /// [`Attached::start`], `prepare` setting the engine's command first,
+    /// such as the browsers' folder its pages launch from.
+    pub(crate) fn start_with(env: &TestEnv, prepare: impl FnOnce(&mut Command)) -> Self {
         env.log_level("trace");
         let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-foxhound"));
         command.arg("attached-engine").stderr(Stdio::piped());
+        prepare(&mut command);
         let process = env.spawn(&mut command).unwrap();
         let stdin = process.child().stdin.take();
         let stdout = StrictStdout::of(&process).unwrap();

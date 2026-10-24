@@ -18,6 +18,7 @@ mod governor;
 mod journeys;
 mod learned_rules;
 mod limits;
+mod navigation_gate;
 mod outcomes;
 mod path_budgets;
 mod politeness;

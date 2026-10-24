@@ -30,8 +30,8 @@ use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch};
 use goodfetch_engine::runs::Run;
-use goodfetch_fetch_tier::{FetchTiers, HttpTier, Requester};
-use goodfetch_frontier::{EndMerged, PageSeen, SharedRobotsTxt};
+use goodfetch_fetch_tier::{FetchTiers, HandOver, HandedOver, HttpTier, Requester, RobotsTxtFetch};
+use goodfetch_frontier::{DomainKeys, EndMerged, PageSeen, SharedRobotsTxt};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled, HANDLER_FAILED,
@@ -95,6 +95,39 @@ impl DocumentFetch {
             http: http.clone(),
             second_copies: second_copies.clone(),
         }
+    }
+}
+
+/// What an attempt's handler pages are gated with (the fetch tiers'
+/// `gate`): the tiers that hand them over, room beside the Run's own
+/// requests and how robots.txt is fetched.
+pub(super) struct Gating {
+    pub(super) tiers: FetchTiers,
+    pub(super) second_copies: SecondCopies,
+    pub(super) robots: Option<RobotsTxtFetch>,
+}
+
+impl Gating {
+    /// Hands the Run's pages over to the attempt of `leased` holding
+    /// `lease`, while its handler runs.
+    async fn hand_over(&self, run: &Run, leased: &Leased, lease: &WorkItemLease) -> HandedOver {
+        let politeness = share_robots_txt(run).await;
+        let settings = run.settings().map(|settings| settings.resolved().clone());
+        let domain_delay = settings
+            .as_ref()
+            .and_then(|settings| settings.duration(POLITENESS_DOMAIN_DELAY.name))
+            .unwrap_or_default();
+        self.tiers.hand_over(HandOver {
+            run: run.clone(),
+            domain_key: leased.waiting.key.clone(),
+            keys: settings.as_ref().map(DomainKeys::of).unwrap_or_default(),
+            second_copies: self.second_copies.clone(),
+            politeness,
+            robots: self.robots.clone(),
+            operator_token: None,
+            domain_delay,
+            lease: Arc::new(lease.clone()),
+        })
     }
 }
 
@@ -178,6 +211,7 @@ pub(super) async fn attempt(
     (leased, session, counted): (Leased, ServingSession, Counted),
     lease: WorkItemLease,
     fetching: Option<DocumentFetch>,
+    gating: Gating,
     in_flight: SharedInFlight,
 ) -> Attempt {
     let fetched = match &fetching {
@@ -235,7 +269,9 @@ pub(super) async fn attempt(
                 tier: document.as_ref().map(|_| FetchTier::Http),
                 page_id: document.clone(),
             };
+            let handed_over = gating.hand_over(&run, &leased, &lease).await;
             let answer = handled(&run, &client, &params, &lease).await;
+            drop(handed_over);
             if let (Some(fetch), Some(page_id)) = (&fetching, &document) {
                 fetch.tiers.close(page_id);
             }

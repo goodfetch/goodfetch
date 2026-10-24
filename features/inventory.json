@@ -813,6 +813,17 @@
       ]
     },
     {
+      "id": "error:blocked",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:body_not_found",
       "kind": "error",
       "area": 3,

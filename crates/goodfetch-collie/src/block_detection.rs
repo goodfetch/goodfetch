@@ -79,6 +79,32 @@ impl BlockClassifier for Detector {
             rule: classification.evidence.rule,
         })
     }
+
+    fn markers(&self, status: u16) -> Vec<&'static str> {
+        markers(status)
+    }
+}
+
+/// The markers, lowercase, that the rules reading a response with `status`
+/// look for in its document, each once: none when no rule reads the
+/// document of such a response. Since a rule only asks whether the markup
+/// holds each, the markers a document holds, each on a line of its own,
+/// classify as its whole markup does.
+pub(crate) fn markers(status: u16) -> Vec<&'static str> {
+    let mut markers: Vec<&'static str> = RULES
+        .iter()
+        .filter(|rule| rule.statuses.contains(&status))
+        .flat_map(|rule| {
+            rule.markers
+                .iter()
+                .flat_map(|group| group.iter())
+                .chain(rule.unless)
+        })
+        .copied()
+        .collect();
+    markers.sort_unstable();
+    markers.dedup();
+    markers
 }
 
 /// The Block cause of a response with `document`, if a rule decides one.

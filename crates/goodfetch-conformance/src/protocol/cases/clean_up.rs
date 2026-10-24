@@ -197,7 +197,7 @@ pub(super) fn provenance(target: &EngineTarget, run_id: &str) -> Vec<Value> {
     clippy::disallowed_methods,
     reason = "the harness is synchronous and runs no async worker"
 )]
-fn trace_lines(target: &EngineTarget, run_id: &str, file: &str) -> Vec<Value> {
+pub(super) fn trace_lines(target: &EngineTarget, run_id: &str, file: &str) -> Vec<Value> {
     let Some(home) = target.environment.get("GOODFETCH_HOME") else {
         return Vec::new();
     };

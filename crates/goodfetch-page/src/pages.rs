@@ -35,6 +35,11 @@
 //! that blocking may have broken is loaded once more with blocking off
 //! (`blocking_off`, ADR 0047), the Product's classifier telling its Block
 //! cause (`blocks`).
+//!
+//! Size: one table of the page API's handlers over the engine's shared
+//! pages, each call opening its page through one `open` that raises what
+//! the page left for it, a Block cause among them, kept whole so every call
+//! meets its page the same way.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -94,6 +99,7 @@ use crate::trace;
 use crate::url_pattern::UrlPattern;
 
 mod arrival;
+mod blocked;
 mod blocking_off;
 mod clean_up;
 mod waits;
@@ -736,8 +742,26 @@ impl Pages {
         let Some(response) = arrival::arrived(page_id, navigated?, events).await else {
             return Ok(Navigated { response: None });
         };
-        // Every document a Session's navigation reached is judged by its
-        // Page check (ADRs 0006 and 0092).
+        // Every document a Session's navigation reached is judged: its Block
+        // cause first, which raises `blocked` (ADRs 0088 and 0092), unless
+        // it checks the browser and the Filter lists touched its
+        // navigation, which loads it once more with blocking off (ADR 0047);
+        // then its Page check (ADRs 0006 and 0092).
+        let page_events = self.events.get(page_id)?;
+        page_events.judged(&response.request_id);
+        let received = page_events
+            .answered_at(&response.request_id)
+            .unwrap_or_else(|| page.clock.wall());
+        let operation = Some(destination.operation());
+        let block =
+            blocked::block_of(&page.driver, self.blocks.as_ref(), &response, operation).await?;
+        let touched = self.interception.lists_blocked(page_id) > blocked_before;
+        if let Some(block) = block
+            && !(touched && block.checks_the_browser())
+        {
+            return Err(blocked::blocked(block, &response, received));
+        }
+        let first_request = response.request_id.clone();
         let judged =
             recovery::judge(&arrival::judging(&page, page_id, destination), &response).await;
         let first = blocking_off::FirstLoad {
@@ -747,8 +771,25 @@ impl Pages {
             judged,
             blocked_before,
         };
-        self.unless_blocking_broke_it(page_id, &page, first, events)
-            .await
+        let navigated = self
+            .unless_blocking_broke_it(page_id, &page, first, events)
+            .await?;
+        // A document loaded once more with blocking off is judged for its
+        // Block cause too.
+        if let Some(again) = &navigated.response
+            && again.request_id != first_request
+        {
+            page_events.judged(&again.request_id);
+            let received = page_events
+                .answered_at(&again.request_id)
+                .unwrap_or_else(|| page.clock.wall());
+            if let Some(block) =
+                blocked::block_of(&page.driver, self.blocks.as_ref(), again, operation).await?
+            {
+                return Err(blocked::blocked(block, again, received));
+            }
+        }
+        Ok(navigated)
     }
 
     /// Performs `action` on the element `locator` matches, through the
@@ -918,13 +959,53 @@ impl Pages {
     }
 
     /// The open page `page_id`, or `closed`; a failure a route's or a
-    /// dialog handler left on it is raised here, by the page's next call.
+    /// dialog handler left on it is raised here, by the page's next call,
+    /// and so is the Block cause of a document a navigation no call waited
+    /// for reached (ADR 0092).
     async fn open(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
         let page = self.sessions.page(page_id).await?;
-        match self.left_failure(page_id) {
-            Some(failure) => Err(failure),
-            None => Ok(page),
+        if let Some(failure) = self.left_failure(page_id) {
+            return Err(failure);
         }
+        self.judge_unjudged(&page, page_id, None).await?;
+        Ok(page)
+    }
+
+    /// Judges the Block cause of the document the main frame of `page`,
+    /// the page `page_id`, committed last, unless a call judged it already:
+    /// for the call that waited for its navigation, the operation
+    /// `waiting`, whose code a failure to read the document raises; for the
+    /// page's next call, `None`, when such a failure reads as no block.
+    async fn judge_unjudged(
+        &self,
+        page: &OpenPage,
+        page_id: &PageId,
+        waiting: Option<&'static str>,
+    ) -> Result<(), CallError> {
+        let Some((response, received)) = self
+            .events
+            .get(page_id)
+            .ok()
+            .and_then(|events| events.take_unjudged())
+        else {
+            return Ok(());
+        };
+        match blocked::block_of(&page.driver, self.blocks.as_ref(), &response, waiting).await? {
+            Some(block) => Err(blocked::blocked(block, &response, received)),
+            None => Ok(()),
+        }
+    }
+
+    /// Judges, for `page.wait_for_url`, which waited for the navigation of
+    /// the page `page_id` that reached its URL, the Block cause of the
+    /// document it reached (ADR 0092).
+    async fn judge_waited(
+        &self,
+        page_id: &PageId,
+        operation: &'static str,
+    ) -> Result<(), CallError> {
+        let page = self.sessions.page(page_id).await?;
+        self.judge_unjudged(&page, page_id, Some(operation)).await
     }
 
     /// The failure a route's handler, or else a dialog handler, left on the

@@ -387,8 +387,8 @@ fn crawled_with(
 ///
 /// Covers: story:3-159
 #[rstest::rstest]
-#[case::too_many_requests(("blocked", false, json!({ "cause": "rate_limit", "retryAfter": "2026-01-05T09:00:30Z" })))]
-#[case::unavailable(("response_unavailable", true, json!({ "status": 503, "retryAfter": "2026-01-05T09:00:30Z" })))]
+#[case::too_many_requests(("blocked", false, json!({ "cause": "rate_limit", "retry_after": "2026-01-05T09:00:30Z" })))]
+#[case::unavailable(("response_unavailable", true, json!({ "status": 503, "retry_after": "2026-01-05T09:00:30Z" })))]
 fn a_retry_after_a_handler_met_holds_its_domain_until_the_time_the_site_asked(
     #[case] failure: (&'static str, bool, Value),
 ) {
@@ -433,7 +433,7 @@ fn a_retry_after_past_the_bound_ends_its_domains_requests_failed_unsent() {
         &(
             "response_unavailable",
             true,
-            json!({ "status": 503, "retryAfter": "2026-01-05T10:00:00Z" }),
+            json!({ "status": 503, "retry_after": "2026-01-05T10:00:00Z" }),
         ),
     );
 
@@ -447,7 +447,7 @@ fn a_retry_after_past_the_bound_ends_its_domains_requests_failed_unsent() {
                 request["request"]["url"].clone(),
                 error["code"].clone(),
                 error["details"]["status"].clone(),
-                error["details"]["retryAfter"].clone(),
+                error["details"]["retry_after"].clone(),
                 error["details"]["fix"]
                     .as_str()
                     .is_some_and(|fix| fix.contains("politeness.retry_after.max")),

@@ -1,1 +1,1 @@
-{ "routes": ["/needs-you", "/runs", "/settings"] }
+{ "routes": ["/needs-you", "/runs", "/settings", "/runs/$run"] }

@@ -21,6 +21,11 @@
 //! minor only adds. Its calls block: callers run them under their owner's
 //! blocking policy.
 
+#![expect(
+    clippy::disallowed_types,
+    reason = "the set of unchained Runs is read or changed in one step, never across an `.await` or under another lock, so there is no lock order to test under loom (ADR 0060)"
+)]
+
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};

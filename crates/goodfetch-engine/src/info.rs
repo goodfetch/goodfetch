@@ -7,6 +7,7 @@
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo, EngineInfoParams};
+use goodfetch_protocol::security::SECURITY_CONTROLS;
 
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::{
@@ -16,7 +17,7 @@ use crate::{
 
 /// What the engine adds to every composition.
 pub fn contribution() -> Contribution {
-    run::handlers()
+    let contribution = run::handlers()
         .into_iter()
         .chain(config::handlers())
         .chain(daemon::handlers())
@@ -38,7 +39,10 @@ pub fn contribution() -> Contribution {
                 .with_needs_you_source(needs_you::limits::runs_stopped())
                 .with_needs_you_source(needs_you::consent::walls()),
             Contribution::with_handler,
-        )
+        );
+    SECURITY_CONTROLS
+        .into_iter()
+        .fold(contribution, Contribution::with_control)
 }
 
 async fn engine_info(_: EngineInfoParams, context: CallContext) -> Result<EngineInfo, CallError> {

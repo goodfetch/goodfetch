@@ -618,6 +618,7 @@ fn observe(
             home.root().join(CRASH_FOLDER),
             format!("{binary} {}", start.version),
             clock,
+            masks.clone(),
         );
     }
     Ok((installed, entropy))

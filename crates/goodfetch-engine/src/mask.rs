@@ -37,7 +37,7 @@
 
 use std::borrow::Cow;
 use std::io::{self, Write};
-use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard, TryLockError};
 
 use aho_corasick::{AhoCorasick, MatchKind};
 use secrecy::zeroize::Zeroizing;
@@ -287,6 +287,24 @@ impl Masks {
     /// `text` with every value `scope` masks replaced by its `%name%`.
     pub fn apply<'t>(&self, text: &'t str, scope: Scope) -> Cow<'t, str> {
         utf8(self.apply_bytes(text.as_bytes(), scope), text)
+    }
+
+    /// As [`Masks::apply`], without waiting: none while a value joins or a
+    /// Run's values leave, as when a panic broke off that change.
+    pub fn try_apply<'t>(&self, text: &'t str, scope: Scope) -> Option<Cow<'t, str>> {
+        let state = match self.0.state.try_read() {
+            Ok(state) => state,
+            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(TryLockError::WouldBlock) => return None,
+        };
+        let masked = match state
+            .automaton(scope)
+            .map(|automaton| automaton.replace(text.as_bytes()))
+        {
+            None | Some(Cow::Borrowed(_)) => Cow::Borrowed(text.as_bytes()),
+            Some(Cow::Owned(masked)) => Cow::Owned(masked),
+        };
+        Some(utf8(masked, text))
     }
 
     /// `bytes` with every value `scope` masks replaced by its `%name%`.

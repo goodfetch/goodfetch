@@ -18,6 +18,7 @@ mod journeys;
 mod limits;
 mod outcomes;
 mod politeness;
+mod redundant_requests;
 mod scope;
 mod seeds;
 mod service_manager;

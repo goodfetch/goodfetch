@@ -29,7 +29,7 @@ use goodfetch_page::page_value::{
     HandlerPages, PageValue, ProgramPages, ResponseObserver, ServedDocument,
 };
 use goodfetch_protocol::foxhound::crawl::CrawlRequest;
-use goodfetch_protocol::foxhound::fetch::{FETCH_TIER, FetchTier};
+use goodfetch_protocol::foxhound::fetch::{FETCH_HEDGE_ENABLED, FETCH_TIER, FetchTier};
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{
@@ -83,13 +83,16 @@ impl FetchTiers {
     }
 
     /// Refuses a Run whose `fetch.tier` forces a tier this engine does not
-    /// build yet, with `capability_unavailable` naming the setting.
+    /// build yet, with `capability_unavailable` naming the setting, and one
+    /// that hedges where a hedge could never start.
     ///
     /// # Errors
     ///
     /// `capability_unavailable` for `discovered_api`, `browser_fetch`,
-    /// `light_browser` and `browser`.
+    /// `light_browser` and `browser`; `setting_not_applicable` for hedges
+    /// switched on while a domain admits one request at a time (ADR 0086).
     pub fn check(settings: &Resolved) -> Result<(), CallError> {
+        goodfetch_frontier::refuse_second_copies(settings, &FETCH_HEDGE_ENABLED)?;
         let Some((tier, layer)) = forced(settings) else {
             return Ok(());
         };

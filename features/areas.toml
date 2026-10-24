@@ -598,6 +598,17 @@ number = 5
 kind = "setting"
 prefix = "fetch."
 
+# The HTTP tier's hedged requests and coalescing (RT-20, #238).
+[[area]]
+number = 3
+kind = "setting"
+prefix = "fetch.hedge."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "fetch.coalesce"
+
 [[area]]
 number = 5
 kind = "setting"

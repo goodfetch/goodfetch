@@ -1062,6 +1062,9 @@ struct Shared {
     progress: Progress,
     /// The Resource governor's last sample.
     system_info: watch::Receiver<Option<SystemInfo>>,
+    /// The Politeness its own code shares outside admission, once it asked
+    /// for it.
+    politeness: tokio::sync::OnceCell<Politeness>,
 }
 
 impl std::fmt::Debug for Run {
@@ -1399,6 +1402,52 @@ impl Run {
         Ok(Some(
             admission.sharing(politeness, holder, self.clock, settings),
         ))
+    }
+
+    /// The Politeness its own code shares for keys outside admission, such
+    /// as a proxy's (ADRs 0053 and 0088), and the holder its Permits name:
+    /// the per-user Politeness file, or, when `settings` set
+    /// `politeness.sharing` to `run`, one of its own in memory. Each ask
+    /// answers the one its first opened.
+    ///
+    /// # Errors
+    ///
+    /// When the Politeness file cannot be opened.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn politeness(
+        &self,
+        settings: &Resolved,
+    ) -> Result<(Politeness, Holder), PolitenessError> {
+        let own = settings.value(POLITENESS_SHARING.name).as_str() == Some("run");
+        let politeness = self
+            .shared
+            .politeness
+            .get_or_try_init(|| async {
+                if own {
+                    return Politeness::in_memory(
+                        self.admitting.politeness.tables.clone(),
+                        &self.owner,
+                    )
+                    .await;
+                }
+                let file = self.admitting.politeness.file().await?;
+                self.stop_on_failures(
+                    file.storage_failures(),
+                    self.admitting.politeness.path.parent(),
+                );
+                Ok(file)
+            })
+            .await?
+            .clone();
+        let holder = Holder {
+            run_id: self.id.to_string(),
+            epoch: self.state.epoch(),
+            run_folder: self.folder.clone(),
+        };
+        Ok((politeness, holder))
     }
 
     /// Stops the Run at its next safe point, as at `critical`, once
@@ -4016,6 +4065,7 @@ impl Registry {
                 storage: self.setup.governor.storage(),
                 progress,
                 system_info: self.setup.governor.system_info(),
+                politeness: tokio::sync::OnceCell::new(),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),

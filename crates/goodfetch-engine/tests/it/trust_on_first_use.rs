@@ -28,7 +28,8 @@ use goodfetch_engine::known_certificates::{KeyHash, KnownCertificates};
 use goodfetch_engine::secrets::{Carried, Keychain, Purpose, RunSecrets, SecretError, Secrets};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::tls::{
-    CertificateChanged, CertificateExceptions, ExceptionKind, ExceptionUsed, PinBook, Trust,
+    CertificateChanged, CertificateExceptions, ClientCertificates, ExceptionKind, ExceptionUsed,
+    PinBook, Trust,
 };
 use goodfetch_protocol::audit::AuditVerified;
 use goodfetch_protocol::run::RunId;
@@ -151,6 +152,7 @@ impl Fixture {
                 self.secrets.exception_hosts(),
             )
             .unwrap(),
+            client_certificates: ClientCertificates::default(),
             cookies: [VERIFIED, "certificates.test"]
                 .into_iter()
                 .map(|domain| SessionCookie {

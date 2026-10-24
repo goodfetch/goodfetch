@@ -47,6 +47,24 @@ pub(crate) struct Blocking {
     pub(crate) choices: Choices,
 }
 
+impl Blocking {
+    /// Step 4 with every Filter list off, as a page loaded once more with
+    /// blocking off, or on a domain blocking was learned off for, takes it
+    /// (ADR 0047): the never-block list and `browser.block_resources` stay.
+    pub(crate) fn without_lists(&self) -> Self {
+        Self {
+            never_block: Arc::clone(&self.never_block),
+            lists: None,
+            choices: Choices {
+                ads: false,
+                trackers: false,
+                annoyances: false,
+                ..self.choices.clone()
+            },
+        }
+    }
+}
+
 /// The request paused at `id`, as the last route sends it on.
 pub(crate) struct Paused<'a> {
     pub(crate) id: &'a fetch::RequestId,
@@ -76,9 +94,9 @@ pub(crate) enum Sent {
 pub(crate) enum Stopped {
     /// The domain policy refused it (step 3).
     Refused(Refused),
-    /// A Filter list or `browser.block_resources` blocked it (step 4): it
-    /// fails as `BlockedByClient`.
-    Blocked,
+    /// A Filter list, when `by_list`, or `browser.block_resources` blocked
+    /// it (step 4): it fails as `BlockedByClient`.
+    Blocked { by_list: bool },
 }
 
 /// Steps 3 to 7 for `paused` under `policy` and `blocking`, and step 8's
@@ -129,7 +147,11 @@ pub(crate) fn send_on(
                 response_phrase: None,
             }));
         }
-        verdict if !verdict.sends_on() => return Err(Stopped::Blocked),
+        verdict if !verdict.sends_on() => {
+            return Err(Stopped::Blocked {
+                by_list: !matches!(verdict, Verdict::ResourceBlocked),
+            });
+        }
         _ => {}
     }
     // Step 5: the Response cache and a replaying Run's Response recording

@@ -467,6 +467,38 @@ fn a_client_acting_for_a_model_is_refused_a_file_url() {
     );
 }
 
+/// A navigation the policy refuses answers once the browser's error page
+/// for it has loaded, as a navigation to a document answers once that
+/// document has: the next call finds the error page whole, never the page
+/// before it nor one the browser is still loading.
+///
+/// Covers: story:4-5, error:egress_refused, operation:page.goto, operation:page.formats
+#[test]
+fn a_refused_navigation_answers_once_the_browsers_error_page_for_it_loaded() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    program.run("refused", &["catalog.test"]);
+    let page = program.new_page("refused");
+
+    let went = program.goto(&page, &proving_ground.url("elsewhere.test", "/offsite"));
+    let read = program.call(
+        "page.formats",
+        &json!({ "page_id": page, "formats": { "markdown": true } }),
+    );
+    program.finish(&["refused"]);
+
+    assert_eq!(
+        (error(&went).0, &read["result"]["url"]),
+        (
+            json!("egress_refused"),
+            &json!("chrome-error://chromewebdata/")
+        ),
+        "{read}"
+    );
+}
+
 /// The `javascript:` URL the tests run: it writes the page's main content.
 const SCRIPT: &str =
     "javascript:void(document.body.innerHTML='<main><h1>Written by the script</h1></main>')";

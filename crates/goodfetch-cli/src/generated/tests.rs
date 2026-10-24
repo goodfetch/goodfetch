@@ -119,6 +119,8 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("certs.list", Offer::Command),
             ("engine.info", Offer::Command),
             ("events.subscribe", Offer::Follow),
+            ("needs_you.list", Offer::Command),
+            ("needs_you.dismiss", Offer::Command),
             ("run.new_page", Offer::Command),
             ("run.new_session", Offer::Command),
             ("session.new_page", Offer::Command),
@@ -142,6 +144,7 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("run.usage", Offer::Command),
             ("run.progress", Offer::Command),
             ("run.report", Offer::Command),
+            ("run.list", Offer::Command),
             ("run.checkpoint", Offer::Command),
             ("run.pause", Offer::Command),
             ("run.migrate", Offer::Command),
@@ -175,6 +178,7 @@ fn the_generated_namespaces_are_those_of_collies_commands() {
             "certs",
             "engine",
             "events",
+            "needs_you",
             "run",
             "session",
             "page",
@@ -188,7 +192,7 @@ fn the_generated_namespaces_are_those_of_collies_commands() {
         ]
     );
     assert_eq!(
-        NAMESPACES[4],
+        NAMESPACES[5],
         Namespace {
             name: "run",
             spelled: "run",

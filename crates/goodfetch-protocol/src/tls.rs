@@ -20,9 +20,10 @@ use serde_json::{Value, json};
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
-    ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
+    ProtocolVersion, Reach, Setting, Stability, ValueKind, ValueShape, schema_of,
 };
 use crate::run::{PointInTime, RunId};
+use crate::secret_reference::{REFERENCE_PATTERN, SecretReference};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -61,6 +62,108 @@ pub const TLS_ACCEPT_INVALID_CERTS: Setting = Setting {
     clearable: false,
     authority: Authority::ConfigurationExcept(trust_on_first_use_only),
     weakens: Some(accepts_any_invalid_certificate),
+    arrived_in: ARRIVED_IN,
+};
+
+/// One domain's client certificate, a value of `tls.client_certificates`:
+/// the certificate file the engine presents, and the Secret reference of
+/// its private key, resolved at the handshake (ADRs 0015 and 0042).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClientCertificateConfiguration {
+    /// The file of the certificate and its chain, PEM or DER, as a person
+    /// named it.
+    pub certificate: String,
+    /// The Secret reference of its private key, never the key.
+    pub key: SecretReference,
+}
+
+/// The fields of a `tls.client_certificates` value.
+const CLIENT_CERTIFICATE_FIELDS: [&str; 2] = ["certificate", "key"];
+
+impl ClientCertificateConfiguration {
+    /// Reads one domain's value of `tls.client_certificates`.
+    ///
+    /// # Errors
+    ///
+    /// What is wrong with it, for a `setting_invalid` message: it never
+    /// repeats a value, which may be a key pasted in place of its
+    /// reference.
+    pub fn read(value: &Value) -> Result<Self, String> {
+        let fields = CLIENT_CERTIFICATE_FIELDS
+            .map(|field| format!("`{field}`"))
+            .join(" and ");
+        let Some(entry) = value.as_object() else {
+            return Err(format!("a client certificate is a table of {fields}"));
+        };
+        if let Some(unknown) = entry
+            .keys()
+            .find(|field| !CLIENT_CERTIFICATE_FIELDS.contains(&field.as_str()))
+        {
+            return Err(format!(
+                "a client certificate takes {fields}, not `{unknown}`"
+            ));
+        }
+        let certificate = match entry.get("certificate") {
+            Some(Value::String(file)) => file.clone(),
+            Some(_) => return Err("`certificate` is the text of a file's path".to_owned()),
+            None => return Err("a client certificate names its `certificate` file".to_owned()),
+        };
+        let key = match entry.get("key") {
+            Some(Value::String(reference)) => SecretReference::parse(reference).map_err(|error| {
+                format!(
+                    "`key` is a Secret reference such as `env:CLIENT_KEY`: {error}; a key is never taken in its place"
+                )
+            })?,
+            Some(_) => {
+                return Err(
+                    "`key` is a Secret reference such as `env:CLIENT_KEY`, never a key".to_owned(),
+                );
+            }
+            None => {
+                return Err(
+                    "a client certificate names its `key`, a Secret reference such as `env:CLIENT_KEY`"
+                        .to_owned(),
+                );
+            }
+        };
+        Ok(Self { certificate, key })
+    }
+}
+
+/// A value of `tls.client_certificates`.
+pub const CLIENT_CERTIFICATE_SHAPE: ValueShape = ValueShape {
+    name: "ClientCertificateConfiguration",
+    check: |value| ClientCertificateConfiguration::read(value).map(drop),
+    schema: || {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": CLIENT_CERTIFICATE_FIELDS,
+            "properties": {
+                "certificate": {
+                    "type": "string",
+                    "description": "The file of the client certificate and its chain, PEM or DER.",
+                },
+                "key": {
+                    "type": "string",
+                    "pattern": REFERENCE_PATTERN,
+                    "description": "The Secret reference of the certificate's private key, such as `env:CLIENT_KEY`, resolved at the handshake.",
+                },
+            },
+        })
+    },
+    examples: || vec![json!({ "certificate": "client.pem", "key": "env:CLIENT_KEY" })],
+};
+
+/// `tls.client_certificates` (ADR 0042).
+pub const TLS_CLIENT_CERTIFICATES: Setting = Setting {
+    name: "tls.client_certificates",
+    description: "Client certificates for mutual TLS by domain: a host or a registrable domain with its subdomains, mapped to a table of `certificate`, the file of the certificate and its chain (PEM or DER), and `key`, the Secret reference of its private key, such as `env:CLIENT_KEY`, resolved only when a handshake with a host of that domain starts; a key given as a value is refused with `setting_invalid`. The certificate goes to the domain's hosts and nowhere else, and never to a host reached through an exception of `tls.accept_invalid_certs`. Set from every layer, a Recipe and a run included; nothing is installed on the machine.",
+    kind: ValueKind::Map(&ValueKind::Shape(&CLIENT_CERTIFICATE_SHAPE)),
+    default: empty_table,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -305,7 +408,11 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[CERTIFICATE_INVALID, CERTIFICATE_CHANGED],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[TLS_TRUSTED_CAS, TLS_ACCEPT_INVALID_CERTS],
+    settings: &[
+        TLS_TRUSTED_CAS,
+        TLS_CLIENT_CERTIFICATES,
+        TLS_ACCEPT_INVALID_CERTS,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

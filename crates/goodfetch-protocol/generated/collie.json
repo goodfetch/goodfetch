@@ -2602,6 +2602,225 @@
       },
       "type": "object"
     },
+    "NeedsYouChange": {
+      "description": "What `needs_you.changed` carries: one change of the list.",
+      "oneOf": [
+        {
+          "description": "An item appeared, or changed: it as it is now.",
+          "properties": {
+            "change": {
+              "const": "listed",
+              "type": "string"
+            },
+            "item": {
+              "$ref": "#/$defs/NeedsYouItem",
+              "arrived_in": "0.1",
+              "description": "The item."
+            }
+          },
+          "required": [
+            "change",
+            "item"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An item left the list.",
+          "properties": {
+            "change": {
+              "const": "removed",
+              "type": "string"
+            },
+            "id": {
+              "arrived_in": "0.1",
+              "description": "The item's ID.",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/NeedsYouRemoval",
+              "arrived_in": "0.1",
+              "description": "Why."
+            }
+          },
+          "required": [
+            "change",
+            "id",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "NeedsYouDismissParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.dismiss` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "item": {
+          "arrived_in": "0.1",
+          "description": "The item's ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item"
+      ],
+      "type": "object"
+    },
+    "NeedsYouDismissed": {
+      "description": "What `needs_you.dismiss` answers.",
+      "properties": {
+        "dismissed": {
+          "arrived_in": "0.1",
+          "description": "Whether it hid the item: false when the list no longer holds it, or\nits source does not let a person dismiss it.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dismissed"
+      ],
+      "type": "object"
+    },
+    "NeedsYouItem": {
+      "description": "One thing waiting for a person.",
+      "properties": {
+        "actions": {
+          "arrived_in": "0.1",
+          "description": "The catalog operations a person may answer it with, such as\n`needs_you.dismiss`; empty when only something outside the engine,\nsuch as freeing space, resolves it.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "details": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`.",
+          "type": "object"
+        },
+        "id": {
+          "arrived_in": "0.1",
+          "description": "Its ID, which names this one occurrence for good: a Run stopped\nagain by storage after a resume is another item.",
+          "type": "string"
+        },
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "What it is, a value of a type both Products share, such as\n`storage_level`; a Client shows a kind it does not know by its\nsummary.",
+          "type": "string"
+        },
+        "run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run it is about, if any."
+        },
+        "schedule": {
+          "arrived_in": "0.1",
+          "description": "The Schedule it is about, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "since": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "Since when it waits."
+        },
+        "summary": {
+          "arrived_in": "0.1",
+          "description": "What waits, in the engine's English, which a Client shows for a kind\nit has no words of its own for.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "since",
+        "summary",
+        "actions"
+      ],
+      "type": "object"
+    },
+    "NeedsYouList": {
+      "description": "What `needs_you.list` answers: one page of the items, the longest\nwaiting first.",
+      "properties": {
+        "items": {
+          "arrived_in": "0.1",
+          "description": "The items, by `since`, then by ID.",
+          "items": {
+            "$ref": "#/$defs/NeedsYouItem"
+          },
+          "type": "array"
+        },
+        "next": {
+          "arrived_in": "0.1",
+          "description": "Where the next page starts, as the next call's `after`; absent on\nthe last page.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
+    "NeedsYouListParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.list` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "after": {
+          "arrived_in": "0.1",
+          "description": "The `next` of the page read before: the list goes on after it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kinds": {
+          "arrived_in": "0.1",
+          "description": "Only the items of these kinds; every kind when absent.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "NeedsYouRemoval": {
+      "description": "Why an item left the list.",
+      "oneOf": [
+        {
+          "const": "resolved",
+          "description": "What waited is resolved: by a person, here or elsewhere, or by its\nRun.",
+          "type": "string"
+        },
+        {
+          "const": "dismissed",
+          "description": "A person dismissed it.",
+          "type": "string"
+        }
+      ]
+    },
     "NewPageParams": {
       "additionalProperties": false,
       "description": "What `run.new_page` takes: the Run whose default Session opens the page.",
@@ -3521,6 +3740,26 @@
       "minimum": 0,
       "type": "integer"
     },
+    "Presence": {
+      "description": "Whether the state a Run index row points at is there (ADRs 0031 and\n0036).",
+      "oneOf": [
+        {
+          "const": "present",
+          "description": "Its state is at its location.",
+          "type": "string"
+        },
+        {
+          "const": "missing",
+          "description": "`runs reindex` found no state at its location; the row is kept.",
+          "type": "string"
+        },
+        {
+          "const": "erased",
+          "description": "The Run was discarded on purpose; `runs reindex` keeps its row\nerased.",
+          "type": "string"
+        }
+      ]
+    },
     "PressParams": {
       "additionalProperties": false,
       "description": "What `locator.press` takes: the locator whose element gets the key, and\nthe key.",
@@ -3570,6 +3809,27 @@
           "type": "string"
         }
       ]
+    },
+    "PrivateEndpoint": {
+      "additionalProperties": false,
+      "description": "An Attached engine's private endpoint (ADRs 0024 and 0031): where it\nlistens, a `0600` Unix socket on macOS and Linux or loopback TCP on\nWindows, and the `0600` file holding the token that each Connection's\n`hello` there carries, as a Daemon's does.",
+      "properties": {
+        "address": {
+          "$ref": "#/$defs/DaemonEndpoint",
+          "arrived_in": "0.1",
+          "description": "Where it listens."
+        },
+        "token_file": {
+          "arrived_in": "0.1",
+          "description": "The path of the file holding its token.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "address",
+        "token_file"
+      ],
+      "type": "object"
     },
     "Product": {
       "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
@@ -3852,6 +4112,14 @@
     "Resync": {
       "description": "What `events.resync` gives: the current state, from which the stream\ncontinues.",
       "properties": {
+        "needs_you": {
+          "arrived_in": "0.1",
+          "description": "Every item of \"Needs you\", by `since`, then by ID.",
+          "items": {
+            "$ref": "#/$defs/NeedsYouItem"
+          },
+          "type": "array"
+        },
         "runs": {
           "arrived_in": "0.1",
           "description": "The axes of each Run the engine knows, live or ended.",
@@ -3862,7 +4130,8 @@
         }
       },
       "required": [
-        "runs"
+        "runs",
+        "needs_you"
       ],
       "type": "object"
     },
@@ -4301,6 +4570,312 @@
       "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
       "type": "string"
     },
+    "RunIndexRow": {
+      "description": "One row of the Run index (ADR 0031): a Run, where its state is, its three\naxes and, while it is live, the engine that owns it.",
+      "properties": {
+        "completeness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Completeness"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its Completeness, once it ended."
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When it ended."
+        },
+        "kind": {
+          "$ref": "#/$defs/RunKind",
+          "description": "What kind of Run it is."
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "description": "Where it is."
+        },
+        "location": {
+          "description": "Its folder: relative to the per-major data folder when it is inside,\nabsolute otherwise.",
+          "type": "string"
+        },
+        "needs": {
+          "$ref": "#/$defs/Product",
+          "description": "The Product it needs (ADR 0098)."
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunOwner"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "While it is live, where the engine that owns it is reached: a\nDaemon's endpoint, or an Attached engine's private endpoint. An\nengine that cannot take the Run's writer lock forwards live actions\nthere."
+        },
+        "presence": {
+          "$ref": "#/$defs/Presence",
+          "description": "Whether its state is at its location."
+        },
+        "progress_message": {
+          "description": "The program's own status line, once it set one (RT-15).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "description": "The Run's ID."
+        },
+        "started_at": {
+          "$ref": "#/$defs/PointInTime",
+          "description": "When it started."
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StopReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why it stopped, once it stopped: \"Needs you\" lists a Run stopped by\nstorage from it (ADR 0122)."
+        },
+        "tags": {
+          "$ref": "#/$defs/Tags",
+          "description": "Its tags (ADR 0036)."
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verdict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its Verdict, once it ended."
+        }
+      },
+      "required": [
+        "run_id",
+        "location",
+        "kind",
+        "needs",
+        "tags",
+        "lifecycle",
+        "started_at",
+        "presence"
+      ],
+      "type": "object"
+    },
+    "RunKind": {
+      "description": "What kind of Run it is: a Collie Run its program drives, or a crawl\n(ADR 0102), which its start's inputs name.",
+      "oneOf": [
+        {
+          "const": "collie",
+          "description": "A Run its program drives page by page.",
+          "type": "string"
+        },
+        {
+          "const": "crawl",
+          "description": "A crawl, whose work items the engine leases to its handlers.",
+          "type": "string"
+        }
+      ]
+    },
+    "RunList": {
+      "description": "What `run.list` answers: the rows of its filter, in its order.",
+      "properties": {
+        "runs": {
+          "arrived_in": "0.1",
+          "description": "The rows, every presence kept: a Run whose state is gone is listed\n`missing`, one discarded on purpose `erased` (ADR 0031).",
+          "items": {
+            "$ref": "#/$defs/RunIndexRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "runs"
+      ],
+      "type": "object"
+    },
+    "RunListParams": {
+      "additionalProperties": false,
+      "description": "What `run.list` takes: which rows of the Run index it answers, each\nfield given narrowing them, and in which order.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "completeness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Completeness"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Their Completeness: only Runs that ended have one."
+        },
+        "ended": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When they ended: only Runs that ended match."
+        },
+        "lifecycle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Lifecycle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Their Lifecycle."
+        },
+        "occurrence": {
+          "arrived_in": "0.1",
+          "description": "The occurrence that started the Runs, by its ID.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "order": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SortOrder"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Which way, descending by default."
+        },
+        "product": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Product"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Product the Runs need (ADR 0098)."
+        },
+        "recipe": {
+          "arrived_in": "0.1",
+          "description": "The Recipe the Runs ran, by its name, as their reserved\n`goodfetch.recipe` tag names it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schedule": {
+          "arrived_in": "0.1",
+          "description": "The Schedule that started the Runs, by its ID.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunSortKey"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What the rows are sorted by, when they started by default; rows\nthat compare equal follow in Run ID order."
+        },
+        "started": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When they started."
+        },
+        "tags": {
+          "arrived_in": "0.1",
+          "description": "Tags each row carries, every one of them.",
+          "items": {
+            "$ref": "#/$defs/Tag"
+          },
+          "type": "array"
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "Text found, ignoring case, in their Run ID or one of their tags,\ntheir Recipe's among them.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trigger": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunTrigger"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What fired the occurrence that started the Runs."
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verdict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Their Verdict: only Runs that ended have one."
+        },
+        "watch_runs": {
+          "arrived_in": "0.1",
+          "description": "Whether Watch runs are listed too; they are left out by default\n(ADR 0036).",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
     "RunMigrating": {
       "description": "What `run.migrating` carries.",
       "properties": {
@@ -4337,6 +4912,37 @@
           "const": "form",
           "description": "An Integration's form.",
           "type": "string"
+        }
+      ]
+    },
+    "RunOwner": {
+      "description": "Where the engine that owns a live Run is reached (ADR 0031).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A Daemon, at the endpoint of its runtime file, which also holds its\ntoken.",
+          "properties": {
+            "daemon": {
+              "$ref": "#/$defs/DaemonEndpoint"
+            }
+          },
+          "required": [
+            "daemon"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An Attached engine, at its private endpoint.",
+          "properties": {
+            "attached": {
+              "$ref": "#/$defs/PrivateEndpoint"
+            }
+          },
+          "required": [
+            "attached"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -4774,6 +5380,66 @@
       ],
       "type": "object"
     },
+    "RunSortKey": {
+      "description": "What `run.list` sorts its rows by.",
+      "oneOf": [
+        {
+          "const": "started_at",
+          "description": "When the Run started.",
+          "type": "string"
+        },
+        {
+          "const": "ended_at",
+          "description": "When it ended; a Run that has not ended comes after every one that\ndid, in ascending order.",
+          "type": "string"
+        },
+        {
+          "const": "run_id",
+          "description": "Its Run ID.",
+          "type": "string"
+        },
+        {
+          "const": "recipe",
+          "description": "Its Recipe's name.",
+          "type": "string"
+        },
+        {
+          "const": "schedule",
+          "description": "The Schedule that started it.",
+          "type": "string"
+        },
+        {
+          "const": "occurrence",
+          "description": "The occurrence that started it.",
+          "type": "string"
+        },
+        {
+          "const": "trigger",
+          "description": "What fired that occurrence.",
+          "type": "string"
+        },
+        {
+          "const": "product",
+          "description": "The Product it needs.",
+          "type": "string"
+        },
+        {
+          "const": "lifecycle",
+          "description": "Its Lifecycle.",
+          "type": "string"
+        },
+        {
+          "const": "verdict",
+          "description": "Its Verdict.",
+          "type": "string"
+        },
+        {
+          "const": "completeness",
+          "description": "Its Completeness.",
+          "type": "string"
+        }
+      ]
+    },
     "RunStartParams": {
       "additionalProperties": false,
       "description": "What `run.start` takes.",
@@ -4896,6 +5562,31 @@
         "free_bytes"
       ],
       "type": "object"
+    },
+    "RunTrigger": {
+      "description": "What fired a Schedule's occurrence (ADR 0036), as its run's reserved\n`goodfetch.trigger` tag names it.",
+      "oneOf": [
+        {
+          "const": "time",
+          "description": "A time trigger: cron or an interval.",
+          "type": "string"
+        },
+        {
+          "const": "watch",
+          "description": "A Watch that found a change.",
+          "type": "string"
+        },
+        {
+          "const": "after_run",
+          "description": "The end of another run.",
+          "type": "string"
+        },
+        {
+          "const": "run_now",
+          "description": "A person's or a program's \"run now\".",
+          "type": "string"
+        }
+      ]
     },
     "RunUsage": {
       "description": "What a Run used, as the Usage ledger charged it, and the Limits that\napply to it (ADRs 0041 and 0101): what `run.usage` answers and the\nreport carries.",
@@ -5738,6 +6429,21 @@
       ],
       "type": "object"
     },
+    "SortOrder": {
+      "description": "Which way `run.list` sorts.",
+      "oneOf": [
+        {
+          "const": "ascending",
+          "description": "Smallest first.",
+          "type": "string"
+        },
+        {
+          "const": "descending",
+          "description": "Largest first: the newest first, when sorting by time.",
+          "type": "string"
+        }
+      ]
+    },
     "StartedAs": {
       "description": "Whether a start began its Run or found it.",
       "oneOf": [
@@ -6033,6 +6739,37 @@
       },
       "maxItems": 16,
       "type": "array"
+    },
+    "TimeRange": {
+      "additionalProperties": false,
+      "description": "A span of time: from its first point, included, until its last,\nexcluded; an end left out leaves that side open.",
+      "properties": {
+        "from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its first point, included."
+        },
+        "until": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The point it ends before, excluded."
+        }
+      },
+      "type": "object"
     },
     "TraceContext": {
       "additionalProperties": false,
@@ -6772,6 +7509,16 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "artifact_unavailable_offline",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The site refused the document a navigation reached with a Block cause the engine cannot get past, such as a rate limit, an IP block or a challenge: raised by the call that waited for that navigation, or else by the page's next call. The Session stays open with its cookies, never replaced, and nothing waits on the site's `Retry-After`: the program decides whether to wait, open another Session or pause for a person. The details name the cause, the URL, the status and `retry_after`, the time the site asked for or `null`.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "blocked",
       "product": "collie",
       "retryable": false
     },
@@ -7579,10 +8326,22 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, from which the stream continues.",
+      "description": "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, every Run's axes and every item of \"Needs you\", from which the stream continues.",
       "name": "events.resync",
       "payload": {
         "$ref": "#/$defs/Resync"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "An item of \"Needs you\" appeared, changed or left the list: resolved, by a person or by its Run, or dismissed. Lossless: a subscription that falls behind next takes `events.resync`, which holds every item.",
+      "name": "needs_you.changed",
+      "payload": {
+        "$ref": "#/$defs/NeedsYouChange"
       },
       "product": "collie",
       "stability": "experimental"
@@ -8486,6 +9245,7 @@
       "events": [
         "events.resync",
         "run.axes_changed",
+        "needs_you.changed",
         "engine.system_info"
       ],
       "kind": "sequence",
@@ -8706,6 +9466,46 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/Counted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Hides an item of \"Needs you\" whose source lets a person dismiss it, for every Client, and answers whether it did; an item the list no longer holds, or one only resolving it removes, stays as it is. The item leaves the list with `needs_you.changed`.",
+      "events": [
+        "needs_you.changed"
+      ],
+      "kind": "round_trip",
+      "name": "needs_you.dismiss",
+      "params": {
+        "$ref": "#/$defs/NeedsYouDismissParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/NeedsYouDismissed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists what waits for a person across every Run in the Run index and the stores beside it, the longest waiting first, a page at a time: `after` takes the `next` of the page before. `kinds` keeps the items of those kinds. Each change after the answer arrives as `needs_you.changed` on the event stream.",
+      "events": [],
+      "kind": "query",
+      "name": "needs_you.list",
+      "params": {
+        "$ref": "#/$defs/NeedsYouListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/NeedsYouList"
       },
       "stability": "experimental"
     },
@@ -9278,6 +10078,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists the Runs of the Run index of the user and major, of either Product (ADRs 0031 and 0098): each row with its tags, Lifecycle, Verdict, Completeness, start and end, the engine that owns it while it is live, and its presence, a Run whose state is gone `missing` and one discarded on purpose `erased`, never left out. The engine filters by tags, the Recipe, Schedule, occurrence and trigger its reserved `goodfetch.` tags name, Product, each axis, start and end time, and a text found in its Run ID or tags, and sorts by the key given; Watch runs are left out unless `watch_runs` asks for them (ADR 0036).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.list",
+      "params": {
+        "$ref": "#/$defs/RunListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunList"
       },
       "stability": "experimental"
     },
@@ -12007,6 +12826,42 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": {},
+      "description": "Client certificates for mutual TLS by domain: a host or a registrable domain with its subdomains, mapped to a table of `certificate`, the file of the certificate and its chain (PEM or DER), and `key`, the Secret reference of its private key, such as `env:CLIENT_KEY`, resolved only when a handshake with a host of that domain starts; a key given as a value is refused with `setting_invalid`. The certificate goes to the domain's hosts and nowhere else, and never to a host reached through an exception of `tls.accept_invalid_certs`. Set from every layer, a Recipe and a run included; nothing is installed on the machine.",
+      "name": "tls.client_certificates",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "additionalProperties": false,
+          "properties": {
+            "certificate": {
+              "description": "The file of the client certificate and its chain, PEM or DER.",
+              "type": "string"
+            },
+            "key": {
+              "description": "The Secret reference of the certificate's private key, such as `env:CLIENT_KEY`, resolved at the handshake.",
+              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "certificate",
+            "key"
+          ],
+          "type": "object"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "configuration",
       "clearable": false,
       "default": {},
@@ -12469,6 +13324,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Run stopped by storage, resumable once space is freed by a start with its Run ID (ADR 0122); `details` give the `folder` whose filesystem filled. It leaves the list once the Run runs again, or when a person dismisses it.",
+      "name": "run_stopped_by_storage",
+      "product": "collie",
+      "type": "needs_you_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Texts the sample operation repeated.",
       "name": "sample_echoes",
       "product": "collie",
@@ -12515,6 +13377,13 @@
       "name": "signed_in",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A filesystem a Run writes to is at the `low` or `critical` storage level (ADR 0122); `details` give its `level` and a `folder` on it. It leaves the list at the first sample that finds the space again.",
+      "name": "storage_level",
+      "product": "collie",
+      "type": "needs_you_kind"
     },
     {
       "arrived_in": "0.1",

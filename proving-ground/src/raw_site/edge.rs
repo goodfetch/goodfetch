@@ -89,6 +89,8 @@ pub(super) fn answer(host: &str, request: &Request, earlier: u64) -> Answer {
     }
     match path {
         "/robots.txt" => Answer::Page(Page::text(200, ROBOTS)),
+        // An answer with no document, which a browser's navigation abandons.
+        "/no-content" => Answer::Page(Page::text(204, "")),
         "/close-delimited" => Answer::Page(page(path).framed(Framing::Close)),
         // 日本語 in Shift_JIS, for `page.request`'s decoding cases (ADR 0119).
         "/text/shift-jis" => Answer::Page(Page::new(

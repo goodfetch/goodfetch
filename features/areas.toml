@@ -175,6 +175,11 @@ prefix = "run.report"
 [[area]]
 number = 3
 kind = "operation"
+prefix = "run.list"
+
+[[area]]
+number = 3
+kind = "operation"
 prefix = "crawl.start"
 
 [[area]]
@@ -714,6 +719,13 @@ number = 5
 kind = "error"
 prefix = "logged_out"
 
+# A Block cause on a Session a program or an Agent opened (#711, ADRs 0088
+# and 0092).
+[[area]]
+number = 5
+kind = "error"
+prefix = "blocked"
+
 # The page's and the Session's routes, their answers and their Error codes
 # (#702).
 [[area]]
@@ -957,6 +969,22 @@ prefix = "console."
 number = 12
 kind = "operation"
 prefix = "sign_in."
+
+# Area 12's "Needs you" (#852): its operations, its event and its commands.
+[[area]]
+number = 12
+kind = "operation"
+prefix = "needs_you."
+
+[[area]]
+number = 12
+kind = "event"
+prefix = "needs_you."
+
+[[area]]
+number = 12
+kind = "command"
+prefix = "needs-you"
 
 [[area]]
 number = 12

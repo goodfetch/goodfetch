@@ -33,6 +33,15 @@
 //!   and in a closed one its script attaches.
 //! - `/removal`: an article most of whose text sits in an `.ad-slot`
 //!   element.
+//! - `/needs-script`: an article whose text its own script
+//!   (`/js/ads.bundle.js`, EasyList's `/ads.bundle.js$script`) renders, so
+//!   a blocker that blocks the script leaves a page without its
+//!   `#content`.
+//! - `/listed-challenge`: a challenge, answered `403`, whose check script
+//!   (`/js/fingerprint2.min.js`, EasyPrivacy's `/fingerprint2.min.js`) no
+//!   never-block entry keeps: once it runs, it clears the challenge in
+//!   place, putting the page behind it, with its `#content`, in the
+//!   challenge's stead.
 
 use hyper::{Method, StatusCode};
 
@@ -217,6 +226,46 @@ document.getElementById(\"closed-host\").attachShadow({ mode: \"closed\" }).inne
 </html>
 ";
 
+/// `/needs-script`: an article whose text its own script renders.
+const NEEDS_SCRIPT: &str = "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+<meta charset=\"utf-8\">
+<title>An article its own ad script renders</title>
+</head>
+<body>
+<main>
+<h1>An article its own ad script renders</h1>
+<script src=\"/js/ads.bundle.js\"></script>
+</main>
+</body>
+</html>
+";
+
+/// `/js/ads.bundle.js`: renders `/needs-script`'s text after itself.
+const RENDERING_SCRIPT: &[u8] = b"document.currentScript.insertAdjacentHTML(\"afterend\", \"<p id='content'>The article's text, which the site's own script renders.</p>\");\n";
+
+/// `/listed-challenge`: an interstitial challenge whose check script a
+/// Filter list blocks.
+const LISTED_CHALLENGE: &str = "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+<meta charset=\"utf-8\">
+<title>Just a moment...</title>
+</head>
+<body>
+<main id=\"challenge\">
+<h1>Checking your browser</h1>
+<p>Enable JavaScript and cookies to continue.</p>
+</main>
+<script src=\"/js/fingerprint2.min.js\"></script>
+</body>
+</html>
+";
+
+/// `/js/fingerprint2.min.js`: clears `/listed-challenge` in place.
+const CLEARING_SCRIPT: &[u8] = b"document.title = \"The page behind the challenge\";\ndocument.getElementById(\"challenge\").outerHTML = \"<main id='content'><h1>The page behind the challenge</h1><p>Its text, shown once the challenge cleared.</p></main>\";\n";
+
 /// A live-hiding page with its report sent to `report`.
 fn reporting(page: &str, report: &str) -> String {
     page.replace("REPORT_SCRIPT", &REPORT.replace("REPORT", report))
@@ -244,6 +293,12 @@ pub(crate) fn respond(name: &str, request: &Request<'_>) -> Option<Reply> {
         "/hiding/seen" | "/hiding/frame-seen" | "/hiding/clicked" => asset("text/plain", b"seen\n"),
         "/removal" => Reply::html(REMOVAL.to_owned()),
         "/shadow" => Reply::html(SHADOW.to_owned()),
+        "/needs-script" => Reply::html(NEEDS_SCRIPT.to_owned()),
+        "/js/ads.bundle.js" => asset("application/javascript", RENDERING_SCRIPT),
+        "/listed-challenge" => {
+            Reply::html_with_status(StatusCode::FORBIDDEN, LISTED_CHALLENGE.to_owned())
+        }
+        "/js/fingerprint2.min.js" => asset("application/javascript", CLEARING_SCRIPT),
         path if path.ends_with(".gif") => asset("image/gif", GIF),
         path if path.ends_with(".css") => asset("text/css", b"main { margin: 1em; }\n"),
         path if path.ends_with(".js") || path.starts_with("/cdn-cgi/") => {

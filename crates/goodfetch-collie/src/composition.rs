@@ -6,6 +6,7 @@ use std::sync::Arc;
 use goodfetch_engine::Composition;
 use goodfetch_page::page_value::{HandlerPages, ProgramPages};
 
+use crate::block_detection::Detector;
 use crate::{pins, sample};
 
 /// What Collie's engine is composed of: the engine's own operations, then
@@ -32,6 +33,7 @@ pub fn composition_with(hooks: Arc<dyn HandlerPages>) -> Composition {
         .with(goodfetch_page::contribution_with(
             pins::pinned_artifacts(),
             hooks,
+            Arc::new(Detector),
         ))
 }
 

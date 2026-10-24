@@ -45,6 +45,7 @@ function limit(
 /** Engine & settings, signed in, over the adapter, whose `usage.list` answers `answer`. */
 async function usageOf(answer: UsageListResult | ReturnType<typeof failure>) {
   const adapter = createProtocolAdapter();
+  adapter.answer("needs_you.list", { items: [] });
   adapter.answer("config.explain", { files: [], settings: [] });
   adapter.answer("usage.list", answer);
   const client = createConsoleClient({

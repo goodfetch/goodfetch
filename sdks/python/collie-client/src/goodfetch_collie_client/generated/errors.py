@@ -82,6 +82,14 @@ class ArtifactUnavailableOfflineError(RefusedError):
         super().__init__(message, code="artifact_unavailable_offline", group="refused", retryable=False)
 
 
+class BlockedError(PageError):
+    """The site refused the document a navigation reached with a Block cause the engine cannot get past, such as a rate limit, an IP block or a challenge: raised by the call that waited for that navigation, or else by the page's next call. The Session stays open with its cookies, never replaced, and nothing waits on the site's `Retry-After`: the program decides whether to wait, open another Session or pause for a person. The details name the cause, the URL, the status and `retry_after`, the time the site asked for or `null`."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="blocked", group="page", retryable=False)
+
+
 class BodyNotFoundError(ProgramError):
     """The Run's folder holds no body of this ID: the Run or the body is unknown, or the ID is not a body's."""
 
@@ -654,6 +662,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "address_family_unavailable": AddressFamilyUnavailableError,
     "artifact_download_failed": ArtifactDownloadFailedError,
     "artifact_unavailable_offline": ArtifactUnavailableOfflineError,
+    "blocked": BlockedError,
     "body_not_found": BodyNotFoundError,
     "body_unavailable": BodyUnavailableError,
     "browser_host_outdated": BrowserHostOutdatedError,

@@ -48,6 +48,14 @@ export type BlockCause = "captcha" | "challenge" | "consent_required" | "ip_bloc
 export type LimitScope = "connection" | "daemon" | "install" | "person" | "token" | (string & {});
 
 /**
+ * A `needs_you_kind`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).
+ *
+ * - `run_stopped_by_storage`: A Run stopped by storage, resumable once space is freed by a start with its Run ID (ADR 0122); `details` give the `folder` whose filesystem filled. It leaves the list once the Run runs again, or when a person dismisses it.
+ * - `storage_level`: A filesystem a Run writes to is at the `low` or `critical` storage level (ADR 0122); `details` give its `level` and a `folder` on it. It leaves the list at the first sample that finds the space again.
+ */
+export type NeedsYouKind = "run_stopped_by_storage" | "storage_level" | (string & {});
+
+/**
  * A `run_warning_code`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).
  *
  * - `baseline_unavailable`: The baseline a comparison needs was unavailable.

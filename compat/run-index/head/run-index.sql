@@ -6,6 +6,11 @@ CREATE TABLE format (
     lowest_minor INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 INSERT INTO "format" VALUES('run-index','0.1',0);
+CREATE TABLE needs_you_dismissed (
+        item TEXT NOT NULL PRIMARY KEY,
+        dismissed_at TEXT NOT NULL
+    ) STRICT;
+INSERT INTO "needs_you_dismissed" VALUES('corpus_waiting:1','2026-01-05T09:00:00Z');
 CREATE TABLE runs (
         run_id TEXT NOT NULL PRIMARY KEY,
         location TEXT NOT NULL,
@@ -19,9 +24,10 @@ CREATE TABLE runs (
         ended_at TEXT,
         owner TEXT,
         presence TEXT NOT NULL,
-        progress_message TEXT
+        progress_message TEXT,
+        stop_reason TEXT
     ) STRICT;
-INSERT INTO "runs" VALUES('finished-run','runs/finished-run','collie','collie','["schedule:nightly","team:shop"]','finished','verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'present','Read 3 of 3 pages');
-INSERT INTO "runs" VALUES('aborted-run','runs/aborted-run','collie','collie','["manual"]','stopped','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'present',NULL);
-INSERT INTO "runs" VALUES('live-run','runs/live-run','collie','collie','["daemon"]','running',NULL,NULL,'2026-01-05T09:00:00Z',NULL,'{"daemon":{"unix":"daemon.sock"}}','present',NULL);
+INSERT INTO "runs" VALUES('finished-run','runs/finished-run','collie','collie','["schedule:nightly","team:shop"]','finished','verified','complete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'present','Read 3 of 3 pages',NULL);
+INSERT INTO "runs" VALUES('aborted-run','runs/aborted-run','collie','collie','["manual"]','stopped','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'present',NULL,'{"kind":"abort","by":"client"}');
+INSERT INTO "runs" VALUES('live-run','runs/live-run','collie','collie','["daemon"]','running',NULL,NULL,'2026-01-05T09:00:00Z',NULL,'{"daemon":{"unix":"daemon.sock"}}','present',NULL,NULL);
 COMMIT;

@@ -20,7 +20,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::transition::{InvalidTransition, Refusal};
 use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
 use goodfetch_protocol::governor::PAGE_MEMORY_EXCEEDED;
-use goodfetch_protocol::page::{BrowserExit, NAVIGATION_FAILED, PAGE_CRASHED, PageId, SessionId};
+use goodfetch_protocol::page::{BrowserExit, PAGE_CRASHED, PageId, SessionId};
 use goodfetch_protocol::settings::SettingLimit;
 use serde_json::json;
 use tokio::sync::watch;
@@ -37,15 +37,6 @@ use crate::errors::{
 /// command's failure: a destroyed target waits up to 2 s for a quit, and a
 /// lost browser up to 2 s more for its exit status.
 const ENDING_WAIT: Duration = Duration::from_secs(5);
-
-/// The network error of a navigation the browser abandoned, as it does
-/// when the renderer crashes under it.
-const ABORTED: &str = "net::ERR_ABORTED";
-
-/// How long an abandoned navigation waits for a renderer's crash, which the
-/// pinned Chromium reports right after it: an abandoned navigation is
-/// also, more often, an answer with no document, such as a `204`.
-const ABORTED_WAIT: Duration = Duration::from_millis(500);
 
 /// How a page ended, as its table's event names it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -254,19 +245,10 @@ impl PageLife {
     /// when the failure was the page going and its end is known in time.
     async fn settled(&self, error: CallError) -> CallError {
         let mut ended = self.shared.ended.subscribe();
-        let wait = if error.code() == PAGE_CRASHED.name {
-            ENDING_WAIT
-        } else if error.code() == NAVIGATION_FAILED.name
-            && error
-                .details()
-                .and_then(|details| details.get("error"))
-                .is_some_and(|text| text == ABORTED)
-        {
-            ABORTED_WAIT
-        } else {
+        if error.code() != PAGE_CRASHED.name {
             return error;
-        };
-        match tokio::time::timeout(wait, ending(&mut ended)).await {
+        }
+        match tokio::time::timeout(ENDING_WAIT, ending(&mut ended)).await {
             Ok(Some(ending)) => ending,
             Ok(None) | Err(_) => error,
         }

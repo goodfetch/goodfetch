@@ -36,6 +36,7 @@ pub mod journey;
 pub mod jsonrpc;
 pub mod key_value_store;
 pub mod log;
+pub mod needs_you;
 pub mod ops;
 pub mod page;
 pub mod people;

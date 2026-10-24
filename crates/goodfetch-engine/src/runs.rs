@@ -68,9 +68,9 @@ use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, HumanPause, Lifecycle,
     NotUnderstoodLimit, NothingDone, PointInTime, Presence, ProgressMessage, RUN_IN_USE,
-    RUN_STATE_DURABILITY, ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunOwner,
-    RunProgress, RunReport, RunStarted, RunStorage, RunUsage, RunWarning, RunWriter, StartInput,
-    StartedAs, StopReason, Tags,
+    RUN_STATE_DURABILITY, ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunListParams,
+    RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage, RunWarning, RunWriter,
+    StartInput, StartedAs, StopReason, Tags,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
@@ -119,6 +119,7 @@ use crate::home::{Home, RunStateLocation, major_name};
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation};
 use crate::metrics::Metrics;
+use crate::needs_you::NeedsYou;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::run_files::{self, FileKind, KeepError, Kept};
 use crate::run_index;
@@ -216,6 +217,8 @@ pub(crate) struct RunsSetup {
     /// The Console's address, when this engine serves one (ADR 0031): each
     /// Run's report names its page there.
     pub(crate) console: Option<String>,
+    /// The engine's "Needs you", which `needs_you.*` reach through the Runs.
+    pub(crate) needs_you: NeedsYou,
 }
 
 /// What drives a kind of Run, such as Foxhound's crawl's delivery, given
@@ -338,6 +341,10 @@ pub enum Resumed {
 }
 
 /// What a start found.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a start answers once and its caller takes the Run out at once: boxing it would allocate on every start for no saving"
+)]
 pub enum Started {
     /// It began a new Run, which its driver now drives.
     New(Run),
@@ -518,6 +525,50 @@ pub enum RunKeyError {
     /// The wrapped data key could not be written.
     #[error(transparent)]
     State(#[from] RunStateError),
+}
+
+/// Why the Run index could not be listed.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ListError {
+    /// The registry has stopped.
+    #[error("the engine's Runs have stopped")]
+    Stopped,
+    /// The Run index's marker refuses this engine (ADRs 0066 and 0098).
+    #[error("the Run index is {format} {found}, which this engine cannot read")]
+    Format {
+        /// The format's name.
+        format: &'static str,
+        /// The index's version.
+        found: String,
+        /// What this engine makes of it.
+        compatibility: Compatibility,
+        /// The Product version to install, when its lowest minor refused
+        /// this engine.
+        install: Option<String>,
+    },
+    /// The Run index cannot be read.
+    #[error("the Run index cannot be read: {0}")]
+    Unreadable(String),
+}
+
+impl From<RunStateError> for ListError {
+    fn from(error: RunStateError) -> Self {
+        match error {
+            RunStateError::Format {
+                format,
+                found,
+                compatibility,
+                install,
+            } => Self::Format {
+                format,
+                found,
+                compatibility,
+                install,
+            },
+            other => Self::Unreadable(other.to_string()),
+        }
+    }
 }
 
 /// Why a Run could not be finished or aborted.
@@ -734,6 +785,13 @@ struct Located {
     tasks: Arc<TaskOwner>,
 }
 
+/// Where the Run index is, which a read of it opens off the registry.
+struct IndexAt {
+    index: PathBuf,
+    version: ProductVersion,
+    tasks: Arc<TaskOwner>,
+}
+
 /// What an abort waits for: a Run this engine ends, or one whose writer
 /// role it takes.
 enum Waiting {
@@ -873,6 +931,7 @@ enum Command {
     Reader(RunId, oneshot::Sender<RunReader>),
     Progress(RunId, oneshot::Sender<Followed>),
     Locate(RunId, oneshot::Sender<Option<Located>>),
+    Index(oneshot::Sender<IndexAt>),
     Discard(RunId, oneshot::Sender<Result<(), RunError>>),
     Drain(oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
     Storage(Arc<StorageSample>),
@@ -929,6 +988,8 @@ pub struct Runs {
     /// The composition's Clean-up rules, which choose the version each new
     /// Run holds to (ADR 0047), if it has any.
     clean_up: Option<Arc<CleanUpRules>>,
+    /// The engine's "Needs you".
+    needs_you: NeedsYou,
 }
 
 /// The composition's Clean-up rules, and the engine's Product version, the
@@ -1803,6 +1864,7 @@ impl Runs {
             secrets,
             drivers: Arc::new(setup.drivers.clone()),
             clean_up: CleanUpRules::of(&setup),
+            needs_you: setup.needs_you.clone(),
         };
         let politeness = SharedPoliteness {
             file: Arc::new(tokio::sync::OnceCell::new()),
@@ -1847,6 +1909,11 @@ impl Runs {
     /// The engine's settings, which a start resolves its Run's under.
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// The engine's "Needs you" (spec #592).
+    pub fn needs_you(&self) -> &NeedsYou {
+        &self.needs_you
     }
 
     /// What this engine's Runs charge against: the user's Usage ledger and
@@ -2601,6 +2668,35 @@ impl Runs {
         }
     }
 
+    /// The rows of the Run index that `params` names, in its order (ADRs
+    /// 0031, 0036 and 0117), each presence kept, Watch runs left out unless
+    /// it asks for them. The index is read off the registry.
+    ///
+    /// # Errors
+    ///
+    /// `Stopped` when the registry has stopped, and the index's own when it
+    /// cannot be read or its marker refuses this engine.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future only stops waiting.
+    pub async fn list(&self, params: RunListParams) -> Result<Vec<RunIndexRow>, ListError> {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Index(answer))
+            .await
+            .map_err(|_| ListError::Stopped)?;
+        let IndexAt {
+            index,
+            version,
+            tasks,
+        } = answered.await.map_err(|_| ListError::Stopped)?;
+        let rows = tasks
+            .blocking(move || run_index::rows(&index, &version))
+            .await?;
+        Ok(list::select(rows, &params))
+    }
+
     /// Discards the Run `run_id` for good, so that nothing of it is left
     /// behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is
     /// overwritten and its run folder removed, in the per-install layout
@@ -2963,6 +3059,7 @@ impl Registry {
                 Command::Reader(run_id, answer) => _ = answer.send(self.reader(&run_id)),
                 Command::Progress(run_id, answer) => _ = answer.send(self.followed(&run_id)),
                 Command::Locate(run_id, answer) => _ = answer.send(self.locate(&run_id)),
+                Command::Index(answer) => _ = answer.send(self.index_at()),
                 Command::Discard(run_id, answer) => self.discard(run_id, answer).await,
                 Command::Storage(sample) => self.storage(&sample),
                 Command::StorageFailed(folder) => self.storage_failed(&folder),
@@ -3356,6 +3453,14 @@ impl Registry {
         })
     }
 
+    fn index_at(&self) -> IndexAt {
+        IndexAt {
+            index: self.setup.home.run_index(&self.setup.version),
+            version: self.setup.version.clone(),
+            tasks: Arc::clone(&self.readers),
+        }
+    }
+
     fn reader(&self, run_id: &RunId) -> RunReader {
         let following = self.live.get(run_id).map(|live| Following {
             commits: live.run.as_ref().map(|run| run.state.commits()),
@@ -3747,6 +3852,7 @@ impl Registry {
                 .progress_message
                 .as_ref()
                 .map(|message| message.as_str().to_owned()),
+            stop_reason: report.and_then(|report| report.stop_reason.clone()),
         }
     }
 
@@ -3943,6 +4049,7 @@ impl Registry {
             secrets: self.secrets.clone(),
             drivers: Arc::clone(&self.drivers),
             clean_up: CleanUpRules::of(&self.setup),
+            needs_you: self.setup.needs_you.clone(),
         }
     }
 
@@ -4821,6 +4928,7 @@ impl Recording {
             completeness: Some(report.completeness),
             ended_at: Some(report.ended_at.clone()),
             owner: None,
+            stop_reason: report.stop_reason.clone(),
             ..self.row
         };
         if let Err(error) = run_index::write(&self.index, &self.version, &ended) {
@@ -4977,6 +5085,7 @@ mod discard;
 mod folder;
 mod import;
 pub mod lifecycle;
+mod list;
 pub mod outcome;
 mod progress;
 mod reader;

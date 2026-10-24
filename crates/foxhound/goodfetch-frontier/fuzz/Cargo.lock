@@ -1218,6 +1218,7 @@ dependencies = [
  "goodfetch-protocol",
  "jiff",
  "libc",
+ "psl",
  "regex",
  "regex-syntax",
  "rusqlite",

@@ -22,6 +22,11 @@
         about: "Calls the catalog's `events` operations",
     },
     Namespace {
+        name: "needs_you",
+        spelled: "needs-you",
+        about: "Calls the catalog's `needs_you` operations",
+    },
+    Namespace {
         name: "run",
         spelled: "run",
         about: "Calls the catalog's `run` operations",

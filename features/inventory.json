@@ -407,6 +407,28 @@
       ]
     },
     {
+      "id": "command:needs-you.dismiss",
+      "kind": "command",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:needs-you.list",
+      "kind": "command",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:page.body",
       "kind": "command",
       "area": 11,
@@ -518,6 +540,17 @@
     },
     {
       "id": "command:run.finish",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:run.list",
       "kind": "command",
       "area": 11,
       "milestone": null,
@@ -776,6 +809,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:blocked",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -1668,6 +1712,17 @@
       "id": "event:events.resync",
       "kind": "event",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "event:needs_you.changed",
+      "kind": "event",
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2629,6 +2684,28 @@
       ]
     },
     {
+      "id": "operation:needs_you.dismiss",
+      "kind": "operation",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:needs_you.list",
+      "kind": "operation",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:page.add_init_script",
       "kind": "operation",
       "area": 5,
@@ -2968,6 +3045,17 @@
     },
     {
       "id": "operation:run.finish",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.list",
       "kind": "operation",
       "area": 3,
       "milestone": null,
@@ -5120,6 +5208,28 @@
       ]
     },
     {
+      "id": "screen:/needs-you",
+      "kind": "screen",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "screen:/runs",
+      "kind": "screen",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "screen:/settings",
       "kind": "screen",
       "area": 12,
@@ -6387,6 +6497,17 @@
     },
     {
       "id": "setting:tls.accept_invalid_certs",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:tls.client_certificates",
       "kind": "setting",
       "area": 4,
       "milestone": null,
@@ -11105,6 +11226,17 @@
       ]
     },
     {
+      "id": "story:12-10",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:12-102",
       "kind": "story",
       "area": 12,
@@ -11139,6 +11271,17 @@
     },
     {
       "id": "story:12-111",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-12",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",
@@ -11215,7 +11358,62 @@
       ]
     },
     {
+      "id": "story:12-13",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-14",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-23",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-25",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:12-3",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-32",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",

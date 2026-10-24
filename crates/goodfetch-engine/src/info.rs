@@ -1,16 +1,17 @@
 //! The engine's own operations, `engine.*`, `run.*`, `config.*`, `daemon.*`,
 //! `key_value_store.*` with its table in every run file, `download.save_as`
-//! with the tables of a Run's kept files, `audit.*`, `certs.*`, and the
-//! streaming calls `events.subscribe` and `page.body`, which every
-//! Product's composition lists first.
+//! with the tables of a Run's kept files, `audit.*`, `certs.*`,
+//! `needs_you.*` with the storage entries of "Needs you", and the streaming
+//! calls `events.subscribe` and `page.body`, which every Product's
+//! composition lists first.
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo, EngineInfoParams};
 
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::{
-    audit_operations, certs_operations, config, daemon, key_value_store, people_operations, rpc,
-    run, run_files, run_files_operations, usage,
+    audit_operations, certs_operations, config, daemon, key_value_store, needs_you,
+    needs_you_operations, people_operations, rpc, run, run_files, run_files_operations, usage,
 };
 
 /// What the engine adds to every composition.
@@ -26,11 +27,14 @@ pub fn contribution() -> Contribution {
         .chain(audit_operations::handlers())
         .chain(certs_operations::handlers())
         .chain(people_operations::handlers())
+        .chain(needs_you_operations::handlers())
         .fold(
             Contribution::new("goodfetch-engine")
                 .with_handler(Handler::new(&ENGINE_INFO, engine_info))
                 .with_run_state_tables(key_value_store::TABLES)
-                .with_run_state_tables(run_files::TABLES),
+                .with_run_state_tables(run_files::TABLES)
+                .with_needs_you_source(needs_you::storage::levels())
+                .with_needs_you_source(needs_you::storage::runs_stopped()),
             Contribution::with_handler,
         )
 }

@@ -1,4 +1,4 @@
-//! The page suite (spec #577, tickets #695, #696, #697, #698, #699, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705 and #710; spec #580,
+//! The page suite (spec #577, tickets #695, #696, #697, #698, #699, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710 and #716; spec #580,
 //! ticket #783) against an Attached engine of Collie's executable, given by path, on
 //! the local Proving ground (ADR 0094): its browser from a Browser cache in
 //! the test's own folder, which its environment names (ADR 0059).
@@ -32,6 +32,7 @@ const SESSIONS: Part = (
         "sessions.default",
         "sessions",
         "sessions.page_check",
+        "sessions.blocked",
         "sessions.proxy",
     ],
 );
@@ -56,6 +57,7 @@ const CLEAN_UP: Part = (
     &[
         "clean_up.filter_lists",
         "clean_up.never_block",
+        "clean_up.blocking_off",
         "clean_up.block_resources",
         "clean_up.hiding",
     ],
@@ -174,7 +176,7 @@ fn prove((name, capabilities): Part) {
     );
 }
 
-/// Covers: story:5-61, story:5-60, story:5-62, operation:run.new_session, operation:session.new_page, operation:session.close, error:closed, error:setting_not_applicable, error:capability_unavailable, error:run_ended, story:5-79, setting:session.page_check, error:logged_out, error:page_check_failed, operation:run.new_page, operation:page.goto, error:setting_invalid, story:5-88, story:5-89, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server
+/// Covers: story:5-61, story:5-60, story:5-62, operation:run.new_session, operation:session.new_page, operation:session.close, error:closed, error:setting_not_applicable, error:capability_unavailable, error:run_ended, story:5-79, setting:session.page_check, error:logged_out, error:page_check_failed, operation:run.new_page, operation:page.goto, error:setting_invalid, story:5-88, story:5-89, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server, story:5-91, story:8-63, story:8-58, story:8-59, error:blocked, operation:locator.click, operation:page.wait_for_url, operation:page.evaluate, operation:page.request, operation:session.pages
 #[test]
 fn the_page_suite_proves_sessions_against_collies_attached_engine() {
     prove(SESSIONS);
@@ -210,7 +212,7 @@ fn the_page_suite_proves_routes_against_collies_attached_engine() {
     prove(ROUTES);
 }
 
-/// Covers: operation:locator.click, error:navigation_failed, operation:page.formats, story:5-42, operation:page.route, operation:route.continue, story:5-94, story:5-95, story:5-96, setting:filter_lists.ads, setting:filter_lists.trackers, setting:filter_lists.annoyances, setting:filter_lists.first_party_scripts, setting:browser.block_resources, error:setting_invalid, story:5-98, setting:live_view.hiding
+/// Covers: operation:locator.click, error:navigation_failed, operation:page.formats, story:5-42, operation:page.route, operation:route.continue, story:5-94, story:5-95, story:5-96, setting:filter_lists.ads, setting:filter_lists.trackers, setting:filter_lists.annoyances, setting:filter_lists.first_party_scripts, setting:browser.block_resources, error:setting_invalid, story:5-98, setting:live_view.hiding, story:5-99, setting:session.page_check, operation:run.new_session, operation:session.new_page, operation:page.goto, error:page_check_failed, operation:page.evaluate
 #[test]
 fn the_page_suite_proves_clean_up_against_collies_attached_engine() {
     prove(CLEAN_UP);

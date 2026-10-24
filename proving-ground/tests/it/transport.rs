@@ -105,3 +105,50 @@ fn a_client_offering_h2_reads_the_same_page_over_http2() {
     assert_eq!(answers[0].status, 200);
     assert_eq!(answers[0].body, plain.body.as_bytes());
 }
+
+/// The host that requires mutual TLS refuses a client that presents no
+/// client certificate and lists no handshake; a client presenting the one
+/// `GET /client-certificate` and `GET /client-key` hand out reads its page,
+/// and the observations list that handshake.
+/// Covers: story:2-43
+#[test]
+fn the_mutual_tls_host_serves_only_the_client_certificate_it_hands_out() {
+    let proving_ground = ProvingGround::start(SEED);
+    let authority = proving_ground.certificate_authority();
+    let (certificate, key) = proving_ground.client_identity();
+    let request = b"GET / HTTP/1.1\r\nHost: client-certificate.certificates.test\r\nConnection: close\r\n\r\n";
+
+    let refused = clients::raw_tls(
+        proving_ground.address(),
+        "client-certificate.certificates.test",
+        clients::trusting(&authority, &["http/1.1"]),
+        request,
+    );
+    let after_refusal = proving_ground.observations()["client_certificates"].clone();
+    let presented = clients::raw_tls(
+        proving_ground.address(),
+        "client-certificate.certificates.test",
+        clients::presenting(&authority, &certificate, &key),
+        request,
+    )
+    .expect("the client certificate is accepted");
+
+    assert!(
+        matches!(
+            refused,
+            Err(rustls::Error::AlertReceived(
+                rustls::AlertDescription::CertificateRequired
+            ))
+        ),
+        "{:?}",
+        refused.err()
+    );
+    assert_eq!(after_refusal, serde_json::json!([]));
+    assert_eq!(presented.status(), 200);
+    let page = String::from_utf8_lossy(presented.body());
+    assert!(page.contains("Reached with a client certificate"), "{page}");
+    assert_eq!(
+        proving_ground.observations()["client_certificates"],
+        serde_json::json!(["client-certificate.certificates.test"])
+    );
+}

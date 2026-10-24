@@ -33,6 +33,7 @@ use crate::governor::{Governor, System};
 use crate::home::{Home, RunStateLocation, major_name};
 use crate::log::LogEvents;
 use crate::metrics::Metrics;
+use crate::needs_you::{NeedsYou, NeedsYouSource, SourceContext};
 use crate::people::{AccountsStore, ConsoleKey, SignInDriver, SignIns, SingleUserLink, os_user};
 use crate::politeness::{PolitenessOptions, PolitenessTables};
 use crate::product::Identity;
@@ -64,6 +65,7 @@ pub struct Engine {
     progress_parts: Vec<Arc<dyn ProgressPart>>,
     clean_up: Option<Arc<dyn CleanUpVersions>>,
     gates: Option<Arc<dyn Gates>>,
+    needs_you_sources: Vec<NeedsYouSource>,
     events: EventsOptions,
     console: Option<&'static ConsoleBuild>,
     metrics: Metrics,
@@ -112,6 +114,7 @@ impl Engine {
             progress_parts: composition.progress_parts(),
             clean_up: composition.clean_up_versions()?,
             gates: composition.admission_gates()?,
+            needs_you_sources: composition.needs_you_sources(),
             events: EventsOptions::default(),
             console: composition.console(),
             metrics: Metrics::none(),
@@ -337,6 +340,20 @@ impl Engine {
             }
             None => Governor::unsampled(),
         };
+        let needs_you = NeedsYou::start(
+            &self.needs_you_sources,
+            SourceContext {
+                clock: dependencies.clock,
+                storage: governor.storage(),
+                run_index: dependencies
+                    .home
+                    .run_index(&self.identity().product_version),
+                version: self.identity().product_version.clone(),
+                owner: Arc::new(owner.child()),
+            },
+            events.clone(),
+            owner,
+        );
         let forwarder = Arc::new(ToOwner {
             home: dependencies.home.clone(),
             version: self.identity().product_version.clone(),
@@ -376,6 +393,7 @@ impl Engine {
                 metrics: self.metrics.clone(),
                 governor,
                 environment: dependencies.environment,
+                needs_you,
             },
             owner,
         );

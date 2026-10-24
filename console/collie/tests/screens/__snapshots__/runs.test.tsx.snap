@@ -1,0 +1,9 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the Runs screen's render budget: commits per event batch, filtering and sorting 1`] = `
+{
+  "eventBatch": 1,
+  "filtering": 2,
+  "sorting": 2,
+}
+`;

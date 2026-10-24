@@ -14,7 +14,8 @@
 //! fifth of the main content. Each is judged by the Proving ground's own
 //! record of the requests it received, its pages' own reports among them,
 //! by the Errors the engine answers, by the Run report and by the Run
-//! trace the engine writes, its Provenance log included.
+//! trace the engine writes, its Provenance log included. The retries with
+//! blocking off (ticket #716) are `blocking_off`'s.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -25,6 +26,7 @@ use goodfetch_protocol::run::{RUN_FINISH, RUN_START};
 use goodfetch_protocol::settings::SETTING_INVALID;
 use serde_json::{Value, json};
 
+use super::blocking_off;
 use super::navigation::{answered, call, failed_with};
 use super::routes::{Act, Routes, glob, goto};
 use super::{Checks, Site, new_page, start_run};
@@ -42,9 +44,9 @@ const OWN: [&str; 3] = ["/css/site.css", "/js/site.js", "/img/photo.gif"];
 /// The `/ads` page's ad (EasyList), tracker (EasyPrivacy) and annoyance
 /// (Fanboy Annoyance); the tracker and the annoyance are the site's own
 /// scripts.
-const AD: &str = "/img/top-ad-sidebar.gif";
-const TRACKER: &str = "/js/adobe-analytics.js";
-const ANNOYANCE: &str = "/js/copy_text.js";
+pub(super) const AD: &str = "/img/top-ad-sidebar.gif";
+pub(super) const TRACKER: &str = "/js/adobe-analytics.js";
+pub(super) const ANNOYANCE: &str = "/js/copy_text.js";
 /// A document EasyList blocks wherever it is (`/page/bouncy.php?$document`).
 const BLOCKED_DOCUMENT: &str = "/page/bouncy.php?id=1";
 /// The `/challenge` page's anti-bot sensors and challenge files, which the
@@ -68,6 +70,8 @@ pub(crate) enum Case {
     HidingSheetUnseen,
     HiddenTargetLifted,
     LiveHidingModes,
+    /// A retry with blocking off (ticket #716).
+    BlockingOff(blocking_off::Case),
 }
 
 impl Case {
@@ -97,7 +101,7 @@ impl Case {
                 Self::HiddenTargetLifted
             }
             "live-hiding-off-leaves-the-page-as-served-and-always-hides" => Self::LiveHidingModes,
-            _ => return None,
+            _ => return blocking_off::Case::from_id(id).map(Self::BlockingOff),
         })
     }
 
@@ -119,13 +123,14 @@ impl Case {
             Self::HidingSheetUnseen => hiding_sheet_unseen(connection, target, site, checks),
             Self::HiddenTargetLifted => hidden_target_lifted(connection, target, site, checks),
             Self::LiveHidingModes => live_hiding_modes(connection, target, site, checks),
+            Self::BlockingOff(case) => case.run(connection, target, site, checks),
         }
     }
 }
 
 /// How many requests for `target` on the pages' host the Proving ground
 /// received.
-fn received(site: &Site, target: &str) -> usize {
+pub(super) fn received(site: &Site, target: &str) -> usize {
     site.proving_ground
         .observations()
         .ok()
@@ -137,7 +142,7 @@ fn received(site: &Site, target: &str) -> usize {
 }
 
 /// How many requests for each of `targets` the Proving ground received.
-fn counts<const N: usize>(site: &Site, targets: [&str; N]) -> [usize; N] {
+pub(super) fn counts<const N: usize>(site: &Site, targets: [&str; N]) -> [usize; N] {
     targets.map(|target| received(site, target))
 }
 
@@ -154,7 +159,7 @@ fn open(
 }
 
 /// `page.goto` on `page` to `path` on the pages' host, and its answer.
-fn visit(
+pub(super) fn visit(
     connection: &mut Connection,
     site: &Site,
     page: &PageOpened,
@@ -171,7 +176,7 @@ fn visit(
 }
 
 /// Lets the Run `run_id` finish and answers its Run report.
-fn finish(connection: &mut Connection, run_id: &str) -> Result<Value, Gone> {
+pub(super) fn finish(connection: &mut Connection, run_id: &str) -> Result<Value, Gone> {
     let id = connection.request(RUN_FINISH.name, &json!({ "run_id": run_id }))?;
     Ok(connection.browser_answer(id)?.message)
 }
@@ -192,7 +197,7 @@ pub(super) fn provenance(target: &EngineTarget, run_id: &str) -> Vec<Value> {
     clippy::disallowed_methods,
     reason = "the harness is synchronous and runs no async worker"
 )]
-fn trace_lines(target: &EngineTarget, run_id: &str, file: &str) -> Vec<Value> {
+pub(super) fn trace_lines(target: &EngineTarget, run_id: &str, file: &str) -> Vec<Value> {
     let Some(home) = target.environment.get("GOODFETCH_HOME") else {
         return Vec::new();
     };

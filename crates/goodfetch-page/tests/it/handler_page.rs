@@ -13,6 +13,7 @@
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -24,6 +25,7 @@ use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
+use goodfetch_page::blocks::NoBlocks;
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -283,7 +285,11 @@ pub(crate) fn with_handler_page(
     let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
     let composition = Composition::default()
         .with(goodfetch_engine::contribution())
-        .with(goodfetch_page::contribution_with(pins(), gate.hooks()));
+        .with(goodfetch_page::contribution_with(
+            pins(),
+            gate.hooks(),
+            Arc::new(NoBlocks),
+        ));
     let identity = Identity {
         product: Product::Collie,
         product_version: ProductVersion::parse("0.0.0").expect("invariant: a literal version"),

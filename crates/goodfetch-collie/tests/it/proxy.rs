@@ -7,7 +7,9 @@
 //! Proxy provider (spec #599, ticket #882): `proxy.provider`,
 //! `proxy.kind`, `proxy.country` and `proxy.providers`, one of the user's
 //! servers per Session for its life, and its bytes by proxy kind in Usage,
-//! priced under a currency Limit (ADRs 0021, 0041, 0101 and 0129).
+//! priced under a currency Limit (ADRs 0021, 0041, 0101 and 0129), the Run
+//! that Limit stopped waiting in "Needs you" until a person raises it at
+//! the interactive prompt (ADRs 0031 and 0041).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -20,13 +22,15 @@
 use std::collections::BTreeSet;
 use std::sync::mpsc;
 
-use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
+use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, cli, pty};
 use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::attached::{Attached, hello};
 use crate::page::{BROWSER_DEADLINE, opened};
 use crate::run::call;
+
+const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
 /// The Error code of `answer`'s error, the key it names and its layer.
 fn refusal_of(answer: &Value) -> (Value, Value, Value) {
@@ -1127,6 +1131,106 @@ fn a_currency_limit_caps_the_bytes_of_a_priced_proxy_and_stops_the_run() {
             true
         ),
         "{navigated} {finished}"
+    );
+}
+
+/// The kinds, Runs and actions of the items `needs-you list --json` prints
+/// in `env`'s home.
+fn needs_you(env: &TestEnv) -> Vec<(Value, Value, Value)> {
+    let listed = cli(env, COLLIE)
+        .args(["needs-you", "list", "--json"])
+        .run()
+        .unwrap();
+    let listed: Value = serde_json::from_str(&listed.stdout).unwrap_or_else(|_| panic!("{listed}"));
+    listed["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{listed}"))
+        .iter()
+        .map(|item| {
+            (
+                item["kind"].clone(),
+                item["run"].clone(),
+                item["actions"].clone(),
+            )
+        })
+        .collect()
+}
+
+/// A Run a currency Limit stopped is listed in "Needs you", offering a
+/// person's `usage.raise`, and leaves it once a person raises the Limit at
+/// the interactive prompt (ADRs 0031 and 0041), the Run then waiting for
+/// its script.
+///
+/// Covers: story:12-100, command:needs-you.list, command:usage.raise
+#[cfg(unix)]
+#[test]
+fn a_run_a_limit_stopped_waits_in_needs_you_until_a_person_raises_the_limit() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let configuration = list_configuration(&proving_ground, &THREE_SERVERS, Some("1000 USD"));
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "capped",
+        &configuration,
+        &json!({ "proxy": { "provider": "list" } }),
+        &[a_dollar_limit(100)],
+    );
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "capped" }),
+    ));
+    call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=capped") }),
+    );
+    let finished = call(&mut engine, 4, "run.finish", &json!({ "run_id": "capped" }));
+    let _ = engine.finish();
+    assert_eq!(
+        finished["result"]["stop_reason"]["kind"],
+        json!("limit"),
+        "{finished}"
+    );
+
+    let stopped = needs_you(&env);
+    let mut raise = pty(&env, COLLIE)
+        .args([
+            "usage",
+            "raise",
+            "--scope",
+            "install",
+            "--usage-kind",
+            "proxy_bytes",
+            "--currency",
+            "USD",
+            "--amount",
+            "1000000",
+        ])
+        .spawn()
+        .unwrap();
+    raise.expect("Raise the install Limit").unwrap();
+    raise.send_line("y").unwrap();
+    let raised = raise.finish().unwrap();
+
+    assert_eq!(
+        (stopped, raised.exit, needs_you(&env)),
+        (
+            vec![(
+                json!("run_stopped_by_limit"),
+                json!("capped"),
+                json!(["usage.raise", "needs_you.dismiss"]),
+            )],
+            Some(0),
+            Vec::new(),
+        ),
+        "{}",
+        raised.stripped()
     );
 }
 

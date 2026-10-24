@@ -498,6 +498,44 @@ mod tests {
         );
     }
 
+    /// Raising a Limit is a person's answer (ADRs 0029 and 0041): the
+    /// committed catalog marks `usage.raise` person-only, and neither
+    /// Product's SDK layer offers it, so no program or agent is generated a
+    /// way to lift the cap that stopped it.
+    ///
+    /// Covers: story:12-100
+    #[test]
+    fn no_sdk_layer_offers_the_raising_of_a_limit() {
+        let generated = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../crates/goodfetch-protocol/generated");
+        let read = |name: &str| -> Value {
+            serde_json::from_str(&std::fs::read_to_string(generated.join(name)).unwrap()).unwrap()
+        };
+        let (bundle, collie, foxhound) = (
+            read("bundle.json"),
+            read("collie.json"),
+            read("foxhound.json"),
+        );
+        let reach = collie["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|operation| operation["name"] == "usage.raise")
+            .map(|operation| operation["reach"].clone());
+        let offers = |product| {
+            Layer::new(&bundle, &collie, &foxhound, product)
+                .unwrap()
+                .operations
+                .iter()
+                .any(|operation| operation.name == "usage.raise")
+        };
+
+        assert_eq!(
+            (reach, offers(Product::Collie), offers(Product::Foxhound)),
+            (Some(json!("person_only")), false, false)
+        );
+    }
+
     /// Covers: story:3-146
     #[test]
     fn no_sdk_layer_gives_a_requests_trace_context_a_member() {

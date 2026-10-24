@@ -376,15 +376,47 @@ pub(crate) fn stopped_by_storage(
     path: &Path,
     engine: &ProductVersion,
 ) -> Result<Vec<RunIndexRow>, RunStateError> {
+    stopped_where(
+        path,
+        engine,
+        "json_extract(stop_reason, '$.kind') = 'resources'
+         AND json_extract(stop_reason, '$.resource') = 'storage'",
+    )
+}
+
+/// The rows of the Runs a Limit stopped in the Run index at `path` (ADR
+/// 0041), present, in Run ID order: "Needs you" lists those whose Limit
+/// still has nothing left. An index not made yet lists none, and is not
+/// made.
+///
+/// # Errors
+///
+/// As [`read`].
+pub(crate) fn stopped_by_limit(
+    path: &Path,
+    engine: &ProductVersion,
+) -> Result<Vec<RunIndexRow>, RunStateError> {
+    stopped_where(
+        path,
+        engine,
+        "json_extract(stop_reason, '$.kind') = 'limit'",
+    )
+}
+
+/// The rows of the Runs left stopped and present in the Run index at
+/// `path` whose stop reason meets `condition`, in Run ID order.
+fn stopped_where(
+    path: &Path,
+    engine: &ProductVersion,
+    condition: &str,
+) -> Result<Vec<RunIndexRow>, RunStateError> {
     if !path.exists() {
         return Ok(Vec::new());
     }
     in_transaction(path, &opener(engine), false, |transaction| {
         let mut statement = transaction.prepare(&format!(
             "SELECT {COLUMNS} FROM runs
-             WHERE lifecycle = ?1 AND presence = ?2
-               AND json_extract(stop_reason, '$.kind') = 'resources'
-               AND json_extract(stop_reason, '$.resource') = 'storage'
+             WHERE lifecycle = ?1 AND presence = ?2 AND {condition}
              ORDER BY run_id"
         ))?;
         statement

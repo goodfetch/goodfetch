@@ -4,7 +4,7 @@
 // zones. Formatted text is asserted here only, on Node's pinned ICU.
 import { locales, timeZones } from "@goodfetch/test-support";
 import { describe, expect, test } from "vitest";
-import { formatAmount, formatBytes, formatCount, formatInstant } from "./format.ts";
+import { formatAmount, formatBytes, formatCount, formatInstant, parseAmount } from "./format.ts";
 
 /** `text` with every kind of space as a plain one: ICU separates with no-break and narrow no-break spaces. */
 function spaced(text: string): string {
@@ -23,6 +23,31 @@ describe("a count", () => {
   };
   test.each(locales())("is grouped as %s groups it", (locale) => {
     expect(spaced(formatCount(1_234_567, locale))).toBe(expected[locale]);
+  });
+});
+
+describe("an amount a person types", () => {
+  test.each([
+    { text: "5000", currency: undefined, amount: 5_000 },
+    { text: " 12 ", currency: undefined, amount: 12 },
+    { text: "12.5", currency: "USD", amount: 12_500_000 },
+    { text: "12,50", currency: "EUR", amount: 12_500_000 },
+    { text: "3", currency: "JPY", amount: 3_000_000 },
+    { text: "0.000001", currency: "EUR", amount: 1 },
+  ])("reads $text in $currency as $amount", ({ text, currency, amount }) => {
+    expect(parseAmount(text, currency)).toBe(amount);
+  });
+
+  test.each([
+    { text: "", currency: undefined },
+    { text: "1.5", currency: undefined },
+    { text: "-3", currency: undefined },
+    { text: "1,000", currency: undefined },
+    { text: "abc", currency: "USD" },
+    { text: "1.0000001", currency: "USD" },
+    { text: "99999999999999999999", currency: undefined },
+  ])("refuses $text in $currency", ({ text, currency }) => {
+    expect(parseAmount(text, currency)).toBeUndefined();
   });
 });
 

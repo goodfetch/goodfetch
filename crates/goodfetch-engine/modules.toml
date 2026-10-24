@@ -21,7 +21,7 @@ daemon = ["clock", "composition", "events", "home", "metrics", "ops", "people", 
 deadline = ["clock", "composition", "settings"]
 dns = ["clock", "composition"]
 egress = ["composition", "settings"]
-engine = ["admission", "attached", "clock", "composition", "console", "daemon", "entropy", "events", "forward", "governor", "home", "log", "metrics", "needs_you", "people", "politeness", "product", "rpc", "run_state", "runs", "secrets", "settings", "tasks", "transition", "transport"]
+engine = ["admission", "attached", "clock", "composition", "console", "daemon", "entropy", "events", "forward", "governor", "home", "ledger", "log", "metrics", "needs_you", "people", "politeness", "product", "rpc", "run_state", "runs", "secrets", "settings", "tasks", "transition", "transport"]
 entropy = []
 events = ["tasks"]
 executables = ["composition"]
@@ -41,7 +41,7 @@ people_operations = ["composition", "people"]
 log = ["clock"]
 ledger = []
 metrics = []
-needs_you = ["clock", "events", "governor", "run_index", "run_state", "tasks"]
+needs_you = ["clock", "events", "governor", "ledger", "run_index", "run_state", "tasks"]
 needs_you_operations = ["composition", "needs_you"]
 lowest_minor = []
 ops = ["rpc", "runs", "tasks", "transport"]
@@ -102,6 +102,7 @@ system = ["storage"]
 
 # Which of `needs_you`'s own modules may import which.
 [submodules.needs_you]
+limits = []
 storage = []
 
 # Which of `console`'s own modules may import which.

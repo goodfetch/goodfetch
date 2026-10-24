@@ -58,8 +58,13 @@ const SCREENS: readonly Screen[] = [
     route: NEEDS_YOU,
     name: msg`Needs you`,
     inMenu: true,
-    content: ({ needsYou, readOnly }) => (
-      <NeedsYou state={needsYou.state} readOnly={readOnly} dismiss={needsYou.dismiss} />
+    content: ({ client, needsYou, readOnly }) => (
+      <NeedsYou
+        client={client}
+        state={needsYou.state}
+        readOnly={readOnly}
+        dismiss={needsYou.dismiss}
+      />
     ),
   },
   {

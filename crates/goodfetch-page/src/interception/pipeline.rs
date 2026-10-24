@@ -21,7 +21,8 @@ use goodfetch_cdp::Subscription;
 use goodfetch_cdp::generated::{fetch, network, page};
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
-use goodfetch_engine::egress::{Policy, Refused, RequestKind};
+use goodfetch_engine::egress::{self, Policy, Refused, RequestKind};
+use goodfetch_engine::http_client::{self, Resolve};
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::CLOSED;
@@ -99,6 +100,10 @@ pub(super) struct PageContext {
     /// held until the next hop, the navigation's failure or the page's
     /// `load` event.
     permit: Mutex<Option<(Option<network::RequestId>, Permit)>>,
+    /// On a Borrowed browser, the Run's `network.resolve` mapping, through
+    /// which the engine resolves each request's host itself and judges its
+    /// answers, since no relay is under that browser (ADR 0056).
+    lookups: Option<Arc<Resolve>>,
 }
 
 /// The latest requests the Session's proxy credentials were given for, so a
@@ -160,7 +165,14 @@ impl PageContext {
             document: Mutex::new(String::new()),
             authenticated: Mutex::new(Authenticated::default()),
             permit: Mutex::new(None),
+            lookups: None,
         }
+    }
+
+    /// The same, on a Borrowed browser whose requests' hosts the engine
+    /// resolves through `lookups`, when it is one.
+    pub(super) fn with_lookups(self, lookups: Option<Arc<Resolve>>) -> Self {
+        Self { lookups, ..self }
     }
 }
 
@@ -655,7 +667,14 @@ impl PageContext {
         } else {
             &self.blocking
         };
-        let command = match steps::send_on(&paused, &self.policy, blocking, fetch) {
+        let stepped = match steps::send_on(&paused, &self.policy, blocking, fetch) {
+            Ok(steps::Sent::Continue(command)) => match self.judged_addresses(held.url()).await {
+                Ok(()) => Ok(steps::Sent::Continue(command)),
+                Err(refused) => Err(Stopped::Refused(refused)),
+            },
+            other => other,
+        };
+        let command = match stepped {
             Ok(steps::Sent::Continue(command)) => {
                 // Step 6: the page's navigation gate; its lease check is
                 // asked before the command that sends the request on.
@@ -706,6 +725,43 @@ impl PageContext {
             tracing::debug!(?failure, "a paused request went before it was sent on");
         }
         Ok(())
+    }
+
+    /// On a Borrowed browser, judges the addresses the engine resolves the
+    /// host of `url` to, as the browser would connect to them (ADR 0056):
+    /// the browser resolves names itself, so an answer that changes after
+    /// this lookup reaches it, the rebinding gap Provenance records. A
+    /// name the engine cannot resolve is left to the browser, which
+    /// resolves it itself.
+    ///
+    /// # Errors
+    ///
+    /// [`Refused`] naming the first address a page may not reach.
+    async fn judged_addresses(&self, url: &str) -> Result<(), Refused> {
+        let Some(lookups) = &self.lookups else {
+            return Ok(());
+        };
+        let Ok(parsed) = url::Url::parse(url) else {
+            return Ok(());
+        };
+        let host = match parsed.host() {
+            Some(url::Host::Ipv6(address)) => address.to_string(),
+            Some(host) => host.to_string(),
+            None => return Ok(()),
+        };
+        let Some(port) = parsed.port_or_known_default() else {
+            return Ok(());
+        };
+        match http_client::lookup(&host, port, lookups).await {
+            Ok(addresses) => egress::judge_addresses(url, &addresses, &self.policy),
+            Err(failure) => {
+                tracing::debug!(
+                    ?failure,
+                    "the engine resolved no address for a Borrowed browser's request"
+                );
+                Ok(())
+            }
+        }
     }
 
     /// Asks the page's navigation gate to admit `held`, a hop of the main

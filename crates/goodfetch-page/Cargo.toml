@@ -12,6 +12,9 @@ autobenches = false
 
 [dependencies]
 data-encoding.workspace = true
+# Drives a Borrowed browser's CDP WebSocket's stream of messages and its
+# sink (ADR 0056).
+futures-util.workspace = true
 goodfetch-cdp.workspace = true
 goodfetch-clean-up-rules.workspace = true
 goodfetch-engine.workspace = true
@@ -30,6 +33,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 # `net` and `io-util` for the per-Session SOCKS5 relay (the `proxy` module).
 tokio = { workspace = true, features = ["io-util", "net", "process", "sync", "time", "macros"] }
+# A Borrowed browser's CDP WebSocket at its `cdp_url` (ADRs 0056 and 0115).
+tokio-tungstenite.workspace = true
 # The relay's stop, when its Session's proxy goes; a browser of the pool
 # closes on its own token, a child of its Run's.
 tokio-util.workspace = true

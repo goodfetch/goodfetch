@@ -147,7 +147,7 @@ fn a_launched_browser_calls_no_vendor_host_through_navigation_and_idle_time() {
 }
 
 /// The executable of the pinned build in the test's Browser cache.
-fn chrome_for_testing(cache: &Path) -> PathBuf {
+pub(crate) fn chrome_for_testing(cache: &Path) -> PathBuf {
     let files = cache
         .join("browser")
         .join("chrome-for-testing")
@@ -168,7 +168,7 @@ fn chrome_for_testing(cache: &Path) -> PathBuf {
 
 /// The port a browser launched with `--remote-debugging-port=0` on
 /// `profile` reports in its `DevToolsActivePort` file.
-fn reported_debugging_port(profile: &Path) -> u16 {
+pub(crate) fn reported_debugging_port(profile: &Path) -> u16 {
     let file = profile.join("DevToolsActivePort");
     let started = Instant::now();
     loop {

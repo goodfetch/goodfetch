@@ -938,6 +938,58 @@ route = { via = "extension" }
 target = "127.0.0.1"
 refusal = { code = "cdp_command_refused" }
 
+# A Borrowed browser (ADR 0056): no relay can be put under a browser that is
+# already running, so the engine judges each of its page's requests at
+# interception, resolving the host itself and refusing every answer that is
+# not globally reachable, before the browser connects. `lookups` are the
+# engine's answers; the browser resolves names itself, so a rebinding
+# answer reaches it, the gap Provenance records, and this family holds no
+# rebinding case. A layer runs each URL on its public stand-in's port.
+
+[[cases]]
+name = "borrowed_to_loopback"
+family = "borrowed_browser"
+url = "http://127.0.0.1/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "borrowed_to_an_encoded_loopback"
+family = "borrowed_browser"
+url = "http://0x7f000001/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "borrowed_to_an_ipv4_mapped_loopback"
+family = "borrowed_browser"
+url = "http://[::ffff:127.0.0.1]/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "borrowed_to_cloud_metadata"
+family = "borrowed_browser"
+url = "http://169.254.169.254/latest/meta-data/"
+target = "169.254.169.254"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "borrowed_to_a_private_name"
+family = "borrowed_browser"
+url = "http://internal.borrowed.ssrf.test/"
+lookups = [{ name = "internal.borrowed.ssrf.test", answers = ["10.0.0.1"] }]
+target = "10.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "borrowed_to_mixed_answers"
+family = "borrowed_browser"
+url = "http://mixed.borrowed.ssrf.test/"
+lookups = [{ name = "mixed.borrowed.ssrf.test", answers = ["public", "192.168.1.20"] }]
+target = "192.168.1.20"
+refusal = { code = "egress_refused", rule = "private_address" }
+
 # The domain policy (ADRs 0014, 0100 and 0120): a host `egress.allowed_domains`
 # does not list, or `egress.blocked_domains` lists, in any spelling the URL
 # parser accepts, is refused before any lookup. Each name resolves to the

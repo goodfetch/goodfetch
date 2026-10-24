@@ -308,6 +308,10 @@ impl PageEvents {
             if pattern.matches(&state.url) {
                 let _ = answer.send(UrlReached::Committed(document.borrow().generation()));
             } else {
+                // Those whose call went go now, not at the next URL change.
+                state
+                    .url_waiters
+                    .retain(|waiter| !waiter.answer.is_closed());
                 state.url_waiters.push(UrlWaiter { pattern, answer });
             }
         }

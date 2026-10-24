@@ -79,7 +79,14 @@ impl PageEvents {
         (deadline, waited_for): (WaitDeadline, &'static str),
     ) -> impl Future<Output = Result<T, CallError>> + use<T> {
         let (answer, answered) = oneshot::channel();
-        waiters(&mut lock(&self.shared.state)).push(Armed { pattern, answer });
+        {
+            let mut state = lock(&self.shared.state);
+            let waiters = waiters(&mut state);
+            // Those whose call went, at its deadline or cancelled, go now,
+            // not at the next request or response.
+            waiters.retain(|waiter| !waiter.answer.is_closed());
+            waiters.push(Armed { pattern, answer });
+        }
         async move {
             deadline
                 .within(waited_for, answered)

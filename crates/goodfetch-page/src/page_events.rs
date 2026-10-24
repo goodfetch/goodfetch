@@ -469,11 +469,15 @@ impl PageEvents {
         deadline: WaitDeadline,
     ) -> impl Future<Output = Result<PageExchange, CallError>> + use<> {
         let (answer, answered) = oneshot::channel();
-        lock(&self.shared.state).waiters.push(Waiter {
+        let mut state = lock(&self.shared.state);
+        // Those whose call went go now, not at the next finished request.
+        state.waiters.retain(|waiter| !waiter.answer.is_closed());
+        state.waiters.push(Waiter {
             pattern,
             surface,
             answer,
         });
+        drop(state);
         async move {
             match deadline.within("finished request", answered).await? {
                 Ok(answer) => answer,

@@ -2,7 +2,8 @@
 // token when the address carries one, then connects the Console's Client
 // over the WebSocket on its own origin, or over Server-Sent Events plus
 // `POST` where WebSockets are refused, and renders the shell, with the
-// Console's messages and design system, over the window's address.
+// Console's messages and design system, over the window's address. The
+// document takes the language and direction of the catalog it reads.
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { windowAddress } from "./address.ts";
@@ -15,7 +16,7 @@ import {
   withFallback,
 } from "./client/browser.ts";
 import { createConsoleClient } from "./client/client.ts";
-import { ConsoleI18n } from "./i18n.tsx";
+import { applyLocale, ConsoleI18n, i18n } from "./i18n.tsx";
 import { Shell } from "./shell.tsx";
 import { signIn } from "./sign-in.ts";
 import "./styles.css";
@@ -24,6 +25,7 @@ const root = document.getElementById("root");
 if (root === null) {
   throw new Error("invariant: index.html has a #root element");
 }
+applyLocale(document.documentElement, i18n.locale);
 const origin = window.location.origin;
 const signedIn = await signIn({
   location: window.location,

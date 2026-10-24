@@ -27,6 +27,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { useId, useState, type ReactNode, type SubmitEvent } from "react";
 import type { ConsoleClient } from "#client/client.ts";
 import { formatAmount, formatInstant, parseAmount } from "#format.ts";
+import { ErrorMessage } from "#errors/error-message.tsx";
 import { resumeCommand } from "#runs/run-page.tsx";
 import { PeriodOf, Scope, UsageKind } from "#usage/limits.tsx";
 import type { NeedsYouState } from "./needs-you-store.ts";
@@ -48,7 +49,7 @@ export type Raised =
       /** The Limit is raised, but the engine did not resume the Recipe's run. */
       readonly kind: "not_resumed";
       readonly run: string;
-      readonly message: string;
+      readonly error: unknown;
     };
 
 /** What became of a copy of a resume command. */
@@ -499,8 +500,7 @@ function Item({
   readonly onRaise: NeedsYouViewProps["onRaise"];
   readonly onAllowConsentDomain: NeedsYouViewProps["onAllowConsentDomain"];
 }): ReactNode {
-  const { i18n } = useLingui();
-  const since = formatInstant(item.since, i18n.locale);
+  const since = formatInstant(item.since);
   return (
     <li className="flex flex-col gap-2 rounded-lg border p-4">
       <Content
@@ -511,7 +511,10 @@ function Item({
       />
       <p className="text-muted-foreground text-sm">
         <Trans>
-          Waiting since <time dateTime={item.since}>{since}</time>
+          Waiting since{" "}
+          <time dateTime={item.since} translate="no">
+            {since}
+          </time>
         </Trans>
       </p>
       {item.actions.includes("needs_you.dismiss") ? (
@@ -547,17 +550,18 @@ function RaisedNotice({
           </Trans>
         </p>
       );
-    case "not_resumed": {
-      const message = raised.message;
+    case "not_resumed":
       return (
-        <p role="alert" className="text-destructive">
-          <Trans>
-            You raised the Limit, but the engine did not resume the run{" "}
-            <code translate="no">{run}</code>: <span translate="no">{message}</span>
-          </Trans>
-        </p>
+        <div role="alert" className="text-destructive">
+          <p>
+            <Trans>
+              You raised the Limit, but the engine did not resume the run{" "}
+              <code translate="no">{run}</code>:
+            </Trans>
+          </p>
+          <ErrorMessage error={raised.error} />
+        </div>
       );
-    }
     case "waiting_for_script": {
       const command = raised.command;
       return (
@@ -626,7 +630,7 @@ export function NeedsYouView({
           <Trans>Reading what needs you…</Trans>
         </p>
       ) : state.kind === "failed" ? (
-        <FailedList message={state.message} />
+        <FailedList error={state.error} />
       ) : state.items.length === 0 ? (
         <p className="text-muted-foreground">
           <Trans>Nothing needs you now.</Trans>
@@ -650,26 +654,22 @@ export function NeedsYouView({
 }
 
 /** The engine's refusal of the list. */
-function FailedList({ message }: { readonly message: string }): ReactNode {
+function FailedList({ error }: { readonly error: unknown }): ReactNode {
   return (
-    <p role="alert">
-      <Trans>
-        The engine could not list what needs you: <span translate="no">{message}</span>
-      </Trans>
-    </p>
+    <div role="alert">
+      <p>
+        <Trans>The engine could not list what needs you:</Trans>
+      </p>
+      <ErrorMessage error={error} />
+    </div>
   );
 }
 
-/** What the engine refused, and the message it gave. */
+/** What the engine refused, and its error. */
 type Failure = {
   readonly kind: "dismiss" | "raise" | "allow_consent_domain";
-  readonly message: string;
+  readonly error: unknown;
 };
-
-/** The message of `error`, a refusal or any other failure. */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /** "Needs you" over the shell's list, dismissing through `dismiss`, and raising a run's Limit and answering a consent wall over `client`. */
 export function NeedsYou({
@@ -689,14 +689,14 @@ export function NeedsYou({
   const onDismiss = (id: string): void => {
     setFailure(undefined);
     dismiss(id).catch((error: unknown) => {
-      setFailure({ kind: "dismiss", message: messageOf(error) });
+      setFailure({ kind: "dismiss", error });
     });
   };
   const raise = async (item: NeedsYouItem, stop: LimitStop, amount: number): Promise<void> => {
     try {
       await client.call("usage.raise", raiseParams(stop.limit, amount));
     } catch (error) {
-      setFailure({ kind: "raise", message: messageOf(error) });
+      setFailure({ kind: "raise", error });
       return;
     }
     let answer: Raised;
@@ -705,7 +705,7 @@ export function NeedsYou({
         await client.call("run.resume", { run_id: stop.run });
         answer = { kind: "resumed", run: stop.run };
       } catch (error) {
-        answer = { kind: "not_resumed", run: stop.run, message: messageOf(error) };
+        answer = { kind: "not_resumed", run: stop.run, error };
       }
     } else {
       answer = {
@@ -723,7 +723,7 @@ export function NeedsYou({
   const onAllowConsentDomain = (domain: string): void => {
     setFailure(undefined);
     client.call("needs_you.allow_consent_domain", { domain }).catch((error: unknown) => {
-      setFailure({ kind: "allow_consent_domain", message: messageOf(error) });
+      setFailure({ kind: "allow_consent_domain", error });
     });
   };
   const onCopy = (command: string): void => {
@@ -745,9 +745,12 @@ export function NeedsYou({
         onAllowConsentDomain={onAllowConsentDomain}
       />
       {failure === undefined ? null : (
-        <p role="alert" className="text-destructive">
-          <FailureText failure={failure} />
-        </p>
+        <div role="alert" className="text-destructive">
+          <p>
+            <FailureText failure={failure} />
+          </p>
+          <ErrorMessage error={failure.error} />
+        </div>
       )}
     </>
   );
@@ -755,25 +758,15 @@ export function NeedsYou({
 
 /** What the engine refused, in words. */
 function FailureText({ failure }: { readonly failure: Failure }): ReactNode {
-  const message = failure.message;
   switch (failure.kind) {
     case "dismiss":
-      return (
-        <Trans>
-          The engine could not dismiss the item: <span translate="no">{message}</span>
-        </Trans>
-      );
+      return <Trans>The engine could not dismiss the item:</Trans>;
     case "raise":
-      return (
-        <Trans>
-          The engine did not raise the Limit: <span translate="no">{message}</span>
-        </Trans>
-      );
+      return <Trans>The engine did not raise the Limit:</Trans>;
     case "allow_consent_domain":
       return (
         <Trans>
-          The engine could not add the domain to <code translate="no">consent.domains</code>:{" "}
-          <span translate="no">{message}</span>
+          The engine could not add the domain to <code translate="no">consent.domains</code>:
         </Trans>
       );
     default:

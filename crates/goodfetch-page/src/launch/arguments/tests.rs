@@ -3,7 +3,9 @@ use std::path::Path;
 
 use goodfetch_engine::pinned_download::{CHROMIUM_BACKGROUND_TRAFFIC_OFF, ChromiumSwitch};
 
-use super::{Arguments, Launch, Warning, arguments, shared_memory_of};
+#[cfg(target_os = "linux")]
+use super::shared_memory_of;
+use super::{Arguments, Launch, Warning, arguments};
 
 const MEBIBYTE: u64 = 1024 * 1024;
 
@@ -17,7 +19,7 @@ const BACKGROUND_FLAGS: [&str; 3] = [
 
 fn launch(headless: bool, shared_memory: Option<u64>) -> Launch<'static> {
     Launch {
-        profile: Path::new("/runs/r/browser-profiles/1"),
+        data_folder: Path::new("/runs/r/browser-data/1"),
         headless,
         resolve: &[],
         shared_memory,
@@ -62,7 +64,7 @@ fn the_browser_runs_over_its_pipe_on_the_runs_profile_and_opens_a_blank_page_las
                 .arguments
                 .iter()
                 .any(|argument| argument.starts_with("--remote-debugging-port")),
-            has(&built, "--user-data-dir=/runs/r/browser-profiles/1"),
+            has(&built, "--user-data-dir=/runs/r/browser-data/1"),
             built.arguments.last().map(String::as_str),
         ),
         (true, false, true, Some("about:blank"))
@@ -150,6 +152,7 @@ fn a_large_or_unmeasured_dev_shm_keeps_chromiums_shared_memory_there() {
     );
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn the_dev_shm_size_is_read_from_its_mount_options() {
     let docker = "overlay / overlay rw,relatime 0 0\n\

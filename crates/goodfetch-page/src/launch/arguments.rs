@@ -1,7 +1,7 @@
 //! The launch-argument builder (spec #577, ticket #696): the command line
 //! of every Chromium the engine launches, from what the launch decided.
 //! The browser runs over its debugging pipe, never a port (ADR 0017), on a
-//! profile of the Run's own, its background traffic off by the table
+//! Browser data folder of the Run's own, its background traffic off by the table
 //! `pinned_download` owns (ADR 0043); headless only when `browser.headless`
 //! says so, the site seeing one identity either way (the driver's user agent, ADR
 //! 0092); every page keeps its timers behind another tab or window (ADR
@@ -49,8 +49,8 @@ const WEBRTC_POLICY: &str = "--webrtc-ip-handling-policy=disable_non_proxied_udp
 
 /// What a launch decided.
 pub(crate) struct Launch<'a> {
-    /// The profile folder, the Run's own.
-    pub(crate) profile: &'a Path,
+    /// The Browser data folder, the Run's own.
+    pub(crate) data_folder: &'a Path,
     /// `browser.headless`.
     pub(crate) headless: bool,
     /// `network.resolve`: host names, each with its addresses.
@@ -93,7 +93,7 @@ impl fmt::Display for Warning {
 pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
     let mut arguments = vec![
         "--remote-debugging-pipe".to_owned(),
-        format!("--user-data-dir={}", launch.profile.display()),
+        format!("--user-data-dir={}", launch.data_folder.display()),
     ];
     if launch.headless {
         arguments.push("--headless".to_owned());
@@ -148,10 +148,7 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
 /// The size of `/dev/shm` in bytes, read from its `size=` option in
 /// `mounts`, a mount table as `/proc/self/mounts` lists it; `None` when it
 /// is not mounted on its own or names no size.
-#[cfg_attr(
-    all(not(target_os = "linux"), not(test)),
-    expect(dead_code, reason = "only Linux mounts a `/dev/shm` to measure")
-)]
+#[cfg(target_os = "linux")]
 pub(crate) fn shared_memory_of(mounts: &str) -> Option<u64> {
     let options = mounts.lines().find_map(|line| {
         let mut fields = line.split_whitespace();

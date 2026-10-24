@@ -2,10 +2,10 @@
 //! 0115): its build prepared in the Browser cache from the call that
 //! launches it, so a missing build raises its code there and nowhere
 //! earlier, held under a shared lock until the process exits; the process
-//! started over its debugging pipe, never a debugging port, on a profile of
-//! its own in the Run's folder; and its end: when the Run stops, or the
+//! started over its debugging pipe, never a debugging port, on a Browser
+//! data folder of its own in the Run's folder; and its end: when the Run stops, or the
 //! browser pool closes it, the browser is asked to close, then killed if it
-//! does not, its profile removed and its build released.
+//! does not, its data folder removed and its build released.
 
 mod arguments;
 #[cfg(unix)]
@@ -15,7 +15,6 @@ mod preferences;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::Duration;
 
 use goodfetch_cdp::Connection;
 use goodfetch_engine::CallError;
@@ -24,6 +23,7 @@ use goodfetch_engine::browser_cache::{
     Platform, PlatformNotice, browser_source, installed_browser,
 };
 use goodfetch_engine::children::Children;
+use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::home::Home;
@@ -39,17 +39,14 @@ use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::page::{
     BROWSER_HEADLESS, BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails,
 };
-use goodfetch_protocol::settings::NETWORK_RESOLVE;
+use goodfetch_protocol::settings::{NETWORK_RESOLVE, TIMEOUT_CLOSE};
 use tokio::process::{Child, Command};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-/// How long a closing browser has to exit before it is killed.
-const CLOSE_DEADLINE: Duration = Duration::from_secs(5);
-
-/// The folder of the Run's browser profiles, in its folder: one per
+/// The folder of the Run's Browser data folders, in its folder: one per
 /// browser, by its number in the Run's browser pool.
-const PROFILES: &str = "browser-profiles";
+const DATA_FOLDERS: &str = "browser-data";
 
 /// The folder of a Chromium profile's default user, in its data directory.
 const DEFAULT_PROFILE: &str = "Default";
@@ -68,22 +65,18 @@ pub(crate) struct Launched {
     pub(crate) headless: bool,
     /// Its process's ID, by which its memory is read.
     pub(crate) process: Option<u32>,
+    /// Cancelled once its process exited and its data folder is gone, so
+    /// another launch may take the folder.
+    pub(crate) released: CancellationToken,
 }
 
 /// The executable of Chrome for Testing's build for `platform`, in the
 /// folder its archive unpacks to.
 fn executable_in(files: &Path, platform: BuildPlatform) -> Option<PathBuf> {
-    let mac = |folder: &str| {
-        files
-            .join(folder)
-            .join("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
-    };
-    Some(match platform {
-        BuildPlatform::MacArm64 => mac("chrome-mac-arm64"),
-        BuildPlatform::MacX64 => mac("chrome-mac-x64"),
-        BuildPlatform::LinuxX64 => files.join("chrome-linux64").join("chrome"),
-        BuildPlatform::WindowsX64 => files.join("chrome-win64").join("chrome.exe"),
-        BuildPlatform::LinuxArm64 => return None,
+    platform.chrome_for_testing_executable().map(|executable| {
+        executable
+            .split('/')
+            .fold(files.to_path_buf(), |path, part| path.join(part))
     })
 }
 
@@ -200,7 +193,7 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 }
 
 /// Launches a browser of the Run from the Browser cache of `home`, under
-/// the Run's settings, on the profile numbered `number` in the Run's
+/// the Run's settings, on the Browser data folder numbered `number` in the Run's
 /// folder; its tasks are the Run's, and `stopping`, cancelled when the Run
 /// stops, closes it.
 ///
@@ -222,8 +215,8 @@ pub(crate) async fn launch(
     stopping: CancellationToken,
 ) -> Result<Launched, CallError> {
     let (executable, held, kind) = executable(run, home, pins).await?;
-    let profile = run.folder().join(PROFILES).join(number.to_string());
-    let created = profile.join(DEFAULT_PROFILE);
+    let data_folder = run.folder().join(DATA_FOLDERS).join(number.to_string());
+    let created = data_folder.join(DEFAULT_PROFILE);
     run.owner()
         .blocking(
             #[expect(
@@ -255,7 +248,7 @@ pub(crate) async fn launch(
         .and_then(|settings| Policy::of(settings).ok())
         .and_then(|policy| policy.proxy_script());
     let built = arguments::arguments(&arguments::Launch {
-        profile: &profile,
+        data_folder: &data_folder,
         headless,
         resolve: &resolve,
         shared_memory: shared_memory(run).await,
@@ -274,21 +267,26 @@ pub(crate) async fn launch(
         start(command).map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
     let process = child.child.id();
     let (exits, exit) = watch::channel(None);
-    run.spawn(supervise(
-        (run.clone(), stopping),
-        child,
-        (connection.clone(), driver),
+    let released = CancellationToken::new();
+    run.spawn(supervise(Supervised {
+        run: run.clone(),
+        stopping,
+        process: child,
+        connection: connection.clone(),
+        driver,
         exits,
         held,
-        profile,
-        run.metrics().browser_running(kind),
-    ));
+        data_folder,
+        running: run.metrics().browser_running(kind),
+        released: released.clone(),
+    }));
     Ok(Launched {
         connection,
         exit,
         executable,
         headless,
         process,
+        released,
     })
 }
 
@@ -357,29 +355,70 @@ fn start(_command: Command) -> std::io::Result<(Connection, Driving, Process)> {
     ))
 }
 
-/// Runs the browser's connection, waits for its process to exit or for
-/// `stopping`, closes it then, and releases its build and profile.
-async fn supervise(
-    (run, stopping): (Run, CancellationToken),
+/// What the supervisor of one launched browser holds until it exits.
+struct Supervised {
+    /// The browser's Run.
+    run: Run,
+    /// Cancelled when the Run stops or the pool closes the browser.
+    stopping: CancellationToken,
+    /// Its process.
     process: Process,
-    (connection, driver): (Connection, Driving),
+    /// Its connection, through which it is asked to close.
+    connection: Connection,
+    /// The connection's driver, which the supervisor runs.
+    driver: Driving,
+    /// Told how the process ended, once it did.
     exits: watch::Sender<Option<BrowserExit>>,
+    /// The build it runs, held until it exits.
     held: Option<HeldArtifact>,
-    profile: PathBuf,
+    /// Its Browser data folder, removed once it exited.
+    data_folder: PathBuf,
+    /// Its count among the running browsers.
     running: Counted,
-) {
+    /// Cancelled once it exited and its data folder is gone.
+    released: CancellationToken,
+}
+
+/// Runs the browser's connection, waits for its process to exit or for
+/// `stopping`, closes it then, within the Run's `timeout.close`, after
+/// which it is killed, and releases its build and data folder.
+async fn supervise(supervised: Supervised) {
+    let Supervised {
+        run,
+        stopping,
+        process,
+        connection,
+        driver,
+        exits,
+        held,
+        data_folder,
+        running,
+        released,
+    } = supervised;
     let Process {
         mut child,
         _group: group,
     } = process;
+    let close = Deadline::of_run(&run, &TIMEOUT_CLOSE);
+    let clock = run.clock();
     let (_, status) = tokio::join!(driver, async {
         let status = tokio::select! {
             status = child.wait() => status,
             () = stopping.cancelled() => {
-                let _ = connection
-                    .send_raw("Browser.close", None, serde_json::json!({}), CLOSE_DEADLINE)
-                    .await;
-                if let Ok(status) = tokio::time::timeout(CLOSE_DEADLINE, child.wait()).await {
+                // Asked to close, then waited for, all within the deadline,
+                // whatever its connection does: a browser that no longer
+                // reads its pipe is killed at the deadline all the same.
+                let closing = clock.now();
+                let exited = tokio::select! {
+                    status = async {
+                        let _ = connection
+                            .send_raw("Browser.close", None, serde_json::json!({}), close.duration())
+                            .await;
+                        child.wait().await
+                    } => Some(status),
+                    () = clock.sleep_until(closing + close.duration()) => None,
+                };
+                if let Some(status) = exited {
                     status
                 } else {
                     let _ = child.start_kill();
@@ -406,7 +445,8 @@ async fn supervise(
                 clippy::disallowed_methods,
                 reason = "it runs on the tasks module's blocking policy"
             )]
-            let _ = std::fs::remove_dir_all(profile);
+            let _ = std::fs::remove_dir_all(data_folder);
         })
         .await;
+    released.cancel();
 }

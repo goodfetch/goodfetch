@@ -64,11 +64,6 @@ pub fn pinned_artifacts() -> Vec<PinnedArtifact> {
 
 /// A Chrome for Testing platform's name as the Browser cache's.
 fn build_platform(platform: &str) -> BuildPlatform {
-    match platform {
-        "linux64" => BuildPlatform::LinuxX64,
-        "mac-arm64" => BuildPlatform::MacArm64,
-        "mac-x64" => BuildPlatform::MacX64,
-        "win64" => BuildPlatform::WindowsX64,
-        other => panic!("invariant: pins.json names no platform `{other}`"),
-    }
+    BuildPlatform::of_chrome_for_testing_name(platform)
+        .unwrap_or_else(|| panic!("invariant: pins.json names no platform `{platform}`"))
 }

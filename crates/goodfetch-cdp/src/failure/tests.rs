@@ -1,7 +1,7 @@
 use rstest::rstest;
 use serde_json::json;
 
-use super::{Failure, Refusal};
+use super::{Failure, PartyText, Refusal};
 
 fn refusal(message: &str) -> Refusal {
     match Failure::refused(
@@ -40,4 +40,22 @@ fn an_error_with_no_message_is_unrecognized() {
             ..
         }
     ));
+}
+
+/// The browser's own text, which may echo a value it was given, such as a
+/// cookie in an answer that did not read, reaches no message a call raises
+/// from it: each failure formats it redacted (ADR 0127).
+#[rstest]
+#[case::refused(Failure::refused(
+    "Network.getCookies",
+    &json!({ "code": -32000, "message": "bad cookie session=hunter2" })
+))]
+#[case::unreadable(Failure::Unreadable {
+    method: "Network.getCookies",
+    message: PartyText::new(r#"invalid type: string "session=hunter2""#),
+})]
+fn a_failure_formats_the_browsers_own_text_redacted(#[case] failure: Failure) {
+    let formatted = format!("{failure} {failure:?}");
+
+    assert!(!formatted.contains("hunter2"), "{formatted}");
 }

@@ -74,7 +74,7 @@ impl PageDriver {
         handlers: Vec<OnChild>,
     ) -> Result<(), CallError> {
         let handlers: Arc<[OnChild]> = handlers.into();
-        let events = self.events().await;
+        let events = self.events();
         run.spawn(follow(
             self.clone(),
             self.session.clone(),
@@ -156,7 +156,7 @@ async fn attach(
     run: Run,
 ) {
     if child.kind == ChildKind::Frame {
-        let events = driver.events_on(&child.session).await;
+        let events = driver.events_on(&child.session);
         run.spawn(follow(
             driver.clone(),
             child.session.clone(),

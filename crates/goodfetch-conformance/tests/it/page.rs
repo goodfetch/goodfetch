@@ -192,7 +192,7 @@ fn the_page_suite_proves_proxy_limits_against_collies_attached_engine() {
     prove(PROXY_LIMITS);
 }
 
-/// Covers: story:5-61, story:5-23, story:5-24, story:5-26, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, operation:page.wait_for_url, operation:page.wait_for_response, error:navigation_failed, error:navigation_interrupted, story:5-29, story:5-30, story:5-31, error:too_many_redirects, error:response_truncated, event:page.download
+/// Covers: story:5-61, story:5-23, story:5-24, story:5-26, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, operation:page.wait_for_url, operation:page.wait_for_response, error:navigation_failed, error:navigation_interrupted, story:5-29, story:5-30, story:5-31, error:too_many_redirects, error:response_truncated, event:page.download, story:3-52, setting:timeout.navigation, error:deadline_exceeded
 #[test]
 fn the_page_suite_proves_navigation_against_collies_attached_engine() {
     prove(NAVIGATION);
@@ -240,7 +240,7 @@ fn the_page_suite_proves_events_against_collies_attached_engine() {
     prove(EVENTS);
 }
 
-/// Covers: operation:run.new_session, operation:page.route, operation:session.route, event:page.request, event:page.response, story:5-49, story:5-50, setting:browser.service_workers, operation:page.wait_for_response, operation:page.wait_for_load_state
+/// Covers: operation:run.new_session, operation:page.route, operation:session.route, event:page.request, event:page.response, story:5-49, story:5-50, setting:browser.service_workers, operation:page.wait_for_response, operation:page.wait_for_load_state, story:5-56, setting:browser.headless, operation:page.goto
 #[test]
 fn the_page_suite_proves_page_states_against_collies_attached_engine() {
     prove(PAGE_STATES);

@@ -2,12 +2,15 @@
 //! refusal, classified here from its error's code and message, the only
 //! place that reads them; a command the browser did not answer in time; or
 //! a browser that is gone. The browser's own message is kept for diagnosis
-//! in [`PartyText`], which has no accessor.
+//! in [`PartyText`], which has no accessor and formats redacted.
 
 use std::fmt;
 
-/// The browser's own text, kept for logs and never matched on outside this
-/// module.
+/// The browser's own text, never matched on outside this module and
+/// redacted wherever it is formatted, as the engine's own party texts are:
+/// the browser may echo what it was given, such as a cookie's value in an
+/// answer that did not read, and a failure's text reaches the message of
+/// the Error code it raises.
 #[derive(Clone, PartialEq, Eq)]
 pub struct PartyText(String);
 
@@ -19,13 +22,13 @@ impl PartyText {
 
 impl fmt::Debug for PartyText {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&self.0, formatter)
+        write!(formatter, "PartyText(<{} bytes, redacted>)", self.0.len())
     }
 }
 
 impl fmt::Display for PartyText {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+        write!(formatter, "<{} bytes, redacted>", self.0.len())
     }
 }
 

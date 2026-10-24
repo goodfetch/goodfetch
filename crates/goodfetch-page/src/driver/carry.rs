@@ -229,7 +229,7 @@ async fn run_on(
         )
         .await?;
     let session = TargetSession(attached.session_id);
-    let mut events = browser.connection.subscribe(Some(&session)).await;
+    let mut events = browser.connection.subscribe(Some(&session));
     browser
         .send(
             Some(&session),
@@ -248,10 +248,12 @@ async fn run_on(
         .send(Some(&session), &page::EnableParams::default(), call)
         .await?;
     let committed = tokio::time::timeout(
-        super::COMMAND_TIMEOUT,
+        browser.deadlines.navigation.duration(),
         commit(browser, &session, &mut events, origin, call),
     )
     .await;
+    // No later command waits on a subscription nobody reads.
+    drop(events);
     match committed {
         Ok(Ok(true)) => {}
         Ok(Ok(false)) | Err(_) => {

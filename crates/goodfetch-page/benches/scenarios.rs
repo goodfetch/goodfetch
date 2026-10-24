@@ -255,7 +255,7 @@ pub(crate) fn intercept(count: usize, blocking: &steps::Blocking) -> usize {
         let (_, sent_on, ()) = tokio::join!(
             driver.run(),
             async {
-                let mut events = connection.subscribe(None).await;
+                let mut events = connection.subscribe(None);
                 sent(&connection, &fetch::EnableParams::default()).await;
                 let mut sent_on = 0;
                 for _ in 0..count {

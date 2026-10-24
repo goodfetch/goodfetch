@@ -19,7 +19,8 @@
 //! workers (ADR 0014).
 //!
 //! Any other worker (a browser extension's, or one of a context no Session
-//! named) is let run untouched.
+//! named) is let run untouched, but for a headless browser's identity,
+//! which every worker takes before it runs, as every page does (`identity`).
 #![expect(
     clippy::disallowed_types,
     reason = "each context's choice is set once and read by the browser's one event reader, each lock held for one map operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -28,7 +29,6 @@
 use std::collections::BTreeMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
 
 use goodfetch_cdp::generated::{browser, fetch, network, runtime, target};
 use goodfetch_cdp::{SessionId as TargetSession, Subscription};
@@ -118,7 +118,6 @@ impl PageDriver {
             proxy: None,
             context,
             frame: worker,
-            navigation_timeout: Duration::ZERO,
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             turn: Arc::new(tokio::sync::Mutex::new(None)),
@@ -201,7 +200,7 @@ impl PageDriver {
 ///
 /// The code of opening a page when the browser refuses to attach.
 pub(super) async fn start(browser: &Browser, run: &Run) -> Result<(), CallError> {
-    let events = browser.connection.subscribe(None).await;
+    let events = browser.connection.subscribe(None);
     run.spawn(follow(events, browser.clone(), run.clone()));
     browser
         .send(
@@ -230,7 +229,7 @@ pub(super) async fn start(browser: &Browser, run: &Run) -> Result<(), CallError>
                     },
                 ]),
             },
-            &browser.opening(),
+            &browser.launching(),
         )
         .await
         .map(drop)
@@ -280,9 +279,10 @@ async fn attach(browser: Browser, attached: target::AttachedToTargetEvent, run: 
     hold_then_run(browser, attached, run, handle).await;
 }
 
-/// The worker `attached` waits for the engine: a site's worker is handed to
-/// `handle`, its Session's, first, and closed when the interception could
-/// not hold it; then it runs.
+/// The worker `attached` waits for the engine: a headless browser's worker
+/// takes the identity its pages show, a site's worker is handed to `handle`,
+/// its Session's, and closed when the interception could not hold it; then
+/// it runs.
 async fn hold_then_run(
     browser: Browser,
     attached: target::AttachedToTargetEvent,
@@ -290,6 +290,13 @@ async fn hold_then_run(
     handle: Option<OnWorker>,
 ) {
     let session = TargetSession(attached.session_id);
+    if let Some(identity) = &browser.identity
+        && let Err(failure) = browser
+            .try_send(Some(&session), &identity.worker_command())
+            .await
+    {
+        tracing::debug!(%failure, "a service worker went before it took its browser's identity");
+    }
     let info = attached.target_info;
     let of_a_site = info.url.starts_with("http://") || info.url.starts_with("https://");
     if let (Some(handle), Some(context), true) =

@@ -83,7 +83,7 @@ pub(crate) fn call_error(call: &Call, failure: &Failure, exit: Option<BrowserExi
             &NAVIGATION_FAILED,
             format!("the navigation to {url} failed: {failure}"),
             &NavigationFailedDetails {
-                url: url.clone(),
+                url: Some(url.clone()),
                 error: None,
             },
         ),
@@ -98,7 +98,7 @@ pub(crate) fn call_error(call: &Call, failure: &Failure, exit: Option<BrowserExi
                 "the page's history, which the navigation goes through, did not read: {failure}"
             ),
             &NavigationFailedDetails {
-                url: String::new(),
+                url: None,
                 error: None,
             },
         ),
@@ -312,7 +312,7 @@ pub(crate) fn network_error(url: &str, error: &str) -> CallError {
         &NAVIGATION_FAILED,
         format!("the navigation to {url} failed: {error}"),
         &NavigationFailedDetails {
-            url: url.to_owned(),
+            url: Some(url.to_owned()),
             error: Some(error.to_owned()),
         },
     )

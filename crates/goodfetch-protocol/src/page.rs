@@ -299,10 +299,11 @@ pub struct Navigated {
 /// What `navigation_failed` details.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct NavigationFailedDetails {
-    /// The URL the navigation went to; empty when the page's history, which
+    /// The URL the navigation went to; none when the page's history, which
     /// names it for a reload or a step back or forward, did not read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub url: String,
+    pub url: Option<String>,
     /// The browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`,
     /// when the browser named one.
     #[schemars(extend("arrived_in" = "0.1"))]

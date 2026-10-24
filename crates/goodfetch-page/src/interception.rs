@@ -288,7 +288,7 @@ impl EngineRequests {
                         "{url} was blocked by the Session's Filter lists or `browser.block_resources`"
                     ),
                     &NavigationFailedDetails {
-                        url: url.to_owned(),
+                        url: Some(url.to_owned()),
                         error: Some(NetError::BlockedByClient.name().to_owned()),
                     },
                 ))

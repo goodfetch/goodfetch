@@ -231,7 +231,7 @@ impl TransportFailure {
             &NAVIGATION_FAILED,
             format!("The fetch of {url} failed: {error}."),
             &NavigationFailedDetails {
-                url: url.to_owned(),
+                url: Some(url.to_owned()),
                 error: Some(error.to_owned()),
             },
         )

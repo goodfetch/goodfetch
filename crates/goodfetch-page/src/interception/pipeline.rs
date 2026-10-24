@@ -1088,7 +1088,7 @@ impl PageContext {
     async fn blocked(&self, held: &Held) -> CallError {
         let url = held.url().to_owned();
         let details = NavigationFailedDetails {
-            url: url.clone(),
+            url: Some(url.clone()),
             error: Some(NetError::BlockedByClient.name().to_owned()),
         };
         let error = CallError::new(

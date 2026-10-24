@@ -42,7 +42,7 @@ pub(crate) const RECOVERY: Duration = Duration::from_secs(10);
 const RECLAIM_CHECK: Duration = Duration::from_secs(30);
 
 /// The table the rule keeps each proxy key's shared state in.
-pub(crate) const TABLES: PolitenessTables = PolitenessTables {
+pub const TABLES: PolitenessTables = PolitenessTables {
     name: "goodfetch-page",
     statements: &["CREATE TABLE IF NOT EXISTS proxy_limits (
             key TEXT NOT NULL PRIMARY KEY,
@@ -102,7 +102,7 @@ impl Limits {
 
 /// A run's rule for its Sessions' proxies, under its own settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ProxyRule {
+pub struct ProxyRule {
     /// `politeness.proxy.concurrency`.
     concurrency: Option<u64>,
     /// The least time between two starts, from `politeness.proxy.rate`.
@@ -111,7 +111,7 @@ pub(crate) struct ProxyRule {
 
 impl ProxyRule {
     /// The rule `settings` give a Session's proxy.
-    pub(crate) fn of(settings: &Resolved) -> Self {
+    pub fn of(settings: &Resolved) -> Self {
         Self {
             concurrency: settings.count(POLITENESS_PROXY_CONCURRENCY.name),
             interval: settings
@@ -192,7 +192,7 @@ impl PermitRule for ProxyRule {
 
 /// The key a proxy's Permits count under: its endpoint and the credential
 /// it is used with, so two accounts with one vendor are two keys.
-pub(crate) fn key(server: &ProxyServer, username: Option<&str>) -> String {
+pub fn key(server: &ProxyServer, username: Option<&str>) -> String {
     format!("proxy {server} {}", username.unwrap_or_default())
 }
 

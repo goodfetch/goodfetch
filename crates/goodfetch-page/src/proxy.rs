@@ -44,6 +44,7 @@ use secrecy::SecretString;
 
 use self::limits::ProxyLimits;
 pub(crate) use self::limits::{ProxyPermit, TABLES};
+pub use self::limits::{ProxyRule, TABLES as LIMITS_TABLES, key as limits_key};
 pub(crate) use self::party::{Answer, PROXY_STATUS, Party, party, proxy_error, refusal};
 use self::relay::{Mode, Relay};
 use crate::proxy_provider::{Chosen, ProxyDriver, ProxyUsage, Refusal, Wanted, list, priced};

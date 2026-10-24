@@ -48,6 +48,7 @@ pub mod lease;
 pub mod ledger;
 pub mod log;
 pub mod lowest_minor;
+pub mod mask;
 pub mod metrics;
 pub mod needs_you;
 mod needs_you_operations;

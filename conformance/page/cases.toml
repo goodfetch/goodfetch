@@ -44,7 +44,7 @@ name = "sessions.page_check"
 
 [[capability.case]]
 id = "a-login-page-answering-200-is-a-lost-login-and-a-page-that-is-neither-fails-the-page-check"
-covers = ["story:5-79", "setting:session.page_check", "error:logged_out", "error:page_check_failed", "operation:page.goto"]
+covers = ["story:5-79", "setting:session.page_check", "error:logged_out", "error:page_check_failed", "operation:page.goto", "operation:locator.click", "operation:page.wait_for_url"]
 
 [[capability.case]]
 id = "each-form-of-a-page-match-judges-the-expected-page-the-login-page-and-neither"
@@ -52,7 +52,11 @@ covers = ["story:5-79", "setting:session.page_check", "operation:run.new_session
 
 [[capability.case]]
 id = "without-a-page-check-the-built-in-detector-judges-and-each-page-is-weakly-checked"
-covers = ["story:5-79", "error:logged_out", "operation:page.goto"]
+covers = ["story:5-79", "error:logged_out", "operation:page.goto", "operation:page.evaluate"]
+
+[[capability.case]]
+id = "on-a-fresh-session-a-login-form-at-a-pages-own-url-is-no-lost-login"
+covers = ["story:5-79", "operation:page.goto"]
 
 [[capability]]
 name = "sessions.blocked"

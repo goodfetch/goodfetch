@@ -27,18 +27,11 @@ use crate::sessions::PageEvent;
 /// call names no interval: about one frame's.
 const FRAME: Duration = Duration::from_millis(16);
 
-/// Adds the handlers of the app-state waits: those on the page's requests,
-/// URL and load states each armed when its call arrives, the others
-/// checking from then on.
-pub(super) fn with_wait_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
-    let (requesting, responding, locating, loading) = (
-        pages.events.clone(),
-        pages.events.clone(),
-        pages.events.clone(),
-        pages.events.clone(),
-    );
-    let (functioning, waiting, counting) = (pages.clone(), pages.clone(), pages.clone());
-    let judging = pages.clone();
+/// Adds the handlers of the waits on the page's requests and responses,
+/// each armed when its call arrives.
+fn with_exchange_waits(contribution: Contribution, pages: &Pages) -> Contribution {
+    let (requesting, responding) = (pages.events.clone(), pages.events.clone());
+    let (judging_requests, judging_responses) = (pages.clone(), pages.clone());
     contribution
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_REQUEST,
@@ -47,7 +40,14 @@ pub(super) fn with_wait_handlers(contribution: Contribution, pages: &Pages) -> C
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
                     Ok(events.wait_for_request(pattern))
                 });
-                async move { armed?.await }
+                let pages = judging_requests.clone();
+                async move {
+                    let request = armed?.await?;
+                    pages
+                        .judge_waited(&params.page_id, PAGE_WAIT_FOR_REQUEST.name)
+                        .await?;
+                    Ok::<_, CallError>(request)
+                }
             },
         ))
         .with_handler(Handler::new(
@@ -57,9 +57,29 @@ pub(super) fn with_wait_handlers(contribution: Contribution, pages: &Pages) -> C
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
                     Ok(events.wait_for_response(pattern))
                 });
-                async move { armed?.await }
+                let pages = judging_responses.clone();
+                async move {
+                    let response = armed?.await?;
+                    pages
+                        .judge_waited(&params.page_id, PAGE_WAIT_FOR_RESPONSE.name)
+                        .await?;
+                    Ok::<_, CallError>(response)
+                }
             },
         ))
+}
+
+/// Adds the handlers of the app-state waits: those on the page's requests,
+/// URL and load states each armed when its call arrives, the others
+/// checking from then on.
+pub(super) fn with_wait_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
+    let (locating, loading) = (pages.events.clone(), pages.events.clone());
+    let (functioning, waiting, counting) = (pages.clone(), pages.clone(), pages.clone());
+    let (judging, judging_loads) = (pages.clone(), pages.clone());
+    // Each wait on the page's requests, URL or load states judges the
+    // document a navigation it waited for reached, its Block cause and its
+    // Page check, raised by that wait (ADRs 0006 and 0092).
+    with_exchange_waits(contribution, pages)
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_URL,
             move |params: WaitForUrlParams, _context: CallContext| {
@@ -68,9 +88,6 @@ pub(super) fn with_wait_handlers(contribution: Contribution, pages: &Pages) -> C
                     Ok(events.wait_for_url(pattern, params.wait_until.unwrap_or_default()))
                 });
                 let pages = judging.clone();
-                // The document the navigation it waited for reached is
-                // judged for its Block cause, raised by this call (ADR
-                // 0092).
                 async move {
                     let reached = armed?.await?;
                     pages
@@ -86,7 +103,14 @@ pub(super) fn with_wait_handlers(contribution: Contribution, pages: &Pages) -> C
                 let armed = loading
                     .get(&params.page_id)
                     .map(|events| events.wait_for_load_state(params.state.unwrap_or_default()));
-                async move { armed?.await }
+                let pages = judging_loads.clone();
+                async move {
+                    let reached = armed?.await?;
+                    pages
+                        .judge_waited(&params.page_id, PAGE_WAIT_FOR_LOAD_STATE.name)
+                        .await?;
+                    Ok::<_, CallError>(reached)
+                }
             },
         ))
         .with_handler(Handler::new(

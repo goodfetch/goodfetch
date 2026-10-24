@@ -51,11 +51,31 @@ pub(super) fn judging<'a>(
         session: &page.session,
         page_id,
         driver: &page.driver,
-        declared: page.page_check.as_deref(),
+        checking: &page.page_check,
         requested: match destination {
             Destination::Url(url) => Some(url),
             Destination::Reload | Destination::Back | Destination::Forward => None,
         },
-        operation: destination.operation(),
+        operation: Some(destination.operation()),
+    }
+}
+
+/// The Page check's judgement of the document the page `page` reached by a
+/// navigation no navigation call sent, first sent to `requested`: for the
+/// call `waiting` that waited for it, or for the page's next call.
+pub(super) fn judging_unsent<'a>(
+    page: &'a OpenPage,
+    page_id: &'a PageId,
+    requested: &'a str,
+    waiting: Option<&'static str>,
+) -> Judging<'a> {
+    Judging {
+        run: &page.run,
+        session: &page.session,
+        page_id,
+        driver: &page.driver,
+        checking: &page.page_check,
+        requested: Some(requested),
+        operation: waiting,
     }
 }

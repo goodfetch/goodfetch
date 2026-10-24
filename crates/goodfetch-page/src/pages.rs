@@ -1034,18 +1034,20 @@ impl Pages {
         walled.map_or(Ok(()), Err)
     }
 
-    /// Judges the Block cause of the document the main frame of `page`,
-    /// the page `page_id`, committed last, unless a call judged it already:
-    /// for the call that waited for its navigation, the operation
-    /// `waiting`, whose code a failure to read the document raises; for the
-    /// page's next call, `None`, when such a failure reads as no block.
+    /// Judges the document the main frame of `page`, the page `page_id`,
+    /// committed last, unless a call judged it already, as every page of a
+    /// Session is judged (ADRs 0006 and 0092): its Block cause first, then
+    /// its Page check. For the call that waited for its navigation, the
+    /// operation `waiting`, whose code a failure to read the document
+    /// raises; for the page's next call, `None`, when such a failure reads
+    /// as a document showing nothing.
     async fn judge_unjudged(
         &self,
         page: &OpenPage,
         page_id: &PageId,
         waiting: Option<&'static str>,
     ) -> Result<(), CallError> {
-        let Some((response, received)) = self
+        let Some((response, received, requested)) = self
             .events
             .get(page_id)
             .ok()
@@ -1053,15 +1055,21 @@ impl Pages {
         else {
             return Ok(());
         };
-        match blocked::block_of(&page.driver, self.blocks.as_ref(), &response, waiting).await? {
-            Some(block) => Err(blocked::blocked(block, &response, received)),
-            None => Ok(()),
+        if let Some(block) =
+            blocked::block_of(&page.driver, self.blocks.as_ref(), &response, waiting).await?
+        {
+            return Err(blocked::blocked(block, &response, received));
         }
+        recovery::judge(
+            &arrival::judging_unsent(page, page_id, &requested, waiting),
+            &response,
+        )
+        .await
     }
 
-    /// Judges, for `page.wait_for_url`, which waited for the navigation of
-    /// the page `page_id` that reached its URL, the Block cause of the
-    /// document it reached (ADR 0092).
+    /// Judges, for a wait such as `page.wait_for_url` that waited for the
+    /// navigation of the page `page_id`, the document it reached: its
+    /// Block cause and its Page check (ADRs 0006 and 0092).
     async fn judge_waited(
         &self,
         page_id: &PageId,

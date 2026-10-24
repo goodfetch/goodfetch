@@ -34,7 +34,7 @@ use crate::hiding::Sheets;
 use crate::page_events::{PageEvents, Refusals};
 use crate::page_value::ResponseObserver;
 use crate::pool::InBrowser;
-use crate::recovery::Declared;
+use crate::recovery::{Checking, Declared};
 
 /// A page being taken in by its Session.
 pub(super) struct Adopting {
@@ -179,7 +179,7 @@ impl Sessions {
             life: PageLife::new(page.clone()),
             action_timeout,
             hiding,
-            page_check: Declared::of(&open.run, &open.settings).map(Arc::new),
+            page_check: open.checking(),
             _admission: Arc::new(admission),
             in_browser: Arc::new(in_browser),
         };
@@ -362,4 +362,18 @@ impl Sessions {
 /// The number a page's ID gives it in opening order.
 fn opening_number(page: &PageId) -> Option<u64> {
     page.0.strip_prefix("page-")?.parse().ok()
+}
+
+impl Session {
+    /// How its pages are judged: its Page check, when it declares one, and
+    /// whether it may hold a login, having opened from a Session source.
+    /// Only a Borrowed browser's Session does today, at a `cdp_url`; a fresh
+    /// one holds none of its own until a `login` or a Saved identity can
+    /// give it one (ADR 0006).
+    fn checking(&self) -> Arc<Checking> {
+        Arc::new(Checking {
+            declared: Declared::of(&self.run, &self.settings),
+            holds_login: self.interception_only.is_some(),
+        })
+    }
 }

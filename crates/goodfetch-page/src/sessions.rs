@@ -90,7 +90,7 @@ use crate::page_events;
 use crate::page_value::{HandlerPages, PageValue};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
 use crate::proxy::{Opening, SessionProxy};
-use crate::recovery::Declared;
+use crate::recovery::Checking;
 use crate::trace;
 
 /// What the page crate adds to every run file: each Session the Run opened,
@@ -212,8 +212,9 @@ pub(crate) struct OpenPage {
     pub(crate) clock: Clock,
     /// Its live hiding, when it hides anything.
     pub(crate) hiding: Option<Arc<PageHiding>>,
-    /// Its Session's Page check, when it declares one.
-    pub(crate) page_check: Option<Arc<Declared>>,
+    /// How its Session's pages are judged: its Page check, when it declares
+    /// one, and whether it may hold a login.
+    pub(crate) page_check: Arc<Checking>,
     /// Its admission of the governor's `browser_page` kind, given back once
     /// the page leaves and no call holds it.
     _admission: Arc<Permit>,

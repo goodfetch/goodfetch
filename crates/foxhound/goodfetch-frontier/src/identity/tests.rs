@@ -17,6 +17,7 @@ fn run_file() -> Connection {
         .iter()
         .chain(scope::TABLES.statements)
         .chain(bounds::TABLES.statements)
+        .chain(crate::rules::TABLES.statements)
     {
         connection.execute(statement, []).unwrap();
     }

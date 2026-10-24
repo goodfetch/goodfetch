@@ -105,6 +105,7 @@ pub(crate) fn admit_seeds(links: &[String]) -> usize {
         .iter()
         .chain(SCOPE_TABLES.statements)
         .chain(BOUNDS_TABLES.statements)
+        .chain(goodfetch_frontier::RULES_TABLES.statements)
     {
         connection
             .execute(statement, [])

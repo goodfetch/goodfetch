@@ -15,17 +15,195 @@ use rusqlite::{Connection, OptionalExtension as _};
 use sha2::{Digest as _, Sha256};
 use url::{Position, Url};
 
+use crate::rules;
 use crate::scope::{Narrowing, Scope};
 
 /// The Frontier's visited set: each identity admitted, with the ID of the
-/// crawl request it was admitted for, or that reached it by a redirect.
+/// crawl request it was admitted for, or that reached it by a redirect;
+/// and, beside it, each identity a visited one has once the parameters
+/// learned to have no effect are taken from its URL, with the rule that
+/// took the last one away and the crawl request.
 pub const TABLES: RunStateTables = RunStateTables {
     name: "goodfetch-frontier-visited",
-    statements: &["CREATE TABLE IF NOT EXISTS visited (
+    statements: &[
+        "CREATE TABLE IF NOT EXISTS visited (
             identity TEXT NOT NULL PRIMARY KEY,
             crawl_request TEXT NOT NULL
-        ) STRICT, WITHOUT ROWID"],
+        ) STRICT, WITHOUT ROWID",
+        "CREATE TABLE IF NOT EXISTS learned_identities (
+            identity TEXT NOT NULL PRIMARY KEY,
+            rule INTEGER NOT NULL,
+            crawl_request TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID",
+    ],
 };
+
+/// A request's identities: the one its fixed rules make, and the one it
+/// has once the parameters learned to have no effect on its host are taken
+/// from its URL, with the rules that took them, when any did.
+#[derive(Clone, Debug)]
+pub(crate) struct Identities {
+    plain: String,
+    learned: Option<(String, Vec<i64>)>,
+}
+
+/// Whether the Frontier saw a request's identities before.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Seen {
+    /// Never.
+    New,
+    /// Its own identity, for the crawl request named.
+    Visited(String),
+    /// Its identity under learned rules, for the crawl request named: the
+    /// rules merged it.
+    Merged {
+        /// The rules that merged it.
+        rules: Vec<i64>,
+        /// The crawl request it merged into.
+        crawl_request: String,
+    },
+}
+
+/// The identities of a request to `url` declared so: a declared key has
+/// no learned one, since a program's own canonicalization always wins.
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub(crate) fn identities(
+    connection: &Connection,
+    url: &Url,
+    declared: Declared<'_>,
+) -> rusqlite::Result<Identities> {
+    let plain = identity(url, declared);
+    if declared.key.is_some() {
+        return Ok(Identities {
+            plain,
+            learned: None,
+        });
+    }
+    let (stripped, rules) = rules::without_learned(connection, &keyed(url))?;
+    let learned = (!rules.is_empty()).then(|| (identity(&stripped, declared), rules));
+    Ok(Identities { plain, learned })
+}
+
+/// Whether the visited set holds `identities`: its own identity, or its
+/// learned one as visited or as a visited one's learned identity.
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub(crate) fn seen(connection: &Connection, identities: &Identities) -> rusqlite::Result<Seen> {
+    if let Some(visitor) = visitor(connection, &identities.plain)? {
+        return Ok(Seen::Visited(visitor));
+    }
+    let (probe, rules) = match &identities.learned {
+        Some((learned, rules)) => {
+            if let Some(visitor) = visitor(connection, learned)? {
+                return Ok(Seen::Merged {
+                    rules: rules.clone(),
+                    crawl_request: visitor,
+                });
+            }
+            (learned.as_str(), Some(rules))
+        }
+        None => (identities.plain.as_str(), None),
+    };
+    let learned = connection
+        .prepare_cached("SELECT rule, crawl_request FROM learned_identities WHERE identity = ?1")?
+        .query_row([probe], |row| Ok((row.get::<_, i64>(0)?, row.get(1)?)))
+        .optional()?;
+    Ok(match learned {
+        Some((rule, crawl_request)) => Seen::Merged {
+            rules: rules.cloned().unwrap_or_else(|| vec![rule]),
+            crawl_request,
+        },
+        None => Seen::New,
+    })
+}
+
+/// Adds `identities` to the visited set for `crawl_request`.
+///
+/// # Errors
+///
+/// When the run file cannot be written.
+pub(crate) fn visit_all(
+    connection: &Connection,
+    identities: &Identities,
+    crawl_request: &str,
+) -> rusqlite::Result<()> {
+    visit(connection, &identities.plain, crawl_request)?;
+    if let Some((learned, rules)) = &identities.learned {
+        learn_identity(connection, learned, rules[rules.len() - 1], crawl_request)?;
+    }
+    Ok(())
+}
+
+fn learn_identity(
+    connection: &Connection,
+    identity: &str,
+    rule: i64,
+    crawl_request: &str,
+) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached(
+            "INSERT INTO learned_identities (identity, rule, crawl_request) VALUES (?1, ?2, ?3)
+             ON CONFLICT (identity) DO NOTHING",
+        )?
+        .execute((identity, rule, crawl_request))?;
+    Ok(())
+}
+
+/// Gives each visited identity of `no_effect`'s host whose URL carries its
+/// parameter its learned identity, so a URL that differs from it only by
+/// learned parameters is a `duplicate` from then on, whichever of the two
+/// carried them.
+///
+/// # Errors
+///
+/// When the run file cannot be read or written.
+pub(crate) fn merge_learned(
+    connection: &Connection,
+    no_effect: &rules::NoEffect,
+) -> rusqlite::Result<()> {
+    let mut statement = connection
+        .prepare("SELECT identity, crawl_request FROM visited WHERE instr(identity, ?1) > 0")?;
+    let candidates = statement
+        .query_map([format!("://{}", no_effect.host)], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (visited, crawl_request) in candidates {
+        let Some((method, rest)) = visited.split_once(' ') else {
+            continue;
+        };
+        let (key, hash) = rest
+            .split_once(' ')
+            .map_or((rest, None), |(key, hash)| (key, Some(hash)));
+        let Ok(url) = Url::parse(key) else {
+            continue;
+        };
+        if url.host_str() != Some(no_effect.host.as_str()) {
+            continue;
+        }
+        let (stripped, rules) = rules::without_learned(connection, &url)?;
+        if !rules.contains(&no_effect.rule) {
+            continue;
+        }
+        let mut learned = format!("{method} {}", url_key(&stripped));
+        if let Some(hash) = hash {
+            learned.push(' ');
+            learned.push_str(hash);
+        }
+        learn_identity(connection, &learned, no_effect.rule, &crawl_request)?;
+    }
+    Ok(())
+}
+
+/// `url`'s key, as a URL.
+pub(crate) fn keyed(url: &Url) -> Url {
+    Url::parse(&url_key(url)).expect("invariant: a URL's key is a URL")
+}
 
 /// How a crawl request is sent beside its URL, and the key a program may
 /// declare in place of its identity.
@@ -117,16 +295,21 @@ pub fn redirect_hop(
     if !scope.admits(connection, url, Narrowing::none())? {
         return Ok(Hop::OutOfScope);
     }
-    let hop = identity(
+    let hop = identities(
+        connection,
         url,
         Declared {
             method,
             body,
             key: None,
         },
-    );
-    Ok(match visitor(connection, &hop)? {
-        Some(visitor) if visitor != crawl_request => Hop::Duplicate,
+    )?;
+    Ok(match seen(connection, &hop)? {
+        Seen::Visited(visitor)
+        | Seen::Merged {
+            crawl_request: visitor,
+            ..
+        } if visitor != crawl_request => Hop::Duplicate,
         _ => Hop::Follow,
     })
 }
@@ -145,15 +328,16 @@ pub fn redirect_reached(
     method: &HttpMethod,
     body: Option<&[u8]>,
 ) -> rusqlite::Result<()> {
-    let reached = identity(
+    let reached = identities(
+        connection,
         url,
         Declared {
             method,
             body,
             key: None,
         },
-    );
-    visit(connection, &reached, crawl_request)
+    )?;
+    visit_all(connection, &reached, crawl_request)
 }
 
 /// The query parameters a key drops by name: `Crawl4AI`'s click IDs.

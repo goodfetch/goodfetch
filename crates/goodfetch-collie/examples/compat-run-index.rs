@@ -2,8 +2,9 @@
 //! fixed scenario against Collie's engine over the in-memory network, on the
 //! test `Clock` and a fixed `Entropy` seed, in a home of its own (a Run that
 //! finishes with a progress message and one that is aborted, both tagged,
-//! on an Attached engine, then a Run a Daemon owns while the Daemon is
-//! killed, whose row names the Daemon's endpoint), and writes the Run index it leaves, as SQL text, into
+//! on an Attached engine, with a "Needs you" item a person dismisses, then a
+//! Run a Daemon owns while the Daemon is killed, whose row names the
+//! Daemon's endpoint), and writes the Run index it leaves, as SQL text, into
 //! the folder given as the only argument, as `run-index.sql`. `xtask compat
 //! write` runs it.
 #![expect(
@@ -19,14 +20,19 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::{DaemonConsole, DaemonOptions, Holds, Succession};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::needs_you::{
+    Answering, Changes, NeedsYouSource, Primitives, SourceContext, SourceError,
+};
 use goodfetch_engine::ops::Ops;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
-use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
+use goodfetch_engine::{Channel, Contribution, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
-use serde_json::{Value, json};
+use goodfetch_protocol::needs_you::NeedsYouItem;
+use goodfetch_protocol::run::PointInTime;
+use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
 /// What the Client asks, in order; each call waits for its reply.
@@ -55,7 +61,43 @@ fn scenario() -> Vec<Value> {
             json!({ "run_id": "aborted-run", "tags": ["manual"] }),
         ),
         call(5, "run.abort", json!({ "run_id": "aborted-run" })),
+        call(6, "needs_you.dismiss", json!({ "item": WAITING })),
     ]
+}
+
+/// The ID of the corpus's "Needs you" item, which a person dismisses.
+const WAITING: &str = "corpus_waiting:1";
+
+/// A source of one "Needs you" item a person may dismiss, which never
+/// changes: the Run index keeps its dismissal.
+struct Waiting;
+
+impl Primitives for Waiting {
+    fn dismissable(&self) -> bool {
+        true
+    }
+
+    fn items<'a>(
+        &'a self,
+        _: &'a SourceContext,
+    ) -> Answering<'a, Result<Vec<NeedsYouItem>, SourceError>> {
+        Box::pin(async {
+            Ok(vec![NeedsYouItem {
+                id: WAITING.to_owned(),
+                kind: "corpus_waiting".to_owned(),
+                since: PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned()),
+                run: None,
+                schedule: None,
+                summary: "The corpus waits for a person.".to_owned(),
+                actions: Vec::new(),
+                details: Map::new(),
+            }])
+        })
+    }
+
+    fn changes(&self, _: &SourceContext) -> Changes {
+        Changes::none()
+    }
 }
 
 /// The Daemon's token, which its Client's `hello` carries.
@@ -141,7 +183,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         product_version: ProductVersion::parse("0.0.0")?,
         channel: Channel::CratesIo,
     };
-    let engine = Engine::new(identity, &goodfetch_collie::composition())?;
+    let engine = Engine::new(
+        identity,
+        &goodfetch_collie::composition().with(
+            Contribution::new("compat-run-index")
+                .with_needs_you_source(NeedsYouSource::new(Waiting)),
+        ),
+    )?;
     let home = tempfile::tempdir()?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

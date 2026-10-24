@@ -23,6 +23,7 @@ use crate::catalog::{
 use crate::connection::EngineInstance;
 use crate::governor::SYSTEM_INFO;
 use crate::jsonrpc::RequestId;
+use crate::needs_you::{NEEDS_YOU_CHANGED, NeedsYouItem};
 use crate::run::{RUN_AXES_CHANGED, RunAxes};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -154,13 +155,16 @@ pub struct Resync {
     /// The axes of each Run the engine knows, live or ended.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub runs: Vec<RunAxes>,
+    /// Every item of "Needs you", by `since`, then by ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub needs_you: Vec<NeedsYouItem>,
 }
 
 /// The current state, sent first to a subscription whose position the
 /// engine no longer holds (ADR 0031).
 pub const RESYNC: Event = Event {
     name: "events.resync",
-    description: "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, from which the stream continues.",
+    description: "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, every Run's axes and every item of \"Needs you\", from which the stream continues.",
     class: EventClass::Lossless,
     payload: schema_of::<Resync>,
     stability: Stability::Experimental,
@@ -177,7 +181,7 @@ pub const EVENTS_SUBSCRIBE: Operation = Operation {
     reach: Reach::AllSurfaces,
     params: schema_of::<EventsSubscribeParams>,
     result: schema_of::<SubscriptionEnded>,
-    events: &[&RESYNC, &RUN_AXES_CHANGED, &SYSTEM_INFO],
+    events: &[&RESYNC, &RUN_AXES_CHANGED, &NEEDS_YOU_CHANGED, &SYSTEM_INFO],
     cancellable: true,
     stability: Stability::Experimental,
     deprecated: None,

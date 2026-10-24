@@ -23,6 +23,7 @@ mod key_value_store;
 mod layout;
 mod lifecycle;
 mod log;
+mod needs_you;
 mod ops;
 mod pauses;
 mod progress;

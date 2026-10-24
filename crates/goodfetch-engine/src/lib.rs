@@ -47,6 +47,8 @@ pub mod ledger;
 pub mod log;
 pub mod lowest_minor;
 pub mod metrics;
+pub mod needs_you;
+mod needs_you_operations;
 pub mod ops;
 pub mod people;
 mod people_operations;

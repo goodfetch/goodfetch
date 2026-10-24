@@ -619,6 +619,8 @@ pub enum SharedType {
     AuditKind,
     /// What a Run report's warning says (ADR 0102).
     RunWarningCode,
+    /// What waits for a person in "Needs you" (ADR 0031).
+    NeedsYouKind,
 }
 
 impl SharedType {
@@ -631,6 +633,7 @@ impl SharedType {
             Self::BlockCause => "block_cause",
             Self::AuditKind => "audit_kind",
             Self::RunWarningCode => "run_warning_code",
+            Self::NeedsYouKind => "needs_you_kind",
         }
     }
 }

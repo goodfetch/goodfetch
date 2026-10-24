@@ -18,6 +18,7 @@ Commands:
   upgrade-files    Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
   engine           Calls the catalog's `engine` operations
   events           Calls the catalog's `events` operations
+  needs-you        Calls the catalog's `needs_you` operations
   run              Calls the catalog's `run` operations
   session          Calls the catalog's `session` operations
   page             Calls the catalog's `page` operations
@@ -437,6 +438,46 @@ Options:
       --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help           Print help
+
+$ goodfetch-collie needs-you --help
+Calls the catalog's `needs_you` operations
+
+Usage: goodfetch-collie needs-you [OPTIONS] <COMMAND>
+
+Commands:
+  list     Lists what waits for a person across every Run in the Run index and the stores beside it, the longest waiting first, a page at a time: `after` takes the `next` of the page before. `kinds` keeps the items of those kinds. Each change after the answer arrives as `needs_you.changed` on the event stream
+  dismiss  Hides an item of "Needs you" whose source lets a person dismiss it, for every Client, and answers whether it did; an item the list no longer holds, or one only resolving it removes, stays as it is. The item leaves the list with `needs_you.changed`
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie needs-you list --help
+Lists what waits for a person across every Run in the Run index and the stores beside it, the longest waiting first, a page at a time: `after` takes the `next` of the page before. `kinds` keeps the items of those kinds. Each change after the answer arrives as `needs_you.changed` on the event stream
+
+Usage: goodfetch-collie needs-you list [OPTIONS]
+
+Options:
+      --after <AFTER>  The `next` of the page read before: the list goes on after it
+      --kinds <KINDS>  Only the items of these kinds; every kind when absent
+      --json           Prints the result as JSON
+      --attached       Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help           Print help
+
+$ goodfetch-collie needs-you dismiss --help
+Hides an item of "Needs you" whose source lets a person dismiss it, for every Client, and answers whether it did; an item the list no longer holds, or one only resolving it removes, stays as it is. The item leaves the list with `needs_you.changed`
+
+Usage: goodfetch-collie needs-you dismiss [OPTIONS] --item <ITEM>
+
+Options:
+      --item <ITEM>   The item's ID
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
 
 $ goodfetch-collie run --help
 Calls the catalog's `run` operations

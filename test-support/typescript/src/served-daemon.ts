@@ -10,6 +10,10 @@
 // link the executable's `console` command gives (spec #592); it has no
 // single sign-on yet, so a test of one passes the server it stands in for.
 // Without a server, the fixture fails with `console_not_served`.
+//
+// A test may put its whole folder on a size-capped filesystem of its own
+// (`sizeCapped`, ADR 0122), which `goodfetch-test-env` and the Daemon see
+// in their namespaces: the executable's commands run there too.
 import { daemonCommand, type CliOutput } from "./daemon-command.ts";
 import { daemonOf, type DaemonDescription } from "./daemon.ts";
 import { TestSupportError } from "./errors.ts";
@@ -17,7 +21,8 @@ import type { OidcClient } from "./oidc-provider.ts";
 import type { ProcessRecord } from "./process-record.ts";
 import type { Product } from "./product-env.ts";
 import type { ProvingGroundDescription } from "./proving-ground.ts";
-import { startTestEnv, toolPath } from "./test-env.ts";
+import { sizeCapped, type SizeCapped } from "./size-capped.ts";
+import { readTools, startTestEnv, toolPath } from "./test-env.ts";
 
 /** What a Console is served beside. */
 export interface ConsoleStart {
@@ -114,6 +119,10 @@ export interface ServedDaemon extends DaemonDescription, Omit<ServedConsole, "ur
   readonly executable: string;
   /** The test's cleared environment, under which a command of the executable runs in the test's home. */
   readonly env: Readonly<Record<string, string>>;
+  /** Runs the executable with `args` in the test's home and cleared environment, inside the size-capped filesystem's namespaces when it has one. */
+  run(args: readonly string[]): Promise<CliOutput>;
+  /** The size-capped filesystem the test's folder is on, when the test asked for one. */
+  readonly sizeCapped: SizeCapped | undefined;
 }
 
 /** How to start a served test's Daemon. */
@@ -131,6 +140,8 @@ export interface ServedDaemonStart {
   /** What serves the Console; `console_not_served` without one. */
   readonly consoleServer: ConsoleServer | undefined;
   readonly oidc: OidcClient;
+  /** The size in bytes of a filesystem of its own to put the test's folder on, when given (Linux only). */
+  readonly sizeCapped?: number | undefined;
 }
 
 /** A started served Daemon. */
@@ -149,16 +160,42 @@ export async function startServedDaemon(start: ServedDaemonStart): Promise<Start
       "no `consoleServer` serves the test's Console: keep the default, the executable's own, or pass one with `test.use`",
     );
   }
-  const testEnv = await startTestEnv({
-    processes: start.processes,
-    testName: start.testName,
-    toolManifest: start.toolManifest,
-    provingGroundSeed: start.provingGroundSeed,
-    daemon: start.product,
-  });
+  const mounting =
+    start.sizeCapped === undefined
+      ? undefined
+      : await sizeCapped(start.sizeCapped, toolPath(readTools(start.toolManifest), "test_env"));
+  let testEnv;
+  try {
+    testEnv = await startTestEnv({
+      processes: start.processes,
+      testName: start.testName,
+      toolManifest: start.toolManifest,
+      program: mounting?.program,
+      provingGroundSeed: start.provingGroundSeed,
+      daemon: start.product,
+    });
+  } catch (error) {
+    await mounting?.close();
+    throw error;
+  }
   const description = daemonOf(testEnv.description);
   const executable = toolPath(testEnv.description.tools, start.product);
   const env = testEnv.description.env;
+  const pid = testEnv.pid;
+  const run = async (args: readonly string[]): Promise<CliOutput> => {
+    if (mounting === undefined) {
+      return daemonCommand(start.processes, { executable, env }, args);
+    }
+    const inside = mounting.inside(pid, executable, args);
+    return daemonCommand(start.processes, { executable: inside.command, env }, inside.args);
+  };
+  const closeTestEnv = async (): Promise<void> => {
+    try {
+      await testEnv.close();
+    } finally {
+      await mounting?.close();
+    }
+  };
   let served: ServedConsole;
   try {
     served = await consoleServer.serve({
@@ -166,10 +203,10 @@ export async function startServedDaemon(start: ServedDaemonStart): Promise<Start
       home: testEnv.description.home,
       daemon: description,
       oidc: start.oidc,
-      cli: async (args) => daemonCommand(start.processes, { executable, env }, args),
+      cli: run,
     });
   } catch (error) {
-    await testEnv.close();
+    await closeTestEnv();
     throw error;
   }
   const url = new URL(served.url);
@@ -183,6 +220,8 @@ export async function startServedDaemon(start: ServedDaemonStart): Promise<Start
       provingGround: testEnv.description.proving_ground,
       executable,
       env,
+      run,
+      sizeCapped: mounting?.mounted(pid),
       signInLink: () => served.signInLink(),
       singleSignOn: served.singleSignOn,
       session: served.session,
@@ -191,7 +230,7 @@ export async function startServedDaemon(start: ServedDaemonStart): Promise<Start
       try {
         await served.close();
       } finally {
-        await testEnv.close();
+        await closeTestEnv();
       }
     },
   };

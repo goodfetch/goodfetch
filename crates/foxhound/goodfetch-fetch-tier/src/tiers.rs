@@ -28,11 +28,14 @@ use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tls::Trust;
 use goodfetch_page::page_value::{HandlerPages, Observer, PageValue, ProgramPages, ServedDocument};
 use goodfetch_protocol::foxhound::crawl::CrawlRequest;
-use goodfetch_protocol::foxhound::fetch::{FETCH_HEDGE_ENABLED, FETCH_TIER, FetchTier};
+use goodfetch_protocol::foxhound::fetch::{
+    FETCH_HEDGE_ENABLED, FETCH_REDIRECT_MAX, FETCH_TIER, FetchTier, REDIRECT_MAX_LIMIT,
+};
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{
-    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, NETWORK_RESOLVE, SettingsLayer,
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, NETWORK_RESOLVE, SETTING_INVALID,
+    SettingInvalidDetails, SettingsLayer,
 };
 use url::Url;
 
@@ -148,9 +151,12 @@ impl FetchTiers {
     ///
     /// `capability_unavailable` for `discovered_api`, `browser_fetch`,
     /// `light_browser` and `browser`; `setting_not_applicable` for hedges
-    /// switched on while a domain admits one request at a time (ADR 0086).
+    /// switched on while a domain admits one request at a time (ADR 0086);
+    /// `setting_invalid` for a `fetch.redirect.max` outside 1 to 19 (ADR
+    /// 0118).
     pub fn check(settings: &Resolved) -> Result<(), CallError> {
         goodfetch_frontier::refuse_second_copies(settings, &FETCH_HEDGE_ENABLED)?;
+        refuse_redirect_max(settings)?;
         let Some((tier, layer)) = forced(settings) else {
             return Ok(());
         };
@@ -439,6 +445,30 @@ impl HttpTier {
             }
         }
     }
+}
+
+/// Refuses a `fetch.redirect.max` outside 1 to 19, as many redirects as
+/// the browser follows (ADR 0118), with `setting_invalid`.
+fn refuse_redirect_max(settings: &Resolved) -> Result<(), CallError> {
+    let Some(effective) = settings.get(FETCH_REDIRECT_MAX.name) else {
+        return Ok(());
+    };
+    let max = effective.value.as_u64().unwrap_or_default();
+    if (1..=REDIRECT_MAX_LIMIT).contains(&max) {
+        return Ok(());
+    }
+    Err(CallError::new(
+        &SETTING_INVALID,
+        format!(
+            "`fetch.redirect.max` is {max} in {}, but a fetch follows from 1 to {REDIRECT_MAX_LIMIT} redirects, as many as the browser follows: list a redirect status in `crawl.handle_statuses` to hand it to the handler unfollowed.",
+            effective.layer.as_str()
+        ),
+        &SettingInvalidDetails {
+            key: FETCH_REDIRECT_MAX.name.to_owned(),
+            layer: Some(effective.layer),
+            reason: format!("expected a count from 1 to {REDIRECT_MAX_LIMIT}, found `{max}`"),
+        },
+    ))
 }
 
 /// The tier `fetch.tier` forces and the layer that set it; `None` under

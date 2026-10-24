@@ -1032,3 +1032,43 @@ fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable
         "{forced}"
     );
 }
+
+/// A crawl whose `fetch.redirect.max` is outside 1 to 19, as many
+/// redirects as the browser follows, is refused before its Run begins
+/// (ADR 0118): following none is `crawl.handle_statuses`'s to say.
+///
+/// Covers: story:5-124, setting:fetch.redirect.max, error:setting_invalid
+#[rstest::rstest]
+#[case::none(0)]
+#[case::one_past_the_browsers(20)]
+fn a_crawl_whose_redirect_count_the_browser_cannot_keep_is_refused(#[case] max: u64) {
+    let env = TestEnv::new();
+
+    let refused = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "redirects",
+                        "seeds": seeds(1),
+                        "settings": { "fetch": { "redirect": { "max": max } } },
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await
+        },
+    );
+
+    let refusal = &refused["error"]["data"];
+    assert_eq!(
+        (&refusal["code"], &refusal["key"], &refusal["layer"]),
+        (
+            &json!("setting_invalid"),
+            &json!("fetch.redirect.max"),
+            &json!("run")
+        ),
+        "{refused}"
+    );
+}

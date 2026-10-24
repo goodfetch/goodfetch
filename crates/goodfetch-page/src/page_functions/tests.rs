@@ -6,7 +6,6 @@ use super::init_script;
 /// A source that is one function, comments and a closing `;` around it
 /// allowed, is called with its argument: it takes one, which the script
 /// sent passes it.
-/// Covers: operation:page.add_init_script
 #[rstest]
 #[case::arrow("() => { window.mark = 1; }")]
 #[case::arrow_with_one_parameter("mark => { window.mark = mark; }")]
@@ -32,7 +31,6 @@ fn a_function_is_called_with_its_argument(#[case] source: &str) {
 
 /// A source that is more than one function, or none, runs as it is, and
 /// is refused an argument.
-/// Covers: operation:page.add_init_script
 #[rstest]
 #[case::statement("window.mark = 1;")]
 #[case::declaration_then_call("function patch() { window.mark = 1; }\npatch();")]

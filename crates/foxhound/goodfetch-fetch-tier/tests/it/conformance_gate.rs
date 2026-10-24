@@ -1,21 +1,23 @@
 //! The transport conformance gate (pitfall H13's acceptance test; spec
-//! #579): reqwest, under the fetch driver, against the Proving ground's
+//! #579): reqwest and `wreq`, each under the fetch driver, against the
+//! Proving ground's
 //! content-coding pages decodes every coding as Chrome does and fails
 //! where Chrome fails, follows no redirect itself and stops at the
 //! engine's timeouts. Malformed heads are refused and a folded one kept,
-//! as the `headers` family asks. `wreq` (A05-78) and browser-fetch (A05-75)
-//! join it as they land.
+//! as the `headers` family asks. Browser-fetch (A05-75) joins it as it
+//! lands.
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
-use goodfetch_fetch_tier::{Deadlines, Fetched, Hop, Reqwest, fetch};
+use goodfetch_fetch_tier::{Deadlines, Fetched, Hop, Transport, fetch};
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_test_support::{ProvingGround, TestEnv};
+use rstest::rstest;
 use serde_json::Value;
 use url::Url;
 
-use crate::{reqwest, running_clock_runtime};
+use crate::{Stack, running_clock_runtime, transport};
 
 /// Any seed: the families below are served on every one.
 const SEED: u64 = 759;
@@ -29,10 +31,10 @@ fn deadlines(first_byte: u64) -> Deadlines {
 }
 
 /// Fetches `path` on `host` over plain HTTP at the Proving ground, through
-/// reqwest, under `deadlines`.
+/// `transport`, under `deadlines`.
 fn fetched(
     proving_ground: &ProvingGround,
-    transport: &Reqwest,
+    transport: &dyn Transport,
     host: &str,
     path: &str,
     deadlines: &Deadlines,
@@ -68,18 +70,20 @@ fn requests_to(proving_ground: &ProvingGround, host: &str) -> Vec<Value> {
         .collect()
 }
 
-/// Covers: story:5-128
-#[test]
-fn reqwest_decodes_every_coding_as_chrome_decodes_it_and_fails_where_chrome_fails() {
+/// Covers: story:5-128, story:5-122
+#[rstest]
+#[case::reqwest(Stack::Reqwest)]
+#[case::wreq(Stack::Wreq)]
+fn decodes_every_coding_as_chrome_decodes_it_and_fails_where_chrome_fails(#[case] stack: Stack) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let transport = reqwest(&proving_ground, None);
+    let transport = transport(stack, &proving_ground, None);
 
     for ordinal in 1..=11 {
         let host = format!("{ordinal}.content-coding.test");
         let answer = fetched(
             &proving_ground,
-            &transport,
+            transport.as_ref(),
             &host,
             "/page",
             &deadlines(30_000),
@@ -108,16 +112,18 @@ fn reqwest_decodes_every_coding_as_chrome_decodes_it_and_fails_where_chrome_fail
     }
 }
 
-/// Covers: story:5-128
-#[test]
-fn reqwest_asks_for_every_coding_chrome_asks_for() {
+/// Covers: story:5-128, story:5-122
+#[rstest]
+#[case::reqwest(Stack::Reqwest)]
+#[case::wreq(Stack::Wreq)]
+fn asks_for_every_coding_chrome_asks_for(#[case] stack: Stack) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let transport = reqwest(&proving_ground, None);
+    let transport = transport(stack, &proving_ground, None);
 
     fetched(
         &proving_ground,
-        &transport,
+        transport.as_ref(),
         "8.content-coding.test",
         "/page",
         &deadlines(30_000),
@@ -142,16 +148,18 @@ fn reqwest_asks_for_every_coding_chrome_asks_for() {
     );
 }
 
-/// Covers: story:5-128
-#[test]
-fn reqwest_follows_no_redirect_itself() {
+/// Covers: story:5-128, story:5-122
+#[rstest]
+#[case::reqwest(Stack::Reqwest)]
+#[case::wreq(Stack::Wreq)]
+fn follows_no_redirect_itself(#[case] stack: Stack) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let transport = reqwest(&proving_ground, None);
+    let transport = transport(stack, &proving_ground, None);
 
     let page = fetched(
         &proving_ground,
-        &transport,
+        transport.as_ref(),
         "fetch-edge.test",
         "/redirect/301",
         &deadlines(30_000),
@@ -167,17 +175,19 @@ fn reqwest_follows_no_redirect_itself() {
     assert_eq!(requests_to(&proving_ground, "fetch-edge.test").len(), 1);
 }
 
-/// Covers: story:5-128
-#[test]
-fn reqwest_stops_at_the_engine_s_first_byte_timeout() {
+/// Covers: story:5-128, story:5-122
+#[rstest]
+#[case::reqwest(Stack::Reqwest)]
+#[case::wreq(Stack::Wreq)]
+fn stops_at_the_engine_s_first_byte_timeout(#[case] stack: Stack) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let transport = reqwest(&proving_ground, None);
+    let transport = transport(stack, &proving_ground, None);
 
     // The sixth incident's second page answers after 8 s.
     let error = fetched(
         &proving_ground,
-        &transport,
+        transport.as_ref(),
         "6.incidents.test",
         "/catalog/2",
         &deadlines(1_000),
@@ -191,17 +201,19 @@ fn reqwest_stops_at_the_engine_s_first_byte_timeout() {
     );
 }
 
-/// Covers: story:5-128
-#[test]
-fn reqwest_refuses_a_malformed_head_and_keeps_a_folded_one() {
+/// Covers: story:5-128, story:5-122
+#[rstest]
+#[case::reqwest(Stack::Reqwest)]
+#[case::wreq(Stack::Wreq)]
+fn refuses_a_malformed_head_and_keeps_a_folded_one(#[case] stack: Stack) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let transport = reqwest(&proving_ground, None);
+    let transport = transport(stack, &proving_ground, None);
 
     for path in ["/nul", "/bare-cr", "/no-colon"] {
         let error = fetched(
             &proving_ground,
-            &transport,
+            transport.as_ref(),
             "headers.test",
             path,
             &deadlines(30_000),
@@ -218,7 +230,7 @@ fn reqwest_refuses_a_malformed_head_and_keeps_a_folded_one() {
     }
     let folded = fetched(
         &proving_ground,
-        &transport,
+        transport.as_ref(),
         "headers.test",
         "/folded",
         &deadlines(30_000),

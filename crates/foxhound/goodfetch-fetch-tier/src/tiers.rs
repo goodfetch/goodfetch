@@ -38,7 +38,7 @@ use goodfetch_protocol::settings::{
 use url::Url;
 
 use crate::driver::{Deadlines, Hop, fetch};
-use crate::transports::{Reqwest, ReqwestConfig};
+use crate::transports::{Reqwest, TransportConfig};
 
 /// Foxhound's fetch tiers: the pages they serve, which Collie's page
 /// crate reads through the hook [`FetchTiers::handler_pages`] gives, and
@@ -125,7 +125,7 @@ impl FetchTiers {
             return Ok(None);
         }
         let egress = Policy::of(settings).map_err(|error| error.to_string())?;
-        let transport = Reqwest::new(ReqwestConfig {
+        let transport = Reqwest::new(TransportConfig {
             trust: Trust::default_roots(),
             proxy: None,
             resolve: settings.hosts(NETWORK_RESOLVE.name),

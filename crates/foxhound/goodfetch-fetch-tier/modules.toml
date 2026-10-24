@@ -2,5 +2,6 @@
 [modules]
 decoding = []
 driver = ["decoding"]
+http_profile = []
 tiers = ["driver", "transports"]
-transports = ["driver"]
+transports = ["driver", "http_profile"]

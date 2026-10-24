@@ -410,9 +410,10 @@ fn traced_counts(env: &TestEnv) -> BTreeMap<String, usize> {
 /// are off, and the Page check matches by URL alone, so that the Run trace
 /// holds the guard's commands beside block detection's one read of the
 /// document the `goto` reached (a world and a call, since a rule reads a
-/// 200 page's captcha widget) and the wall test's start in it, which runs
-/// with the answering off (a world and a call, ADR 0048): the reads of
-/// each document are no action's.
+/// 200 page's captcha widget), the wall test's start in it, which runs
+/// with the answering off, and the `goto`'s question to the runner whether
+/// its first pass there found a prompt to wait on (a world and a call
+/// each, ADR 0048): the reads of each document are no action's.
 /// Covers: story:5-2, operation:locator.click
 #[test]
 fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
@@ -448,7 +449,7 @@ fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
             counts.get("Input.dispatchMouseEvent"),
             counts.get("Runtime.enable"),
         ),
-        (&json!({}), Some(&3), Some(&4), Some(&3), None),
+        (&json!({}), Some(&4), Some(&5), Some(&3), None),
         "{counts:?}"
     );
 }

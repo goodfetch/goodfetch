@@ -361,6 +361,15 @@ export class FormatVersionUnsupportedError extends UnavailableError {
 }
 
 /**
+ * A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value.
+ */
+export class HeaderValueInvalidError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "header_value_invalid", group: "program", retryable: false });
+  }
+}
+
+/**
  * A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.
  */
 export class LimitNotUnderstoodError extends RefusedError {
@@ -501,6 +510,15 @@ export class PageValueInvalidError extends ProgramError {
 export class PathNotWritableError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "path_not_writable", group: "program", retryable: false });
+  }
+}
+
+/**
+ * A name or path from outside input would leave the folder the engine writes it in, or is no safe file name on Linux, macOS or Windows: a `..` or `.` part, an absolute, drive, UNC, verbatim or device path, a name Windows reserves for a device, an alternate data stream, a character Windows forbids or a control character, a trailing dot or space, a part longer than 255 bytes, an empty part or a name that is not in Unicode's composed form. It is refused on every OS alike. The details name it and its hazard.
+ */
+export class PathUnsafeError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "path_unsafe", group: "program", retryable: false });
   }
 }
 
@@ -847,6 +865,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   executable_blocked_by_smart_app_control: ExecutableBlockedBySmartAppControlError,
   file_write_failed: FileWriteFailedError,
   format_version_unsupported: FormatVersionUnsupportedError,
+  header_value_invalid: HeaderValueInvalidError,
   limit_not_understood: LimitNotUnderstoodError,
   limit_reached: LimitReachedError,
   logged_out: LoggedOutError,
@@ -863,6 +882,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   page_memory_exceeded: PageMemoryExceededError,
   page_value_invalid: PageValueInvalidError,
   path_not_writable: PathNotWritableError,
+  path_unsafe: PathUnsafeError,
   pattern_unsupported: PatternUnsupportedError,
   person_required: PersonRequiredError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,

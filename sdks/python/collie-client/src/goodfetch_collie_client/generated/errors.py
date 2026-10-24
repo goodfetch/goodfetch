@@ -266,6 +266,14 @@ class FormatVersionUnsupportedError(UnavailableError):
         super().__init__(message, code="format_version_unsupported", group="unavailable", retryable=False)
 
 
+class HeaderValueInvalidError(ProgramError):
+    """A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="header_value_invalid", group="program", retryable=False)
+
+
 class LimitNotUnderstoodError(RefusedError):
     """A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine."""
 
@@ -392,6 +400,14 @@ class PathNotWritableError(ProgramError):
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="path_not_writable", group="program", retryable=False)
+
+
+class PathUnsafeError(ProgramError):
+    """A name or path from outside input would leave the folder the engine writes it in, or is no safe file name on Linux, macOS or Windows: a `..` or `.` part, an absolute, drive, UNC, verbatim or device path, a name Windows reserves for a device, an alternate data stream, a character Windows forbids or a control character, a trailing dot or space, a part longer than 255 bytes, an empty part or a name that is not in Unicode's composed form. It is refused on every OS alike. The details name it and its hazard."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="path_unsafe", group="program", retryable=False)
 
 
 class PatternUnsupportedError(ProgramError):
@@ -701,6 +717,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "executable_blocked_by_smart_app_control": ExecutableBlockedBySmartAppControlError,
     "file_write_failed": FileWriteFailedError,
     "format_version_unsupported": FormatVersionUnsupportedError,
+    "header_value_invalid": HeaderValueInvalidError,
     "limit_not_understood": LimitNotUnderstoodError,
     "limit_reached": LimitReachedError,
     "logged_out": LoggedOutError,
@@ -717,6 +734,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "page_memory_exceeded": PageMemoryExceededError,
     "page_value_invalid": PageValueInvalidError,
     "path_not_writable": PathNotWritableError,
+    "path_unsafe": PathUnsafeError,
     "pattern_unsupported": PatternUnsupportedError,
     "person_required": PersonRequiredError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,

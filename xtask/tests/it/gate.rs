@@ -531,7 +531,7 @@ fn green_runs(workspace: &Workspace, records: &Path) -> (String, String) {
     );
     commit_all(workspace, "Change the Python client");
     let second = plan(workspace, records);
-    assert_eq!(action(&second, "perf").0, "reuse");
+    assert_eq!(action(&second, "perf").0, "reuse", "{}", second.why["perf"]);
     record_plan(workspace, records, &second, &[], &[]);
     (first.head, second.head)
 }

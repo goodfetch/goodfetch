@@ -89,16 +89,26 @@ impl Exchange<'_> {
     ) -> Option<(Username, RelayRequest)> {
         let methods = self.read_methods().await.ok()?;
         if !methods.contains(&USERNAME_PASSWORD) {
-            self.write(&[VERSION, NO_ACCEPTABLE_METHOD]).await;
-            self.refuse(request, Outcome::ProxyAuthenticationRequired, None);
+            self.refuse(
+                &[VERSION, NO_ACCEPTABLE_METHOD],
+                request,
+                Outcome::ProxyAuthenticationRequired,
+                None,
+            )
+            .await;
             return None;
         }
         self.write(&[VERSION, USERNAME_PASSWORD]).await;
         let given = self.read_credentials().await.ok()?;
         request.username = Some(given.0.clone());
         let Some(username) = accepted(Some(&given), &self.context.credentials) else {
-            self.write(&[CREDENTIALS_VERSION, 1]).await;
-            self.refuse(request, Outcome::ProxyAuthenticationRequired, None);
+            self.refuse(
+                &[CREDENTIALS_VERSION, 1],
+                request,
+                Outcome::ProxyAuthenticationRequired,
+                None,
+            )
+            .await;
             return None;
         };
         self.write(&[CREDENTIALS_VERSION, 0]).await;
@@ -109,8 +119,13 @@ impl Exchange<'_> {
     /// between them until either closes.
     async fn connect(mut self, mut request: RelayRequest, proxy: &Proxy, username: Username) {
         let Ok((command, host, port)) = self.read_request().await else {
-            self.write(&reply(ADDRESS_NOT_SUPPORTED)).await;
-            self.refuse(request, Outcome::Malformed, None);
+            self.refuse(
+                &reply(ADDRESS_NOT_SUPPORTED),
+                request,
+                Outcome::Malformed,
+                None,
+            )
+            .await;
             return;
         };
         request.target = if host.contains(':') {
@@ -119,8 +134,13 @@ impl Exchange<'_> {
             format!("{host}:{port}")
         };
         if command != CONNECT {
-            self.write(&reply(COMMAND_NOT_SUPPORTED)).await;
-            self.refuse(request, Outcome::Malformed, None);
+            self.refuse(
+                &reply(COMMAND_NOT_SUPPORTED),
+                request,
+                Outcome::Malformed,
+                None,
+            )
+            .await;
             return;
         }
         let context = self.context;
@@ -137,14 +157,19 @@ impl Exchange<'_> {
             .ok()
             .or_else(|| context.zone.resolve(&host));
         let Some(ip) = resolved else {
-            self.write(&reply(HOST_UNREACHABLE)).await;
-            self.refuse(request, Outcome::Unresolved, None);
+            self.refuse(&reply(HOST_UNREACHABLE), request, Outcome::Unresolved, None)
+                .await;
             return;
         };
         let address = SocketAddr::new(ip, port);
         if !(ip.is_loopback() || ip == context.site) {
-            self.write(&reply(NOT_ALLOWED)).await;
-            self.refuse(request, Outcome::DestinationProhibited, Some(address));
+            self.refuse(
+                &reply(NOT_ALLOWED),
+                request,
+                Outcome::DestinationProhibited,
+                Some(address),
+            )
+            .await;
             return;
         }
         let Ok((socket, side)) = bound_socket(ip) else {
@@ -174,12 +199,21 @@ impl Exchange<'_> {
         record.ended(relay, Outcome::Relayed, bytes);
     }
 
-    /// Records a relay the proxy refused itself, `destination` the address
-    /// the target resolved to if it did.
-    fn refuse(&self, request: RelayRequest, outcome: Outcome, destination: Option<SocketAddr>) {
+    /// Refuses the relay with `answer`, `destination` the address the target
+    /// resolved to if it did. The relay is recorded before the answer goes,
+    /// as the forward proxies record theirs, so a client that read the
+    /// answer finds the refusal in the connection record.
+    async fn refuse(
+        &mut self,
+        answer: &[u8],
+        request: RelayRequest,
+        outcome: Outcome,
+        destination: Option<SocketAddr>,
+    ) {
         let observations = &self.context.observations;
         let record = observations.connection_record();
         let relay = record.relay(observations.stamp(), request, destination, None, outcome);
+        self.write(answer).await;
         record.ended(relay, outcome, carried(self.received, self.sent, (0, 0)));
     }
 

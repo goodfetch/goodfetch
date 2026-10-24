@@ -73,6 +73,7 @@ attempt_delay = 30000
 allowed_domains = ["example"]
 blocked_domains = ["example"]
 offline = true
+no_private_endpoints = true
 
 [settings.tls]
 trusted_cas = { "example.test" = ["example"] }
@@ -290,6 +291,7 @@ attempt_delay = 30000
 allowed_domains = ["example"]
 blocked_domains = ["example"]
 offline = true
+no_private_endpoints = true
 
 [lock.tls]
 trusted_cas = { "example.test" = ["example"] }

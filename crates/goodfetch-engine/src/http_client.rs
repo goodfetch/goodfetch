@@ -31,7 +31,12 @@
 //! `pinned_download`, the one path for every connection nobody configured,
 //! and the module of each kind of Operator-configured endpoint. Which
 //! modules call it is `modules.toml`'s list, which a test holds to those
-//! kinds.
+//! kinds, each a row of `goodfetch-protocol`'s `CONFIGURED_KINDS`. An
+//! Operator-configured endpoint goes through `ConfiguredEndpoint`, the
+//! second egress class (ADR 0017): its URL and every address it resolves
+//! to are judged under the Operator policy's `egress.no_private_endpoints`,
+//! and it takes no certificate exception or client certificate of a site,
+//! only the authorities trusted for its own domain (ADR 0042).
 
 use std::collections::BTreeMap;
 use std::future::ready;

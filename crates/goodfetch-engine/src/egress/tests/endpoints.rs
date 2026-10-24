@@ -112,7 +112,7 @@ fn an_endpoint_of_another_scheme_is_refused(#[case] url: &str) {
 #[rstest]
 #[case::set_in_the_operator_policy(true, EndpointPolicy::new(true))]
 #[case::unset(false, EndpointPolicy::new(false))]
-fn the_endpoint_policy_is_the_operator_policys_setting(
+fn the_endpoint_policy_is_the_setting_of_the_operator_policy(
     #[case] set: bool,
     #[case] expected: EndpointPolicy,
 ) {

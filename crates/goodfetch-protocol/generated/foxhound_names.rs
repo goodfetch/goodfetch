@@ -5,7 +5,7 @@
 pub const COMMANDS: &[&str] = &[];
 
 /// The error codes only Foxhound carries.
-pub const ERROR_CODES: &[&str] = &["attempt_ended", "client_gone", "handler_failed", "handler_lost", "lease_lost", "payload_invalid", "payload_schema_changed", "response_unavailable", "sample_crawl_refused"];
+pub const ERROR_CODES: &[&str] = &["attempt_ended", "client_gone", "handler_failed", "handler_lost", "lease_lost", "payload_invalid", "payload_schema_changed", "response_not_ok", "response_unavailable", "sample_crawl_refused"];
 
 /// The error groups only Foxhound carries.
 pub const ERROR_GROUPS: &[&str] = &[];
@@ -32,7 +32,7 @@ pub const OPERATIONS: &[&str] = &["crawl.serve", "crawl.start", "crawl_request.e
 pub const PLUGIN_KINDS: &[&str] = &["sample_page_filter"];
 
 /// The settings only Foxhound carries.
-pub const SETTINGS: &[&str] = &["crawl.domain_keys", "crawl.handler.concurrency", "crawl.keep_alive", "crawl.max_depth", "crawl.max_path_segments", "crawl.max_requests", "crawl.max_segment_repeats", "crawl.max_url_length", "crawl.path_budgets", "crawl.payload.max_size", "crawl.retry.handler_failed", "crawl.retry.max", "crawl.sample_pages", "crawl.scope.exclude", "crawl.scope.include", "crawl.scope.strategy", "delivery.report_guarantee_class", "delivery.write_ids_and_epochs", "fetch.coalesce", "fetch.hedge.enabled", "fetch.hedge.max_percent", "fetch.tier", "paid_fetch.chain_rpc_endpoints", "paid_fetch.domains", "paid_fetch.exchange_rates", "paid_fetch.max_price_per_page", "politeness.backoff.enabled", "politeness.backoff.initial", "politeness.backoff.max", "politeness.domain.concurrency", "politeness.domain.delay", "politeness.retry_after.max", "session.pool.max_age", "session.pool.max_error_score", "session.pool.max_size", "session.pool.max_uses", "site_preferences.robots_txt_user_agent", "timeout.handler"];
+pub const SETTINGS: &[&str] = &["crawl.domain_keys", "crawl.handle_statuses", "crawl.handler.concurrency", "crawl.keep_alive", "crawl.max_depth", "crawl.max_path_segments", "crawl.max_requests", "crawl.max_segment_repeats", "crawl.max_url_length", "crawl.path_budgets", "crawl.payload.max_size", "crawl.retry.handler_failed", "crawl.retry.max", "crawl.sample_pages", "crawl.scope.exclude", "crawl.scope.include", "crawl.scope.strategy", "delivery.report_guarantee_class", "delivery.write_ids_and_epochs", "fetch.coalesce", "fetch.hedge.enabled", "fetch.hedge.max_percent", "fetch.redirect.max", "fetch.refresh.max_delay", "fetch.tier", "paid_fetch.chain_rpc_endpoints", "paid_fetch.domains", "paid_fetch.exchange_rates", "paid_fetch.max_price_per_page", "politeness.backoff.enabled", "politeness.backoff.initial", "politeness.backoff.max", "politeness.domain.concurrency", "politeness.domain.delay", "politeness.retry_after.max", "session.pool.max_age", "session.pool.max_error_score", "session.pool.max_size", "session.pool.max_uses", "site_preferences.robots_txt_user_agent", "timeout.handler"];
 
 /// The shared type values only Foxhound carries.
 pub const SHARED_TYPE_VALUES: &[&str] = &["consent_required", "crawl.max_depth", "crawl.max_path_segments", "crawl.max_requests", "crawl.max_segment_repeats", "crawl.max_url_length", "crawl.path_budgets", "decoy", "model_allowance", "offset_pagination", "paid_fetch", "partitioned_crawl", "payment_required", "response_unavailable", "sample_crawled_pages", "trap_links_off", "trap_path"];

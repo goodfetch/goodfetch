@@ -328,6 +328,16 @@ pub const RESPONSE_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A response no handler is handed (ADRs 0093 and 0118).
+pub const RESPONSE_NOT_OK: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "response_not_ok",
+    description: "The response is not one a handler is handed: a 3xx that is not one of Fetch's redirect statuses (301, 302, 303, 307, 308), or a redirect whose `Location` is missing, does not parse or names no HTTP(S) URL. The details name the response's `url` and `status`, and a `fix` naming `crawl.handle_statuses`, which hands a status to the handler. Not retried: the site answers the same again.",
+    group: ErrorGroup::Page,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// An attempt whose lease ended with no word from the program (ADR 0093).
 pub const HANDLER_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "handler_lost",
@@ -374,6 +384,22 @@ pub const TIMEOUT_HANDLER: Setting = Setting {
     description: "How long a crawl's handler has for one attempt, which also bounds every action inside it, and from which a work item's lease is derived: the timeout plus the larger of 10 s and a tenth of it. 60 s, Crawlee's `requestHandlerTimeoutSecs`.",
     kind: ValueKind::Duration,
     default: one_minute,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn no_statuses() -> Value {
+    Value::Array(Vec::new())
+}
+
+/// `crawl.handle_statuses` (ADRs 0093 and 0118).
+pub const CRAWL_HANDLE_STATUSES: Setting = Setting {
+    name: "crawl.handle_statuses",
+    description: "Statuses whose responses go to the handler as they are: a redirect status listed here is not followed, and the handler gets the 3xx as its response. None by default.",
+    kind: ValueKind::List(&ValueKind::Count),
+    default: no_statuses,
     clearable: false,
     authority: Authority::Every,
     weakens: None,
@@ -493,6 +519,7 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[
         HANDLER_FAILED,
         RESPONSE_UNAVAILABLE,
+        RESPONSE_NOT_OK,
         HANDLER_LOST,
         CLIENT_GONE,
         LEASE_LOST,
@@ -502,6 +529,7 @@ pub const ENTRIES: Entries = Entries {
     metrics: &[WORK_ITEM_LEASED, WORK_ITEM_RETRIED],
     settings: &[
         TIMEOUT_HANDLER,
+        CRAWL_HANDLE_STATUSES,
         CRAWL_RETRY_MAX,
         CRAWL_RETRY_HANDLER_FAILED,
         CRAWL_HANDLER_CONCURRENCY,

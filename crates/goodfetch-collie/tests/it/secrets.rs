@@ -332,6 +332,10 @@ const HELD_SECRET: std::time::Duration = std::time::Duration::from_secs(15);
 /// Covers: operation:run.new_page, operation:page.goto, setting:proxy.password
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the test's own writer thread tells it when the Secret was released, outside any async worker"
+)]
 fn a_session_waiting_on_its_proxys_secret_holds_up_no_other_runs_page() {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};

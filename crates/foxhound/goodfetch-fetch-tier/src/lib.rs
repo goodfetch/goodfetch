@@ -5,7 +5,9 @@
 //! what each of its variants leads to, the engine's timeouts and the
 //! decoding of a body's content codings (`decoding`); each tier that sends
 //! HTTP itself fills its one primitive, `send(hop)`, with a transport
-//! (`transports`: reqwest in `standard` and `identified` Sessions). The
+//! (`transports`: reqwest in `standard` and `identified` Sessions, `wreq`
+//! in HTTP-only `stealth` ones, presenting the Session's HTTP profile,
+//! `http_profile`). The
 //! `tiers` module is the crate's one composition value (ADR 0087):
 //! [`FetchTiers`], which serves a crawl request on the tier `fetch.tier`
 //! names and hands its handler a Collie page served from the document.
@@ -15,11 +17,13 @@
 
 mod decoding;
 mod driver;
+mod http_profile;
 mod tiers;
 mod transports;
 
 pub use driver::{
     Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
 };
+pub use http_profile::HttpProfile;
 pub use tiers::{FetchTiers, HttpTier};
-pub use transports::{Reqwest, ReqwestConfig, ReqwestUnavailable};
+pub use transports::{Reqwest, TransportConfig, TransportUnavailable, Wreq};

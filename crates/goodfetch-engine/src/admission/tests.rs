@@ -235,7 +235,7 @@ fn a_second_copy_takes_a_permit_of_its_key_beside_its_first(
 /// at 60 a minute, a copy sent with its first waits a second for its turn,
 /// and goes once the second passed.
 ///
-/// Covers: story:3-63, setting:admission.max_requests_per_minute
+/// Covers: story:3-63
 #[test]
 fn a_second_copy_takes_its_share_of_the_rate_cap() {
     let rooms = on_the_runtime(async |owner| {

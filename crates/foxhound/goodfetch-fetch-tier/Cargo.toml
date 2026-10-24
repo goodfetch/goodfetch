@@ -25,8 +25,9 @@ http2.workspace = true
 hyper.workspace = true
 reqwest = { workspace = true, features = ["http2", "rustls-no-provider"] }
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }
 tower-layer.workspace = true
 tower-service.workspace = true
 url.workspace = true
@@ -38,8 +39,8 @@ zstd.workspace = true
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true
+proptest.workspace = true
 rstest.workspace = true
-serde_json.workspace = true
 toml.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "time", "net"] }
 

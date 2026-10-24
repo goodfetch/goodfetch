@@ -558,7 +558,7 @@ impl Admission {
                 politeness: shared.politeness.clone(),
                 holder: shared.holder.clone(),
                 rule: Arc::clone(&shared.rule),
-                clock: shared.clock.clone(),
+                clock: shared.clock,
             }),
             rate: Arc::clone(&self.rate),
         }

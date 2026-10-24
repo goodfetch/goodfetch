@@ -33,7 +33,7 @@ pub(crate) const PROVENANCE: &str = "trace/provenance.jsonl";
 /// # Cancel safety
 ///
 /// Dropping the future never stops a line being written once it began.
-pub(crate) async fn provenance(run: &Run, entry: &serde_json::Value) {
+pub async fn provenance(run: &Run, entry: &serde_json::Value) {
     let file = run.folder().join(PROVENANCE);
     let mut line = entry.to_string().into_bytes();
     line.push(b'\n');

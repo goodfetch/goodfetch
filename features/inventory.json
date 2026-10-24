@@ -6713,6 +6713,16 @@
       ]
     },
     {
+      "id": "setting:site_preferences.robots_txt_user_agent",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:storage.critical_free",
       "kind": "setting",
       "area": 3,

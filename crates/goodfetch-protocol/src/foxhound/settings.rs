@@ -203,6 +203,24 @@ pub const POLITENESS_RETRY_AFTER_MAX: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// Any value, which names a robots.txt group beside Foxhound's and so may
+/// press a site harder (ADR 0086).
+fn set(value: &Value) -> bool {
+    !value.is_null()
+}
+
+/// `site_preferences.robots_txt_user_agent` (ADRs 0086 and 0090).
+pub const SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT: Setting = Setting {
+    name: "site_preferences.robots_txt_user_agent",
+    description: "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder.",
+    kind: ValueKind::Text,
+    default: null,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: Some(set),
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -225,6 +243,7 @@ pub const ENTRIES: Entries = Entries {
         POLITENESS_BACKOFF_INITIAL,
         POLITENESS_BACKOFF_MAX,
         POLITENESS_RETRY_AFTER_MAX,
+        SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
     ],
     hook_stages: &[],
     shared_type_values: &[],

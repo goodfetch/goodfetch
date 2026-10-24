@@ -22,7 +22,9 @@
 use std::collections::BTreeSet;
 use std::sync::mpsc;
 
-use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, cli, pty};
+use goodfetch_test_support::{
+    Canaries, Canary, Hit, Output, ProvingGround, SecretKind, TestEnv, browser_cache, cli, pty,
+};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -138,6 +140,41 @@ fn a_client_acting_for_a_model_sets_no_proxy_on_a_run_or_a_session() {
     );
 }
 
+/// The project configuration a Client acting for a model sends with
+/// `run.start` is the model's too, so it sets no proxy either.
+///
+/// Covers: story:5-88, setting:proxy.server, error:setting_locked
+#[test]
+fn a_client_acting_for_a_model_sets_no_proxy_through_the_project_configuration_it_sends() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    engine.send(&hello_for_a_model());
+    let _ = engine.next();
+
+    let started = call(
+        &mut engine,
+        1,
+        "run.start",
+        &json!({
+            "run_id": "proxied",
+            "project": {
+                "path": "goodfetch.toml",
+                "settings": { "proxy": { "server": "http://127.0.0.1:3128" } },
+            },
+        }),
+    );
+    let _ = engine.finish();
+
+    assert_eq!(
+        refusal_of(&started),
+        (
+            json!("setting_locked"),
+            json!("proxy.server"),
+            json!("project_configuration")
+        )
+    );
+}
+
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 708;
 
@@ -216,11 +253,19 @@ fn a_failing_proxy_raises_a_proxy_error_never_navigation_failed(
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let credentials = &proving_ground.description().fixtures.proxy_credentials;
+    // The wrong password the proxy refuses with its 407, a canary the
+    // engine reads from its environment through the `env:` Secret provider.
+    let mut canaries = Canaries::new(env.seed());
+    let wrong = canaries.plant(SecretKind::ProxyPassword).value().to_owned();
     let (name, username, password) = match failing {
         Failing::RefusedTunnel => ("refusing_tunnels", None, ""),
         Failing::Down => ("down", None, ""),
         Failing::NoCredentials => ("datacenter", None, ""),
-        Failing::WrongPassword => ("datacenter", Some(credentials.username.as_str()), "wrong"),
+        Failing::WrongPassword => (
+            "datacenter",
+            Some(credentials.username.as_str()),
+            wrong.as_str(),
+        ),
     };
     let proxy = proxy_settings(&proving_ground, "http", name, username);
     let mut engine = started_through(&env, &cache, &proving_ground, "failing", proxy, password);
@@ -245,21 +290,28 @@ fn a_failing_proxy_raises_a_proxy_error_never_navigation_failed(
         "page.goto",
         &json!({ "page_id": page.page_id, "url": url }),
     );
+    let arguments = crate::page::browser_command_lines(&env);
     let _ = call(
         &mut engine,
         4,
         "run.finish",
         &json!({ "run_id": "failing" }),
     );
-    let _ = engine.finish();
+    let (_, stderr) = engine.finish_with_stderr();
 
     let data = &navigated["error"]["data"];
     assert_eq!(
-        (&data["code"], &data["retryable"], &data["proxy"]),
+        (
+            &data["code"],
+            &data["retryable"],
+            &data["proxy"],
+            leaks_of(&canaries, env.home(), &stderr, &arguments),
+        ),
         (
             &json!(code),
             &json!(retryable),
-            &json!(format!("http://{}", proxy_address(&proving_ground, name)))
+            &json!(format!("http://{}", proxy_address(&proving_ground, name))),
+            Vec::new(),
         ),
         "{navigated}"
     );
@@ -370,6 +422,50 @@ fn two_sessions_of_one_run_reach_the_site_each_through_its_own_proxy() {
     );
 }
 
+/// A SOCKS5 proxy with credentials whose host has no address fails the
+/// Session's open, before any request: `proxy_unavailable` names the proxy
+/// and no URL.
+///
+/// Covers: story:5-88, setting:proxy.server, error:proxy_unavailable
+#[cfg(unix)]
+#[test]
+fn a_proxy_that_fails_the_sessions_open_names_no_url() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let proxy = json!({
+        "server": "socks5://nowhere.invalid:1080",
+        "username": "user",
+        "password": format!("env:{PASSWORD_VARIABLE}"),
+    });
+    let mut engine = started_through(&env, &cache, &proving_ground, "nowhere", proxy, "secret");
+
+    let opened = call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "nowhere" }),
+    );
+    let _ = call(
+        &mut engine,
+        3,
+        "run.finish",
+        &json!({ "run_id": "nowhere" }),
+    );
+    let _ = engine.finish();
+
+    let data = &opened["error"]["data"];
+    assert_eq!(
+        (&data["code"], &data["proxy"], data.get("url")),
+        (
+            &json!("proxy_unavailable"),
+            &json!("socks5://nowhere.invalid:1080"),
+            None
+        ),
+        "{opened}"
+    );
+}
+
 /// Covers: story:5-88, setting:proxy.bypass
 #[cfg(unix)]
 #[test]
@@ -458,34 +554,43 @@ fn a_proxy_per_page_or_per_request_is_refused(#[case] method: &str, #[case] para
     );
 }
 
-/// The files under `folder`, at any depth, whose bytes hold `secret`.
-fn files_holding(folder: &std::path::Path, secret: &str) -> Vec<std::path::PathBuf> {
-    let mut holding = Vec::new();
-    let mut folders = vec![folder.to_owned()];
-    while let Some(folder) = folders.pop() {
-        for entry in std::fs::read_dir(&folder).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                folders.push(path);
-            } else if std::fs::read(&path).is_ok_and(|bytes| {
-                bytes
-                    .windows(secret.len())
-                    .any(|window| window == secret.as_bytes())
-            }) {
-                holding.push(path);
-            }
-        }
-    }
-    holding
+/// Where the engine left any of `canaries` in what it writes: the files of
+/// the Goodfetch home `home`, at any depth, its stderr and the browser's
+/// command lines, in every encoding a search reads.
+fn leaks_of(
+    canaries: &Canaries,
+    home: &std::path::Path,
+    stderr: &str,
+    arguments: &[String],
+) -> Vec<Hit> {
+    let arguments = arguments.join(
+        "
+",
+    );
+    canaries
+        .leaks(&[
+            Output::Path(home),
+            Output::Bytes {
+                name: "stderr",
+                bytes: stderr.as_bytes(),
+            },
+            Output::Bytes {
+                name: "the browser's command lines",
+                bytes: arguments.as_bytes(),
+            },
+        ])
+        .unwrap()
 }
 
 /// Covers: story:5-88, setting:proxy.server, setting:proxy.username, setting:proxy.password
 #[cfg(unix)]
 #[rstest]
-#[case::socks5("socks5")]
-#[case::socks5h("socks5h")]
+#[case::socks5("socks5", false)]
+#[case::socks5h("socks5h", false)]
+#[case::socks5h_named_by_network_resolve("socks5h", true)]
 fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_relay_alone(
     #[case] scheme: &str,
+    #[case] named: bool,
 ) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
@@ -495,12 +600,32 @@ fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_rela
         .fixtures
         .proxy_credentials
         .clone();
-    let proxy = proxy_settings(
+    // The proxy's password, which the engine reads from its environment
+    // through the `env:` Secret provider.
+    let mut canaries = Canaries::new(env.seed());
+    canaries.add(Canary::known(
+        "proxy-password",
+        SecretKind::ProxyPassword,
+        &credentials.password,
+    ));
+    let mut proxy = proxy_settings(
         &proving_ground,
         scheme,
         "socks5",
         Some(&credentials.username),
     );
+    if named {
+        // The proxy's host by a name the Run's `network.resolve` maps.
+        let address = proxy_address(&proving_ground, "socks5");
+        let (ip, port) = address.rsplit_once(':').unwrap();
+        let name = proving_ground
+            .description()
+            .resolve
+            .iter()
+            .find_map(|(host, mapped)| (mapped == ip).then_some(host))
+            .unwrap();
+        proxy["server"] = json!(format!("{scheme}://{name}:{port}"));
+    }
     let mut engine = started_through(
         &env,
         &cache,
@@ -552,11 +677,7 @@ fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_rela
             &navigated["result"]["response"]["status"],
             relays.first(),
             arguments.is_empty(),
-            arguments
-                .iter()
-                .any(|line| line.contains(&credentials.password)),
-            stderr.contains(&credentials.password),
-            files_holding(env.home(), &credentials.password),
+            leaks_of(&canaries, env.home(), &stderr, &arguments),
         ),
         (
             &json!(200),
@@ -566,9 +687,7 @@ fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_rela
                 "relayed"
             ])),
             false,
-            false,
-            false,
-            Vec::<std::path::PathBuf>::new(),
+            Vec::new(),
         ),
         "{navigated}"
     );

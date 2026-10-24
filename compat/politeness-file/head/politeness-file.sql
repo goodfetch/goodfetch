@@ -31,7 +31,6 @@ CREATE TABLE proxy_limits (
 INSERT INTO "proxy_limits" VALUES('proxy http://proxy.test:3128 corpus',1,1767603610300,1767603610000);
 CREATE TABLE returns (key TEXT NOT NULL PRIMARY KEY, generation INTEGER NOT NULL) STRICT;
 INSERT INTO "returns" VALUES('shop.test',2);
-INSERT INTO "returns" VALUES('proxy http://proxy.test:3128 corpus',1);
 CREATE TABLE robots_txt (
             location TEXT NOT NULL PRIMARY KEY,
             fetched_at INTEGER NOT NULL,

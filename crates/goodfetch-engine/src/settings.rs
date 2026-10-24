@@ -86,8 +86,9 @@ pub struct Opening {
     pub settings: Map<String, Value>,
     /// Where the run layer's values came from.
     pub origin: Option<RunOrigin>,
-    /// Whether a Client acting for a model gave the run layer's values, so
-    /// that a key no model sets is refused (ADR 0092).
+    /// Whether a Client acting for a model gave the run layer's values and
+    /// the project configuration, so that a key no model sets is refused
+    /// (ADR 0092).
     pub acting_for_model: bool,
 }
 
@@ -173,7 +174,7 @@ impl Settings {
     ) -> Result<(RunSettings, MachineLayers), SettingsError> {
         let machine = self.machine().await?;
         let engine = self.0.product;
-        let project = match &opening.project {
+        let mut project = match &opening.project {
             Some(project) => Values::read(
                 SettingsLayer::ProjectConfiguration,
                 &project.settings,
@@ -191,6 +192,9 @@ impl Settings {
             run = run.from_origin(origin);
         }
         if opening.acting_for_model {
+            // The Client sends the project configuration it found, so a
+            // model gives it as much as the run layer (ADR 0092).
+            project = project.from_model();
             run = run.from_model();
         }
         let layers = Layers {

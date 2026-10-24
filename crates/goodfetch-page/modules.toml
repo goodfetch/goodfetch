@@ -65,9 +65,10 @@ rules = []
 
 # Which of `proxy`'s own modules may import which.
 [submodules.proxy]
+bypass = []
 limits = []
 party = []
-relay = []
+relay = ["party"]
 
 # Which of `proxy_provider`'s own modules may import which.
 [submodules.proxy_provider]

@@ -546,7 +546,7 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
             key,
             SettingsLayer::ProjectConfiguration,
             value,
-            None,
+            Some(layers.project_configuration.given()),
         )?;
     }
     if let Some(recipe) = &layers.recipe {
@@ -601,7 +601,8 @@ fn above(value: &Value, bound: u64) -> bool {
     value.is_null() || value.as_u64().is_some_and(|value| value > bound)
 }
 
-/// Takes `value` from `layer` for `key`, as `given` for the run layer,
+/// Takes `value` from `layer` for `key`, as `given` for the run layer and
+/// the project configuration a Client sent,
 /// unless something holds the key.
 fn take(
     state: &mut State,

@@ -206,6 +206,9 @@ pub(crate) fn show_concurrency(run: &Run, handlers: usize, handler_concurrency: 
 #[derive(Debug, Default)]
 pub(crate) struct InFlight {
     requests: BTreeMap<String, InFlightRequest>,
+    /// How many waits for a navigation gate's permit each request's
+    /// handler pages have under way.
+    permit_waits: BTreeMap<String, usize>,
 }
 
 /// The crawl's requests in flight, shared by its delivery and its
@@ -227,9 +230,29 @@ impl InFlight {
         self.show(run);
     }
 
+    /// A page of the request `id`'s handler began to wait for a navigation
+    /// gate's permit: the request waits for one until every such wait ended.
+    pub(crate) fn permit_wait_began(&mut self, run: &Run, id: &str) {
+        *self.permit_waits.entry(id.to_owned()).or_default() += 1;
+        self.went_on(run, id, InFlightPhase::WaitingForPermit);
+    }
+
+    /// A wait [`InFlight::permit_wait_began`] counted ended.
+    pub(crate) fn permit_wait_ended(&mut self, run: &Run, id: &str) {
+        let left = self.permit_waits.get_mut(id).map(|waits| {
+            *waits = waits.saturating_sub(1);
+            *waits
+        });
+        if left == Some(0) {
+            self.permit_waits.remove(id);
+            self.went_on(run, id, InFlightPhase::Handling);
+        }
+    }
+
     /// The request `id` ended.
     pub(crate) fn ended(&mut self, run: &Run, id: &str) {
         self.requests.remove(id);
+        self.permit_waits.remove(id);
         self.show(run);
     }
 

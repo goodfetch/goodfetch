@@ -6,8 +6,10 @@
 // `network.json` on with its own fetch. A navigation of a page it controls
 // it sends on itself when its registration's query asks
 // (`navigations=pass`: the navigation's own request, in `navigate` mode;
-// `navigations=refetch`: a `cors` request to its URL, #720). Every other
-// request goes on as if no worker were there.
+// `navigations=refetch`: a `cors` request to its URL, #720), or answers
+// from a copy of the page it made in its Cache Storage as it installed
+// (`navigations=cache`, #760), sending nothing. Every other request goes on
+// as if no worker were there.
 "use strict";
 
 const query = self.location.search;
@@ -29,6 +31,14 @@ self.addEventListener("install", (event) => {
           headers: { "content-type": "application/json" },
         }),
       );
+      if (navigations === "cache") {
+        await cache.put(
+          `./${query}`,
+          new Response("<!doctype html><title>cached</title><p>From the worker's cache.</p>", {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+        );
+      }
       await Promise.all(
         own.map((url) =>
           fetch(url, { mode: "no-cors" })
@@ -55,5 +65,7 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(fetch(event.request));
   } else if (event.request.mode === "navigate" && navigations === "refetch") {
     event.respondWith(fetch(event.request.url, { mode: "cors", credentials: "include" }));
+  } else if (event.request.mode === "navigate" && navigations === "cache") {
+    event.respondWith(caches.match(event.request.url));
   }
 });

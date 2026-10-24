@@ -39,8 +39,4 @@ pub mod url_pattern;
 
 pub use clean_up_versions::manifest_file;
 pub use pages::{contribution, contribution_with};
-/// A proxy's limits, shared by every run of a user (ADRs 0053 and 0088):
-/// the rule, its table in the Politeness file and the key of a proxy
-/// endpoint and credential, for the Politeness file's corpus writer.
-pub use proxy::{LIMITS_TABLES as PROXY_LIMITS_TABLES, ProxyRule, limits_key as proxy_limits_key};
 pub use trace::provenance;

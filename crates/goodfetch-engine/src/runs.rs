@@ -1432,21 +1432,8 @@ impl Run {
         if !admission.shares(settings) {
             return Ok(Some(admission));
         }
-        let politeness = if settings.value(POLITENESS_SHARING.name).as_str() == Some("run") {
-            Politeness::in_memory(self.admitting.politeness.tables.clone(), &self.owner).await?
-        } else {
-            let file = self.admitting.politeness.file().await?;
-            self.stop_on_failures(
-                file.storage_failures(),
-                self.admitting.politeness.path.parent(),
-            );
-            file
-        };
-        let holder = Holder {
-            run_id: self.id.to_string(),
-            epoch: self.state.epoch(),
-            run_folder: self.folder.clone(),
-        };
+        // The one Politeness the Run shares, its proxies' limits included.
+        let (politeness, holder) = self.politeness(settings).await?;
         Ok(Some(
             admission.sharing(politeness, holder, self.clock, settings),
         ))

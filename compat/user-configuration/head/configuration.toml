@@ -247,3 +247,6 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [settings.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
+
+[settings.site_preferences]
+robots_txt_user_agent = "example"

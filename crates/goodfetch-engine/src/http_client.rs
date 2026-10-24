@@ -37,6 +37,10 @@
 //! to are judged under the Operator policy's `egress.no_private_endpoints`,
 //! and it takes no certificate exception or client certificate of a site,
 //! only the authorities trusted for its own domain (ADR 0042).
+//!
+//! Size: one client, whose lookup, egress judgement, connection race, TLS
+//! and request all serve the same request on the same connection; the
+//! proxy's tunnel is in its own module.
 
 use std::collections::BTreeMap;
 use std::future::ready;

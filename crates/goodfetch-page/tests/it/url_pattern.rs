@@ -30,6 +30,9 @@ fn a_regular_expression_matches_anywhere_in_the_url(
 #[case::look_behind(r"(?<=/api)/items", PatternConstruct::LookAround)]
 #[case::negative_look_behind(r"(?<!/admin)/items", PatternConstruct::LookAround)]
 #[case::numbered_back_reference(r"/(\w+)/\1", PatternConstruct::Backreference)]
+#[case::named_back_reference(r"/(?<part>\w+)/\k<part>", PatternConstruct::Backreference)]
+#[case::pythons_named_back_reference(r"/(?P<part>\w+)/(?P=part)", PatternConstruct::Backreference)]
+#[case::javascripts_null_character(r"/items\0", PatternConstruct::Other)]
 #[case::unclosed_group(r"/items(", PatternConstruct::Other)]
 #[case::javascripts_any_character_class(r"/items/[^]", PatternConstruct::Other)]
 fn a_construct_outside_the_regex_syntax_is_refused_by_name(

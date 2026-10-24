@@ -168,7 +168,7 @@ impl Hiding {
             .lock()
             .await
             .insert(page_id.clone(), Arc::downgrade(&page));
-        let events = driver.events().await;
+        let events = driver.events();
         driver
             .opening_command(&dom::EnableParams::default())
             .await?;

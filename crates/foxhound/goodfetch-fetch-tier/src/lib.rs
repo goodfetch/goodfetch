@@ -15,6 +15,7 @@
 //! and Collie's `cargo-deny` ban list keeps its HTTP transports out of
 //! Collie's executable (STYLE.md, reason 2).
 
+mod canonical;
 mod decoding;
 mod driver;
 mod hedging;
@@ -28,5 +29,5 @@ pub use driver::{
 };
 pub use http_profile::HttpProfile;
 pub use redundant::Requester;
-pub use tiers::{FetchTiers, HttpTier};
+pub use tiers::{FetchTiers, HttpTier, Signed};
 pub use transports::{Reqwest, TransportConfig, TransportUnavailable, Wreq};

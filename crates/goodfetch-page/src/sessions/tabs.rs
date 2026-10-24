@@ -17,6 +17,8 @@ use std::sync::Arc;
 use goodfetch_cdp::generated::target;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::governor::Permit;
+use goodfetch_engine::runs::Run;
+use goodfetch_engine::settings::Values;
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::connection::ClosedValue;
 use goodfetch_protocol::governor::WorkKind;
@@ -28,9 +30,9 @@ use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 
 use super::life::{Ending, PageLife, session_closed};
 use super::lifecycle::PageEffect;
-use super::{OpenPage, Session, Sessions, timeouts, wait_deadline};
+use super::{OpenPage, Session, Sessions, action_timeout, wait_deadline};
 use crate::driver::{OnPopup, PageDriver};
-use crate::hiding::Sheets;
+use crate::hiding::{PageHiding, Sheets};
 use crate::page_events::{PageEvents, Refusals};
 use crate::page_value::ResponseObserver;
 use crate::pool::InBrowser;
@@ -107,7 +109,7 @@ impl Sessions {
         } = adopting;
         let run = open.run.clone();
         let session = &super::session_id(run.id(), open.position);
-        let (_, action_timeout) = timeouts(&run);
+        let action_timeout = action_timeout(&run);
         let page = {
             let mut state = self.state.lock().await;
             state.opened_pages += 1;
@@ -122,36 +124,21 @@ impl Sessions {
             &run,
             stream.clone(),
             refusals.clone(),
-            driver.events().await,
+            driver.events(),
             wait_deadline(&run),
         );
         self.events.insert(page.clone(), events);
         self.dialogs
-            .start(page.clone(), driver.clone(), &run, driver.events().await);
+            .start(page.clone(), driver.clone(), &run, driver.events());
         let pages = std::slice::from_ref(&page);
-        let started = async {
-            let clean_up = self
-                .interception
-                .start(
-                    &page,
-                    session,
-                    &driver,
-                    &run,
-                    &open.settings,
-                    refusals,
-                    observer,
-                )
-                .await?;
-            // Live hiding and the Consent prompt runner share each
-            // document's one hiding sheet.
-            let sheets = Arc::new(Sheets::new(driver.clone()));
-            let hiding = self
-                .hiding
-                .start(&page, session, &driver, &run, &clean_up, &sheets)
-                .await?;
-            self.consent.start(&page, &driver, &run, &sheets).await?;
-            Ok::<_, CallError>(hiding)
-        };
+        let started = self.hold(
+            (&page, session),
+            &driver,
+            &run,
+            &open.settings,
+            refusals,
+            observer,
+        );
         let hiding = match started.await {
             Ok(hiding) => hiding,
             Err(error) => {
@@ -201,6 +188,40 @@ impl Sessions {
         Ok(page)
     }
 
+    /// Puts the page `page` of the Session `session`, which `driver` drives
+    /// with the Session's own `settings`, under the interception, live
+    /// hiding and the Consent prompt runner, each of its out-of-process
+    /// frames and dedicated workers held by them before it runs; answers
+    /// its live hiding.
+    async fn hold(
+        &self,
+        (page, session): (&PageId, &SessionId),
+        driver: &PageDriver,
+        run: &Run,
+        settings: &Values,
+        refusals: Refusals,
+        observer: Option<Arc<dyn ResponseObserver>>,
+    ) -> Result<Option<Arc<PageHiding>>, CallError> {
+        let held = self
+            .interception
+            .start(page, session, driver, run, settings, refusals, observer)
+            .await?;
+        // Live hiding and the Consent prompt runner share each document's
+        // one hiding sheet.
+        let sheets = Arc::new(Sheets::new(driver.clone()));
+        let hiding = self
+            .hiding
+            .start(page, session, driver, run, &held.clean_up, &sheets)
+            .await?;
+        let consent = self.consent.start(page, driver, run, &sheets).await?;
+        // Each out-of-process frame and dedicated worker waits until the
+        // interception holds it and the runner prepared it.
+        driver
+            .follow_children(run, vec![held.children, consent])
+            .await?;
+        Ok(hiding)
+    }
+
     /// What the Session `session` does with a popup one of its pages
     /// opened.
     fn popups_of(&self, session: &SessionId) -> OnPopup {
@@ -233,14 +254,10 @@ impl Sessions {
             return;
         };
         let run = open.run.clone();
-        let (navigation_timeout, _) = timeouts(&run);
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
-        let in_browser = open
-            .seat
-            .popup_in(opener.in_browser.browser(), &driver)
-            .await;
+        let in_browser = open.seat.popup_in(opener.in_browser.browser(), &driver);
         let driver = driver
-            .for_session(open.proxy.clone(), navigation_timeout)
+            .for_session(open.proxy.clone())
             .with_value(opener.driver.value().clone(), run.clock());
         let adopted = self
             .adopt(Adopting {

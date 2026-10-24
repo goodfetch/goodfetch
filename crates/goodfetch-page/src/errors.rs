@@ -1,17 +1,21 @@
 //! What each CDP failure raises (ADR 0127): the CDP client types every
 //! error and disconnection of the browser's as a [`Failure`]; this module
 //! is where each variant becomes the Error code of the call that met it.
-//! A lost browser or page is `page_crashed`, with how the browser ended
-//! when it is the browser that was lost; any other failure is the call's
+//! Any failure but a deadline while a launched browser comes up is
+//! `browser_launch_failed`, naming how the browser ended when it did. A
+//! lost browser or page is `page_crashed`, with how the browser ended
+//! when it is the browser that was lost; a command the browser leaves
+//! unanswered past the call's deadline is `deadline_exceeded` naming the
+//! call's timeout setting (ADR 0080); any other failure is the call's
 //! generic code: `navigation_failed` for a navigation and for reading the
 //! history it goes through, as ADR 0085 names it, `browser_launch_failed`
 //! for opening a page, `page_crashed` for reading a live page's document,
-//! which only a broken renderer refuses or leaves unanswered, and an
-//! internal error for a locator action or a page function, which have no
-//! generic code.
+//! which only a broken renderer refuses, and an internal error for a
+//! locator action or a page function, which have no generic code.
 
 use goodfetch_cdp::{Failure, Refusal};
 use goodfetch_engine::CallError;
+use goodfetch_engine::deadline::Deadline;
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CallCancelledDetails, ClosedValue, INTERNAL, InternalDetails, StoppedBy,
 };
@@ -33,8 +37,15 @@ use crate::page_value::Refusal as GateRefusal;
 /// The call a failure met.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Call {
-    /// Opening a page: the launch's last steps, a browser context, a
-    /// target and its domains. Holds the browser's executable.
+    /// Bringing up a browser the engine launched: its first answer, the
+    /// identity a headless one shows, and the attach to its workers. Holds
+    /// the browser's executable.
+    Launch {
+        /// The browser's executable.
+        executable: String,
+    },
+    /// Opening a page: a browser context, a target and its domains, in a
+    /// browser that came up. Holds the browser's executable.
     OpenPage {
         /// The browser's executable.
         executable: String,
@@ -57,11 +68,38 @@ pub(crate) enum Call {
     },
 }
 
+/// What a call whose command the browser left unanswered waited for, as
+/// its `deadline_exceeded` names it.
+const BROWSER_ANSWER: &str = "browser_answer";
+
 /// The Error code `failure` raises from `call`; `exit` says how the browser
-/// ended, when it did.
-pub(crate) fn call_error(call: &Call, failure: &Failure, exit: Option<BrowserExit>) -> CallError {
+/// ended, when it did, and `deadline` is the call's, which bounded the
+/// command.
+pub(crate) fn call_error(
+    call: &Call,
+    failure: &Failure,
+    exit: Option<BrowserExit>,
+    deadline: &Deadline,
+) -> CallError {
     if let Failure::Withheld { method } = failure {
         return lease_ended(method);
+    }
+    // The browser left the command unanswered past the call's own deadline,
+    // which bounds each command it sends (ADR 0080).
+    if let Failure::TimedOut { .. } = failure {
+        return deadline.exceeded(BROWSER_ANSWER, deadline.duration());
+    }
+    // A browser lost or refusing before it came up never started: it is
+    // the launch that failed, however it ended (ADR 0115).
+    if let Call::Launch { executable } = call {
+        return CallError::new(
+            &BROWSER_LAUNCH_FAILED,
+            format!("the browser at {executable} did not come up: {failure}"),
+            &BrowserLaunchFailedDetails {
+                executable: executable.clone(),
+                exit,
+            },
+        );
     }
     let lost = match failure {
         Failure::Disconnected => Some(exit.clone()),
@@ -83,7 +121,7 @@ pub(crate) fn call_error(call: &Call, failure: &Failure, exit: Option<BrowserExi
             &NAVIGATION_FAILED,
             format!("the navigation to {url} failed: {failure}"),
             &NavigationFailedDetails {
-                url: url.clone(),
+                url: Some(url.clone()),
                 error: None,
             },
         ),
@@ -98,11 +136,11 @@ pub(crate) fn call_error(call: &Call, failure: &Failure, exit: Option<BrowserExi
                 "the page's history, which the navigation goes through, did not read: {failure}"
             ),
             &NavigationFailedDetails {
-                url: String::new(),
+                url: None,
                 error: None,
             },
         ),
-        Call::OpenPage { executable } => CallError::new(
+        Call::Launch { executable } | Call::OpenPage { executable } => CallError::new(
             &BROWSER_LAUNCH_FAILED,
             format!("the browser did not open the page: {failure}"),
             &BrowserLaunchFailedDetails {
@@ -289,10 +327,15 @@ pub(crate) fn too_many_redirects(url: &str, chain: Vec<String>) -> CallError {
 /// `response_truncated` for the document of the navigation to `url`, whose
 /// body broke off after `received` bytes of the `expected`.
 pub(crate) fn truncated(url: &str, received: u64, expected: Option<u64>) -> CallError {
-    let of = expected.map_or_else(String::new, |expected| format!(" of {expected}"));
+    // `received` counts decoded bytes and `expected` the bytes as sent, so
+    // a compressed body's count can pass its `Content-Length`: the two are
+    // never read as a fraction.
+    let of = expected.map_or_else(String::new, |expected| {
+        format!("; its `Content-Length` declared {expected} as sent")
+    });
     CallError::new(
         &RESPONSE_TRUNCATED,
-        format!("the document of {url} broke off after {received} bytes{of}"),
+        format!("the document of {url} broke off after {received} bytes once decoded{of}"),
         &ResponseTruncatedDetails {
             url: url.to_owned(),
             received,
@@ -307,7 +350,7 @@ pub(crate) fn network_error(url: &str, error: &str) -> CallError {
         &NAVIGATION_FAILED,
         format!("the navigation to {url} failed: {error}"),
         &NavigationFailedDetails {
-            url: url.to_owned(),
+            url: Some(url.to_owned()),
             error: Some(error.to_owned()),
         },
     )

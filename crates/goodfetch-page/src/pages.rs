@@ -199,7 +199,7 @@ fn with_request_handler(contribution: Contribution, pages: &Pages) -> Contributi
         &PAGE_REQUEST,
         move |params: PageRequestParams, context: CallContext| {
             let pages = requesting.clone();
-            async move { pages.request(params, context.surface()).await }
+            async move { Box::pin(pages.request(params, context.surface())).await }
         },
     ))
 }

@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "26"
+version = "27"
 
 [[capability]]
 name = "sessions.default"
@@ -38,6 +38,10 @@ covers = ["story:5-62", "operation:run.new_session", "error:setting_not_applicab
 [[capability.case]]
 id = "new-work-on-a-finished-run-raises-run-ended"
 covers = ["operation:run.new_session", "operation:run.new_page", "error:run_ended"]
+
+[[capability.case]]
+id = "closing-a-session-whose-run-ended-changes-nothing"
+covers = ["story:5-60", "operation:run.new_session", "operation:session.close"]
 
 [[capability]]
 name = "sessions.page_check"
@@ -145,6 +149,10 @@ name = "navigation.back_forward_cache"
 id = "going-back-loads-the-document-again"
 covers = ["story:5-24", "operation:page.go_back"]
 
+[[capability.case]]
+id = "a-wait-armed-before-going-back-passes"
+covers = ["story:5-24", "operation:page.go_back", "operation:page.wait_for_url", "operation:page.wait_for_response"]
+
 [[capability]]
 name = "navigation.failures"
 
@@ -155,6 +163,10 @@ covers = ["story:5-26", "operation:page.goto", "error:navigation_failed"]
 [[capability.case]]
 id = "a-navigation-superseded-before-it-committed-is-interrupted"
 covers = ["operation:page.goto", "error:navigation_interrupted"]
+
+[[capability.case]]
+id = "a-navigation-whose-document-does-not-load-in-time-raises-deadline-exceeded"
+covers = ["story:3-52", "operation:page.goto", "setting:timeout.navigation", "error:deadline_exceeded"]
 
 [[capability]]
 name = "navigation.redirects"
@@ -240,6 +252,10 @@ covers = ["story:5-3", "operation:locator.click", "error:target_not_unique", "se
 [[capability.case]]
 id = "a-target-never-actionable-raises-deadline-exceeded-naming-the-step"
 covers = ["story:5-2", "operation:locator.click", "error:deadline_exceeded", "setting:timeout.action"]
+
+[[capability.case]]
+id = "an-action-on-a-busy-page-raises-deadline-exceeded-at-its-deadline"
+covers = ["operation:locator.click", "operation:page.evaluate", "error:deadline_exceeded", "setting:timeout.action"]
 
 [[capability]]
 name = "locators.input"
@@ -448,6 +464,10 @@ covers = ["story:5-49", "operation:session.route", "operation:page.route", "even
 id = "with-service-workers-blocked-register-rejects-natively-and-the-pages-calls-reach-its-route"
 covers = ["story:5-50", "setting:browser.service_workers", "operation:run.new_session", "operation:page.route"]
 
+[[capability.case]]
+id = "a-headless-service-workers-requests-show-the-site-its-windows-identity"
+covers = ["story:5-56", "setting:browser.headless", "operation:page.goto"]
+
 [[capability]]
 name = "page_request"
 
@@ -552,6 +572,10 @@ covers = ["story:5-19", "story:5-20", "operation:page.wait_for_response", "opera
 [[capability.case]]
 id = "locator-and-function-waits-resolve-on-re-rendering-pages"
 covers = ["story:5-19", "operation:locator.wait_for", "operation:locator.wait_for_count", "operation:page.wait_for_function"]
+
+[[capability.case]]
+id = "a-route-or-a-wait-whose-pattern-the-engine-cannot-match-is-refused-at-the-call"
+covers = ["story:5-43", "error:pattern_unsupported", "operation:page.route", "operation:page.wait_for_url"]
 
 [[capability.case]]
 id = "each-wait-ends-at-timeout-wait-naming-what-it-waited-for"

@@ -13,8 +13,14 @@
 //! only the kind of request a worker's script is and knows it by the
 //! `Service-Worker: script` header and the worker it loads.
 //!
+//! A site's shared worker, which belongs to no page either, is attached the
+//! same way and handed to its context's Session, whose interception holds
+//! its requests before it runs, whatever the context chose for its service
+//! workers (ADR 0014).
+//!
 //! Any other worker (a browser extension's, or one of a context no Session
-//! named) is let run untouched.
+//! named) is let run untouched, but for a headless browser's identity,
+//! which every worker takes before it runs, as every page does (`identity`).
 #![expect(
     clippy::disallowed_types,
     reason = "each context's choice is set once and read by the browser's one event reader, each lock held for one map operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -23,7 +29,6 @@
 use std::collections::BTreeMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
 
 use goodfetch_cdp::generated::{browser, fetch, network, runtime, target};
 use goodfetch_cdp::{SessionId as TargetSession, Subscription};
@@ -38,15 +43,18 @@ use crate::proxy::SessionProxy;
 /// The target type of a service worker.
 const SERVICE_WORKER: &str = "service_worker";
 
+/// The target type of a shared worker.
+const SHARED_WORKER: &str = "shared_worker";
+
 /// The header the browser's fetch of a worker's script carries.
 const SCRIPT_HEADER: &str = "service-worker";
 
-/// What one service worker's Session does once the browser attached the
-/// engine to it, before it runs: given the worker's driver and the token
-/// cancelled once the worker's target goes, it answers whether the
-/// interception now holds the worker's requests. A worker it does not hold
-/// never runs: the domain policy fails closed (ADR 0014).
-pub(crate) type OnServiceWorker = Arc<
+/// What one service or shared worker's Session does once the browser
+/// attached the engine to it, before it runs: given the worker's driver and
+/// the token cancelled once the worker's target goes, it answers whether
+/// the interception now holds the worker's requests. A worker it does not
+/// hold never runs: the domain policy fails closed (ADR 0014).
+pub(crate) type OnWorker = Arc<
     dyn Fn(PageDriver, CancellationToken) -> Pin<Box<dyn Future<Output = bool> + Send>>
         + Send
         + Sync,
@@ -56,7 +64,7 @@ pub(crate) type OnServiceWorker = Arc<
 #[derive(Clone)]
 pub(crate) enum ServiceWorkers {
     /// They run, each first handed to its Session's interception.
-    Allow(OnServiceWorker),
+    Allow(OnWorker),
     /// None runs: the fetch of each one's script fails.
     Block,
 }
@@ -66,6 +74,8 @@ pub(crate) enum ServiceWorkers {
 #[derive(Default)]
 pub(super) struct ServiceWorkerChoices {
     contexts: Mutex<BTreeMap<browser::BrowserContextID, ServiceWorkers>>,
+    /// What each context's Session does with its shared workers.
+    shared: Mutex<BTreeMap<browser::BrowserContextID, OnWorker>>,
     /// Each attached worker's token, by its session, cancelled once it goes.
     attached: Mutex<BTreeMap<TargetSession, CancellationToken>>,
     /// The browser's own interception of workers' scripts, once a context
@@ -81,6 +91,12 @@ impl ServiceWorkerChoices {
     /// The choice of the context `context`, if one was made.
     fn of(&self, context: Option<&browser::BrowserContextID>) -> Option<ServiceWorkers> {
         lock(&self.contexts).get(context?).cloned()
+    }
+
+    /// What the context `context` does with its shared workers, if a
+    /// Session said.
+    fn shared_of(&self, context: Option<&browser::BrowserContextID>) -> Option<OnWorker> {
+        lock(&self.shared).get(context?).cloned()
     }
 }
 
@@ -102,7 +118,6 @@ impl PageDriver {
             proxy: None,
             context,
             frame: worker,
-            navigation_timeout: Duration::ZERO,
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             turn: Arc::new(tokio::sync::Mutex::new(None)),
@@ -166,6 +181,15 @@ impl PageDriver {
             .or_insert(choice);
         Ok(())
     }
+
+    /// Hands, once for the page's browser context, the shared workers of
+    /// its sites to `handler` before they run; a later handler for the same
+    /// context changes nothing.
+    pub(crate) fn shared_workers(&self, handler: OnWorker) {
+        lock(&self.browser.service_workers.shared)
+            .entry(self.context.clone())
+            .or_insert(handler);
+    }
 }
 
 /// Starts following `browser`'s service workers and new pages for `run`:
@@ -176,7 +200,7 @@ impl PageDriver {
 ///
 /// The code of opening a page when the browser refuses to attach.
 pub(super) async fn start(browser: &Browser, run: &Run) -> Result<(), CallError> {
-    let events = browser.connection.subscribe(None).await;
+    let events = browser.connection.subscribe(None);
     run.spawn(follow(events, browser.clone(), run.clone()));
     browser
         .send(
@@ -190,6 +214,10 @@ pub(super) async fn start(browser: &Browser, run: &Run) -> Result<(), CallError>
                         exclude: Some(false),
                         r#type: Some(SERVICE_WORKER.to_owned()),
                     },
+                    target::FilterEntry {
+                        exclude: Some(false),
+                        r#type: Some(SHARED_WORKER.to_owned()),
+                    },
                     // Pages, so a popup is prepared before it runs.
                     target::FilterEntry {
                         exclude: Some(false),
@@ -201,7 +229,7 @@ pub(super) async fn start(browser: &Browser, run: &Run) -> Result<(), CallError>
                     },
                 ]),
             },
-            &browser.opening(),
+            &browser.launching(),
         )
         .await
         .map(drop)
@@ -217,6 +245,12 @@ async fn follow(mut events: Subscription, browser: Browser, run: Run) {
             if attached.target_info.r#type == SERVICE_WORKER {
                 let (browser, task) = (browser.clone(), run.clone());
                 task.spawn(attach(browser, attached, run.clone()));
+            } else if attached.target_info.r#type == SHARED_WORKER {
+                let handle = browser
+                    .service_workers
+                    .shared_of(attached.target_info.browser_context_id.as_ref());
+                let (browser, task) = (browser.clone(), run.clone());
+                task.spawn(hold_then_run(browser, attached, run.clone(), handle));
             } else if attached.target_info.r#type == super::popups::PAGE {
                 run.spawn(super::popups::attach(browser.clone(), attached));
             }
@@ -232,18 +266,41 @@ async fn follow(mut events: Subscription, browser: Browser, run: Run) {
     }
 }
 
-/// The worker `attached` waits for the engine: under `allow` its Session's
-/// interception takes it first; then it runs.
+/// The service worker `attached` waits for the engine: under `allow` its
+/// Session's interception takes it first; then it runs.
 async fn attach(browser: Browser, attached: target::AttachedToTargetEvent, run: Run) {
+    let handle = match browser
+        .service_workers
+        .of(attached.target_info.browser_context_id.as_ref())
+    {
+        Some(ServiceWorkers::Allow(handle)) => Some(handle),
+        Some(ServiceWorkers::Block) | None => None,
+    };
+    hold_then_run(browser, attached, run, handle).await;
+}
+
+/// The worker `attached` waits for the engine: a headless browser's worker
+/// takes the identity its pages show, a site's worker is handed to `handle`,
+/// its Session's, and closed when the interception could not hold it; then
+/// it runs.
+async fn hold_then_run(
+    browser: Browser,
+    attached: target::AttachedToTargetEvent,
+    run: Run,
+    handle: Option<OnWorker>,
+) {
     let session = TargetSession(attached.session_id);
+    if let Some(identity) = &browser.identity
+        && let Err(failure) = browser
+            .try_send(Some(&session), &identity.worker_command())
+            .await
+    {
+        tracing::debug!(%failure, "a service worker went before it took its browser's identity");
+    }
     let info = attached.target_info;
     let of_a_site = info.url.starts_with("http://") || info.url.starts_with("https://");
-    let choice = browser
-        .service_workers
-        .of(info.browser_context_id.as_ref())
-        .filter(|_| of_a_site);
-    if let (Some(ServiceWorkers::Allow(handle)), Some(context)) =
-        (choice, info.browser_context_id.clone())
+    if let (Some(handle), Some(context), true) =
+        (handle, info.browser_context_id.clone(), of_a_site)
     {
         let gone = run.cancellation().child_token();
         lock(&browser.service_workers.attached).insert(session.clone(), gone.clone());
@@ -263,7 +320,7 @@ async fn attach(browser: Browser, attached: target::AttachedToTargetEvent, run: 
                 )
                 .await;
             if let Err(failure) = closed {
-                tracing::debug!(%failure, "a service worker the interception could not hold went first");
+                tracing::debug!(%failure, "a worker the interception could not hold went first");
             }
             return;
         }
@@ -273,7 +330,7 @@ async fn attach(browser: Browser, attached: target::AttachedToTargetEvent, run: 
             .try_send(Some(&session), &runtime::RunIfWaitingForDebuggerParams {})
             .await
     {
-        tracing::debug!(%failure, "a service worker went before it was let run");
+        tracing::debug!(%failure, "a worker went before it was let run");
     }
 }
 

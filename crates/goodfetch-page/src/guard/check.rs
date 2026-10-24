@@ -68,14 +68,25 @@ pub(crate) fn wait_argument(
 #[derive(Debug, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub(crate) enum Seen {
-    /// The target is ready: for a pointer action, armed, and the point to
-    /// press.
-    Ready {
+    /// A pointer action's target is ready, the interception listener
+    /// armed, at the point to press.
+    Armed {
         /// The point's distance from the viewport's left, in CSS pixels.
-        x: Option<f64>,
+        x: f64,
         /// Its distance from the viewport's top.
-        y: Option<f64>,
-        /// For a locator wait's `count`, how many elements matched.
+        y: f64,
+    },
+    /// A text action's target is ready and has the focus, its text
+    /// selected for `fill`.
+    Focused {
+        /// For `fill`, whether the target is an input whose value a
+        /// person picks rather than types, which the guard sets.
+        #[serde(default)]
+        set_value: bool,
+    },
+    /// A locator wait's matches are in the state it waits for.
+    Ready {
+        /// For `count`, how many elements matched.
         count: Option<u64>,
     },
     /// It is not, at the step `step`.

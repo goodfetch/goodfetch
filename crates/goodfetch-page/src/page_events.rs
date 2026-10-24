@@ -45,8 +45,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
 use data_encoding::BASE64;
-use goodfetch_cdp::Subscription;
 use goodfetch_cdp::generated::{network, page, runtime};
+use goodfetch_cdp::{NetError, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
@@ -77,12 +77,6 @@ use self::runtime_values::{console_message, web_error};
 use self::waiters::{Armed, answer_armed};
 use crate::driver::{PageDriver, response_of};
 use crate::url_pattern::UrlPattern;
-
-/// The error text of a request the browser cancelled.
-const ABORTED: &str = "net::ERR_ABORTED";
-
-/// The error text of a body whose listed content coding did not decode.
-const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
 
 /// The refusals the interception made, by the browser's ID of the request,
 /// which the request's failure then carries: the refusal's Error code, and
@@ -230,7 +224,7 @@ pub(crate) enum Requested {
 #[derive(Clone)]
 enum Ended {
     Finished,
-    Failed(String),
+    Failed(NetError),
 }
 
 /// A `page.wait_for_request_finished` call's waiter.
@@ -524,7 +518,10 @@ impl PageEvents {
             .get(request_id)
             .is_some_and(|tracked| tracked.response.is_some());
         match ended {
-            Ended::Failed(error) if responded && error != ABORTED && error != DECODING_FAILED => {
+            Ended::Failed(error)
+                if responded
+                    && !matches!(error, NetError::Aborted | NetError::ContentDecodingFailed) =>
+            {
                 Err(cut(&url, received, expected))
             }
             Ended::Failed(_) => Err(unavailable(&url, request_id, surface)),
@@ -598,12 +595,20 @@ fn unavailable(url: &str, request_id: &str, surface: Surface) -> CallError {
 }
 
 /// `response_truncated` for the body of the response to `url`, which broke
-/// off after `received` of its `expected` bytes.
+/// off after `received` decoded bytes, its `Content-Length` declaring
+/// `expected` as sent.
 fn cut(url: &str, received: u64, expected: Option<u64>) -> CallError {
-    let of = expected.map_or_else(String::new, |expected| format!(" of {expected}"));
+    // `received` counts decoded bytes and `expected` the bytes as sent, so
+    // a compressed body's count can pass its `Content-Length`: the two are
+    // never read as a fraction.
+    let of = expected.map_or_else(String::new, |expected| {
+        format!("; its `Content-Length` declared {expected} as sent")
+    });
     CallError::new(
         &RESPONSE_TRUNCATED,
-        format!("the body of the response to {url} broke off after {received} bytes{of}"),
+        format!(
+            "the body of the response to {url} broke off after {received} bytes once decoded{of}"
+        ),
         &ResponseTruncatedDetails {
             url: url.to_owned(),
             received,
@@ -803,12 +808,13 @@ fn failed_request(
     let Some(tracked) = state.requests.get_mut(&failed.request_id) else {
         return;
     };
-    tracked.ended = Some(Ended::Failed(error_text(&failed.error_text).to_owned()));
+    let error = NetError::of(&failed.error_text);
     let mut request = tracked.request.clone();
     request.failure = Some(RequestFailure {
-        error_text: error_text(&failed.error_text).to_owned(),
+        error_text: error.name().to_owned(),
         error: refusal.as_ref().map(|(error, _)| error.clone()),
     });
+    tracked.ended = Some(Ended::Failed(error));
     if let Some((refused, true)) = &refusal {
         // The Run trace holds the Error code no reply carries (ADR 0072).
         shared.run.record_outcome(&refused.code);
@@ -827,17 +833,6 @@ fn failed_request(
         &request,
     );
 }
-
-/// A failed request's network error as the page would see it: the
-/// browser marks a request its debugging client failed with a suffix,
-/// `net::ERR_BLOCKED_BY_CLIENT.Inspector` for the interception's block,
-/// which no blocker in a person's browser gives.
-fn error_text(error: &str) -> &str {
-    error.strip_suffix(INSPECTOR).unwrap_or(error)
-}
-
-/// The suffix of a network error the browser's debugging client caused.
-const INSPECTOR: &str = ".Inspector";
 
 /// The events of sockets, of the main frame's document and of the
 /// `Runtime` domain.

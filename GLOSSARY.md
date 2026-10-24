@@ -339,7 +339,7 @@ The SHA-256 of a fetched page's title and the text of its main content, white sp
 _Avoid_: fingerprint, content hash, signature (alone)
 
 **Learned rule**:
-A rule the Frontier learns on one host from the pages a crawl fetched (a query parameter with no effect, a trap path or cursor pagination preferred to offset), kept with its evidence and every URL it merged, and listed in the Run report.
+A rule the Frontier learns on one host from the pages a crawl fetched and the redirects it followed (a query parameter with no effect, an equivalent form such as `www.` or a trailing slash, a trap path or cursor pagination preferred to offset), kept with its evidence and every URL it merged, and listed in the Run report; a parameter or form a contradicting pair of pages later shows wrong stops merging, and the report says so.
 _Avoid_: canonicalization rule, URL filter
 
 **Label**:
@@ -429,6 +429,10 @@ _Avoid_: proxy level, proxy class
 **Saved identity**:
 A Session's identity, cookies and storage, kept under a name so that later runs can reuse them.
 _Avoid_: profile, context, login
+
+**Browser data folder**:
+The folder a browser the engine launched for a Run keeps its data in while it runs, in the Run's folder, one per browser of the Run's browser pool: Chrome's data directory (`--user-data-dir`), fresh for each launch and removed once the browser exited, never a person's Profile directory.
+_Avoid_: profile (alone), user data dir
 
 **Profile directory**:
 A browser's own folder of a person's browsing data, on which the engine can launch that browser in place; for the Chromium family, the data directory (Chrome's `--user-data-dir`), not the profile folder inside it that Chrome's `--profile-directory` names.

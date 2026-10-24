@@ -17,8 +17,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use data_encoding::BASE64;
-use goodfetch_cdp::Subscription;
 use goodfetch_cdp::generated::{fetch, network, page};
+use goodfetch_cdp::{NetError, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::{self, Policy, Refused, RequestKind};
@@ -33,7 +33,8 @@ use goodfetch_protocol::page::route::{
     RouteFetched, RouteHandleParams, RouteHandled, RouteId, RouteRequest,
 };
 use goodfetch_protocol::page::{
-    NAVIGATION_FAILED, NavigationFailedDetails, PageId, ServiceWorkerRequest, SessionId,
+    NAVIGATION_FAILED, NavigationFailedDetails, PageId, RequestFailed, ServiceWorkerRequest,
+    SessionId,
 };
 use secrecy::ExposeSecret as _;
 use tokio::sync::oneshot;
@@ -56,6 +57,10 @@ use crate::proxy::{self, PROXY_STATUS, ProxyPermit};
 pub(crate) enum Sender {
     /// A page's.
     Page(PageId),
+    /// An out-of-process frame's of the page `page`, whose target is not
+    /// the page's: they pass the page's routes, and its page's events never
+    /// see them, so each one refused is recorded in the Run trace at once.
+    Frame(PageId),
     /// A site's service worker's, which belongs to no page, of the Session
     /// `session`: each one is recorded in the Run trace's request `log`
     /// (ADR 0121).
@@ -63,15 +68,25 @@ pub(crate) enum Sender {
         session: SessionId,
         log: Arc<RequestLog>,
     },
+    /// A shared worker's, which belongs to no page: each one refused is
+    /// recorded in the Run trace at once.
+    SharedWorker,
 }
 
 impl Sender {
-    /// The page, when a page sends the requests.
+    /// The page, when a page or one of its frames sends the requests.
     fn page_id(&self) -> Option<&PageId> {
         match self {
-            Self::Page(page_id) => Some(page_id),
-            Self::ServiceWorker { .. } => None,
+            Self::Page(page_id) | Self::Frame(page_id) => Some(page_id),
+            Self::ServiceWorker { .. } | Self::SharedWorker => None,
         }
+    }
+
+    /// Whether a refusal is recorded in the Run trace at once, since no
+    /// page's events report the sender's requests: a frame's or a shared
+    /// worker's.
+    fn records_at_once(&self) -> bool {
+        matches!(self, Self::Frame(_) | Self::SharedWorker)
     }
 }
 
@@ -109,6 +124,9 @@ pub(super) struct PageContext {
     /// which the engine resolves each request's host itself and judges its
     /// answers, since no relay is under that browser (ADR 0056).
     lookups: Option<Arc<Resolve>>,
+    /// The Run trace's request log, where a refusal no page's event
+    /// reports is recorded.
+    log: Arc<RequestLog>,
 }
 
 /// The latest requests the Session's proxy credentials were given for, so a
@@ -165,13 +183,14 @@ impl PageContext {
             blocking,
             refusals,
             observing,
-            run,
             responses: Mutex::new(BTreeMap::new()),
             document: Mutex::new(String::new()),
             authenticated: Mutex::new(Authenticated::default()),
             permit: Mutex::new(None),
             proxy_permit: Mutex::new(None),
             lookups: None,
+            log: Arc::new(RequestLog::new(run.owner().child(), run.folder())),
+            run,
         }
     }
 
@@ -207,7 +226,9 @@ impl Observing {
 /// pipeline as a task of its own.
 pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>) {
     while let Some(event) = events.next().await {
-        if event.read::<page::LoadEventFiredEvent>().is_some() {
+        if matches!(context.sender, Sender::Page(_))
+            && event.read::<page::LoadEventFiredEvent>().is_some()
+        {
             // The navigation's last hop ends with the page's `load`.
             drop(lock(&context.permit).take());
             drop(lock(&context.proxy_permit).take());
@@ -250,6 +271,10 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
             }
             drop(permit);
             context.proxy_hop_failed(&failed);
+            continue;
+        }
+        if let Some(created) = event.read::<network::WebSocketCreatedEvent>() {
+            context.web_socket(&created.url);
             continue;
         }
         if let Some(required) = event.read::<fetch::AuthRequiredEvent>() {
@@ -922,9 +947,9 @@ impl PageContext {
     async fn gate_refused(&self, held: &Held, refusal: &Refusal) -> CallError {
         let url = held.url();
         let waiting = self.driver.navigation_waits();
-        if matches!(self.sender, Sender::ServiceWorker { .. }) {
-            // A worker's request, which no page's event reports, is
-            // recorded refused at once.
+        if !matches!(self.sender, Sender::Page(_)) {
+            // A worker's or a frame's request, which no page's event
+            // reports, is recorded refused at once.
             self.leave_refusal(held, site_preferences_failure(url, refusal));
         } else if let Some(network_id) = &held.paused.network_id {
             self.refusals
@@ -970,7 +995,13 @@ impl PageContext {
         let navigation = self.sender.page_id().is_some()
             && paused.resource_type == network::ResourceType::Document
             && &paused.frame_id == self.driver.main_frame();
-        if let Some(network_id) = &paused.network_id {
+        if self.sender.records_at_once() {
+            self.record_refusal(
+                &paused.request.url,
+                &paused.request.method,
+                refused.failure(),
+            );
+        } else if let Some(network_id) = &paused.network_id {
             self.refusals
                 .leave(network_id, refused.failure(), !navigation);
         }
@@ -1093,8 +1124,8 @@ impl PageContext {
     async fn blocked(&self, held: &Held) -> CallError {
         let url = held.url().to_owned();
         let details = NavigationFailedDetails {
-            url: url.clone(),
-            error: Some(BLOCKED_BY_CLIENT.to_owned()),
+            url: Some(url.clone()),
+            error: Some(NetError::BlockedByClient.name().to_owned()),
         };
         let error = CallError::new(
             &NAVIGATION_FAILED,
@@ -1123,20 +1154,66 @@ impl PageContext {
 
     /// Leaves `refusal` for `held`'s failure to carry, before the browser
     /// fails it: the Run trace records it unless the request is the
-    /// navigation's, which raises it. A service worker's request, which no
-    /// page's event reports, is recorded refused at once.
+    /// navigation a call waits on, which raises it. A request no page's
+    /// event reports, a frame's or a worker's, is recorded refused at once.
     fn leave_refusal(&self, held: &Held, refusal: ErrorData) {
-        if matches!(self.sender, Sender::ServiceWorker { .. }) {
+        if self.sender.records_at_once() {
+            self.record_refusal(held.url(), held.method(), refusal);
+        } else if matches!(self.sender, Sender::ServiceWorker { .. }) {
             self.trace_service_worker(
                 held,
                 Some(RequestFailure {
-                    error_text: BLOCKED_BY_CLIENT.to_owned(),
+                    error_text: NetError::BlockedByClient.name().to_owned(),
                     error: Some(refusal),
                 }),
             );
         } else if let Some(network_id) = &held.paused.network_id {
-            self.refusals.leave(network_id, refusal, !held.navigation);
+            // A navigation the page sent itself, which no call waits on, is
+            // recorded too.
+            let recorded = !held.navigation || !self.driver.navigation_waits();
+            self.refusals.leave(network_id, refusal, recorded);
         }
+    }
+
+    /// Judges the WebSocket the page opened to `url`, whose handshake no
+    /// interception sees: the browser itself holds it to the domain policy
+    /// where it connects (`launch`'s proxy script), and the engine records
+    /// the refusal in the Run trace, as a request no call waited for that
+    /// failed. On a Borrowed browser or behind the Session's own proxy
+    /// nothing holds it, which is logged.
+    fn web_socket(&self, url: &str) {
+        let request = egress::Request {
+            url,
+            kind: RequestKind::Page,
+        };
+        let egress::Judgment::Refused(refused) = egress::judge(&request, &self.policy) else {
+            return;
+        };
+        if self.lookups.is_some() || self.driver.proxy().is_some() {
+            tracing::warn!(%refused, "a WebSocket the domain policy refuses is not held where it connects: the Session's browser or proxy is not the engine's");
+            return;
+        }
+        self.record_refusal(url, "GET", refused.failure());
+    }
+
+    /// Records the request to `url` that `method` sent, refused with
+    /// `refusal`, in the sender's request log, as a request that no call
+    /// waited for failed, and its Error code in the Run's outcome record.
+    fn record_refusal(&self, url: &str, method: &str, refusal: ErrorData) {
+        self.run.record_outcome(&refusal.code);
+        let (log, failed) = (
+            Arc::clone(&self.log),
+            RequestFailed {
+                url: url.to_owned(),
+                method: method.to_owned(),
+                failure: refusal,
+            },
+        );
+        self.run.spawn(async move {
+            if let Err(error) = log.request_failed(&failed).await {
+                tracing::warn!(%error, "the Run trace did not take a refused request");
+            }
+        });
     }
 
     /// Records `held`, a service worker's own request, in the Run trace,
@@ -1210,9 +1287,6 @@ impl PageContext {
         }
     }
 }
-
-/// The browser's network error for a request a blocker failed.
-const BLOCKED_BY_CLIENT: &str = "net::ERR_BLOCKED_BY_CLIENT";
 
 /// The URL in `headers`' `Referer`, which names the document that sent the
 /// request.

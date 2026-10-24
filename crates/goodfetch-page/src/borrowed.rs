@@ -33,7 +33,7 @@ use goodfetch_protocol::settings::{
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream};
 use tokio::net::TcpStream;
 use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::{Bytes, Message, Utf8Bytes};
 use tokio_util::sync::CancellationToken;
 use url::{Host, Url};
 
@@ -191,8 +191,8 @@ async fn bridge(
             () = stopping.cancelled() => break,
             message = socket.next() => {
                 let text = match message {
-                    Some(Ok(Message::Text(text))) => text.as_bytes().to_vec(),
-                    Some(Ok(Message::Binary(bytes))) => bytes.to_vec(),
+                    Some(Ok(Message::Text(text))) => Bytes::from(text),
+                    Some(Ok(Message::Binary(bytes))) => bytes,
                     Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => continue,
                     Some(Ok(Message::Close(_)) | Err(_)) | None => break,
                 };
@@ -222,10 +222,10 @@ async fn send_frames(socket: &mut WebSocketStream<TcpStream>, framer: &mut Frame
     loop {
         match framer.next_frame() {
             Ok(Some(frame)) => {
-                let Ok(text) = String::from_utf8(frame) else {
+                let Ok(text) = Utf8Bytes::try_from(frame) else {
                     return false;
                 };
-                if socket.send(Message::text(text)).await.is_err() {
+                if socket.send(Message::Text(text)).await.is_err() {
                     return false;
                 }
             }

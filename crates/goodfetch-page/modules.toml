@@ -28,6 +28,7 @@ url_pattern = []
 # Which of `driver`'s own modules may import which.
 [submodules.driver]
 carry = ["world"]
+children = []
 encoding = []
 ending = ["navigation"]
 functions = []

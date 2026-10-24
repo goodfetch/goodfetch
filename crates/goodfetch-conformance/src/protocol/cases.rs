@@ -78,8 +78,10 @@ pub(crate) enum Case {
     ErrorStatusesAreResponses,
     HistoryAnswersResponsesAcrossSites,
     BackLoadsTheDocumentAgain,
+    WaitsArmedBeforeBackPass,
     UnresolvedNameFailsTheNavigation,
     SupersededNavigationIsInterrupted,
+    NavigationPastItsDeadline,
     /// A fetch edge or response decoding case, Collie's lines.
     FetchEdge(fetch_edge::Case),
     MarkdownMatchesTheOracle,
@@ -94,6 +96,7 @@ pub(crate) enum Case {
     KeyReachesAField,
     StillAmbiguous,
     NeverActionable,
+    BusyPage,
     /// A Clean-up case.
     CleanUp(clean_up::Case),
     /// A Consent prompt case.
@@ -298,11 +301,15 @@ impl Case {
                 Self::HistoryAnswersResponsesAcrossSites
             }
             "going-back-loads-the-document-again" => Self::BackLoadsTheDocumentAgain,
+            "a-wait-armed-before-going-back-passes" => Self::WaitsArmedBeforeBackPass,
             "a-name-that-does-not-resolve-fails-apart-from-a-refused-connection" => {
                 Self::UnresolvedNameFailsTheNavigation
             }
             "a-navigation-superseded-before-it-committed-is-interrupted" => {
                 Self::SupersededNavigationIsInterrupted
+            }
+            "a-navigation-whose-document-does-not-load-in-time-raises-deadline-exceeded" => {
+                Self::NavigationPastItsDeadline
             }
             "markdown-matches-the-oracle-on-the-markdown-pages" => Self::MarkdownMatchesTheOracle,
             "a-format-the-request-does-not-name-is-left-out" => Self::FormatNotNamedIsLeftOut,
@@ -326,6 +333,7 @@ impl Case {
             "a-target-never-actionable-raises-deadline-exceeded-naming-the-step" => {
                 Self::NeverActionable
             }
+            "an-action-on-a-busy-page-raises-deadline-exceeded-at-its-deadline" => Self::BusyPage,
             _ => {
                 return fetch_edge::Case::from_id(id)
                     .map(Self::FetchEdge)
@@ -384,11 +392,17 @@ impl Case {
             Self::BackLoadsTheDocumentAgain => {
                 navigation::back_loads_again(connection, site, checks)
             }
+            Self::WaitsArmedBeforeBackPass => {
+                navigation::waits_armed_before_back(connection, site, checks)
+            }
             Self::UnresolvedNameFailsTheNavigation => {
                 navigation::unresolved_name(connection, site, checks)
             }
             Self::SupersededNavigationIsInterrupted => {
                 navigation::superseded(connection, site, checks)
+            }
+            Self::NavigationPastItsDeadline => {
+                navigation::past_its_deadline(connection, site, checks)
             }
             Self::FetchEdge(case) => case.run(connection, site, checks),
             Self::PageRequest(case) => case.run(connection, site, checks),
@@ -448,6 +462,7 @@ impl Case {
             ),
             Self::StillAmbiguous => guard::still_ambiguous(connection, site, checks),
             Self::NeverActionable => guard::never_actionable(connection, site, checks),
+            Self::BusyPage => guard::busy_page(connection, site, checks),
             Self::Route(case) => case.run(connection, site, checks),
             Self::Session(case) => case.run(connection, target, site, checks),
             Self::CleanUp(case) => case.run(connection, target, site, checks),

@@ -15,11 +15,12 @@ use std::time::Duration;
 
 use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
+use goodfetch_protocol::page::route::PAGE_ROUTE;
 use goodfetch_protocol::page::waits::{
     LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_LOAD_STATE,
     PAGE_WAIT_FOR_REQUEST, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL,
 };
-use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_GOTO};
+use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_GOTO, PATTERN_UNSUPPORTED};
 use goodfetch_protocol::settings::TIMEOUT_WAIT;
 use serde_json::{Value, json};
 
@@ -44,6 +45,7 @@ pub(crate) enum Case {
     ResponseBeforeAwaited,
     ReRenderingPages,
     Deadlines,
+    UnsupportedPatterns,
 }
 
 impl Case {
@@ -61,6 +63,9 @@ impl Case {
             }
             "locator-and-function-waits-resolve-on-re-rendering-pages" => Self::ReRenderingPages,
             "each-wait-ends-at-timeout-wait-naming-what-it-waited-for" => Self::Deadlines,
+            "a-route-or-a-wait-whose-pattern-the-engine-cannot-match-is-refused-at-the-call" => {
+                Self::UnsupportedPatterns
+            }
             _ => return None,
         })
     }
@@ -82,6 +87,7 @@ impl Case {
             Self::ResponseBeforeAwaited => response_before_awaited(&mut exchange, site, checks),
             Self::ReRenderingPages => re_rendering_pages(&mut exchange, site, checks),
             Self::Deadlines => deadlines(&mut exchange, site, checks),
+            Self::UnsupportedPatterns => unsupported_patterns(&mut exchange, site, checks),
         }
     }
 }
@@ -499,6 +505,48 @@ fn deadlines(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> R
                 && data["elapsed"]
                     .as_u64()
                     .is_some_and(|elapsed| elapsed >= SHORT_WAIT),
+        );
+    }
+    exchange.finish(run_id)
+}
+
+/// A route whose regular expression uses look-around and a URL wait whose
+/// pattern uses a back-reference are refused when their calls arrive, with
+/// `pattern_unsupported` naming the construct, never later when a request
+/// or a navigation would have been matched (ADR 0081).
+fn unsupported_patterns(
+    exchange: &mut Exchange<'_>,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-waits-unsupported-patterns";
+    let Some(page) = exchange.page_of_run(site, run_id, LONG_WAIT, checks)? else {
+        return Ok(());
+    };
+    let refusals = [
+        (
+            PAGE_ROUTE.name,
+            json!({ "page_id": page, "url": { "kind": "regex", "pattern": "/items(?=x)" } }),
+            "look_around",
+        ),
+        (
+            PAGE_WAIT_FOR_URL.name,
+            json!({ "page_id": page, "url": { "kind": "regex", "pattern": r"/(\w+)/\1" } }),
+            "backreference",
+        ),
+    ];
+    for (method, params, construct) in refusals {
+        let id = exchange.request(method, &params)?;
+        let refused = exchange.answered_at_once(id)?;
+        let data = refused.as_ref().map(|refused| &refused["error"]["data"]);
+        checks.check(
+            format!(
+                "`{method}` is refused at once with `{}` naming `{construct}`",
+                PATTERN_UNSUPPORTED.name
+            ),
+            data.is_some_and(|data| {
+                data["code"] == PATTERN_UNSUPPORTED.name && data["construct"] == construct
+            }),
         );
     }
     exchange.finish(run_id)

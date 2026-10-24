@@ -10,8 +10,8 @@
 //! A navigation is admitted through its own event (`Goto`), but the page
 //! stays `Open` while it runs: the engine lets a later navigation supersede
 //! one not yet committed (#698, ADR 0085), where the table's `Navigating`
-//! row would have it wait, so `Navigating` is left for the ticket that
-//! settles which holds.
+//! row would have it wait, so `Navigating` is never entered, as ADR 0085's
+//! note of 2026-10-24 records for the owner to decide.
 
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;

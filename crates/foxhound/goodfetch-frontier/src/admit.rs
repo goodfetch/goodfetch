@@ -127,14 +127,14 @@ pub fn admit(
         Seen::Visited(_) => return Ok(not_added(NotAddedReason::Duplicate)),
         Seen::Merged { rules, .. } => {
             for rule in rules {
-                rules::merged(connection, rule, &url)?;
+                rules::merged(connection, rule, url.as_str())?;
             }
             return Ok(not_added(NotAddedReason::Duplicate));
         }
     }
     let key = keyed(&url);
     if let Some((reason, rule)) = rules::refuses(connection, &key)? {
-        rules::merged(connection, rule, &url)?;
+        rules::merged(connection, rule, url.as_str())?;
         return Ok(not_added(reason));
     }
     let bounds = Bounds::read(connection)?;

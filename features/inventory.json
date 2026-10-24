@@ -6565,7 +6565,7 @@
     {
       "id": "setting:security.audit_chain",
       "kind": "setting",
-      "area": null,
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -6576,7 +6576,7 @@
     {
       "id": "setting:security.browser_sandbox",
       "kind": "setting",
-      "area": null,
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -6587,7 +6587,7 @@
     {
       "id": "setting:security.field_encryption",
       "kind": "setting",
-      "area": null,
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -6598,7 +6598,7 @@
     {
       "id": "setting:security.raw_cdp_egress_proxy",
       "kind": "setting",
-      "area": null,
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -6609,7 +6609,7 @@
     {
       "id": "setting:security.redaction",
       "kind": "setting",
-      "area": null,
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -6620,7 +6620,7 @@
     {
       "id": "setting:security.resolved_ip_check",
       "kind": "setting",
-      "area": null,
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -6631,7 +6631,7 @@
     {
       "id": "setting:security.secure_delete",
       "kind": "setting",
-      "area": null,
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [

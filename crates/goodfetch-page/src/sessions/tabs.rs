@@ -32,7 +32,7 @@ use super::{OpenPage, Session, Sessions, timeouts, wait_deadline};
 use crate::driver::{OnPopup, PageDriver};
 use crate::hiding::Sheets;
 use crate::page_events::{PageEvents, Refusals};
-use crate::page_value::ResponseObserver;
+use crate::page_value::Observer;
 use crate::pool::InBrowser;
 use crate::recovery::Declared;
 
@@ -49,7 +49,7 @@ pub(super) struct Adopting {
     /// The engine's event stream its events go on.
     pub(super) events: Events,
     /// Its response observer, when one is registered.
-    pub(super) observer: Option<Arc<dyn ResponseObserver>>,
+    pub(super) observer: Option<Observer>,
 }
 
 /// How many calls listen to a Session's `page` event.

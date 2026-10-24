@@ -356,7 +356,7 @@ pub(crate) fn with_handler_page(
         .with(goodfetch_engine::contribution())
         .with(goodfetch_page::contribution_with(
             pins(),
-            gate.handler_pages(),
+            gate.clone(),
             Arc::new(NoBlocks),
         ));
     let identity = Identity {

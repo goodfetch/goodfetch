@@ -166,11 +166,12 @@ impl PageValue {
         Self::default()
     }
 
-    /// A value whose navigation gate is `gate` and lease check `lease`.
-    pub fn new(gate: Arc<dyn NavigationGate>, lease: Arc<dyn LeaseCheck>) -> Self {
+    /// A value whose navigation gate is `gate` and lease check `lease`;
+    /// every page that takes it shares them.
+    pub fn new(gate: impl NavigationGate + 'static, lease: impl LeaseCheck + 'static) -> Self {
         Self {
-            gate: Some(gate),
-            lease: Some(lease),
+            gate: Some(Arc::new(gate)),
+            lease: Some(Arc::new(lease)),
         }
     }
 
@@ -227,6 +228,28 @@ pub trait ResponseObserver: Debug + Send + Sync {
     fn on_response(&self, response: &ObservedResponse<'_>, body: &[u8]);
 }
 
+/// A registered [`ResponseObserver`], which every page of its Session
+/// shares.
+#[derive(Clone, Debug)]
+pub struct Observer(Arc<dyn ResponseObserver>);
+
+impl Observer {
+    /// `observer`, registered.
+    pub fn new(observer: impl ResponseObserver + 'static) -> Self {
+        Self(Arc::new(observer))
+    }
+
+    /// What it keeps, read once when its page opens.
+    pub(crate) fn kept(&self) -> Kept {
+        self.0.kept()
+    }
+
+    /// Passes it `response` and its `body`, cut at [`Kept::byte_cap`].
+    pub(crate) fn on_response(&self, response: &ObservedResponse<'_>, body: &[u8]) {
+        self.0.on_response(response, body);
+    }
+}
+
 /// A document a Product's fetch tier fetched without the browser, served
 /// to a handler as a page (spec #579; ADR 0093): `page.formats` reads it,
 /// and every other call on it answers `closed` until the tier that serves
@@ -262,7 +285,7 @@ pub trait HandlerPages: Send + Sync {
     fn value(&self, run: &RunId, session: &SessionId) -> PageValue;
 
     /// The page's response observer, when one is registered.
-    fn observer(&self, run: &RunId, session: &SessionId) -> Option<Arc<dyn ResponseObserver>>;
+    fn observer(&self, run: &RunId, session: &SessionId) -> Option<Observer>;
 
     /// The document the page `page_id` serves, when a fetch tier opened it
     /// from a document rather than in a browser; none by default.
@@ -282,7 +305,7 @@ impl HandlerPages for ProgramPages {
         PageValue::empty()
     }
 
-    fn observer(&self, _run: &RunId, _session: &SessionId) -> Option<Arc<dyn ResponseObserver>> {
+    fn observer(&self, _run: &RunId, _session: &SessionId) -> Option<Observer> {
         None
     }
 }

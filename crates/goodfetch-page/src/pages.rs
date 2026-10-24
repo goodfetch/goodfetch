@@ -120,7 +120,7 @@ mod waits;
 /// observer, as a Collie program's pages do, and no document has a Block
 /// cause.
 pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
-    contribution_with(pins, Arc::new(ProgramPages), Arc::new(NoBlocks))
+    contribution_with(pins, ProgramPages, Arc::new(NoBlocks))
 }
 
 /// What the page crate adds to the engine, as [`contribution`], each page
@@ -130,9 +130,10 @@ pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
 /// from the Product's rules (ADR 0035).
 pub fn contribution_with(
     pins: Vec<PinnedArtifact>,
-    handler_pages: Arc<dyn HandlerPages>,
+    handler_pages: impl HandlerPages + 'static,
     blocks: Arc<dyn BlockClassifier>,
 ) -> Contribution {
+    let handler_pages: Arc<dyn HandlerPages> = Arc::new(handler_pages);
     let interception = Interception::default();
     let events = page_events::Table::default();
     let dialogs = Dialogs::default();

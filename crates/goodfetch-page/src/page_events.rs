@@ -84,7 +84,7 @@ use self::latest::Latest;
 use self::runtime_values::{console_message, web_error};
 use self::waiters::{Armed, answer_armed};
 use crate::driver::{PageDriver, response_of};
-use crate::page_value::{Kept, ObservedResponse, ResponseObserver};
+use crate::page_value::{Kept, ObservedResponse, Observer};
 use crate::url_pattern::UrlPattern;
 
 /// The error text of a request the browser cancelled.
@@ -225,7 +225,7 @@ struct Shared {
     document: watch::Sender<Document>,
     /// The response observer its Session registered, and what it keeps,
     /// read once when the page opened.
-    observing: Option<(Arc<dyn ResponseObserver>, Kept)>,
+    observing: Option<(Observer, Kept)>,
 }
 
 /// How many `page.request` bodies a page keeps for `response.body`: the
@@ -360,7 +360,7 @@ impl PageEvents {
         refusals: Refusals,
         subscription: Subscription,
         wait: Deadline,
-        observer: Option<Arc<dyn ResponseObserver>>,
+        observer: Option<Observer>,
     ) -> Self {
         let shared = Arc::new(Shared {
             page_id,

@@ -25,9 +25,7 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tls::Trust;
-use goodfetch_page::page_value::{
-    HandlerPages, PageValue, ProgramPages, ResponseObserver, ServedDocument,
-};
+use goodfetch_page::page_value::{HandlerPages, Observer, PageValue, ProgramPages, ServedDocument};
 use goodfetch_protocol::foxhound::crawl::CrawlRequest;
 use goodfetch_protocol::foxhound::fetch::{FETCH_HEDGE_ENABLED, FETCH_TIER, FetchTier};
 use goodfetch_protocol::page::{PageId, SessionId};
@@ -42,7 +40,7 @@ use crate::redundant::{Redundant, Requester};
 use crate::transports::{Reqwest, TransportConfig};
 
 /// Foxhound's fetch tiers: the pages they serve, which Collie's page
-/// crate reads through the seam [`FetchTiers::handler_pages`] gives, and
+/// crate reads through it as its [`HandlerPages`] seam, and
 /// the tier each Run's crawl requests take. Cheap to clone; every clone
 /// shares the pages.
 #[derive(Clone, Default)]
@@ -73,14 +71,6 @@ impl FetchTiers {
     /// No tier serving any page yet.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// The seam Foxhound's composition gives Collie's page crate (ADR
-    /// 0087): the pages the tiers serve, with the empty value and no
-    /// response observer of a program's pages, which Foxhound's gate fills
-    /// later (area 5).
-    pub fn handler_pages(&self) -> Arc<dyn HandlerPages> {
-        Arc::new(self.clone())
     }
 
     /// Refuses a Run whose `fetch.tier` forces a tier this engine does not
@@ -254,7 +244,7 @@ impl HandlerPages for FetchTiers {
         ProgramPages.value(run, session)
     }
 
-    fn observer(&self, run: &RunId, session: &SessionId) -> Option<Arc<dyn ResponseObserver>> {
+    fn observer(&self, run: &RunId, session: &SessionId) -> Option<Observer> {
         ProgramPages.observer(run, session)
     }
 

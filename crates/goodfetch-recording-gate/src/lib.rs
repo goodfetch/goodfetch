@@ -19,7 +19,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_page::page_value::{
     Admission, DocumentResponse, HandlerPages, Kept, Navigation, NavigationGate, ObservedResponse,
-    PageValue, Permit, Refusal, ResponseObserver,
+    Observer, PageValue, Permit, Refusal, ResponseObserver,
 };
 use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
 use goodfetch_protocol::page::{PageId, SessionId, SitePreference};
@@ -106,12 +106,6 @@ impl RecordingGate {
     /// observer.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// The seam an engine's page crate takes, which gives every page this
-    /// gate and lease check, and this observer once [`Self::observe`] ran.
-    pub fn handler_pages(&self) -> Arc<dyn HandlerPages> {
-        Arc::new(self.clone())
     }
 
     /// Refuses at `admit` every request whose URL holds `part`, for
@@ -298,13 +292,13 @@ impl ResponseObserver for RecordingGate {
 
 impl HandlerPages for RecordingGate {
     fn value(&self, _run: &RunId, _session: &SessionId) -> PageValue {
-        PageValue::new(Arc::new(self.clone()), Arc::new(self.clone()))
+        PageValue::new(self.clone(), self.clone())
     }
 
-    fn observer(&self, _run: &RunId, _session: &SessionId) -> Option<Arc<dyn ResponseObserver>> {
+    fn observer(&self, _run: &RunId, _session: &SessionId) -> Option<Observer> {
         lock(&self.shared.rules)
             .kept
             .is_some()
-            .then(|| Arc::new(self.clone()) as Arc<dyn ResponseObserver>)
+            .then(|| Observer::new(self.clone()))
     }
 }

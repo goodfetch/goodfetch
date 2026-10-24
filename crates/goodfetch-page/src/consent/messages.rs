@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 pub(crate) const BINDING: &str = "__goodfetch_consent__";
 
 /// Starts the runner in its world, reporting through the binding its
-/// argument names; `absent` when the document's world never ran the
-/// bundle.
-pub(crate) const START: &str = "function start(binding) { const runner = globalThis[Symbol.for(\"goodfetch.consent\")]; return runner === undefined ? \"absent\" : runner.start(binding); }";
+/// argument's `binding` names, answering prompts unless its `answering` is
+/// false; `absent` when the document's world never ran the bundle.
+pub(crate) const START: &str = "function start({ binding, answering }) { const runner = globalThis[Symbol.for(\"goodfetch.consent\")]; return runner === undefined ? \"absent\" : runner.start(binding, answering); }";
 
 /// Gives the runner the engine's answer to one of its requests.
 pub(crate) const ANSWER: &str = "function answer({ id, value }) { return globalThis[Symbol.for(\"goodfetch.consent\")]?.answer(id, value) ?? false; }";
@@ -50,8 +50,37 @@ pub(crate) enum Message {
         /// Its CSS.
         text: String,
     },
+    /// A consent wall in the frame's document: answered `accept` when the
+    /// engine accepts it, `block` otherwise.
+    Wall {
+        /// The request's ID.
+        id: u64,
+        /// What makes it a wall.
+        reason: WallReason,
+    },
     /// What the runner did with a prompt.
     Outcome(Outcome),
+}
+
+/// What makes a prompt with no refusal a consent wall (ADR 0048).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum WallReason {
+    /// It covers the main content.
+    Covers,
+    /// It offers payment or a subscription instead of a refusal.
+    Pays,
+}
+
+impl WallReason {
+    /// The name of the wall test's rule that found it, which `blocked` and
+    /// Provenance name.
+    pub(crate) const fn rule(self) -> &'static str {
+        match self {
+            Self::Covers => "consent-wall-covers",
+            Self::Pays => "consent-wall-pays",
+        }
+    }
 }
 
 /// What the runner did with one prompt, as Provenance records it.
@@ -66,6 +95,9 @@ pub(crate) struct Outcome {
     /// Whether the prompt was seen gone afterwards, when the runner looked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) verified: Option<bool>,
+    /// What made it a wall, for a wall or an accepted one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) reason: Option<WallReason>,
 }
 
 /// What the runner did with a prompt.
@@ -76,11 +108,15 @@ pub(crate) enum Action {
     Refused,
     /// It hid a prompt with no refusal that leaves the content readable.
     Hidden,
-    /// It left a prompt with no refusal that covers the content, for the
-    /// wall test.
+    /// It left a prompt: one in a frame, whose cover it does not measure,
+    /// or, with the engine's answering off, any prompt that is no wall.
     Left,
     /// Its refusal did not go through; the next step was tried.
     Failed,
+    /// It accepted a consent wall on a domain a person approved.
+    Accepted,
+    /// It found a consent wall and left it: `consent_required`.
+    Wall,
 }
 
 impl Message {

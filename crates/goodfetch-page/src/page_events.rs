@@ -331,6 +331,18 @@ impl PageEvents {
             .and_then(|tracked| tracked.answered_at)
     }
 
+    /// The load of the document the main frame committed last, its
+    /// response and when it arrived, judged or not; none for the page's
+    /// first, blank document, or before its response arrived.
+    pub(crate) fn document(&self) -> Option<(String, PageResponse, SystemTime)> {
+        let loader = self.shared.document.borrow().loader()?.clone();
+        let state = lock(&self.shared.state);
+        let tracked = state.requests.get(&loader)?;
+        let (response, received) = tracked.response.clone().zip(tracked.answered_at)?;
+        drop(state);
+        Some((loader, response, received))
+    }
+
     /// The response of the document the main frame committed last, and when
     /// it arrived, unless it was judged already, as a navigation no call
     /// waited for leaves it: it is judged from now. None for the page's

@@ -789,6 +789,9 @@ impl Pages {
                 return Err(blocked::blocked(block, again, received));
             }
         }
+        // A consent wall the runner found before the navigation answered
+        // is the navigation's (ADR 0048).
+        self.consent_wall(page_id)?;
         Ok(navigated)
     }
 
@@ -967,8 +970,18 @@ impl Pages {
         if let Some(failure) = self.left_failure(page_id) {
             return Err(failure);
         }
+        self.consent_wall(page_id)?;
         self.judge_unjudged(&page, page_id, None).await?;
         Ok(page)
+    }
+
+    /// Raises the consent wall the Consent prompt runner left in the
+    /// document the page `page_id` holds, once (ADR 0048).
+    fn consent_wall(&self, page_id: &PageId) -> Result<(), CallError> {
+        let walled = self.events.get(page_id).ok().and_then(|events| {
+            blocked::consent_wall(self.sessions.consent_walls(), page_id, &events)
+        });
+        walled.map_or(Ok(()), Err)
     }
 
     /// Judges the Block cause of the document the main frame of `page`,

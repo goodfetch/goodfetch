@@ -62,7 +62,7 @@ const CLEAN_UP: Part = (
         "clean_up.hiding",
     ],
 );
-const CONSENT: Part = ("consent", &["clean_up.consent"]);
+const CONSENT: Part = ("consent", &["clean_up.consent", "clean_up.consent_walls"]);
 const EVENTS: Part = ("events", &["events", "bodies"]);
 const PAGE_STATES: Part = ("page-states", &["page_states.service_workers"]);
 const PAGE_REQUEST: Part = (
@@ -218,7 +218,7 @@ fn the_page_suite_proves_clean_up_against_collies_attached_engine() {
     prove(CLEAN_UP);
 }
 
-/// Covers: story:5-100, setting:consent.handling
+/// Covers: story:5-100, setting:consent.handling, story:5-101, error:blocked, operation:page.evaluate, setting:consent.domains, setting:consent.on_wall, error:setting_locked, error:capability_unavailable
 #[test]
 fn the_page_suite_proves_consent_against_collies_attached_engine() {
     prove(CONSENT);

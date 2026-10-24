@@ -20,7 +20,8 @@
 //! coding that failed to decode).
 //!
 //! A response `page.request` answered from the page's Session keeps its
-//! body too, whole or as cut, under its request's ID.
+//! body too, whole or as cut, under its request's ID: the latest
+//! `REQUESTED_LIMIT` such bodies, an older one then `body_unavailable`.
 //!
 //! The page's response observer, when its Session registered one (ADRs
 //! 0110 and 0121), receives each response the page's events report whose
@@ -74,10 +75,12 @@ use goodfetch_protocol::page::{
 use tokio::sync::{Notify, oneshot, watch};
 
 mod document;
+mod latest;
 mod runtime_values;
 mod waiters;
 
 use self::document::{Document, InFlight, UrlWaiter};
+use self::latest::Latest;
 use self::runtime_values::{console_message, web_error};
 use self::waiters::{Armed, answer_armed};
 use crate::driver::{PageDriver, response_of};
@@ -225,6 +228,11 @@ struct Shared {
     observing: Option<(Arc<dyn ResponseObserver>, Kept)>,
 }
 
+/// How many `page.request` bodies a page keeps for `response.body`: the
+/// latest, each a handle to its file in the Run's folder; an older one
+/// answers `body_unavailable`.
+const REQUESTED_LIMIT: usize = 256;
+
 #[derive(Default)]
 struct State {
     /// How many calls listen to each event.
@@ -235,9 +243,9 @@ struct State {
     requests: BTreeMap<String, Tracked>,
     /// The bodies kept for the responses a waiter answered.
     kept: BTreeMap<String, BodyHandle>,
-    /// The bodies kept for the responses `page.request` answered from the
-    /// page's Session, whole or cut.
-    requested: BTreeMap<String, Requested>,
+    /// The bodies kept for the latest responses `page.request` answered
+    /// from the page's Session, whole or cut.
+    requested: Latest<Requested, REQUESTED_LIMIT>,
     waiters: Vec<Waiter>,
     /// The `page.wait_for_request` waiters.
     request_waiters: Vec<Armed<PageRequest>>,
@@ -527,7 +535,7 @@ impl PageEvents {
     /// the page's Session to the request `request_id`, for
     /// [`body`](Self::body).
     pub(crate) fn keep_requested(&self, request_id: String, body: Requested) {
-        lock(&self.shared.state).requested.insert(request_id, body);
+        lock(&self.shared.state).requested.keep(request_id, body);
     }
 
     /// The body of the response to the request `request_id`, once it

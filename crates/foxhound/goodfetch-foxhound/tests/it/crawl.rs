@@ -289,11 +289,20 @@ fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_
         &mut |_| None,
     );
     engine.send(&json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "events", "credits": 10 } }));
+    // The axis changes, lossless; the Run's progress values beside them are
+    // telemetry, coalesced.
     let mut events = Vec::new();
     while events.len() < 2 {
         let message = engine.next().unwrap();
         if message["method"] == "$/events" {
-            events.extend(message["params"]["events"].as_array().unwrap().clone());
+            events.extend(
+                message["params"]["events"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|event| event["event"] == "run.axes_changed")
+                    .cloned(),
+            );
         }
     }
     let exited = engine.finish();

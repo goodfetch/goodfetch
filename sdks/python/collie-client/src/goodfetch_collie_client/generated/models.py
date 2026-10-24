@@ -490,6 +490,15 @@ class EngineInstance(RootModel[str]):
     """One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only."""
 
 
+class EngineStep(StrEnum):
+    """The engine's step that raised a Human pause."""
+
+    login_recovery = "login_recovery"
+    """A login recovery (ADR 0006)."""
+    challenge_ladder = "challenge_ladder"
+    """The Challenge ladder (ADR 0035)."""
+
+
 class Enqueued1(BaseModel):
     """The Frontier admitted it as a crawl request."""
 
@@ -1072,6 +1081,31 @@ class PageWebSocket(BaseModel):
     """The browser's ID for the socket, which its events name."""
 
 
+class PauseOrigin1(BaseModel):
+    """The program, with `page.pause()`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    by: Literal["program"]
+
+
+class PauseOrigin2(BaseModel):
+    """The engine, at a step of its own."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    by: Literal["engine"]
+    step: EngineStep
+    """The step."""
+
+
+class PauseOrigin(RootModel[PauseOrigin1 | PauseOrigin2]):
+    root: PauseOrigin1 | PauseOrigin2
+    """Who raised a Human pause."""
+
+
 class PeriodLength(StrEnum):
     """How long a period Limit counts before it starts again (ADR 0041)."""
 
@@ -1422,6 +1456,22 @@ class RunParams(BaseModel):
     """The Run's ID."""
 
 
+class RunProgressParams(BaseModel):
+    """What `run.progress` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: Annotated[int | None, Field(ge=0)] = None
+    """
+    The position of the value the reader last read: the answer is the
+    latest value after it, once one comes. Absent, the Run's progress
+    at once.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RunResumeParams(BaseModel):
     """What `run.resume` takes."""
 
@@ -1494,6 +1544,18 @@ class RunWarning(BaseModel):
     """What it says, for people."""
     sessions: list[str] | None = None
     """The Sessions it concerns."""
+
+
+class RunWriter(StrEnum):
+    """Whether an engine works a Run (ADR 0102)."""
+
+    live = "live"
+    """An engine holds its writer lock."""
+    none = "none"
+    """
+    Nothing works it, as after a crash, until a start with its Run ID
+    resumes it.
+    """
 
 
 class SampleEchoParams(BaseModel):
@@ -2845,6 +2907,32 @@ class HelloResult(BaseModel):
     """The protocol version the engine speaks."""
 
 
+class HumanPause(BaseModel):
+    """A Human pause waiting for a person (ADR 0092)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    deadline: PointInTime | None = None
+    """
+    When it ends unanswered: the first of `timeout.human_pause` and, in
+    a scheduled run, its pause timeout; none when it waits without
+    limit.
+    """
+    page: str
+    """The page that waits."""
+    raised_by: PauseOrigin
+    """Whether the program or the engine raised it."""
+    reason: str | None = None
+    """Why, as the program or the engine said it."""
+    session: str
+    """The Session whose page waits."""
+    since: PointInTime
+    """Since when it waits."""
+    until: str | None = None
+    """The condition that ends it by itself, as text."""
+
+
 class KeyValueStoreBytes(BaseModel):
     """Bytes the store holds for a key, with their content type."""
 
@@ -3966,22 +4054,48 @@ class Resync(BaseModel):
 
 
 class RunProgress(BaseModel):
-    """A Run's progress as it is now (ADR 0102): what `run.progress` reports."""
+    """
+    A Run's progress as it is now (ADR 0102): what `run.progress` answers
+    and the `run.progress` event carries.
+    """
 
     model_config = ConfigDict(
         extra="allow",
     )
+    at: PointInTime
+    """When the engine read it."""
+    checkpoint_at: PointInTime | None = None
+    """When its last Checkpoint was written, once one was."""
+    epoch: Annotated[int, Field(ge=0)]
+    """Its run epoch (ADR 0003), which a resume or a migration advances."""
+    last: bool
+    """
+    Whether it is the sequence's last value: the Run ended, or no
+    engine this one reaches works it, so nothing more comes until a
+    start with its Run ID resumes it.
+    """
     lifecycle: Lifecycle
-    """Where it is."""
+    """Where the Run is."""
     message: ProgressMessage | None = None
     """The program's own status line, once it set one."""
+    pauses: list[HumanPause]
+    """Each Human pause waiting (ADR 0092)."""
+    position: Annotated[int, Field(ge=0)]
+    """
+    Its place among the Run's progress values, which only goes up:
+    `run.progress`'s `after` takes it.
+    """
     run_id: RunId
     """The Run's ID."""
+    stop_reason: StopReason | None = None
+    """Why it stopped, once it did."""
     storage: RunStorage | None = None
     """
     The worst storage level among the filesystems the Run writes to,
-    once the Resource governor sampled them (ADR 0122).
+    once one is above `normal` (ADR 0122).
     """
+    writer: RunWriter
+    """Whether an engine works it."""
 
 
 class RunStopping(BaseModel):

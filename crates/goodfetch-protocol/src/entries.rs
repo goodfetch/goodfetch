@@ -138,6 +138,8 @@ mod tests {
         "run.usage",
         "run.set_progress_message",
         "run.discard",
+        "run.progress",
+        "run.report",
         "run.checkpoint",
         "run.pause",
         "run.migrate",

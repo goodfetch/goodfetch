@@ -3245,6 +3245,21 @@
       "minLength": 1,
       "type": "string"
     },
+    "EngineStep": {
+      "description": "The engine's step that raised a Human pause.",
+      "oneOf": [
+        {
+          "const": "login_recovery",
+          "description": "A login recovery (ADR 0006).",
+          "type": "string"
+        },
+        {
+          "const": "challenge_ladder",
+          "description": "The Challenge ladder (ADR 0035).",
+          "type": "string"
+        }
+      ]
+    },
     "EnqueueDocument": {
       "additionalProperties": false,
       "description": "The document a handler read, against which its relative URLs resolve.",
@@ -4110,6 +4125,66 @@
       "description": "An https:// URL with a host.",
       "pattern": "^https://[^/?#\\s]+[^\\s]*$",
       "type": "string"
+    },
+    "HumanPause": {
+      "description": "A Human pause waiting for a person (ADR 0092).",
+      "properties": {
+        "deadline": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When it ends unanswered: the first of `timeout.human_pause` and, in\na scheduled run, its pause timeout; none when it waits without\nlimit."
+        },
+        "page": {
+          "arrived_in": "0.1",
+          "description": "The page that waits.",
+          "type": "string"
+        },
+        "raised_by": {
+          "$ref": "#/$defs/PauseOrigin",
+          "arrived_in": "0.1",
+          "description": "Whether the program or the engine raised it."
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why, as the program or the engine said it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "session": {
+          "arrived_in": "0.1",
+          "description": "The Session whose page waits.",
+          "type": "string"
+        },
+        "since": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "Since when it waits."
+        },
+        "until": {
+          "arrived_in": "0.1",
+          "description": "The condition that ends it by itself, as text.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "session",
+        "page",
+        "raised_by",
+        "since"
+      ],
+      "type": "object"
     },
     "InitScriptEnded": {
       "description": "What an init script's subscription answers when its page closes.",
@@ -6416,6 +6491,43 @@
       ],
       "type": "object"
     },
+    "PauseOrigin": {
+      "description": "Who raised a Human pause.",
+      "oneOf": [
+        {
+          "description": "The program, with `page.pause()`.",
+          "properties": {
+            "by": {
+              "const": "program",
+              "type": "string"
+            }
+          },
+          "required": [
+            "by"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The engine, at a step of its own.",
+          "properties": {
+            "by": {
+              "const": "engine",
+              "type": "string"
+            },
+            "step": {
+              "$ref": "#/$defs/EngineStep",
+              "arrived_in": "0.1",
+              "description": "The step."
+            }
+          },
+          "required": [
+            "by",
+            "step"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Period": {
       "description": "The period a Limit counts over, in an explicit IANA time zone, so that\nit never depends on the host's (ADR 0041).",
       "properties": {
@@ -8227,12 +8339,42 @@
       "type": "object"
     },
     "RunProgress": {
-      "description": "A Run's progress as it is now (ADR 0102): what `run.progress` reports.",
+      "additionalProperties": true,
+      "description": "A Run's progress as it is now (ADR 0102): what `run.progress` answers\nand the `run.progress` event carries.",
       "properties": {
+        "at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When the engine read it."
+        },
+        "checkpoint_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When its last Checkpoint was written, once one was."
+        },
+        "epoch": {
+          "arrived_in": "0.1",
+          "description": "Its run epoch (ADR 0003), which a resume or a migration advances.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "last": {
+          "arrived_in": "0.1",
+          "description": "Whether it is the sequence's last value: the Run ended, or no\nengine this one reaches works it, so nothing more comes until a\nstart with its Run ID resumes it.",
+          "type": "boolean"
+        },
         "lifecycle": {
           "$ref": "#/$defs/Lifecycle",
           "arrived_in": "0.1",
-          "description": "Where it is."
+          "description": "Where the Run is."
         },
         "message": {
           "anyOf": [
@@ -8246,10 +8388,37 @@
           "arrived_in": "0.1",
           "description": "The program's own status line, once it set one."
         },
+        "pauses": {
+          "arrived_in": "0.1",
+          "description": "Each Human pause waiting (ADR 0092).",
+          "items": {
+            "$ref": "#/$defs/HumanPause"
+          },
+          "type": "array"
+        },
+        "position": {
+          "arrived_in": "0.1",
+          "description": "Its place among the Run's progress values, which only goes up:\n`run.progress`'s `after` takes it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
           "description": "The Run's ID."
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StopReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Why it stopped, once it did."
         },
         "storage": {
           "anyOf": [
@@ -8261,12 +8430,52 @@
             }
           ],
           "arrived_in": "0.1",
-          "description": "The worst storage level among the filesystems the Run writes to,\nonce the Resource governor sampled them (ADR 0122)."
+          "description": "The worst storage level among the filesystems the Run writes to,\nonce one is above `normal` (ADR 0122)."
+        },
+        "writer": {
+          "$ref": "#/$defs/RunWriter",
+          "arrived_in": "0.1",
+          "description": "Whether an engine works it."
         }
       },
       "required": [
         "run_id",
-        "lifecycle"
+        "position",
+        "at",
+        "lifecycle",
+        "writer",
+        "epoch",
+        "pauses",
+        "last"
+      ],
+      "type": "object"
+    },
+    "RunProgressParams": {
+      "additionalProperties": false,
+      "description": "What `run.progress` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "after": {
+          "arrived_in": "0.1",
+          "description": "The position of the value the reader last read: the answer is the\nlatest value after it, once one comes. Absent, the Run's progress\nat once.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
       ],
       "type": "object"
     },
@@ -9035,6 +9244,21 @@
         "message"
       ],
       "type": "object"
+    },
+    "RunWriter": {
+      "description": "Whether an engine works a Run (ADR 0102).",
+      "oneOf": [
+        {
+          "const": "live",
+          "description": "An engine holds its writer lock.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "Nothing works it, as after a crash, until a start with its Run ID\nresumes it.",
+          "type": "string"
+        }
+      ]
     },
     "RunsReindexOutput": {
       "description": "What `runs reindex --json` prints: the Run index it rebuilt, and how many\nof its rows are of each presence.",

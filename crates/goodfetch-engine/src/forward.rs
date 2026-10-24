@@ -4,7 +4,9 @@
 //! runtime file, and an endpoint no running Daemon of the major publishes
 //! gets no call; an Attached engine is reached at its private endpoint,
 //! with the token its token file holds. An owner that does not own the Run
-//! answers `run_not_owned`.
+//! answers `run_not_owned`. A read of a Run another engine works goes to
+//! that engine the same way, and its answer, a result or a failure, is the
+//! read's (ADR 0102).
 
 use std::future::Future;
 use std::pin::Pin;
@@ -14,7 +16,7 @@ use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::daemon::DaemonEndpoint;
-use goodfetch_protocol::jsonrpc::{Message, Request, RequestId, Version};
+use goodfetch_protocol::jsonrpc::{ErrorObject, Message, Request, RequestId, Version};
 use goodfetch_protocol::run::{RunAbortParams, RunId, RunOwner, RunReport};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
@@ -23,7 +25,7 @@ use crate::attached::read_token;
 use crate::clock::Clock;
 use crate::daemon::files::DaemonFiles;
 use crate::home::Home;
-use crate::runs::Forwarder;
+use crate::runs::{Forwarder, ReadAnswer};
 use crate::tasks::TaskOwner;
 use crate::transport;
 
@@ -61,6 +63,22 @@ impl ToOwner {
     }
 }
 
+impl ToOwner {
+    /// The `hello` that opens a Connection to an owner whose token is
+    /// `token`.
+    fn hello(&self, token: String, needs: Product) -> HelloParams {
+        HelloParams {
+            protocol_version: PROTOCOL_VERSION,
+            surface: Surface::Rust,
+            form: None,
+            token: Some(token),
+            needs: Some(needs),
+            product_version: self.version.clone(),
+            log_level: None,
+        }
+    }
+}
+
 impl Forwarder for ToOwner {
     fn abort<'a>(
         &'a self,
@@ -74,17 +92,15 @@ impl Forwarder for ToOwner {
                 run_id: run_id.clone(),
                 forwarded: true,
             };
-            let hello = HelloParams {
-                protocol_version: PROTOCOL_VERSION,
-                surface: Surface::Rust,
-                form: None,
-                token: Some(token),
-                needs: Some(Product::Collie),
-                product_version: self.version.clone(),
-                log_level: None,
+            let hello = self.hello(token, Product::Collie);
+            let answered = call(&endpoint, &hello, "run.abort", &params, self.clock).await;
+            let report = match answered {
+                Ok(Ok(report)) => serde_json::from_value(report)
+                    .map_err(|error| format!("no Run report: {error}")),
+                Ok(Err(failure)) => Err(format!("answered `{}`", failure.data.code)),
+                Err(reason) => Err(reason),
             };
-            let answered = call(&endpoint, &hello, &params, self.clock).await;
-            match answered {
+            match report {
                 Ok(report) => Some(report),
                 Err(reason) => {
                     tracing::debug!(%run_id, %owner, reason, "the Run's owner did not stop it");
@@ -93,16 +109,39 @@ impl Forwarder for ToOwner {
             }
         })
     }
+
+    fn read<'a>(
+        &'a self,
+        owner: &'a RunOwner,
+        needs: Product,
+        method: &'static str,
+        params: Value,
+        tasks: &'a TaskOwner,
+    ) -> ReadAnswer<'a> {
+        Box::pin(async move {
+            let (endpoint, token) = self.reach(owner, tasks).await?;
+            let hello = self.hello(token, needs);
+            match call(&endpoint, &hello, method, &params, self.clock).await {
+                Ok(answer) => Some(answer),
+                Err(reason) => {
+                    tracing::debug!(%owner, method, reason, "the Run's owner did not answer a read");
+                    None
+                }
+            }
+        })
+    }
 }
 
-/// Opens a Connection to `owner`, says `hello`, sends the forwarded
-/// `run.abort` and reads its report.
+/// Opens a Connection to `owner`, says `hello`, sends `method` with
+/// `params` and reads its answer: its result, or the failure it answered;
+/// `Err` when it gave neither.
 async fn call(
     owner: &DaemonEndpoint,
     hello: &HelloParams,
-    params: &RunAbortParams,
+    method: &str,
+    params: &impl serde::Serialize,
     clock: Clock,
-) -> Result<RunReport, String> {
+) -> Result<Result<Value, ErrorObject>, String> {
     let connection = transport::connect_daemon(owner)
         .await
         .map_err(|error| format!("no Connection: {error}"))?;
@@ -110,20 +149,23 @@ async fn call(
     let mut lines = BufReader::new(reader).lines();
     send(&mut writer, 0, "hello", hello).await?;
     tokio::select! {
-        answer = reply(&mut lines, 0) => { answer?; }
+        answer = reply(&mut lines, 0) => {
+            answer?.map_err(|failure| format!("`hello` answered `{}`", failure.data.code))?;
+        }
         () = clock.sleep(HELLO_DEADLINE) => return Err("no answer to `hello`".to_owned()),
     }
-    send(&mut writer, 1, "run.abort", params).await?;
-    let result = reply(&mut lines, 1).await?;
+    send(&mut writer, 1, method, params).await?;
+    let answer = reply(&mut lines, 1).await?;
     let _ = writer.shutdown().await;
-    serde_json::from_value(result).map_err(|error| format!("no Run report: {error}"))
+    Ok(answer)
 }
 
-/// The result of the call `id`, skipping every other message.
+/// The answer to the call `id`, its result or its failure, skipping every
+/// other message.
 async fn reply(
     lines: &mut tokio::io::Lines<BufReader<transport::ConnectionReader>>,
     id: i64,
-) -> Result<Value, String> {
+) -> Result<Result<Value, ErrorObject>, String> {
     loop {
         let line = lines
             .next_line()
@@ -132,10 +174,10 @@ async fn reply(
             .ok_or("the Connection closed")?;
         match serde_json::from_str::<Message>(&line) {
             Ok(Message::Response(response)) if response.id == RequestId::Number(id) => {
-                return Ok(response.result);
+                return Ok(Ok(response.result));
             }
             Ok(Message::Error(failure)) if failure.id == Some(RequestId::Number(id)) => {
-                return Err(format!("answered `{}`", failure.error.data.code));
+                return Ok(Err(failure.error));
             }
             _ => {}
         }

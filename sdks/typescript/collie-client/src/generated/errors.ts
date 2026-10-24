@@ -586,6 +586,15 @@ export class RunInUseError extends RefusedError {
 }
 
 /**
+ * The Run has no live writer and has not ended, as after a crash, so it has no report and none comes: a start with its Run ID resumes it. The details name the Run.
+ */
+export class RunInterruptedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_interrupted", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * A resumed Run's data key does not open under the key-encryption key `run_state.key_reference` names, such as a Checkpoint moved to a machine whose own key is another: the key that wrapped it never travels with the Checkpoint. The details name the Run, the setting, the reference resolved and the reference that wrapped the key, never a value. Name the key that wrapped it, in project configuration or configuration, and resume again.
  */
 export class RunKeyMismatchError extends UnavailableError {
@@ -818,6 +827,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   run_ended: RunEndedError,
   run_id_invalid: RunIdInvalidError,
   run_in_use: RunInUseError,
+  run_interrupted: RunInterruptedError,
   run_key_mismatch: RunKeyMismatchError,
   run_live: RunLiveError,
   run_not_found: RunNotFoundError,

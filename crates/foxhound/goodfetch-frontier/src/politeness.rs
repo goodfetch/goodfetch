@@ -33,7 +33,7 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::{
-    Ending, PermitRule, PolitenessTables, Verdict, milliseconds, moment,
+    Ending, Hold, PermitRule, PolitenessTables, Verdict, milliseconds, moment,
 };
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::foxhound::settings::{
@@ -168,13 +168,13 @@ impl Limits {
             return if ready_at.saturating_sub(now) > duration_milliseconds(longest) {
                 Verdict::Refused(moment(ready_at))
             } else {
-                Verdict::Until(moment(ready_at))
+                Verdict::Until(moment(ready_at), Hold::BackOff)
             };
         }
         if let (Some(delay), Some(last_start)) = (rule.delay, self.last_start) {
             let next = last_start.saturating_add(duration_milliseconds(delay));
             if next > now {
-                return Verdict::Until(moment(next));
+                return Verdict::Until(moment(next), Hold::Delay);
             }
         }
         let cap = match (rule.concurrency, self.ceiling) {

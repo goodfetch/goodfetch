@@ -63,7 +63,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 - `run.axes_changed`: A Run's Lifecycle, Verdict or Completeness changed: it started running, or it ended. Lossless: while a subscriber's queue is full, the Run waits.
 - `run.checkpointing`: A Checkpoint of a Run is being written: on `run.checkpoint`, a pause, a migration, a clean stop or the periodic `checkpoint.interval`. Lossless.
 - `run.migrating`: A Run is being migrated to another machine: it checkpoints, then stops. Lossless.
-- `run.progress`: A Run's progress changed, such as the program's own status line. Telemetry: a newer value of the same Run replaces an unsent one.
+- `run.progress`: A Run's progress changed, such as the program's own status line, a Human pause beginning or ending, or its end. Telemetry: a newer value of the same Run replaces an unsent one.
 - `run.stopping`: A Run is stopping at its next safe point, with its cause: an abort, a pause or a migration. Lossless.
 - `sample.echoed`: A text was repeated.
 - `session.page`: A page opened in the Session: one `session.new_page` or `run.new_page` opened, or a popup one of its pages opened. Published while `session.on` listens to `page`.

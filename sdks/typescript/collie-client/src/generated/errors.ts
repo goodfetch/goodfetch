@@ -226,6 +226,15 @@ export class CapabilityUnavailableError extends UnavailableError {
 }
 
 /**
+ * A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user or project configuration, or give a public address.
+ */
+export class CDPURLNotAllowedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "cdp_url_not_allowed", group: "refused", retryable: false });
+  }
+}
+
+/**
  * A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt or the Console, which no agent, Recipe or `--json` command can do.
  */
 export class CertificateChangedError extends RefusedError {
@@ -814,6 +823,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   browser_not_installed: BrowserNotInstalledError,
   call_cancelled: CallCancelledError,
   capability_unavailable: CapabilityUnavailableError,
+  cdp_url_not_allowed: CDPURLNotAllowedError,
   certificate_changed: CertificateChangedError,
   certificate_invalid: CertificateInvalidError,
   closed: ClosedError,

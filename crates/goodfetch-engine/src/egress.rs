@@ -45,8 +45,10 @@ use crate::composition::CallError;
 use crate::settings::Resolved;
 
 mod address;
+mod cdp_url;
 
 pub use address::{AddressClass, classify, classify_socket};
+pub use cdp_url::{CdpUrlOrigin, CdpUrlRefused, cdp_url_address, judge_cdp_url};
 
 #[cfg(test)]
 mod tests;

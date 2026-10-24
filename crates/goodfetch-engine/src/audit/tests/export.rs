@@ -134,3 +134,35 @@ fn a_line_that_is_no_entry_breaks_the_export_at_its_place() {
 
     assert_eq!(verify_exported(&joined(&lines)), broken(3, 2));
 }
+
+/// The fuzz target's seeds, chained apart with Python's `hashlib` as RFC
+/// 8785 and the chain's rule say, verified as another implementation's
+/// exports: intact, pruned behind an anchor, edited, no JSON, blank lines.
+/// Covers: story:4-71, story:4-72
+#[rstest::rstest]
+#[case::three_entries("three entries", true, 3, None)]
+#[case::pruned_behind_an_anchor("pruned behind an anchor", true, 3, None)]
+#[case::an_edited_entry("an edited entry", false, 3, Some(2))]
+#[case::not_json("not json", false, 3, Some(1))]
+#[case::blank_lines("blank lines", true, 1, None)]
+fn an_export_chained_apart_verifies_as_its_chain_says(
+    #[case] seed: &str,
+    #[case] intact: bool,
+    #[case] entries: u64,
+    #[case] first_broken: Option<u64>,
+) {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("fuzz/audit_jsonl/seeds")
+        .join(seed);
+    #[expect(clippy::disallowed_methods, reason = "the test reads a committed seed")]
+    let jsonl = std::fs::read(path).unwrap();
+
+    assert_eq!(
+        verify_exported(&jsonl),
+        AuditVerified {
+            intact,
+            entries,
+            first_broken
+        }
+    );
+}

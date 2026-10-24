@@ -626,6 +626,36 @@ pub fn verify_exported(jsonl: &[u8]) -> AuditVerified {
     }
 }
 
+/// The fuzz target `audit_jsonl`'s body (ADR 0067): any bytes read as an
+/// exported Audit log, which may come from anywhere. It counts each line
+/// that is not blank, answers intact exactly when no sequence broke, and
+/// names a broken sequence from 1; it panics only on a bug.
+///
+/// # Panics
+///
+/// When the reader breaks one of those rules.
+pub fn fuzz_audit_jsonl(data: &[u8]) {
+    let verified = verify_exported(data);
+    let lines = data
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.trim_ascii().is_empty())
+        .count();
+    assert_eq!(
+        usize::try_from(verified.entries).ok(),
+        Some(lines),
+        "an export's entries are its lines that are not blank"
+    );
+    assert_eq!(
+        verified.intact,
+        verified.first_broken.is_none(),
+        "an export is intact exactly when no sequence broke"
+    );
+    assert!(
+        verified.first_broken.is_none_or(|sequence| sequence >= 1),
+        "a broken sequence counts from 1"
+    );
+}
+
 /// An exported line's sequence, its entry's text without its hash, and its
 /// hash; none when the line is no JSON object holding both.
 fn exported_line(line: &[u8]) -> Option<(i64, String, String)> {
@@ -826,3 +856,8 @@ fn check_format(found: &str) -> Result<(), AuditError> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod audit_jsonl {
+    goodfetch_test_support::fuzz_replay!(crate::audit::fuzz_audit_jsonl, "fuzz/audit_jsonl");
+}

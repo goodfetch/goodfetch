@@ -149,7 +149,13 @@ function Fact({
 /** The run's three axes, each its own value (ADR 0029). */
 function Axes({ axes }: { readonly axes: RunAxisValues }): ReactNode {
   const { i18n } = useLingui();
-  const noneYet = <Trans>none yet</Trans>;
+  // In an element of its own, so React replaces the element, never a text
+  // node a page translator moved, when the axis gets its value (react#11538).
+  const noneYet = (
+    <span>
+      <Trans>none yet</Trans>
+    </span>
+  );
   return (
     <dl className={listClassName}>
       <Fact term={<Trans>Lifecycle</Trans>}>{i18n._(LIFECYCLE_NAMES[axes.lifecycle])}</Fact>
@@ -167,28 +173,34 @@ function Axes({ axes }: { readonly axes: RunAxisValues }): ReactNode {
   );
 }
 
-/** The worst storage level among the filesystems the run writes to (ADR 0122). */
+/**
+ * The worst storage level among the filesystems the run writes to (ADR
+ * 0122). Each form is an element of its own, keyed, so React replaces the
+ * element, never text nodes a page translator moved (react#11538).
+ */
 function Storage({ progress }: { readonly progress: RunProgress }): ReactNode {
   const { i18n } = useLingui();
   const { storage } = progress;
   if (storage === undefined || storage === null) {
-    return i18n._(STORAGE_LEVEL_NAMES.normal);
+    return <span key="normal">{i18n._(STORAGE_LEVEL_NAMES.normal)}</span>;
   }
   const level = i18n._(STORAGE_LEVEL_NAMES[storage.level]);
   const folder = storage.folder;
   const free = formatBytes(storage.free_bytes);
   return (
-    <Trans>
-      {level}: the filesystem of{" "}
-      <code translate="no" className="font-mono">
-        {folder}
-      </code>{" "}
-      has{" "}
-      <data value={String(storage.free_bytes)} translate="no">
-        {free}
-      </data>{" "}
-      free
-    </Trans>
+    <span key="level">
+      <Trans>
+        {level}: the filesystem of{" "}
+        <code translate="no" className="font-mono">
+          {folder}
+        </code>{" "}
+        has{" "}
+        <data value={String(storage.free_bytes)} translate="no">
+          {free}
+        </data>{" "}
+        free
+      </Trans>
+    </span>
   );
 }
 
@@ -271,14 +283,18 @@ function Progress({ progress }: { readonly progress: RunProgress }): ReactNode {
       </Fact>
       <Fact term={<Trans>Last Checkpoint</Trans>}>
         {progress.checkpoint_at === undefined || progress.checkpoint_at === null ? (
-          <Trans>none yet</Trans>
+          <span>
+            <Trans>none yet</Trans>
+          </span>
         ) : (
           <Instant value={progress.checkpoint_at} />
         )}
       </Fact>
       <Fact term={<Trans>Status</Trans>}>
         {progress.message === undefined || progress.message === null ? (
-          <Trans>no status line</Trans>
+          <span>
+            <Trans>no status line</Trans>
+          </span>
         ) : (
           <span translate="no">{progress.message}</span>
         )}
@@ -377,7 +393,14 @@ function Actions({
           </button>
         </div>
       ) : null}
-      <div role="status">{notice === undefined ? null : <NoticeText notice={notice} />}</div>
+      {/* Each notice is an element of its own, keyed by its kind, so React replaces the element, never text nodes a page translator moved (react#11538). */}
+      <div role="status">
+        {notice === undefined ? null : (
+          <div key={notice.kind}>
+            <NoticeText notice={notice} />
+          </div>
+        )}
+      </div>
     </>
   );
 }

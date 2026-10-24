@@ -1,14 +1,17 @@
-//! The model-based test of the learned parameters (ADR 0060; TESTING.md,
-//! Model-based tests and crashes in one process): seeds of one host's
-//! `/item?n=<n>[&ref=<r>]` admitted into a run file on real SQLite through
-//! the crash VFS, pages of admitted requests fetched with a page signature
-//! that `ref` changes only now and then, and kills, between steps and in
-//! the middle of an admission or a fetch's learning, before its commit. A
-//! reference model, which knows only the spec's thresholds (3 pairs of
-//! pages whose URLs differ only by a parameter, matching, and none
-//! differing), says which parameters are learned, which candidate is
-//! added and which is a `duplicate`, and which URLs a rule merged. After
-//! every step and every crash, the run file holds what the model says, and
+//! The model-based test of the learned rules that merge URLs (ADR 0060;
+//! TESTING.md, Model-based tests and crashes in one process): seeds of one
+//! host's `/item[/]?n=<n>[&ref=<r>]` admitted into a run file on real
+//! SQLite through the crash VFS, pages of admitted requests fetched with a
+//! page signature that `ref` or the trailing slash changes only now and
+//! then, and kills, between steps and in the middle of an admission or a
+//! fetch's learning, before its commit. A reference model, which knows
+//! only the spec's thresholds (3 pairs of pages whose URLs differ only by
+//! a parameter, matching, and none differing; 2 such pairs for the
+//! trailing slash's form) and that a differing pair stops a learned rule,
+//! says which rules hold and which stopped, which candidate is added and
+//! which is a `duplicate`, which pending request a rule learned later ends
+//! `skipped` with `duplicate`, and which URLs a rule merged. After every
+//! step and every crash, the run file holds what the model says, and
 //! nothing of a killed step. 16 cases in the Quick suite and 256 in the
 //! Pre-merge suite (`proptest_config`).
 
@@ -22,7 +25,7 @@ use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest::sample::Index;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension as _};
 use sha2::{Digest as _, Sha256};
 use tokio::runtime::Runtime;
 use url::Url;
@@ -30,44 +33,85 @@ use url::Url;
 use crate::identity::{self, Declared};
 use crate::rules::{self, learned_rules};
 use crate::scope::{self, Scope};
-use crate::{Candidate, PageSeen, admit, bounds, learn};
+use crate::{Candidate, EndMerged, PageSeen, admit, bounds, learn};
 
-/// The crawl's own table of the test: each request added, by its ID.
+/// The crawl's own table of the test: each request added, by its ID, with
+/// its status: `pending`, `fetched`, or `skipped` once a rule merged it.
 const REQUESTS: RunStateTables = RunStateTables {
     name: "model-requests",
     statements: &["CREATE TABLE IF NOT EXISTS requests (
             id INTEGER NOT NULL PRIMARY KEY,
-            url TEXT NOT NULL
+            url TEXT NOT NULL,
+            status TEXT NOT NULL
         ) STRICT"],
 };
 
-/// A page the case asks for: item `n`, with `ref` or without.
+/// The rule of the trailing slash's form, as the model names it.
+const SLASH: &str = "slash";
+
+/// A page the case asks for: item `n`, with `ref` or without, at its path
+/// with a trailing slash or without.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Asked {
     n: u8,
     reference: Option<u8>,
+    slash: bool,
 }
 
 impl Asked {
     fn url(self) -> String {
+        let path = if self.slash { "/item/" } else { "/item" };
         match self.reference {
-            Some(reference) => format!("http://shop.test/item?n={}&ref={reference}", self.n),
-            None => format!("http://shop.test/item?n={}", self.n),
+            Some(reference) => format!("http://shop.test{path}?n={}&ref={reference}", self.n),
+            None => format!("http://shop.test{path}?n={}", self.n),
         }
     }
 
-    /// The page without the parameters `learned` holds.
-    fn without(self, learned: &BTreeSet<&'static str>) -> (Option<u8>, Option<u8>) {
+    /// The page under the rules `learned` holds.
+    fn under(self, learned: &BTreeSet<&'static str>) -> (Option<u8>, Option<u8>, bool) {
         (
             (!learned.contains("n")).then_some(self.n),
             self.reference.filter(|_| !learned.contains("ref")),
+            self.slash && !learned.contains(SLASH),
         )
+    }
+
+    /// Whether the rule `rule` changes it.
+    fn changed_by(self, rule: &str) -> bool {
+        match rule {
+            "n" => true,
+            "ref" => self.reference.is_some(),
+            _ => self.slash,
+        }
+    }
+
+    /// The rule a pair of it and `other` is evidence for, if any: they
+    /// differ by it alone.
+    fn paired(self, other: Self) -> Option<&'static str> {
+        match (
+            self.n == other.n,
+            self.reference == other.reference,
+            self.slash == other.slash,
+        ) {
+            (true, false, true) => Some("ref"),
+            (false, true, true) => Some("n"),
+            (true, true, false) => Some(SLASH),
+            _ => None,
+        }
     }
 }
 
 fn asked() -> impl Strategy<Value = Asked> {
-    (0_u8..3, proptest::option::weighted(0.6, 0_u8..3))
-        .prop_map(|(n, reference)| Asked { n, reference })
+    (
+        0_u8..3,
+        proptest::option::weighted(0.6, 0_u8..3),
+        proptest::bool::weighted(0.3),
+    )
+        .prop_map(|(n, reference, slash)| Asked {
+            n,
+            reference,
+            slash,
+        })
 }
 
 fn kind() -> impl Strategy<Value = CrashKind> {
@@ -98,10 +142,14 @@ struct Model {
     added: Vec<Asked>,
     /// The pages fetched, by request, with their page's text.
     fetched: BTreeMap<usize, String>,
-    /// Each parameter's pairs: how many matched and how many differed.
+    /// The requests a rule learned later ended `skipped`.
+    skipped: BTreeSet<usize>,
+    /// Each rule's pairs: how many matched and how many differed.
     pairs: BTreeMap<&'static str, (u32, u32)>,
-    /// The parameters learned to have no effect.
+    /// The rules that hold.
     learned: BTreeSet<&'static str>,
+    /// The rules a contradicting pair stopped.
+    stopped: BTreeSet<&'static str>,
     /// The URLs a rule merged.
     merged: BTreeSet<String>,
     /// The answer the last admission must get: its ID, or `None`.
@@ -113,31 +161,27 @@ impl Model {
     /// duplicate, which a rule merged when the page itself was never
     /// added.
     fn admitted(&self, asked: Asked) -> (Option<usize>, bool) {
-        let key = asked.without(&self.learned);
+        let key = asked.under(&self.learned);
         let duplicate = self
             .added
             .iter()
-            .any(|added| added.without(&self.learned) == key);
+            .any(|added| added.under(&self.learned) == key);
         let merged = duplicate && !self.added.contains(&asked);
         ((!duplicate).then_some(self.added.len() + 1), merged)
     }
 
-    /// Learns from request `id`'s page, read with `text`, once.
+    /// Learns from request `id`'s page, read with `text`, once, unless a
+    /// rule ended it.
     fn fetch(&mut self, id: usize, text: String) {
-        if self.fetched.contains_key(&id) {
+        if self.fetched.contains_key(&id) || self.skipped.contains(&id) {
             return;
         }
         let page = self.added[id - 1];
         for (other_id, other_text) in &self.fetched {
-            let other = self.added[other_id - 1];
-            let parameter = if other.n == page.n && other.reference != page.reference {
-                "ref"
-            } else if other.reference == page.reference && other.n != page.n {
-                "n"
-            } else {
+            let Some(rule) = page.paired(self.added[other_id - 1]) else {
                 continue;
             };
-            let counts = self.pairs.entry(parameter).or_default();
+            let counts = self.pairs.entry(rule).or_default();
             if *other_text == text {
                 counts.0 += 1;
             } else {
@@ -145,9 +189,53 @@ impl Model {
             }
         }
         self.fetched.insert(id, text);
-        for (parameter, (matching, differing)) in &self.pairs {
-            if *matching >= 3 && *differing == 0 {
-                self.learned.insert(parameter);
+        let mut learned = Vec::new();
+        for (rule, (matching, differing)) in &self.pairs {
+            let threshold = if *rule == SLASH { 2 } else { 3 };
+            if self.learned.contains(rule) && *differing > 0 {
+                self.learned.remove(rule);
+                self.stopped.insert(rule);
+            } else if !self.learned.contains(rule)
+                && !self.stopped.contains(rule)
+                && *matching >= threshold
+                && *differing == 0
+            {
+                self.learned.insert(rule);
+                learned.push(*rule);
+            }
+        }
+        for rule in learned {
+            self.end_merged(rule);
+        }
+    }
+
+    /// Ends each pending request the rule `rule`, just learned, shows to
+    /// be one page with another: all of them when one was fetched, else
+    /// all but the first.
+    fn end_merged(&mut self, rule: &str) {
+        let mut pages: BTreeMap<_, Vec<usize>> = BTreeMap::new();
+        for (index, added) in self.added.iter().enumerate() {
+            pages
+                .entry(added.under(&self.learned))
+                .or_default()
+                .push(index + 1);
+        }
+        for ids in pages.values() {
+            let changed = ids.iter().any(|id| self.added[id - 1].changed_by(rule));
+            if ids.len() < 2 || !changed {
+                continue;
+            }
+            let mut pending: Vec<usize> = ids
+                .iter()
+                .copied()
+                .filter(|id| !self.fetched.contains_key(id) && !self.skipped.contains(id))
+                .collect();
+            if !ids.iter().any(|id| self.fetched.contains_key(id)) && !pending.is_empty() {
+                pending.remove(0);
+            }
+            for id in pending {
+                self.skipped.insert(id);
+                self.merged.insert(self.added[id - 1].url());
             }
         }
     }
@@ -261,7 +349,7 @@ impl Subject {
     }
 }
 
-/// Admits `asked` as a seed, adding a request to the test's table.
+/// Admits `asked` as a seed, adding a pending request to the test's table.
 fn admit_seed(connection: &Connection, asked: Asked) -> rusqlite::Result<Enqueued> {
     let method = HttpMethod::get();
     let url = asked.url();
@@ -281,8 +369,8 @@ fn admit_seed(connection: &Connection, asked: Asked) -> rusqlite::Result<Enqueue
         candidate,
         |url| {
             connection.query_row(
-                "INSERT INTO requests (id, url)
-             SELECT coalesce(max(id), 0) + 1, ?1 FROM requests RETURNING id",
+                "INSERT INTO requests (id, url, status)
+                 SELECT coalesce(max(id), 0) + 1, ?1, 'pending' FROM requests RETURNING id",
                 [url.as_str()],
                 |row| Ok(row.get::<_, i64>(0)?.to_string()),
             )
@@ -290,8 +378,66 @@ fn admit_seed(connection: &Connection, asked: Asked) -> rusqlite::Result<Enqueue
     )
 }
 
-/// Learns from request `id`'s page at `asked`, read with `text`.
+/// The test's crawl ending the requests a rule merged, as a crawl does:
+/// each pending one, all but the first when none was fetched.
+struct Requests;
+
+impl EndMerged for Requests {
+    fn end_merged(
+        &mut self,
+        connection: &Connection,
+        crawl_requests: &BTreeSet<String>,
+    ) -> rusqlite::Result<Vec<String>> {
+        let mut rows = Vec::new();
+        for id in crawl_requests {
+            let id: i64 = id.parse().unwrap();
+            rows.push(connection.query_row(
+                "SELECT id, url, status FROM requests WHERE id = ?1",
+                [id],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )?);
+        }
+        rows.sort();
+        let fetched = rows.iter().any(|(_, _, status)| status == "fetched");
+        let mut pending: Vec<_> = rows
+            .into_iter()
+            .filter(|(_, _, status)| status == "pending")
+            .collect();
+        if !fetched && !pending.is_empty() {
+            pending.remove(0);
+        }
+        let mut ended = Vec::new();
+        for (id, url, _) in pending {
+            connection.execute("UPDATE requests SET status = 'skipped' WHERE id = ?1", [id])?;
+            ended.push(url);
+        }
+        Ok(ended)
+    }
+}
+
+/// Fetches request `id`'s page at `asked`, read with `text`, and learns
+/// from it, unless a rule ended the request.
 fn fetch(connection: &Connection, id: usize, asked: Asked, text: &str) -> rusqlite::Result<()> {
+    let status: Option<String> = connection
+        .query_row(
+            "SELECT status FROM requests WHERE id = ?1",
+            [i64::try_from(id).unwrap()],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if status.as_deref() == Some("skipped") {
+        return Ok(());
+    }
+    connection.execute(
+        "UPDATE requests SET status = 'fetched' WHERE id = ?1",
+        [i64::try_from(id).unwrap()],
+    )?;
     let method = HttpMethod::get();
     learn(
         connection,
@@ -301,24 +447,47 @@ fn fetch(connection: &Connection, id: usize, asked: Asked, text: &str) -> rusqli
             method: &method,
             body: None,
             signature: Sha256::digest(text).into(),
+            canonical: None,
         },
+        &mut Requests,
     )
 }
 
-/// What the file holds: its requests' count, the parameters learned and
-/// every URL a rule merged.
-fn stored(connection: &Connection) -> (usize, BTreeSet<String>, BTreeSet<String>) {
+/// What the file holds: its requests' count, the rules that hold and
+/// those stopped, every URL a rule merged and the requests skipped.
+type Stored = (
+    usize,
+    BTreeSet<String>,
+    BTreeSet<String>,
+    BTreeSet<String>,
+    BTreeSet<usize>,
+);
+
+fn stored(connection: &Connection) -> Stored {
     let added: i64 = connection
         .query_row("SELECT count(*) FROM requests", [], |row| row.get(0))
         .unwrap();
+    let skipped = connection
+        .prepare("SELECT id FROM requests WHERE status = 'skipped'")
+        .unwrap()
+        .query_map([], |row| row.get::<_, i64>(0))
+        .unwrap()
+        .map(|id| usize::try_from(id.unwrap()).unwrap())
+        .collect();
     let rules = learned_rules(connection).unwrap();
-    (
-        usize::try_from(added).unwrap(),
+    let named = |stopped: bool| {
         rules
             .iter()
-            .filter_map(|rule| rule.parameter.clone())
-            .collect(),
-        rules.into_iter().flat_map(|rule| rule.merged).collect(),
+            .filter(|rule| rule.contradiction.is_some() == stopped)
+            .map(|rule| rule.parameter.clone().unwrap_or_else(|| SLASH.to_owned()))
+            .collect()
+    };
+    (
+        usize::try_from(added).unwrap(),
+        named(false),
+        named(true),
+        rules.iter().flat_map(|rule| rule.merged.clone()).collect(),
+        skipped,
     )
 }
 
@@ -425,16 +594,16 @@ impl StateMachineTest for Subject {
             subject.vfs.name(),
         )
         .unwrap();
+        let names =
+            |rules: &BTreeSet<&'static str>| rules.iter().map(|name| (*name).to_owned()).collect();
         assert_eq!(
             stored(&connection),
             (
                 model.added.len(),
-                model
-                    .learned
-                    .iter()
-                    .map(|name| (*name).to_owned())
-                    .collect(),
+                names(&model.learned),
+                names(&model.stopped),
                 model.merged.clone(),
+                model.skipped.clone(),
             )
         );
     }
@@ -447,9 +616,9 @@ impl StateMachineTest for Subject {
 prop_state_machine! {
     #![proptest_config(goodfetch_test_support::proptest_config())]
 
-    /// Covers: story:6-216
+    /// Covers: story:6-216, story:6-217, story:6-218, story:6-222
     #[test]
-    fn learned_parameters_merge_as_the_reference_model_says_through_kills(
+    fn learned_rules_merge_and_stop_as_the_reference_model_says_through_kills(
         sequential 1..60 => Subject
     );
 }

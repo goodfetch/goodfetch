@@ -20,7 +20,8 @@
 //!   and gzip;
 //! - `learning`: pages from which a Frontier learns a parameter with no
 //!   effect, a trap and cursor pagination preferred to offset (ADR 0005),
-//!   each threshold met and one short of it;
+//!   and equivalent forms on evidence (ADR 0120), each threshold met and
+//!   one short of it;
 //! - `scope`: a site with a `www` host and a subdomain beside a sister
 //!   domain and an off-site host (pitfall U15), on host names of its own.
 //!
@@ -58,7 +59,7 @@ use crate::task::{self, Entry, Expected, Finding, Kind, Record, Task};
 pub(crate) use limits::Held;
 
 /// The family host names, each with its family's name.
-const FAMILIES: [(&str, &str); 12] = [
+const FAMILIES: [(&str, &str); 13] = [
     (statuses::HOST, statuses::FAMILY),
     (traps::HOST, traps::FAMILY),
     (limits::HOST, limits::FAMILY),
@@ -71,6 +72,7 @@ const FAMILIES: [(&str, &str); 12] = [
     (sitemaps::HOST, sitemaps::FAMILY),
     (learning::HOST, learning::FAMILY),
     (learning::SHOP_HOST, learning::FAMILY),
+    (learning::WWW_HOST, learning::FAMILY),
 ];
 
 /// The parts of a request a Crawl family reads: an

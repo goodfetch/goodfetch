@@ -38,6 +38,7 @@ use goodfetch_protocol::settings::{
 };
 use url::Url;
 
+use crate::canonical::canonical;
 use crate::driver::{Deadlines, Hop, fetch};
 use crate::redundant::{Redundant, Requester};
 use crate::transports::{Reqwest, TransportConfig};
@@ -61,6 +62,20 @@ struct Pages {
     /// The number of the next page served.
     next: u64,
     open: BTreeMap<PageId, ServedDocument>,
+    /// The `Link` header fields of each open page that had any, where
+    /// its `rel=canonical` may be.
+    links: BTreeMap<PageId, Vec<(String, String)>>,
+}
+
+/// What the Frontier learns from a served page (ADRs 0005 and 0120).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Signed {
+    /// The URL it was fetched at.
+    pub url: String,
+    /// Its page signature.
+    pub signature: [u8; 32],
+    /// The URL its `rel=canonical` names, resolved, when it names one.
+    pub canonical: Option<Url>,
 }
 
 /// Locks `mutex`, whose holders never panic while they hold it.
@@ -206,6 +221,11 @@ impl FetchTiers {
         let html = String::from_utf8_lossy(&fetched.body).into_owned();
         let base_url = goodfetch_frontier::document_base(&url, base_href(&html).as_deref())
             .map_or_else(|| url.clone(), |base| base.to_string());
+        let links: Vec<(String, String)> = fetched
+            .headers
+            .into_iter()
+            .filter(|(name, _)| name == "link")
+            .collect();
         let document = ServedDocument {
             run: run.clone(),
             url,
@@ -216,37 +236,57 @@ impl FetchTiers {
         pages.next += 1;
         let page_id = PageId(format!("document-{}", pages.next));
         pages.open.insert(page_id.clone(), document);
+        if !links.is_empty() {
+            pages.links.insert(page_id.clone(), links);
+        }
         Ok(page_id)
     }
 
-    /// The URL and the page signature of the served page `page_id`, which
-    /// the Frontier learns from (ADR 0005), read on its Run's blocking
-    /// owner; `None` once the page closed.
+    /// The URL, the page signature and the `rel=canonical` of the served
+    /// page `page_id`, which the Frontier learns from (ADRs 0005 and
+    /// 0120), read on its Run's blocking owner; `None` once the page
+    /// closed.
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future loses only the signature; the page stays open.
-    pub async fn signature(&self, page_id: &PageId) -> Option<(String, [u8; 32])> {
+    /// Dropping the future loses only what it reads; the page stays open.
+    pub async fn signature(&self, page_id: &PageId) -> Option<Signed> {
         let served = self.document(page_id)?;
+        let links = lock(&self.served.pages)
+            .links
+            .get(page_id)
+            .cloned()
+            .unwrap_or_default();
         let run = served.run.clone();
-        let url = served.url.clone();
-        let signature = run
+        let signed = run
             .owner()
             .blocking(move || {
-                goodfetch_extractor::page_signature(&goodfetch_extractor::Document {
-                    html: &served.html,
-                    url: &served.url,
-                    base_url: &served.base_url,
-                })
+                let signature =
+                    goodfetch_extractor::page_signature(&goodfetch_extractor::Document {
+                        html: &served.html,
+                        url: &served.url,
+                        base_url: &served.base_url,
+                    });
+                let canonical = match (Url::parse(&served.base_url), Url::parse(&served.url)) {
+                    (Ok(base), Ok(url)) => canonical(&served.html, &links, &base, &url),
+                    _ => None,
+                };
+                Signed {
+                    url: served.url,
+                    signature,
+                    canonical,
+                }
             })
             .await;
-        Some((url, signature))
+        Some(signed)
     }
 
     /// Closes the served page `page_id`: later calls on it answer
     /// `closed`.
     pub fn close(&self, page_id: &PageId) {
-        lock(&self.served.pages).open.remove(page_id);
+        let mut pages = lock(&self.served.pages);
+        pages.open.remove(page_id);
+        pages.links.remove(page_id);
     }
 }
 

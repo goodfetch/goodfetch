@@ -555,3 +555,25 @@ proptest! {
         }
     }
 }
+
+/// A waiting request its Run ended before sending, such as one a learned
+/// rule merged, leaves its domain's queue: the others are admitted in
+/// their order, and a domain left with none takes no more turns.
+///
+/// Covers: story:6-222
+#[test]
+fn a_withdrawn_request_is_never_admitted() {
+    let now = Instant::now();
+    let mut queues = queues();
+    enqueue(&mut queues, "a1", "https://a.test/1", 0);
+    enqueue(&mut queues, "a2", "https://a.test/1/", 0);
+    enqueue(&mut queues, "b1", "https://b.test/1", 0);
+    enqueue(&mut queues, "a3", "https://a.test/3", 0);
+    let a_key = queues.key("https://a.test/");
+    let b_key = queues.key("https://b.test/");
+
+    queues.withdraw(&a_key, "a2");
+    queues.withdraw(&b_key, "b1");
+
+    assert_eq!(admit_all(&mut queues, now), ["a1", "a3"]);
+}

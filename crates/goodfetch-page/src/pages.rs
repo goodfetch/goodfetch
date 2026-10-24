@@ -34,7 +34,9 @@
 //! navigation reached is judged by its Page check (`recovery`), and a page
 //! that blocking may have broken is loaded once more with blocking off
 //! (`blocking_off`, ADR 0047), the Product's classifier telling its Block
-//! cause (`blocks`).
+//! cause (`blocks`); on a page a program opened, Provenance records what
+//! its robots.txt says of each document, never gating it (`robots_txt`,
+//! ADR 0086).
 //!
 //! Size: one table of the page API's handlers over the engine's shared
 //! pages, each call opening its page through one `open` that raises what
@@ -47,6 +49,8 @@ use std::sync::Arc;
 use goodfetch_engine::browser_cache::PinnedArtifact;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::{self, Navigator};
+use goodfetch_engine::hostile_input::check_headers;
+use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -93,6 +97,7 @@ use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, S
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Injections, Pending, Registered};
 use crate::page_value::{HandlerPages, ProgramPages};
+use crate::proxy;
 use crate::recovery;
 use crate::sessions::{self, OpenPage, PageEvent, Sessions};
 use crate::trace;
@@ -102,6 +107,7 @@ mod arrival;
 mod blocked;
 mod blocking_off;
 mod clean_up;
+mod robots_txt;
 mod waits;
 
 /// What the page crate adds to the engine (ADR 0087): its run state's
@@ -149,6 +155,7 @@ pub fn contribution_with(
     let contribution = with_page_handlers(
         Contribution::new("page")
             .with_run_state_tables(sessions::TABLES)
+            .with_politeness_tables(proxy::TABLES)
             .with_clean_up_versions(pages.interception.versions()),
         &pages,
     );
@@ -389,7 +396,9 @@ fn with_route_handlers(contribution: Contribution, interception: &Interception) 
             &ROUTE_CONTINUE,
             move |params: RouteOverridesParams, _context: CallContext| {
                 let route_id = params.route_id.clone();
-                let replied = continuing.answer(&route_id, Answer::Continue(overrides(params)));
+                let replied = headers_sent(params.headers.as_ref()).and_then(|()| {
+                    continuing.answer(&route_id, Answer::Continue(overrides(params)))
+                });
                 async move { answered(replied?.await) }
             },
         ))
@@ -397,7 +406,9 @@ fn with_route_handlers(contribution: Contribution, interception: &Interception) 
             &ROUTE_FALLBACK,
             move |params: RouteOverridesParams, _context: CallContext| {
                 let route_id = params.route_id.clone();
-                let replied = falling_back.answer(&route_id, Answer::Fallback(overrides(params)));
+                let replied = headers_sent(params.headers.as_ref()).and_then(|()| {
+                    falling_back.answer(&route_id, Answer::Fallback(overrides(params)))
+                });
                 async move { answered(replied?.await) }
             },
         ))
@@ -405,7 +416,9 @@ fn with_route_handlers(contribution: Contribution, interception: &Interception) 
             &ROUTE_FULFILL,
             move |params: RouteFulfillParams, _context: CallContext| {
                 let route_id = params.route_id.clone();
-                let replied = fulfilling.answer(&route_id, Answer::Fulfill(fulfillment(params)));
+                let replied = fulfillment(params).and_then(|fulfillment| {
+                    fulfilling.answer(&route_id, Answer::Fulfill(fulfillment))
+                });
                 async move { answered(replied?.await) }
             },
         ))
@@ -423,7 +436,8 @@ fn with_route_handlers(contribution: Contribution, interception: &Interception) 
             &ROUTE_FETCH,
             move |params: RouteOverridesParams, _context: CallContext| {
                 let route_id = params.route_id.clone();
-                let replied = fetching.answer(&route_id, Answer::Fetch(overrides(params)));
+                let replied = headers_sent(params.headers.as_ref())
+                    .and_then(|()| fetching.answer(&route_id, Answer::Fetch(overrides(params))));
                 async move {
                     match replied?.await? {
                         Reply::Fetched(fetched) => Ok::<RouteFetched, CallError>(fetched),
@@ -475,6 +489,19 @@ fn with_dialog_handlers(contribution: Contribution, dialogs: &Dialogs) -> Contri
         ))
 }
 
+/// Refuses `headers`, which a call would have the browser send, when a
+/// value holds a CR, an LF or a NUL: `header_value_invalid`, before
+/// anything reaches CDP (ADR 0067).
+fn headers_sent(headers: Option<&BTreeMap<String, String>>) -> Result<(), CallError> {
+    check_headers(
+        headers
+            .into_iter()
+            .flatten()
+            .map(|(name, value)| (name.as_str(), value.as_str())),
+    )
+    .map_err(|refused| refused.error())
+}
+
 /// The overrides `params` names.
 fn overrides(params: RouteOverridesParams) -> Overrides {
     Overrides {
@@ -487,7 +514,12 @@ fn overrides(params: RouteOverridesParams) -> Overrides {
 
 /// The response `params` names: 200 and an empty body unless it says
 /// otherwise, its `content_type` over its headers' own.
-fn fulfillment(params: RouteFulfillParams) -> Fulfillment {
+///
+/// # Errors
+///
+/// `header_value_invalid` for a header value, its `content_type`'s
+/// included, holding a CR, an LF or a NUL.
+fn fulfillment(params: RouteFulfillParams) -> Result<Fulfillment, CallError> {
     let mut headers: BTreeMap<String, String> = params
         .headers
         .unwrap_or_default()
@@ -499,11 +531,12 @@ fn fulfillment(params: RouteFulfillParams) -> Fulfillment {
     if let Some(content_type) = params.content_type {
         headers.insert("content-type".to_owned(), content_type);
     }
-    Fulfillment {
+    headers_sent(Some(&headers))?;
+    Ok(Fulfillment {
         status: params.status.unwrap_or(200),
         headers,
         body: params.body.unwrap_or_default(),
-    }
+    })
 }
 
 /// What an answer to a route answers once the pipeline acted on it.
@@ -742,6 +775,17 @@ impl Pages {
         let Some(response) = arrival::arrived(page_id, navigated?, events).await else {
             return Ok(Navigated { response: None });
         };
+        // A page a program opened records what its document's robots.txt
+        // says, beside the navigation, never before it (ADR 0086).
+        if page.driver.value().gate().is_none() {
+            robots_txt::read(
+                &self.sessions,
+                self.interception.engine_requests(page_id)?,
+                page_id,
+                &page,
+                &response.url,
+            );
+        }
         // Every document a Session's navigation reached is judged: its Block
         // cause first, which raises `blocked` (ADRs 0088 and 0092), unless
         // it checks the browser and the Filter lists touched its
@@ -845,10 +889,15 @@ impl Pages {
         surface: Surface,
     ) -> Result<PageResponse, CallError> {
         let max_redirects = redirect_count(params.max_redirects, surface)?;
+        headers_sent(params.headers.as_ref())?;
         let page = self.open(&params.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let steps = self.interception.engine_requests(&params.page_id)?;
         let events = self.events.get(&params.page_id)?;
+        let limits = page
+            .run
+            .settings()
+            .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
         let request = browser_fetch::Request {
             url: &params.url,
             method: params.method.as_deref(),
@@ -856,6 +905,7 @@ impl Pages {
             post_data: params.post_data.as_deref(),
             max_redirects,
             option: max_redirects_option(surface),
+            limits,
         };
         let (driver, in_browser) = self
             .sessions

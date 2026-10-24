@@ -71,6 +71,7 @@ fn serve_first_prints_the_address_of_each_network_fixture() {
             "datacenter",
             "down",
             "isp",
+            "limited",
             "mobile",
             "open",
             "refusing_tunnels",

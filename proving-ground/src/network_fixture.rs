@@ -5,6 +5,7 @@
 //! lists.
 //!
 //! The proxies are `open`, `refusing_tunnels` (it refuses `CONNECT`),
+//! `limited` (one request at a time, `429` to any other meanwhile),
 //! `down` (an address where nothing listens, which no other program can
 //! take), `socks5` (a SOCKS5 proxy
 //! behind the authenticated proxies' credentials), and one authenticated
@@ -70,6 +71,7 @@ impl NetworkFixtures {
                 Proxy::single("refusing_tunnels", Access::RefusingTunnels),
             )
             .await?,
+            ForwardProxy::bind(host, Proxy::single("limited", Access::Limited)).await?,
             ForwardProxy::bind(host, Proxy::single("socks5", Access::Socks5)).await?,
         ];
         for kind in KINDS {

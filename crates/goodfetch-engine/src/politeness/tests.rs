@@ -270,6 +270,34 @@ fn a_permit_given_back_wakes_the_waiter_whose_turn_it_is_through_its_wake_endpoi
     );
 }
 
+/// Covers: story:5-90, setting:politeness.sharing
+#[test]
+fn a_permit_given_back_to_a_runs_own_politeness_wakes_its_waiter_within_the_engine() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+
+    let woken = run(async |owner| {
+        let own = Politeness::in_memory(Vec::new(), owner).await.unwrap();
+        let mut wakes = own.wakes();
+        let held = granted(
+            own.take("proxy", &holder(&env, "own"), cap(1), now)
+                .await
+                .unwrap(),
+        );
+        own.take("proxy", &holder(&env, "own-waiting"), cap(1), now)
+            .await
+            .unwrap();
+
+        own.give_back(held, cap(1), Ending::Done, now)
+            .await
+            .unwrap();
+
+        received(&mut wakes)
+    });
+
+    assert_eq!(woken, vec!["own-waiting@proxy".to_owned()]);
+}
+
 /// Covers: story:3-81
 #[test]
 fn a_woken_waiter_its_own_cap_still_refuses_passes_the_wake_to_the_next() {

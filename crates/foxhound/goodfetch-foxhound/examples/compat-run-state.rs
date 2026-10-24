@@ -7,7 +7,10 @@
 //! one sent as a `POST` with a body under a declared key and one
 //! `crawl.max_segment_repeats` refuses, under a scope of every host
 //! narrowed by an `include` and an `exclude` pattern and under a depth and
-//! a request bound,
+//! a request bound, and nine more seeds on `list.test`, three pairs of
+//! items with and without `ref` and three offsets of one listing, whose
+//! pages the writer's own contribution hands the Frontier, which learns
+//! that `ref` has no effect and merges a seed it admits then,
 //! whose handler enqueues a `forefront` request on another domain from the
 //! first, pushes Records for the first, the `POST` and that request and
 //! fails on the second, whose first byte never came, so its
@@ -55,11 +58,13 @@ use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
     CallContext, CallError, Channel, Contribution, Dependencies, Engine, Handler, Identity,
 };
+use goodfetch_frontier::PageSeen;
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::checkpoint::RunBinding;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::run::{NothingDone, RunId, RunKind, RunWarning, Tags};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
@@ -91,14 +96,27 @@ fn scenario() -> Vec<Value> {
                     { "url": "https://api.test/search", "label": "home", "method": "POST", "body": "eyJwYWdlIjoxfQ==", "key": "search-1" },
                     { "url": "https://guarded.test/", "label": "guarded" },
                     { "url": "https://shop.test/more/more/more/", "label": "home" },
+                    { "url": "https://list.test/items?n=1", "label": "listed" },
+                    { "url": "https://list.test/items?n=1&ref=a", "label": "listed" },
+                    { "url": "https://list.test/items?n=2", "label": "listed" },
+                    { "url": "https://list.test/items?n=2&ref=b", "label": "listed" },
+                    { "url": "https://list.test/items?n=3", "label": "listed" },
+                    { "url": "https://list.test/items?n=3&ref=c", "label": "listed" },
+                    { "url": "https://list.test/rows?offset=0", "label": "listed" },
+                    { "url": "https://list.test/rows?offset=20", "label": "listed" },
+                    { "url": "https://list.test/rows?offset=40", "label": "listed" },
+                    { "url": "https://shop.test/pages/1", "label": "home" },
+                    { "url": "https://shop.test/pages/2", "label": "home" },
                 ],
                 "settings": { "crawl": {
                     "scope": { "strategy": "all", "include": ["**/sale"], "exclude": ["**/admin/**"] },
                     "max_depth": 3,
                     "max_requests": 100,
+                    "path_budgets": [{ "pattern": "/pages/*", "max_requests": 1 }],
                 } },
             }),
         ),
+        call(15, "compat.learned", json!({ "run_id": "crawl" })),
         call(2, "run.finish", json!({ "run_id": "crawl" })),
         call(
             3,
@@ -186,9 +204,77 @@ async fn keyed(params: Value, context: CallContext) -> Result<Value, CallError> 
     Ok(json!({ "keyed": true }))
 }
 
+/// Hands the Frontier of a live crawl the pages of its `list.test/items`
+/// seeds, as a fetch tier would once it fetched them, since none runs over
+/// the in-memory network: item `n`'s page reads alike with or without
+/// `ref`, so `ref` is learned to have no effect, and a seed differing from
+/// an admitted one only by `ref`, admitted in the same write so that no
+/// attempt of the crawl's runs between, is merged.
+const LEARNED: Operation = Operation {
+    name: "compat.learned",
+    description: "Hands a crawl's Frontier the pages of its `list.test/items` seeds.",
+    ..BOUND
+};
+
+async fn learned(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default()).expect("a Run ID");
+    let run = context.runs().live(run_id).await.expect("the Run is live");
+    run.state()
+        .write(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, url FROM work_items WHERE url LIKE 'https://list.test/items%' ORDER BY position",
+            )?;
+            let pages = statement
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let get = HttpMethod::get();
+            for (crawl_request, url) in pages {
+                let url = goodfetch_frontier::Url::parse(&url).expect("a seed's URL parses");
+                let item = url
+                    .query_pairs()
+                    .find(|(name, _)| name == "n")
+                    .map_or(0, |(_, value)| value.bytes().next().unwrap_or(0));
+                goodfetch_frontier::learn(
+                    connection,
+                    PageSeen {
+                        crawl_request: &crawl_request,
+                        url: &url,
+                        method: &get,
+                        body: None,
+                        signature: [item; 32],
+                    },
+                )?;
+            }
+            let merged = goodfetch_frontier::admit(
+                connection,
+                &goodfetch_frontier::Scope::read(connection)?,
+                &goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str])
+                    .expect("every host is a policy"),
+                goodfetch_frontier::Candidate::Seed {
+                    url: "https://list.test/items?n=1&ref=z",
+                    declared: goodfetch_frontier::Declared {
+                        method: &get,
+                        body: None,
+                        key: None,
+                    },
+                },
+                |_| Err(rusqlite::Error::InvalidQuery),
+            )?;
+            assert!(
+                matches!(merged, goodfetch_protocol::foxhound::frontier::Enqueued::NotAdded { .. }),
+                "the learned rule merges the seed"
+            );
+            Ok(())
+        })
+        .await
+        .expect("the pages are learned from");
+    Ok(json!({ "learned": true }))
+}
+
 fn bound() -> Contribution {
     Contribution::new("compat-run-state")
         .with_handler(Handler::new(&KEYED, keyed))
+        .with_handler(Handler::new(&LEARNED, learned))
         .with_handler(Handler::new(
         &BOUND,
         |_: Value, context: CallContext| async move {

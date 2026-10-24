@@ -5,7 +5,7 @@
 
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::CompletenessReason;
-use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
+use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason, PathBudget};
 use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::Connection;
 use url::Url;
@@ -50,6 +50,7 @@ impl Frontier {
             .iter()
             .chain(scope::TABLES.statements)
             .chain(bounds::TABLES.statements)
+            .chain(crate::rules::TABLES.statements)
         {
             connection.execute(statement, []).unwrap();
         }
@@ -89,6 +90,7 @@ impl Frontier {
         self.admit(Candidate::Enqueue {
             url,
             base: &base,
+            from: &base,
             declared: get(),
             narrowing: Narrowing::none(),
             depth,
@@ -167,6 +169,7 @@ fn an_enqueue_resolves_against_its_documents_base_and_is_answered_as_a_seed_is()
             frontier.admit(Candidate::Enqueue {
                 url,
                 base: &base,
+                from: &base,
                 declared: get(),
                 narrowing: Narrowing::none(),
                 depth: 1,
@@ -335,6 +338,7 @@ fn an_enqueue_outside_every_seeds_scope_is_out_of_scope() {
         frontier.admit(Candidate::Enqueue {
             url,
             base: &base,
+            from: &base,
             declared: get(),
             narrowing: Narrowing::none(),
             depth: 1,
@@ -477,6 +481,78 @@ fn a_cap_refuses_what_would_otherwise_be_admitted_and_leaves_the_run_unverified(
                 reason("crawl.max_path_segments", Completeness::Unverified, 1),
                 reason("crawl.max_segment_repeats", Completeness::Unverified, 1),
                 reason("crawl.max_url_length", Completeness::Unverified, 1),
+            ]
+        )
+    );
+}
+
+fn budget(pattern: &str, max_requests: u64) -> PathBudget {
+    PathBudget {
+        pattern: pattern.to_owned(),
+        max_requests,
+    }
+}
+
+/// `crawl.path_budgets` matches each entry's glob against a URL's path and
+/// query: the first entry a URL matches counts it, seeds included, and one
+/// past its count is not added with `path_budget`; a URL the first entry
+/// counted is never counted by a later one it also matches, and a
+/// duplicate is no refusal. Each entry that refused a URL makes the Run
+/// `incomplete`, its reason naming the pattern and the counts (CO-08).
+///
+/// Covers: story:6-229, setting:crawl.path_budgets
+#[test]
+fn a_path_budget_refuses_past_its_count_and_only_the_first_matching_entry_counts() {
+    let mut frontier = Frontier::new();
+    Bounds {
+        path_budgets: vec![budget("/shop?*", 2), budget("/shop**", 1)],
+        ..Bounds::default()
+    }
+    .record(&frontier.connection)
+    .unwrap();
+
+    let answers = [
+        frontier.seed("http://shop.test/shop?colour=red"),
+        frontier.enqueue("/shop?size=m", 1),
+        frontier.enqueue("/shop?colour=blue", 1),
+        frontier.enqueue("/shop?size=m", 1),
+        frontier.enqueue("/shop", 1),
+        frontier.enqueue("/shop/1", 1),
+        frontier.enqueue("/shop/2", 1),
+        frontier.enqueue("/about?shop=1", 1),
+    ];
+
+    let refused = |message: &str| CompletenessReason {
+        completeness: Completeness::Incomplete,
+        reason: AxisReason {
+            code: "crawl.path_budgets".to_owned(),
+            message: message.to_owned(),
+            call_id: None,
+        },
+    };
+    assert_eq!(
+        (
+            answers.to_vec(),
+            completeness_reasons(&frontier.connection).unwrap()
+        ),
+        (
+            vec![
+                added("1", "http://shop.test/shop?colour=red"),
+                added("2", "http://shop.test/shop?size=m"),
+                not_added(NotAddedReason::PathBudget, "/shop?colour=blue"),
+                not_added(NotAddedReason::Duplicate, "/shop?size=m"),
+                added("3", "http://shop.test/shop"),
+                not_added(NotAddedReason::PathBudget, "/shop/1"),
+                not_added(NotAddedReason::PathBudget, "/shop/2"),
+                added("4", "http://shop.test/about?shop=1"),
+            ],
+            vec![
+                refused(
+                    "`crawl.path_budgets`'s entry `/shop?*` refused 1 URL past its 2 requests the crawl would otherwise have admitted."
+                ),
+                refused(
+                    "`crawl.path_budgets`'s entry `/shop**` refused 2 URLs past its 1 request the crawl would otherwise have admitted."
+                ),
             ]
         )
     );

@@ -22,6 +22,12 @@
 //!   held before it, or `none`, by loading `/storage/found?mark=<found>`
 //!   before the page's `load` event: the Sessions' cases read both from the
 //!   observations (ADR 0021).
+//! - `scope.test/quiet?mark=<mark>`, linked from nowhere, names `mark` (as
+//!   the storage page reads it) and loads nothing else: no script, no
+//!   subresource and an icon given inline, so a browser sends no request
+//!   after its document's, and a forward proxy relays that one alone: the
+//!   proxy limits' cases count them (ADR 0053). With `status=<4xx|5xx>`
+//!   it answers that status, as a site's own refusal.
 //! - `scope.test/heavy?mib=<n>`, linked from nowhere, is a heavy page: its
 //!   script fills `n` MiB (1 to 1024, else 64) of a buffer it keeps, so the
 //!   page's memory, and its browser's, grows by that much: the Resource
@@ -93,6 +99,7 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
         .header("location", link("http", "elsewhere.test", "/offsite")),
         (HOST, "/storage") => storage(request.parameter("mark")),
         (HOST, "/storage/found") => Page::text("text/plain; charset=utf-8", String::new()),
+        (HOST, "/quiet") => quiet(request.parameter("mark"), request.parameter("status")),
         (HOST, "/heavy") => heavy(request.parameter("mib")),
         (HOST, "/cached") => {
             let title = name(visit.seed, &[FAMILY_PLACE, CACHED_PLACE]);
@@ -118,19 +125,42 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
     }
 }
 
+/// `mark` when it is safe to show: up to 32 letters, digits and hyphens;
+/// else `none`.
+fn safe_mark(mark: Option<&str>) -> &str {
+    mark.filter(|mark| {
+        !mark.is_empty()
+            && mark.len() <= 32
+            && mark
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    })
+    .unwrap_or("none")
+}
+
+/// The quiet page, which names `mark` and loads nothing else, its icon
+/// given inline so a browser asks for no `/favicon.ico`, answered with
+/// `status` when it names a client or server error, else `200`.
+fn quiet(mark: Option<&str>, status: Option<&str>) -> Page {
+    let mark = safe_mark(mark);
+    let status = status
+        .and_then(|status| status.parse::<u16>().ok())
+        .filter(|status| (400..600).contains(status))
+        .and_then(|status| StatusCode::from_u16(status).ok())
+        .unwrap_or(StatusCode::OK);
+    Page::html(
+        status,
+        format!(
+            "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><link rel=\"icon\" href=\"data:,\"><title>Quiet</title></head>\n<body>\n<main>\n<h1>Quiet</h1>\n<p id=\"mark\">{mark}</p>\n</main>\n</body>\n</html>\n"
+        ),
+    )
+}
+
 /// The storage page, which keeps `mark` in a cookie and in `localStorage`
 /// and reports the mark `localStorage` held before; a missing or unsafe
 /// mark is `none`.
 fn storage(mark: Option<&str>) -> Page {
-    let mark = mark
-        .filter(|mark| {
-            !mark.is_empty()
-                && mark.len() <= 32
-                && mark
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-        })
-        .unwrap_or("none");
+    let mark = safe_mark(mark);
     let body = format!(
         "<main>\n<h1>Storage</h1>\n</main>\n<script>\nconst found = localStorage.getItem(\"mark\") ?? \"none\";\nlocalStorage.setItem(\"mark\", \"{mark}\");\nconst report = new Image();\nreport.src = \"/storage/found?mark=\" + encodeURIComponent(found);\ndocument.body.append(report);\n</script>\n"
     );

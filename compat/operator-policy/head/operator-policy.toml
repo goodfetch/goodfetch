@@ -12,6 +12,7 @@ max_files = 4
 
 [settings.otlp]
 traces_endpoint = "example"
+logs_endpoint = "example"
 metrics_endpoint = "example"
 
 [settings.console]
@@ -75,6 +76,12 @@ blocked_domains = ["example"]
 offline = true
 no_private_endpoints = true
 
+[settings.network]
+max_body_size = 4
+max_decompression_ratio = 4
+max_json_depth = 4
+resolve = { "example.test" = ["127.0.0.1"] }
+
 [settings.tls]
 trusted_cas = { "example.test" = ["example"] }
 client_certificates = { "example.test" = { certificate = "client.pem", key = "env:CLIENT_KEY" } }
@@ -108,6 +115,10 @@ key_reference = "env:EXAMPLE"
 [settings.checkpoint]
 interval = 30000
 
+[settings.audit]
+retention = 30000
+otlp = true
+
 [settings.timeout]
 secret = 30000
 run = 30000
@@ -120,9 +131,6 @@ handler = 30000
 
 [settings.sample]
 echo_repeats = 4
-
-[settings.network]
-resolve = { "example.test" = ["127.0.0.1"] }
 
 [settings.consent]
 handling = true
@@ -173,6 +181,10 @@ age_notice = true
 [settings.politeness]
 sharing = "shared"
 
+[settings.politeness.proxy]
+concurrency = 4
+rate = 4
+
 [settings.politeness.domain]
 concurrency = 4
 delay = 30000
@@ -194,6 +206,7 @@ max_requests = 4
 max_url_length = 4
 max_path_segments = 4
 max_segment_repeats = 4
+path_budgets = [{ max_requests = 100, pattern = "/shop?*" }]
 
 [settings.crawl.retry]
 max = 4
@@ -209,6 +222,11 @@ exclude = ["example"]
 
 [settings.fetch]
 tier = "auto"
+coalesce = true
+
+[settings.fetch.hedge]
+enabled = true
+max_percent = 4
 
 [settings.paid_fetch]
 domains = ["example"]
@@ -231,6 +249,7 @@ max_files = 4
 
 [lock.otlp]
 traces_endpoint = "example"
+logs_endpoint = "example"
 metrics_endpoint = "example"
 
 [lock.console]
@@ -294,6 +313,12 @@ blocked_domains = ["example"]
 offline = true
 no_private_endpoints = true
 
+[lock.network]
+max_body_size = 4
+max_decompression_ratio = 4
+max_json_depth = 4
+resolve = { "example.test" = ["127.0.0.1"] }
+
 [lock.tls]
 trusted_cas = { "example.test" = ["example"] }
 client_certificates = { "example.test" = { certificate = "client.pem", key = "env:CLIENT_KEY" } }
@@ -327,6 +352,10 @@ key_reference = "env:EXAMPLE"
 [lock.checkpoint]
 interval = 30000
 
+[lock.audit]
+retention = 30000
+otlp = true
+
 [lock.timeout]
 secret = 30000
 run = 30000
@@ -339,9 +368,6 @@ handler = 30000
 
 [lock.sample]
 echo_repeats = 4
-
-[lock.network]
-resolve = { "example.test" = ["127.0.0.1"] }
 
 [lock.consent]
 handling = true
@@ -392,6 +418,10 @@ age_notice = true
 [lock.politeness]
 sharing = "shared"
 
+[lock.politeness.proxy]
+concurrency = 4
+rate = 4
+
 [lock.politeness.domain]
 concurrency = 4
 delay = 30000
@@ -413,6 +443,7 @@ max_requests = 4
 max_url_length = 4
 max_path_segments = 4
 max_segment_repeats = 4
+path_budgets = [{ max_requests = 100, pattern = "/shop?*" }]
 
 [lock.crawl.retry]
 max = 4
@@ -428,6 +459,11 @@ exclude = ["example"]
 
 [lock.fetch]
 tier = "auto"
+coalesce = true
+
+[lock.fetch.hedge]
+enabled = true
+max_percent = 4
 
 [lock.paid_fetch]
 domains = ["example"]
@@ -485,11 +521,19 @@ max_unused_age = 30000
 resolution_delay = 30000
 attempt_delay = 30000
 
+[cap.network]
+max_body_size = 4
+max_decompression_ratio = 4
+max_json_depth = 4
+
 [cap.proxy]
 sticky_lifetime = 30000
 
 [cap.checkpoint]
 interval = 30000
+
+[cap.audit]
+retention = 30000
 
 [cap.console.sign_in]
 idle_expiry = 30000
@@ -511,6 +555,21 @@ echo_repeats = 4
 [cap.admission]
 max_requests_per_minute = 4
 
+[cap.politeness.proxy]
+concurrency = 4
+rate = 4
+
+[cap.politeness.domain]
+concurrency = 4
+delay = 30000
+
+[cap.politeness.backoff]
+initial = 30000
+max = 30000
+
+[cap.politeness.retry_after]
+max = 30000
+
 [cap.crawl]
 sample_pages = 4
 max_depth = 4
@@ -525,22 +584,14 @@ max = 4
 [cap.crawl.handler]
 concurrency = 4
 
+[cap.fetch.hedge]
+max_percent = 4
+
 [cap.session.pool]
 max_size = 4
 max_uses = 4
 max_age = 30000
 max_error_score = 4
-
-[cap.politeness.domain]
-concurrency = 4
-delay = 30000
-
-[cap.politeness.backoff]
-initial = 30000
-max = 30000
-
-[cap.politeness.retry_after]
-max = 30000
 
 [managed]
 install_limits = [{ usage_kind = "paid_solves", currency = "USD", period = { every = "month", time_zone = "UTC" }, amount = 20000000 }]

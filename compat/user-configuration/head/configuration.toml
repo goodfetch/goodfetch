@@ -12,6 +12,7 @@ max_files = 4
 
 [settings.otlp]
 traces_endpoint = "example"
+logs_endpoint = "example"
 metrics_endpoint = "example"
 
 [settings.console]
@@ -75,6 +76,12 @@ blocked_domains = ["example"]
 offline = true
 no_private_endpoints = true
 
+[settings.network]
+max_body_size = 4
+max_decompression_ratio = 4
+max_json_depth = 4
+resolve = { "example.test" = ["127.0.0.1"] }
+
 [settings.tls]
 trusted_cas = { "example.test" = ["example"] }
 client_certificates = { "example.test" = { certificate = "client.pem", key = "env:CLIENT_KEY" } }
@@ -108,6 +115,10 @@ key_reference = "env:EXAMPLE"
 [settings.checkpoint]
 interval = 30000
 
+[settings.audit]
+retention = 30000
+otlp = true
+
 [settings.timeout]
 secret = 30000
 run = 30000
@@ -120,9 +131,6 @@ handler = 30000
 
 [settings.sample]
 echo_repeats = 4
-
-[settings.network]
-resolve = { "example.test" = ["127.0.0.1"] }
 
 [settings.consent]
 handling = true
@@ -173,6 +181,10 @@ age_notice = true
 [settings.politeness]
 sharing = "shared"
 
+[settings.politeness.proxy]
+concurrency = 4
+rate = 4
+
 [settings.politeness.domain]
 concurrency = 4
 delay = 30000
@@ -194,6 +206,7 @@ max_requests = 4
 max_url_length = 4
 max_path_segments = 4
 max_segment_repeats = 4
+path_budgets = [{ max_requests = 100, pattern = "/shop?*" }]
 
 [settings.crawl.retry]
 max = 4
@@ -209,6 +222,11 @@ exclude = ["example"]
 
 [settings.fetch]
 tier = "auto"
+coalesce = true
+
+[settings.fetch.hedge]
+enabled = true
+max_percent = 4
 
 [settings.paid_fetch]
 domains = ["example"]

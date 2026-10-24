@@ -24,7 +24,8 @@
 //! VFS named by a value (ADR 0060). Its format is of the Usage ledger's
 //! family (ADR 0066): its major never changes and newer minors only add. A
 //! Run with `politeness.sharing = run` takes its Permits from a file of its
-//! own in memory, under the same rules.
+//! own in memory, under the same rules, its waiters woken within the
+//! engine.
 //!
 //! Size: one file's protocol, its Permits, waiters, wakes and reclaim, each
 //! in one transaction, kept whole so the rules that guard the count in
@@ -57,6 +58,10 @@ const WAKE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The wake endpoint's name in its folder.
 const WAKE_SOCKET: &str = "wake.sock";
+
+/// The endpoint a Politeness file of one Run's own, in memory, names for
+/// its waiters: every one is in this engine, woken without a socket.
+const IN_MEMORY_ENDPOINT: &str = "in-memory";
 
 /// The engine's own tables, which every Politeness file holds.
 const SCHEMA: &[&str] = &[
@@ -422,10 +427,17 @@ impl Politeness {
         let context = Context {
             path,
             engine: String::new(),
-            endpoint: None,
+            endpoint: Some(IN_MEMORY_ENDPOINT.to_owned()),
             holder_gone: |_, _| false,
         };
-        Self::start(connection, context, wakes, None, None, owner)
+        Self::start(
+            connection,
+            context,
+            wakes,
+            Some(IN_MEMORY_ENDPOINT.to_owned()),
+            None,
+            owner,
+        )
     }
 
     fn start(
@@ -496,12 +508,52 @@ impl Politeness {
         let holder = holder.clone();
         let (taken, turn) = self
             .run(move |connection, context| {
-                take_in(connection, context, &key, &holder, rule.as_ref(), now)
+                take_in(connection, context, &key, &holder, rule.as_ref(), now, true)
             })
             .await?;
         if let Some(turn) = turn {
             self.wake_turn(turn).await;
         }
+        Ok(taken)
+    }
+
+    /// Takes a Permit under `key` for `holder` at `now` as [`take`] does,
+    /// for a request beside one `holder` already sent, such as a hedge's
+    /// second copy (ADRs 0040 and 0086): it never waits in turn, so a
+    /// refusal for want of room registers no waiter, and a grant leaves
+    /// `holder`'s place among the key's waiters as it was.
+    ///
+    /// [`take`]: Politeness::take
+    ///
+    /// # Errors
+    ///
+    /// As [`Politeness::take`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Politeness::take`].
+    pub async fn take_beside(
+        &self,
+        key: &str,
+        holder: &Holder,
+        rule: Arc<dyn PermitRule>,
+        now: SystemTime,
+    ) -> Result<Taken, PolitenessError> {
+        let key = key.to_owned();
+        let holder = holder.clone();
+        let (taken, _) = self
+            .run(move |connection, context| {
+                take_in(
+                    connection,
+                    context,
+                    &key,
+                    &holder,
+                    rule.as_ref(),
+                    now,
+                    false,
+                )
+            })
+            .await?;
         Ok(taken)
     }
 
@@ -875,6 +927,7 @@ fn take_in(
     holder: &Holder,
     rule: &dyn PermitRule,
     now: SystemTime,
+    in_turn: bool,
 ) -> Result<(Taken, Option<Turn>), PolitenessError> {
     let failed = |error: rusqlite::Error| sqlite_error(&context.path, &error);
     let transaction = connection
@@ -908,12 +961,14 @@ fn take_in(
                 .map_err(failed)?;
             let id = transaction.last_insert_rowid();
             rule.started(&transaction, key, now).map_err(failed)?;
-            transaction
-                .execute(
-                    "DELETE FROM waiters WHERE key = ?1 AND run_id = ?2",
-                    (key, &holder.run_id),
-                )
-                .map_err(failed)?;
+            if in_turn {
+                transaction
+                    .execute(
+                        "DELETE FROM waiters WHERE key = ?1 AND run_id = ?2",
+                        (key, &holder.run_id),
+                    )
+                    .map_err(failed)?;
+            }
             Taken::Granted(Permit {
                 id,
                 key: key.to_owned(),
@@ -922,7 +977,7 @@ fn take_in(
         Verdict::Until(until, hold) => Taken::Wait(Some((until, hold))),
         Verdict::Refused(until) => Taken::Refused(until),
         Verdict::Busy => {
-            if let Some(endpoint) = &context.endpoint {
+            if in_turn && let Some(endpoint) = &context.endpoint {
                 turn = wait_in_turn(&transaction, key, &holder.run_id, endpoint, now)
                     .map_err(failed)?;
             }

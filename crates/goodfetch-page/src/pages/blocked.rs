@@ -26,6 +26,7 @@ use crate::blocks::{Block, BlockClassifier};
 use crate::consent::Walls;
 use crate::driver::PageDriver;
 use crate::page_events::PageEvents;
+use crate::proxy;
 
 /// What the page's document is read for: which of the markers asked for
 /// its serialization holds, lowercase.
@@ -50,6 +51,18 @@ pub(super) async fn block_of(
     response: &PageResponse,
     operation: Option<&'static str>,
 ) -> Result<Option<Block>, CallError> {
+    // The Session's proxy's own answer, such as its 429, is a proxy error,
+    // never a site's Block cause (ADR 0053; the proxy-or-site rule).
+    if driver.proxy().is_some()
+        && proxy::party(proxy::Answer::Response {
+            proxy_status: response
+                .headers
+                .get(proxy::PROXY_STATUS)
+                .map(String::as_str),
+        }) == proxy::Party::Proxy
+    {
+        return Ok(None);
+    }
     let markers = blocks.markers(response.status);
     let holding: Vec<String> = if markers.is_empty() {
         Vec::new()

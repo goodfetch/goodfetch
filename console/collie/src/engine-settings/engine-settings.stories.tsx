@@ -2,7 +2,11 @@
 // effective settings across every layer with a lock, a cap, a weakening and
 // a key only Foxhound honours, the engine's refusal, and a project
 // configuration that is no TOML.
-import type { ExplainedSetting, SettingsExplanation } from "@goodfetch/collie-client/generated";
+import {
+  SettingInvalidError,
+  type ExplainedSetting,
+  type SettingsExplanation,
+} from "@goodfetch/collie-client/generated";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { EngineSettingsView } from "./engine-settings.tsx";
 
@@ -79,7 +83,10 @@ export const Failed: Story = {
   args: {
     explained: {
       kind: "failed",
-      message: "`timeout.navigation` in configuration.toml is no duration",
+      error: new SettingInvalidError("`timeout.navigation` in configuration.toml is no duration", {
+        fix: "set `timeout.navigation` to a number of milliseconds",
+        details: { operation: "config.explain", key: "timeout.navigation" },
+      }),
     },
   },
 };

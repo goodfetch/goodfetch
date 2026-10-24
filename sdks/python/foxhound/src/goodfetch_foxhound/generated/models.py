@@ -153,18 +153,27 @@ class HttpMethod(RootModel[str]):
     """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
 
 
-class LearnedRule(BaseModel):
-    """A URL rule the Frontier learned (ADR 0005)."""
+class LearnedRuleKind(StrEnum):
+    """What a learned URL rule learned (ADRs 0005 and 0120)."""
 
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    evidence: str
-    """Its evidence."""
-    merged: Annotated[int, Field(ge=0)]
-    """How many URLs it merged."""
-    rule: str
-    """The rule."""
+    no_effect_parameter = "no_effect_parameter"
+    """
+    A query parameter has no effect on the host's pages: pairs of
+    URLs differing only by it served pages of matching signatures, so a
+    URL that differs from an admitted one only by it is a `duplicate`.
+    """
+    trap_path = "trap_path"
+    """
+    A path pattern is a trap: its pages brought no new page signature
+    and no URL outside it, so its URLs are not added, with
+    `trap_path`.
+    """
+    cursor_pagination = "cursor_pagination"
+    """
+    A listing pages by a cursor as well as by an offset: its offset
+    URLs not yet fetched are not added, with `duplicate`, and the cursor
+    is followed.
+    """
 
 
 class NotAddedReason(StrEnum):
@@ -201,6 +210,17 @@ class NotAddedReason(StrEnum):
     """
     A segment of its URL's path repeats more than
     `crawl.max_segment_repeats`.
+    """
+    path_budget = "path_budget"
+    """
+    The first entry of `crawl.path_budgets` whose pattern its URL's path
+    and query match already counted that entry's `max_requests`.
+    """
+    trap_path = "trap_path"
+    """
+    Its URL's path falls under a trap the Frontier learned and closed
+    (ADR 0005): a path pattern whose pages brought no new page and no
+    URL outside it, which leaves a finished Run `unverified`.
     """
 
 
@@ -780,6 +800,41 @@ class FailedRequests(BaseModel):
     )
     requests: list[CrawlRequestOutcome]
     """The latest outcome of each such request, in commit order."""
+
+
+class LearnedRule(BaseModel):
+    """
+    A URL rule the Frontier learned from the pages it fetched (ADRs 0005
+    and 0120), on one host and so never across a registrable domain, with
+    its evidence and every URL it merged, so each merge can be audited.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    evidence: str
+    """What it was learned from, naming the URLs."""
+    host: str
+    """The host it holds on."""
+    kind: LearnedRuleKind
+    """What it learned."""
+    merged: list[str]
+    """
+    Each URL it merged with another or refused, in the order the crawl
+    met them.
+    """
+    parameter: str | None = None
+    """
+    The query parameter it is about: one that has no effect, or the
+    offset parameter a cursor replaced; absent for a trap.
+    """
+    path: str | None = None
+    """
+    The path it holds on: a trap's path pattern, its numeric,
+    date-like and hexadecimal segments written `{number}`, `{date}` and
+    `{hex}`, or the path of a listing whose cursor replaced its offset;
+    absent for a rule of the whole host.
+    """
 
 
 class RunAddSeedParams(BaseModel):

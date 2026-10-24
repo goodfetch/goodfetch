@@ -132,18 +132,54 @@ pub enum SinkStatus {
     Inactive,
 }
 
-/// A URL rule the Frontier learned (ADR 0005).
+/// A URL rule the Frontier learned from the pages it fetched (ADRs 0005
+/// and 0120), on one host and so never across a registrable domain, with
+/// its evidence and every URL it merged, so each merge can be audited.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct LearnedRule {
-    /// The rule.
+    /// What it learned.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub rule: String,
-    /// Its evidence.
+    pub kind: LearnedRuleKind,
+    /// The host it holds on.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub host: String,
+    /// The path it holds on: a trap's path pattern, its numeric,
+    /// date-like and hexadecimal segments written `{number}`, `{date}` and
+    /// `{hex}`, or the path of a listing whose cursor replaced its offset;
+    /// absent for a rule of the whole host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub path: Option<String>,
+    /// The query parameter it is about: one that has no effect, or the
+    /// offset parameter a cursor replaced; absent for a trap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub parameter: Option<String>,
+    /// What it was learned from, naming the URLs.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub evidence: String,
-    /// How many URLs it merged.
+    /// Each URL it merged with another or refused, in the order the crawl
+    /// met them.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub merged: u64,
+    pub merged: Vec<String>,
+}
+
+/// What a learned URL rule learned (ADRs 0005 and 0120).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LearnedRuleKind {
+    /// A query parameter has no effect on the host's pages: pairs of
+    /// URLs differing only by it served pages of matching signatures, so a
+    /// URL that differs from an admitted one only by it is a `duplicate`.
+    NoEffectParameter,
+    /// A path pattern is a trap: its pages brought no new page signature
+    /// and no URL outside it, so its URLs are not added, with
+    /// `trap_path`.
+    TrapPath,
+    /// A listing pages by a cursor as well as by an offset: its offset
+    /// URLs not yet fetched are not added, with `duplicate`, and the cursor
+    /// is followed.
+    CursorPagination,
 }
 
 /// A sitemap a crawl read (ADR 0102).

@@ -1,5 +1,5 @@
 //! The page suite (spec #577, tickets #695, #696, #697, #698, #699, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710 and #716; spec #580,
-//! ticket #783) against an Attached engine of Collie's executable, given by path, on
+//! tickets #783 and #789) against an Attached engine of Collie's executable, given by path, on
 //! the local Proving ground (ADR 0094): its browser from a Browser cache in
 //! the test's own folder, which its environment names (ADR 0059).
 //!
@@ -36,6 +36,7 @@ const SESSIONS: Part = (
         "sessions.proxy",
     ],
 );
+const PROXY_LIMITS: Part = ("proxy_limits", &["sessions.proxy_limits"]);
 const NAVIGATION: Part = (
     "navigation",
     &[
@@ -77,10 +78,12 @@ const DIALOGS: Part = ("dialogs", &["dialogs"]);
 const POPUPS: Part = ("popups", &["popups"]);
 const PAGE_FUNCTIONS: Part = ("page-functions", &["page_functions"]);
 const WAITS: Part = ("waits", &["waits"]);
+const ROBOTS_TXT: Part = ("robots-txt", &["robots_txt"]);
 
 /// Every part.
-const PARTS: [Part; 15] = [
+const PARTS: [Part; 17] = [
     SESSIONS,
+    PROXY_LIMITS,
     NAVIGATION,
     FORMATS,
     LAUNCH,
@@ -95,6 +98,7 @@ const PARTS: [Part; 15] = [
     POPUPS,
     PAGE_FUNCTIONS,
     WAITS,
+    ROBOTS_TXT,
 ];
 
 #[test]
@@ -182,6 +186,12 @@ fn the_page_suite_proves_sessions_against_collies_attached_engine() {
     prove(SESSIONS);
 }
 
+/// Covers: story:5-90, setting:politeness.proxy.concurrency, setting:politeness.proxy.rate, setting:politeness.sharing, setting:proxy.server, setting:proxy.username, error:proxy_unavailable, operation:run.new_page, operation:page.goto
+#[test]
+fn the_page_suite_proves_proxy_limits_against_collies_attached_engine() {
+    prove(PROXY_LIMITS);
+}
+
 /// Covers: story:5-61, story:5-23, story:5-24, story:5-26, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, error:navigation_failed, error:navigation_interrupted, story:5-29, story:5-30, story:5-31, error:too_many_redirects, error:response_truncated, event:page.download
 #[test]
 fn the_page_suite_proves_navigation_against_collies_attached_engine() {
@@ -206,7 +216,7 @@ fn the_page_suite_proves_locators_against_collies_attached_engine() {
     prove(LOCATORS);
 }
 
-/// Covers: operation:page.goto, story:5-40, story:5-41, story:5-42, operation:page.route, operation:session.route, operation:route.continue, operation:route.fallback, operation:route.fulfill, operation:route.abort, operation:route.fetch, error:page_handler_failed, error:route_already_handled, error:egress_refused
+/// Covers: operation:page.goto, story:5-40, story:5-41, story:5-42, operation:page.route, operation:session.route, operation:route.continue, operation:route.fallback, operation:route.fulfill, operation:route.abort, operation:route.fetch, error:page_handler_failed, error:route_already_handled, error:egress_refused, error:header_value_invalid
 #[test]
 fn the_page_suite_proves_routes_against_collies_attached_engine() {
     prove(ROUTES);
@@ -218,7 +228,7 @@ fn the_page_suite_proves_clean_up_against_collies_attached_engine() {
     prove(CLEAN_UP);
 }
 
-/// Covers: story:5-100, setting:consent.handling, story:5-101, error:blocked, operation:page.evaluate, setting:consent.domains, setting:consent.on_wall, error:setting_locked, error:capability_unavailable
+/// Covers: story:5-100, setting:consent.handling, story:5-101, error:blocked, operation:page.evaluate, setting:consent.domains, setting:consent.on_wall, error:setting_locked, error:capability_unavailable, story:12-26, operation:needs_you.list
 #[test]
 fn the_page_suite_proves_consent_against_collies_attached_engine() {
     prove(CONSENT);
@@ -236,7 +246,7 @@ fn the_page_suite_proves_page_states_against_collies_attached_engine() {
     prove(PAGE_STATES);
 }
 
-/// Covers: operation:run.new_session, operation:session.new_page, error:navigation_failed, error:too_many_redirects, error:response_truncated, error:egress_refused, error:setting_invalid, operation:response.body, story:5-44, story:5-45, story:5-47, operation:page.request
+/// Covers: operation:run.new_session, operation:session.new_page, error:navigation_failed, error:too_many_redirects, error:response_truncated, error:egress_refused, error:setting_invalid, operation:response.body, story:5-44, story:5-45, story:5-47, operation:page.request, error:header_value_invalid, error:response_limit_exceeded
 #[test]
 fn the_page_suite_proves_page_request_against_collies_attached_engine() {
     prove(PAGE_REQUEST);
@@ -264,4 +274,10 @@ fn the_page_suite_proves_page_functions_against_collies_attached_engine() {
 #[test]
 fn the_page_suite_proves_waits_against_collies_attached_engine() {
     prove(WAITS);
+}
+
+/// Covers: story:6-62, story:6-63, story:6-64, operation:run.new_page, operation:page.goto
+#[test]
+fn the_page_suite_proves_robots_txt_against_collies_attached_engine() {
+    prove(ROBOTS_TXT);
 }

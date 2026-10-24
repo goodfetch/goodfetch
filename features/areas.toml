@@ -438,7 +438,7 @@ prefix = "user-configuration"
 [[area]]
 number = 3
 kind = "setting"
-prefix = "network."
+prefix = "network.resolve"
 
 [[area]]
 number = 3
@@ -493,6 +493,30 @@ number = 4
 kind = "setting"
 prefix = "secrets."
 
+# Area 4's limits on what the engine reads (#644, SC-05): its three keys
+# and the Error code past them.
+[[area]]
+number = 4
+kind = "setting"
+prefix = "network.max_"
+
+[[area]]
+number = 4
+kind = "error"
+prefix = "response_limit_exceeded"
+
+# Area 4's hostile input (#644, ADR 0067): a header value or a path the
+# engine refuses.
+[[area]]
+number = 4
+kind = "error"
+prefix = "header_value_invalid"
+
+[[area]]
+number = 4
+kind = "error"
+prefix = "path_unsafe"
+
 # Area 4's egress policy (#620): the Error code a refused request fails with.
 [[area]]
 number = 4
@@ -536,6 +560,12 @@ prefix = "audit."
 number = 4
 kind = "format"
 prefix = "audit-log"
+
+# Area 4's Audit log settings (#613): `audit.retention` and `audit.otlp`.
+[[area]]
+number = 4
+kind = "setting"
+prefix = "audit."
 
 # Area 4's known-certificates store (#628): `certs.list`, Collie's `certs
 # list` and the store's format.
@@ -596,7 +626,18 @@ prefix = "session.pool."
 [[area]]
 number = 5
 kind = "setting"
-prefix = "fetch."
+prefix = "fetch.tier"
+
+# The HTTP tier's hedged requests and coalescing (RT-20, #238).
+[[area]]
+number = 3
+kind = "setting"
+prefix = "fetch.hedge."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "fetch.coalesce"
 
 [[area]]
 number = 5
@@ -1112,6 +1153,12 @@ prefix = "crawl.scope."
 number = 6
 kind = "setting"
 prefix = "crawl.max_"
+
+# Area 6, Collection, Foxhound: per-path budgets (#847).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.path_budgets"
 
 # Area 6, Collection (spec #580, Collie's part): a Run's Key-value store
 # (#791).

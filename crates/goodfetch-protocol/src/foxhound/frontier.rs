@@ -10,19 +10,19 @@
 //! a stream of them under credits, answering each in order. The
 //! `crawl.scope.*` settings say which links a crawl may follow, fixed for
 //! the Run's life; `crawl.max_depth` and `crawl.max_requests` bound it, and
-//! three caps on a URL's shape end the traps no rule learned. Foxhound's
-//! own.
+//! three caps on a URL's shape end the traps no rule learned;
+//! `crawl.path_budgets` bounds sections of a site. Foxhound's own.
 
 use std::borrow::Cow;
 use std::fmt;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::catalog::{
     Authority, Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting,
-    Stability, ValueKind, schema_of,
+    Stability, ValueKind, ValueShape, schema_of,
 };
 use crate::foxhound::crawl::Seed;
 use crate::jsonrpc::RequestId;
@@ -234,6 +234,13 @@ pub enum NotAddedReason {
     /// A segment of its URL's path repeats more than
     /// `crawl.max_segment_repeats`.
     MaxSegmentRepeats,
+    /// The first entry of `crawl.path_budgets` whose pattern its URL's path
+    /// and query match already counted that entry's `max_requests`.
+    PathBudget,
+    /// Its URL's path falls under a trap the Frontier learned and closed
+    /// (ADR 0005): a path pattern whose pages brought no new page and no
+    /// URL outside it, which leaves a finished Run `unverified`.
+    TrapPath,
 }
 
 /// The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
@@ -508,7 +515,7 @@ pub const RUN_SEEDS: Operation = Operation {
 /// `crawl_request.enqueue`.
 pub const CRAWL_REQUEST_ENQUEUE: Operation = Operation {
     name: "crawl_request.enqueue",
-    description: "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `out_of_scope`, `unsupported_scheme`, `invalid_url`, `max_depth`, `max_requests` or a URL cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
+    description: "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `out_of_scope`, `unsupported_scheme`, `invalid_url`, `max_depth`, `max_requests`, `path_budget` or a URL cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::SdkOnly,
@@ -620,6 +627,99 @@ pub const CRAWL_MAX_SEGMENT_REPEATS: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// One entry of `crawl.path_budgets` (CO-08): a pattern, a glob read as
+/// Playwright reads one and matched in the engine against a URL's path and
+/// query, and how many requests it admits.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PathBudget {
+    /// The glob, such as `/shop?*`, matched against the path and query.
+    pub pattern: String,
+    /// How many requests whose URL it matches first the crawl admits.
+    pub max_requests: u64,
+}
+
+/// The fields of a `crawl.path_budgets` entry.
+const PATH_BUDGET_FIELDS: [&str; 2] = ["pattern", "max_requests"];
+
+impl PathBudget {
+    /// Reads one entry of `crawl.path_budgets`.
+    ///
+    /// # Errors
+    ///
+    /// What is wrong with it, for a `setting_invalid` message.
+    pub fn read(value: &Value) -> Result<Self, String> {
+        let Some(entry) = value.as_object() else {
+            return Err("a path budget is a table of `pattern` and `max_requests`".to_owned());
+        };
+        if let Some(unknown) = entry
+            .keys()
+            .find(|field| !PATH_BUDGET_FIELDS.contains(&field.as_str()))
+        {
+            return Err(format!(
+                "a path budget takes `pattern` and `max_requests`, not `{unknown}`"
+            ));
+        }
+        let Some(pattern) = entry.get("pattern").and_then(Value::as_str) else {
+            return Err("a path budget's `pattern` is a glob, such as `/shop?*`".to_owned());
+        };
+        let Some(max_requests) = entry.get("max_requests").and_then(Value::as_u64) else {
+            return Err("a path budget's `max_requests` is a whole number from 0".to_owned());
+        };
+        Ok(Self {
+            pattern: pattern.to_owned(),
+            max_requests,
+        })
+    }
+
+    /// The entries of a `crawl.path_budgets` value, in order, skipping any
+    /// that is not one, which the settings refused before.
+    pub fn list(value: &Value) -> Vec<Self> {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| Self::read(entry).ok())
+            .collect()
+    }
+}
+
+/// A value of `crawl.path_budgets`.
+pub const PATH_BUDGET_SHAPE: ValueShape = ValueShape {
+    name: "PathBudget",
+    check: |value| PathBudget::read(value).map(drop),
+    schema: || {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": PATH_BUDGET_FIELDS,
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "A glob read as Playwright reads one, such as `/shop?*`, matched in the engine against a URL's path and query.",
+                },
+                "max_requests": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "How many requests whose URL the pattern matches first the crawl admits.",
+                },
+            },
+        })
+    },
+    examples: || vec![json!({ "pattern": "/shop?*", "max_requests": 100 })],
+};
+
+/// `crawl.path_budgets` (CO-08; Spider's `with_budget`).
+pub const CRAWL_PATH_BUDGETS: Setting = Setting {
+    name: "crawl.path_budgets",
+    description: "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
+    kind: ValueKind::List(&ValueKind::Shape(&PATH_BUDGET_SHAPE)),
+    default: no_patterns,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 fn same_hostname() -> Value {
     Value::from("same_hostname")
 }
@@ -667,6 +767,7 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_MAX_URL_LENGTH,
         CRAWL_MAX_PATH_SEGMENTS,
         CRAWL_MAX_SEGMENT_REPEATS,
+        CRAWL_PATH_BUDGETS,
     ],
     hook_stages: &[],
     shared_type_values: &[],

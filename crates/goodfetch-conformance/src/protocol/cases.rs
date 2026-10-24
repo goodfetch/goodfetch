@@ -3,10 +3,12 @@
 //! failures, its Error codes and its operations' types. A crawl's delivery
 //! cases are `delivery`'s, a page's formats cases `formats`'s, its route
 //! cases `routes`'s, a Run's Session cases `sessions`', their proxy cases
-//! `proxies`', its events and bodies cases `events`'s, its `page.request`
+//! `proxies`' and `proxy_limits`', its events and bodies cases `events`'s, its `page.request`
 //! cases `page_request`'s, its dialog cases `dialogs`', its popup cases
 //! `popups`', its page function cases `page_functions`', its Page check
-//! cases `page_check`'s and the reset gate's cases `reset`'s.
+//! cases `page_check`'s, its robots.txt reading cases `robots_txt`'s, its
+//! hostile-input cases `hostile_input`'s and the reset gate's cases
+//! `reset`'s.
 
 mod blocking_off;
 mod blocks;
@@ -19,6 +21,7 @@ mod fetch_edge;
 mod fetch_tiers;
 mod formats;
 mod guard;
+mod hostile_input;
 mod launch;
 mod navigation;
 mod page_check;
@@ -26,7 +29,9 @@ mod page_functions;
 mod page_request;
 mod popups;
 mod proxies;
+mod proxy_limits;
 mod reset;
+mod robots_txt;
 mod routes;
 mod service_workers;
 mod sessions;
@@ -103,7 +108,7 @@ pub(crate) enum Case {
     Reset(reset::Case),
     /// A service worker case.
     ServiceWorker(service_workers::Case),
-    /// A `page.request` case.
+    /// A `page.request` case, the hostile-input cases among them.
     PageRequest(page_request::Case),
     /// A fetch tier case, Foxhound's.
     FetchTier(fetch_tiers::Case),
@@ -115,6 +120,8 @@ pub(crate) enum Case {
     PageFunction(page_functions::Case),
     /// An app-state wait case.
     Wait(waits::Case),
+    /// A robots.txt reading case.
+    RobotsTxt(robots_txt::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -334,13 +341,18 @@ impl Case {
                     .or_else(|| dialogs::Case::from_id(id).map(Self::Dialog))
                     .or_else(|| popups::Case::from_id(id).map(Self::Popup))
                     .or_else(|| page_functions::Case::from_id(id).map(Self::PageFunction))
-                    .or_else(|| waits::Case::from_id(id).map(Self::Wait));
+                    .or_else(|| waits::Case::from_id(id).map(Self::Wait))
+                    .or_else(|| robots_txt::Case::from_id(id).map(Self::RobotsTxt));
             }
         })
     }
 
     /// Runs the case on the open Connection to `target`, whose `hello` the
     /// engine answered with `hello`, against `site`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per case, or per kind of case, of the suites: a dispatch table read as one"
+    )]
     pub(crate) fn run(
         self,
         connection: &mut Connection,
@@ -384,6 +396,7 @@ impl Case {
             Self::Popup(case) => case.run(connection, site, checks),
             Self::PageFunction(case) => case.run(connection, target, site, checks),
             Self::Wait(case) => case.run(connection, site, checks),
+            Self::RobotsTxt(case) => case.run(connection, target, site, checks),
             Self::MarkdownMatchesTheOracle => {
                 formats::markdown_matches_the_oracle(connection, site, checks)
             }

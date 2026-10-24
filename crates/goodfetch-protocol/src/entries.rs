@@ -5,12 +5,13 @@
 use crate::catalog::{Entries, ErrorCodeDefinition, Operation, Product, SharedType};
 use crate::{
     audit, block, browser_cache, checkpoint, connection, console, daemon, dns, download, egress,
-    engine, events, executables, foxhound, governor, key_value_store, log, needs_you, ops, page,
-    people, politeness, run, sample, secrets, settings, storage, tls, usage, versions,
+    engine, events, executables, foxhound, governor, hostile_input, key_value_store, log,
+    needs_you, ops, page, people, politeness, response_limits, run, sample, secrets, settings,
+    storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 40] = [
+pub const MODULES: [&Entries; 42] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &console::ENTRIES,
@@ -21,6 +22,8 @@ pub const MODULES: [&Entries; 40] = [
     &browser_cache::ENTRIES,
     &dns::ENTRIES,
     &egress::ENTRIES,
+    &response_limits::ENTRIES,
+    &hostile_input::ENTRIES,
     &tls::ENTRIES,
     &engine::ENTRIES,
     &events::ENTRIES,
@@ -90,7 +93,7 @@ mod tests {
     use crate::catalog::Product;
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 80] = [
+    const COLLIE: [&str; 82] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -102,6 +105,7 @@ mod tests {
         "events.subscribe",
         "needs_you.list",
         "needs_you.dismiss",
+        "needs_you.allow_consent_domain",
         "run.new_page",
         "run.new_session",
         "session.new_page",
@@ -162,6 +166,7 @@ mod tests {
         "key_value_store.delete",
         "key_value_store.keys",
         "download.save_as",
+        "audit.export",
         "audit.verify",
         "sign_in.list",
         "sign_in.revoke",

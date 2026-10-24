@@ -91,3 +91,44 @@ export function formatInstant(
     ...(timeZone === undefined ? {} : { timeZone }),
   }).format(new Date(rfc3339));
 }
+
+/** The units a duration is shown in, largest first, with their length in milliseconds. */
+const DURATION_UNITS = [
+  { unit: "day", milliseconds: 86_400_000 },
+  { unit: "hour", milliseconds: 3_600_000 },
+  { unit: "minute", milliseconds: 60_000 },
+  { unit: "second", milliseconds: 1_000 },
+] as const;
+
+/**
+ * `milliseconds` as days, hours, minutes and seconds, each unit it holds
+ * none of left out and seconds to the millisecond, joined as `locales` join
+ * units; under a second, in milliseconds.
+ */
+export function formatDuration(milliseconds: number, locales?: Intl.LocalesArgument): string {
+  const amountOf = (amount: number, unit: string): string =>
+    new Intl.NumberFormat(locales, {
+      style: "unit",
+      unit,
+      unitDisplay: "short",
+      maximumFractionDigits: 3,
+    }).format(amount);
+  if (milliseconds < 1_000) {
+    return milliseconds === 0 ? amountOf(0, "second") : amountOf(milliseconds, "millisecond");
+  }
+  let left = milliseconds;
+  const parts: string[] = [];
+  for (const { unit, milliseconds: length } of DURATION_UNITS) {
+    const amount = unit === "second" ? left / length : Math.floor(left / length);
+    left -= Math.floor(amount) * length;
+    if (amount > 0) {
+      parts.push(amountOf(amount, unit));
+    }
+  }
+  return new Intl.ListFormat(locales, { type: "unit", style: "short" }).format(parts);
+}
+
+/** `items`, joined as `locales` join a list of things that all hold. */
+export function formatList(items: readonly string[], locales?: Intl.LocalesArgument): string {
+  return new Intl.ListFormat(locales, { type: "conjunction" }).format(items);
+}

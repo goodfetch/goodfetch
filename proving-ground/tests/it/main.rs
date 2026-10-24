@@ -11,6 +11,7 @@ mod access;
 mod actionability;
 mod adversarial;
 mod agent;
+mod body_limits;
 mod browser;
 mod browserless;
 mod canaries;

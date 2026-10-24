@@ -8,7 +8,16 @@ CREATE TABLE attempt_errors (
             details TEXT,
             PRIMARY KEY (work_item, attempt)
         ) STRICT;
+INSERT INTO "attempt_errors" VALUES('5',1,'deadline_exceeded','no first byte','{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}');
 INSERT INTO "attempt_errors" VALUES('2',1,'deadline_exceeded','no first byte','{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}');
+INSERT INTO "attempt_errors" VALUES('6',1,'deadline_exceeded','no first byte','{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}');
+INSERT INTO "attempt_errors" VALUES('7',1,'deadline_exceeded','no first byte','{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}');
+INSERT INTO "attempt_errors" VALUES('8',1,'deadline_exceeded','no first byte','{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}');
+INSERT INTO "attempt_errors" VALUES('9',1,'deadline_exceeded','no first byte','{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}');
+INSERT INTO "attempt_errors" VALUES('10',1,'deadline_exceeded','no first byte','{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}');
+INSERT INTO "attempt_errors" VALUES('11',1,'deadline_exceeded','no first byte','{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}');
+INSERT INTO "attempt_errors" VALUES('12',1,'deadline_exceeded','no first byte','{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}');
+INSERT INTO "attempt_errors" VALUES('13',1,'deadline_exceeded','no first byte','{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}');
 CREATE TABLE bounds (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             max_depth INTEGER,
@@ -22,7 +31,19 @@ CREATE TABLE bounds_admitted (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             count INTEGER NOT NULL
         ) STRICT;
-INSERT INTO "bounds_admitted" VALUES(1,5);
+INSERT INTO "bounds_admitted" VALUES(1,15);
+CREATE TABLE bounds_path_budgets (
+            position INTEGER NOT NULL PRIMARY KEY,
+            pattern TEXT NOT NULL,
+            max_requests INTEGER NOT NULL
+        ) STRICT;
+INSERT INTO "bounds_path_budgets" VALUES(0,'/pages/*',1);
+CREATE TABLE bounds_path_counts (
+            pattern TEXT NOT NULL PRIMARY KEY,
+            admitted INTEGER NOT NULL,
+            refused INTEGER NOT NULL
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "bounds_path_counts" VALUES('/pages/*',1,1);
 CREATE TABLE bounds_refusals (
             setting TEXT NOT NULL PRIMARY KEY,
             count INTEGER NOT NULL
@@ -33,10 +54,35 @@ CREATE TABLE domains (
             ready_at INTEGER,
             backoffs INTEGER NOT NULL
         ) STRICT;
-INSERT INTO "domains" VALUES('shop.test',1767603605299,0);
+INSERT INTO "domains" VALUES('list.test',1767603648594,0);
+INSERT INTO "domains" VALUES('shop.test',1767603604536,0);
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('run-state','0.1');
 CREATE TABLE key_values (key TEXT NOT NULL PRIMARY KEY, value TEXT, content BLOB, content_type TEXT, file INTEGER, CHECK ((value IS NULL) <> (content_type IS NULL)), CHECK (content_type IS NULL OR ((content IS NULL) <> (file IS NULL)))) STRICT;
+CREATE TABLE learned_identities (
+            identity TEXT NOT NULL PRIMARY KEY,
+            rule INTEGER NOT NULL,
+            crawl_request TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "learned_identities" VALUES('GET https://list.test/items?n=1',1,'6');
+INSERT INTO "learned_identities" VALUES('GET https://list.test/items?n=2',1,'8');
+INSERT INTO "learned_identities" VALUES('GET https://list.test/items?n=3',1,'10');
+CREATE TABLE learned_merges (
+            rule INTEGER NOT NULL REFERENCES learned_rules (id),
+            url TEXT NOT NULL,
+            UNIQUE (rule, url)
+        ) STRICT;
+INSERT INTO "learned_merges" VALUES(1,'https://list.test/items?n=1&ref=z');
+CREATE TABLE learned_rules (
+            id INTEGER NOT NULL PRIMARY KEY,
+            kind TEXT NOT NULL,
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            evidence TEXT NOT NULL,
+            UNIQUE (kind, host, path, parameter)
+        ) STRICT;
+INSERT INTO "learned_rules" VALUES(1,'no_effect_parameter','list.test','','ref','3 pairs of URLs differing only by `ref` served pages of matching signatures, and no pair pages of differing ones: https://list.test/items?n=1 and https://list.test/items?n=1&ref=a; https://list.test/items?n=2 and https://list.test/items?n=2&ref=b; https://list.test/items?n=3 and https://list.test/items?n=3&ref=c.');
 CREATE TABLE outcomes (
             position INTEGER NOT NULL PRIMARY KEY,
             work_item TEXT NOT NULL,
@@ -47,9 +93,19 @@ CREATE TABLE outcomes (
         ) STRICT;
 INSERT INTO "outcomes" VALUES(1,'3','succeeded','home',1,'{"position":1,"request":{"id":"3","url":"https://api.test/search","label":"home","depth":0},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
 INSERT INTO "outcomes" VALUES(2,'4','blocked','guarded',1,'{"position":2,"request":{"id":"4","url":"https://guarded.test/","label":"guarded","depth":0},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"blocked","cause":"ip_block"}');
-INSERT INTO "outcomes" VALUES(3,'2','failed','product',1,'{"position":3,"request":{"id":"2","url":"https://shop.test/broken","label":"product","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}}');
-INSERT INTO "outcomes" VALUES(4,'1','succeeded','home',1,'{"position":4,"request":{"id":"1","url":"https://shop.test/","label":"home","depth":0},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
-INSERT INTO "outcomes" VALUES(5,'5','succeeded','home',1,'{"position":5,"request":{"id":"5","url":"https://outlet.test/sale","label":"home","depth":1},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
+INSERT INTO "outcomes" VALUES(3,'5','failed','listed',1,'{"position":3,"request":{"id":"5","url":"https://list.test/items?n=1","label":"listed","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}}');
+INSERT INTO "outcomes" VALUES(4,'2','failed','product',1,'{"position":4,"request":{"id":"2","url":"https://shop.test/broken","label":"product","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}}');
+INSERT INTO "outcomes" VALUES(5,'6','failed','listed',1,'{"position":5,"request":{"id":"6","url":"https://list.test/items?n=1&ref=a","label":"listed","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}}');
+INSERT INTO "outcomes" VALUES(6,'14','succeeded','home',1,'{"position":6,"request":{"id":"14","url":"https://shop.test/pages/1","label":"home","depth":0},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
+INSERT INTO "outcomes" VALUES(7,'7','failed','listed',1,'{"position":7,"request":{"id":"7","url":"https://list.test/items?n=2","label":"listed","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}}');
+INSERT INTO "outcomes" VALUES(8,'8','failed','listed',1,'{"position":8,"request":{"id":"8","url":"https://list.test/items?n=2&ref=b","label":"listed","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}}');
+INSERT INTO "outcomes" VALUES(9,'9','failed','listed',1,'{"position":9,"request":{"id":"9","url":"https://list.test/items?n=3","label":"listed","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}}');
+INSERT INTO "outcomes" VALUES(10,'10','failed','listed',1,'{"position":10,"request":{"id":"10","url":"https://list.test/items?n=3&ref=c","label":"listed","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}}');
+INSERT INTO "outcomes" VALUES(11,'11','failed','listed',1,'{"position":11,"request":{"id":"11","url":"https://list.test/rows?offset=0","label":"listed","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}}');
+INSERT INTO "outcomes" VALUES(12,'12','failed','listed',1,'{"position":12,"request":{"id":"12","url":"https://list.test/rows?offset=20","label":"listed","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}}');
+INSERT INTO "outcomes" VALUES(13,'13','failed','listed',1,'{"position":13,"request":{"id":"13","url":"https://list.test/rows?offset=40","label":"listed","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}}');
+INSERT INTO "outcomes" VALUES(14,'1','succeeded','home',1,'{"position":14,"request":{"id":"1","url":"https://shop.test/","label":"home","depth":0},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
+INSERT INTO "outcomes" VALUES(15,'15','succeeded','home',1,'{"position":15,"request":{"id":"15","url":"https://outlet.test/sale","label":"home","depth":1},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
 CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL) STRICT;
 CREATE TABLE pool_sessions (
             position INTEGER NOT NULL PRIMARY KEY,
@@ -64,6 +120,16 @@ INSERT INTO "pool_sessions" VALUES(2,'none',1767603600000,1,0.0,NULL);
 INSERT INTO "pool_sessions" VALUES(3,'none',1767603600000,1,1.0,'escalated');
 INSERT INTO "pool_sessions" VALUES(4,'none',1767603600000,1,0.0,NULL);
 INSERT INTO "pool_sessions" VALUES(5,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES(6,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES(7,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES(8,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES(9,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES(10,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES(11,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES(12,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES(13,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES(14,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES(15,'none',1767603600000,1,0.0,NULL);
 CREATE TABLE pool_tiers (
             domain_key TEXT NOT NULL PRIMARY KEY,
             proxy_tier TEXT NOT NULL
@@ -78,10 +144,103 @@ CREATE TABLE records (
         ) STRICT;
 INSERT INTO "records" VALUES('pages',1,'3','{"title":"Shop","url":"https://shop.test/"}');
 INSERT INTO "records" VALUES('links',1,'3','{"href":"https://shop.test/broken"}');
-INSERT INTO "records" VALUES('pages',2,'1','{"title":"Shop","url":"https://shop.test/"}');
-INSERT INTO "records" VALUES('links',2,'1','{"href":"https://shop.test/broken"}');
-INSERT INTO "records" VALUES('pages',3,'5','{"title":"Shop","url":"https://shop.test/"}');
-INSERT INTO "records" VALUES('links',3,'5','{"href":"https://shop.test/broken"}');
+INSERT INTO "records" VALUES('pages',2,'14','{"title":"Shop","url":"https://shop.test/"}');
+INSERT INTO "records" VALUES('links',2,'14','{"href":"https://shop.test/broken"}');
+INSERT INTO "records" VALUES('pages',3,'1','{"title":"Shop","url":"https://shop.test/"}');
+INSERT INTO "records" VALUES('links',3,'1','{"href":"https://shop.test/broken"}');
+INSERT INTO "records" VALUES('pages',4,'15','{"title":"Shop","url":"https://shop.test/"}');
+INSERT INTO "records" VALUES('links',4,'15','{"href":"https://shop.test/broken"}');
+CREATE TABLE rules_offset_values (
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            value INTEGER NOT NULL,
+            url TEXT NOT NULL,
+            PRIMARY KEY (host, path, parameter, value)
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "rules_offset_values" VALUES('list.test','/items','n',1,'https://list.test/items?n=1');
+INSERT INTO "rules_offset_values" VALUES('list.test','/items','n',2,'https://list.test/items?n=2');
+INSERT INTO "rules_offset_values" VALUES('list.test','/items','n',3,'https://list.test/items?n=3');
+INSERT INTO "rules_offset_values" VALUES('list.test','/rows','offset',0,'https://list.test/rows?offset=0');
+INSERT INTO "rules_offset_values" VALUES('list.test','/rows','offset',20,'https://list.test/rows?offset=20');
+INSERT INTO "rules_offset_values" VALUES('list.test','/rows','offset',40,'https://list.test/rows?offset=40');
+CREATE TABLE rules_offsets (
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            anchor INTEGER NOT NULL,
+            step INTEGER NOT NULL,
+            low INTEGER NOT NULL,
+            high INTEGER NOT NULL,
+            count INTEGER NOT NULL,
+            paged INTEGER NOT NULL,
+            PRIMARY KEY (host, path, parameter)
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "rules_offsets" VALUES('list.test','/items','n',1,1,1,3,3,0);
+INSERT INTO "rules_offsets" VALUES('list.test','/rows','offset',0,20,0,40,3,1);
+CREATE TABLE rules_pages (
+            crawl_request TEXT NOT NULL PRIMARY KEY,
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            query TEXT NOT NULL,
+            url TEXT NOT NULL,
+            signature BLOB NOT NULL
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "rules_pages" VALUES('10','list.test','/items','n=3&ref=c','https://list.test/items?n=3&ref=c',X'3333333333333333333333333333333333333333333333333333333333333333');
+INSERT INTO "rules_pages" VALUES('5','list.test','/items','n=1','https://list.test/items?n=1',X'3131313131313131313131313131313131313131313131313131313131313131');
+INSERT INTO "rules_pages" VALUES('6','list.test','/items','n=1&ref=a','https://list.test/items?n=1&ref=a',X'3131313131313131313131313131313131313131313131313131313131313131');
+INSERT INTO "rules_pages" VALUES('7','list.test','/items','n=2','https://list.test/items?n=2',X'3232323232323232323232323232323232323232323232323232323232323232');
+INSERT INTO "rules_pages" VALUES('8','list.test','/items','n=2&ref=b','https://list.test/items?n=2&ref=b',X'3232323232323232323232323232323232323232323232323232323232323232');
+INSERT INTO "rules_pages" VALUES('9','list.test','/items','n=3','https://list.test/items?n=3',X'3333333333333333333333333333333333333333333333333333333333333333');
+CREATE TABLE rules_pairs (
+            host TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            one TEXT NOT NULL,
+            other TEXT NOT NULL,
+            matching INTEGER NOT NULL,
+            UNIQUE (host, parameter, one, other)
+        ) STRICT;
+INSERT INTO "rules_pairs" VALUES('list.test','ref','https://list.test/items?n=1','https://list.test/items?n=1&ref=a',1);
+INSERT INTO "rules_pairs" VALUES('list.test','n','https://list.test/items?n=1','https://list.test/items?n=2',0);
+INSERT INTO "rules_pairs" VALUES('list.test','ref','https://list.test/items?n=2','https://list.test/items?n=2&ref=b',1);
+INSERT INTO "rules_pairs" VALUES('list.test','n','https://list.test/items?n=1','https://list.test/items?n=3',0);
+INSERT INTO "rules_pairs" VALUES('list.test','n','https://list.test/items?n=2','https://list.test/items?n=3',0);
+INSERT INTO "rules_pairs" VALUES('list.test','ref','https://list.test/items?n=3','https://list.test/items?n=3&ref=c',1);
+CREATE TABLE rules_patterns (
+            host TEXT NOT NULL,
+            pattern TEXT NOT NULL,
+            streak INTEGER NOT NULL,
+            first TEXT,
+            PRIMARY KEY (host, pattern)
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "rules_patterns" VALUES('list.test','/items',1,'https://list.test/items?n=3&ref=c');
+CREATE TABLE rules_residues (
+            crawl_request TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            residue TEXT NOT NULL,
+            url TEXT NOT NULL,
+            signature BLOB NOT NULL,
+            PRIMARY KEY (crawl_request, parameter)
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "rules_residues" VALUES('10','n','list.test','/items','ref=c','https://list.test/items?n=3&ref=c',X'3333333333333333333333333333333333333333333333333333333333333333');
+INSERT INTO "rules_residues" VALUES('10','ref','list.test','/items','n=3','https://list.test/items?n=3&ref=c',X'3333333333333333333333333333333333333333333333333333333333333333');
+INSERT INTO "rules_residues" VALUES('5','n','list.test','/items','','https://list.test/items?n=1',X'3131313131313131313131313131313131313131313131313131313131313131');
+INSERT INTO "rules_residues" VALUES('6','n','list.test','/items','ref=a','https://list.test/items?n=1&ref=a',X'3131313131313131313131313131313131313131313131313131313131313131');
+INSERT INTO "rules_residues" VALUES('6','ref','list.test','/items','n=1','https://list.test/items?n=1&ref=a',X'3131313131313131313131313131313131313131313131313131313131313131');
+INSERT INTO "rules_residues" VALUES('7','n','list.test','/items','','https://list.test/items?n=2',X'3232323232323232323232323232323232323232323232323232323232323232');
+INSERT INTO "rules_residues" VALUES('8','n','list.test','/items','ref=b','https://list.test/items?n=2&ref=b',X'3232323232323232323232323232323232323232323232323232323232323232');
+INSERT INTO "rules_residues" VALUES('8','ref','list.test','/items','n=2','https://list.test/items?n=2&ref=b',X'3232323232323232323232323232323232323232323232323232323232323232');
+INSERT INTO "rules_residues" VALUES('9','n','list.test','/items','','https://list.test/items?n=3',X'3333333333333333333333333333333333333333333333333333333333333333');
+CREATE TABLE rules_signatures (
+            host TEXT NOT NULL,
+            signature BLOB NOT NULL,
+            PRIMARY KEY (host, signature)
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "rules_signatures" VALUES('list.test',X'3131313131313131313131313131313131313131313131313131313131313131');
+INSERT INTO "rules_signatures" VALUES('list.test',X'3232323232323232323232323232323232323232323232323232323232323232');
+INSERT INTO "rules_signatures" VALUES('list.test',X'3333333333333333333333333333333333333333333333333333333333333333');
 CREATE TABLE run (
         run_id TEXT NOT NULL PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -105,7 +264,7 @@ CREATE TABLE run (
         nothing_done TEXT,
         report TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"},{"label":"guarded","url":"https://guarded.test/"},{"label":"home","url":"https://shop.test/more/more/more/"}]}','finished',NULL,'verified','unverified','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',43,NULL,'sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9',0,NULL,NULL,'{"run_id":"crawl","lifecycle":"finished","verdict":"verified","completeness":"unverified","completeness_reasons":[{"code":"crawl.max_segment_repeats","message":"`crawl.max_segment_repeats` refused 1 URL the crawl would otherwise have admitted."}],"started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":0,"requests":5,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":995,"set_by":"client"}]},"policy_version":"sha256:0227dc879fda140d","records":[{"committed":3,"dataset":"links","dropped":0,"rejected":0},{"committed":3,"dataset":"pages","dropped":0,"rejected":0}],"requests":{"blocked":1,"by_block_cause":[{"count":1,"name":"ip_block"}],"by_error_code":[{"count":1,"name":"deadline_exceeded"}],"failed":1,"pending":0,"skipped":0,"succeeded":3}}');
+INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"},{"label":"guarded","url":"https://guarded.test/"},{"label":"home","url":"https://shop.test/more/more/more/"},{"label":"listed","url":"https://list.test/items?n=1"},{"label":"listed","url":"https://list.test/items?n=1&ref=a"},{"label":"listed","url":"https://list.test/items?n=2"},{"label":"listed","url":"https://list.test/items?n=2&ref=b"},{"label":"listed","url":"https://list.test/items?n=3"},{"label":"listed","url":"https://list.test/items?n=3&ref=c"},{"label":"listed","url":"https://list.test/rows?offset=0"},{"label":"listed","url":"https://list.test/rows?offset=20"},{"label":"listed","url":"https://list.test/rows?offset=40"},{"label":"home","url":"https://shop.test/pages/1"},{"label":"home","url":"https://shop.test/pages/2"}]}','finished',NULL,'verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',86,NULL,'sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9',0,NULL,NULL,'{"run_id":"crawl","lifecycle":"finished","verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"crawl.max_segment_repeats","message":"`crawl.max_segment_repeats` refused 1 URL the crawl would otherwise have admitted."},{"code":"crawl.path_budgets","message":"`crawl.path_budgets`''s entry `/pages/*` refused 1 URL past its 1 request the crawl would otherwise have admitted."},{"code":"offset_pagination","message":"1 listing was paged only by an offset parameter, so a row that moved while the crawl paged it may be missed."}],"started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":0,"requests":15,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":985,"set_by":"client"}]},"policy_version":"sha256:0227dc879fda140d","learned_rules":[{"evidence":"3 pairs of URLs differing only by `ref` served pages of matching signatures, and no pair pages of differing ones: https://list.test/items?n=1 and https://list.test/items?n=1&ref=a; https://list.test/items?n=2 and https://list.test/items?n=2&ref=b; https://list.test/items?n=3 and https://list.test/items?n=3&ref=c.","host":"list.test","kind":"no_effect_parameter","merged":["https://list.test/items?n=1&ref=z"],"parameter":"ref"}],"records":[{"committed":4,"dataset":"links","dropped":0,"rejected":0},{"committed":4,"dataset":"pages","dropped":0,"rejected":0}],"requests":{"blocked":1,"by_block_cause":[{"count":1,"name":"ip_block"}],"by_error_code":[{"count":10,"name":"deadline_exceeded"}],"failed":10,"pending":0,"skipped":0,"succeeded":4}}');
 CREATE TABLE run_file_chunks (sha256 TEXT NOT NULL, offset INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sha256, offset)) STRICT;
 CREATE TABLE run_files (position INTEGER NOT NULL PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL) STRICT;
 CREATE TABLE run_key (
@@ -129,6 +288,7 @@ CREATE TABLE scope_seeds (
         ) STRICT, WITHOUT ROWID;
 INSERT INTO "scope_seeds" VALUES('api.test',0,'https','api.test');
 INSERT INTO "scope_seeds" VALUES('guarded.test',0,'https','guarded.test');
+INSERT INTO "scope_seeds" VALUES('list.test',0,'https','list.test');
 INSERT INTO "scope_seeds" VALUES('shop.test',0,'https','shop.test');
 CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
@@ -140,6 +300,17 @@ INSERT INTO "seeds" VALUES(3,'{"kind":"not_added","reason":"duplicate","url":"ht
 INSERT INTO "seeds" VALUES(4,'{"kind":"added","id":"3","url":"https://api.test/search"}');
 INSERT INTO "seeds" VALUES(5,'{"kind":"added","id":"4","url":"https://guarded.test/"}');
 INSERT INTO "seeds" VALUES(6,'{"kind":"not_added","reason":"max_segment_repeats","url":"https://shop.test/more/more/more/"}');
+INSERT INTO "seeds" VALUES(7,'{"kind":"added","id":"5","url":"https://list.test/items?n=1"}');
+INSERT INTO "seeds" VALUES(8,'{"kind":"added","id":"6","url":"https://list.test/items?n=1&ref=a"}');
+INSERT INTO "seeds" VALUES(9,'{"kind":"added","id":"7","url":"https://list.test/items?n=2"}');
+INSERT INTO "seeds" VALUES(10,'{"kind":"added","id":"8","url":"https://list.test/items?n=2&ref=b"}');
+INSERT INTO "seeds" VALUES(11,'{"kind":"added","id":"9","url":"https://list.test/items?n=3"}');
+INSERT INTO "seeds" VALUES(12,'{"kind":"added","id":"10","url":"https://list.test/items?n=3&ref=c"}');
+INSERT INTO "seeds" VALUES(13,'{"kind":"added","id":"11","url":"https://list.test/rows?offset=0"}');
+INSERT INTO "seeds" VALUES(14,'{"kind":"added","id":"12","url":"https://list.test/rows?offset=20"}');
+INSERT INTO "seeds" VALUES(15,'{"kind":"added","id":"13","url":"https://list.test/rows?offset=40"}');
+INSERT INTO "seeds" VALUES(16,'{"kind":"added","id":"14","url":"https://shop.test/pages/1"}');
+INSERT INTO "seeds" VALUES(17,'{"kind":"not_added","reason":"path_budget","url":"https://shop.test/pages/2"}');
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 INSERT INTO "tags" VALUES(0,'schedule:nightly');
 CREATE TABLE usage (
@@ -148,7 +319,8 @@ CREATE TABLE usage (
         used INTEGER NOT NULL,
         PRIMARY KEY (slice_id, epoch)
     ) STRICT;
-INSERT INTO "usage" VALUES(1,1,5);
+INSERT INTO "usage" VALUES(1,1,10);
+INSERT INTO "usage" VALUES(2,1,5);
 CREATE TABLE usage_parts (
         usage_kind TEXT NOT NULL,
         part TEXT NOT NULL,
@@ -161,15 +333,25 @@ CREATE TABLE usage_totals (
         amount INTEGER NOT NULL,
         PRIMARY KEY (usage_kind, currency)
     ) STRICT;
-INSERT INTO "usage_totals" VALUES('requests','',5);
+INSERT INTO "usage_totals" VALUES('requests','',15);
 CREATE TABLE visited (
             identity TEXT NOT NULL PRIMARY KEY,
             crawl_request TEXT NOT NULL
         ) STRICT, WITHOUT ROWID;
 INSERT INTO "visited" VALUES('GET https://guarded.test/','4');
-INSERT INTO "visited" VALUES('GET https://outlet.test/sale','5');
+INSERT INTO "visited" VALUES('GET https://list.test/items?n=1','5');
+INSERT INTO "visited" VALUES('GET https://list.test/items?n=1&ref=a','6');
+INSERT INTO "visited" VALUES('GET https://list.test/items?n=2','7');
+INSERT INTO "visited" VALUES('GET https://list.test/items?n=2&ref=b','8');
+INSERT INTO "visited" VALUES('GET https://list.test/items?n=3','9');
+INSERT INTO "visited" VALUES('GET https://list.test/items?n=3&ref=c','10');
+INSERT INTO "visited" VALUES('GET https://list.test/rows?offset=0','11');
+INSERT INTO "visited" VALUES('GET https://list.test/rows?offset=20','12');
+INSERT INTO "visited" VALUES('GET https://list.test/rows?offset=40','13');
+INSERT INTO "visited" VALUES('GET https://outlet.test/sale','15');
 INSERT INTO "visited" VALUES('GET https://shop.test/','1');
 INSERT INTO "visited" VALUES('GET https://shop.test/broken','2');
+INSERT INTO "visited" VALUES('GET https://shop.test/pages/1','14');
 INSERT INTO "visited" VALUES('key:search-1','3');
 CREATE TABLE warnings (
         position INTEGER NOT NULL PRIMARY KEY,
@@ -199,10 +381,23 @@ INSERT INTO "work_items" VALUES('1',1,'https://shop.test/','GET',NULL,'home',0,'
 INSERT INTO "work_items" VALUES('2',2,'https://shop.test/broken','GET',NULL,'product',0,NULL,'failed',1,1,'deadline_exceeded','shop.test',0,NULL);
 INSERT INTO "work_items" VALUES('3',3,'https://api.test/search','POST',X'7B2270616765223A317D','home',0,NULL,'succeeded',1,1,NULL,'api.test',0,NULL);
 INSERT INTO "work_items" VALUES('4',4,'https://guarded.test/','GET',NULL,'guarded',0,NULL,'blocked',1,1,NULL,'guarded.test',0,NULL);
-INSERT INTO "work_items" VALUES('5',5,'https://outlet.test/sale','GET',NULL,'home',1,NULL,'succeeded',1,1,NULL,'outlet.test',0,5);
+INSERT INTO "work_items" VALUES('5',5,'https://list.test/items?n=1','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('6',6,'https://list.test/items?n=1&ref=a','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('7',7,'https://list.test/items?n=2','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('8',8,'https://list.test/items?n=2&ref=b','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('9',9,'https://list.test/items?n=3','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('10',10,'https://list.test/items?n=3&ref=c','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('11',11,'https://list.test/rows?offset=0','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('12',12,'https://list.test/rows?offset=20','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('13',13,'https://list.test/rows?offset=40','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('14',14,'https://shop.test/pages/1','GET',NULL,'home',0,NULL,'succeeded',1,1,NULL,'shop.test',0,NULL);
+INSERT INTO "work_items" VALUES('15',15,'https://outlet.test/sale','GET',NULL,'home',1,NULL,'succeeded',1,1,NULL,'outlet.test',0,15);
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (position)
             WHERE retired_because IS NULL;
+CREATE INDEX rules_pages_by_query ON rules_pages (host, path, query);
+CREATE INDEX rules_residues_by_residue
+            ON rules_residues (host, path, residue, parameter);
 CREATE INDEX scope_seeds_by_domain ON scope_seeds (domain);
 CREATE INDEX work_items_by_domain
             ON work_items (status, domain_key, forefront DESC, priority DESC, position);

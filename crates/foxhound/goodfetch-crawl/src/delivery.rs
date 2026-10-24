@@ -49,7 +49,7 @@
 
 use std::time::Duration;
 
-use goodfetch_engine::admission::{Admission, Waiting, Wakes};
+use goodfetch_engine::admission::{Admission, SecondCopies, Waiting, Wakes};
 use goodfetch_engine::client::Client;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::governor::Permit;
@@ -58,7 +58,7 @@ use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, CompletenessReason, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{FetchTiers, HttpTier};
-use goodfetch_frontier::{Bounds, completeness_reasons};
+use goodfetch_frontier::{Bounds, completeness_reasons, learned_completeness_reasons};
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
     RESPONSE_UNAVAILABLE, WORK_ITEM_RETRIED,
@@ -86,7 +86,7 @@ use goodfetch_protocol::foxhound::progress::{InFlightPhase, InFlightRequest};
 mod attempt;
 mod politeness;
 
-use attempt::{Answer, Attempt, attempt, block_cause, effect, leased_count};
+use attempt::{Answer, Attempt, DocumentFetch, attempt, block_cause, effect, leased_count};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
 
 /// A Connection serving the crawl's handler requests, as the delivery
@@ -321,12 +321,12 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
 }
 
 /// Drives a resumed crawl (ADRs 0002 and 0102), its bounds recorded again
-/// from its settings: each attempt its committed
-/// state shows in flight, whose engine stopped without settling it, counts
-/// as `handler_lost` against `crawl.retry.max` and is retried or failed,
-/// then delivery goes on from the committed state, so the work since that
-/// state is redone. Its domain policy is read again from its settings; one
-/// that cannot be read admits no seed or enqueue.
+/// from its settings (an unreadable path budget fails it): each attempt its
+/// committed state shows in flight, whose engine stopped without settling
+/// it, counts as `handler_lost` against `crawl.retry.max` and is retried or
+/// failed, then delivery goes on from the committed state, so the work
+/// since that state is redone. Its domain policy is read again from its
+/// settings; one that cannot be read admits no seed or enqueue.
 ///
 /// # Cancel safety
 ///
@@ -379,8 +379,9 @@ struct Fetching<'a> {
 
 impl Fetching<'_> {
     /// What one attempt fetches its request's document with.
-    fn served(&self) -> Option<(FetchTiers, HttpTier)> {
-        self.http.map(|http| (self.tiers.clone(), http.clone()))
+    fn served(&self, second_copies: &SecondCopies) -> Option<DocumentFetch> {
+        self.http
+            .map(|http| DocumentFetch::of(self.tiers, http, second_copies))
     }
 }
 
@@ -481,7 +482,7 @@ async fn lease_to_servers(
                     server.client.clone(),
                     (leased, session, leased_count(run)),
                     lease,
-                    pooled.fetching.served(),
+                    pooled.fetching.served(&admission.second_copies()),
                     std::sync::Arc::clone(&pooled.fetching.in_flight),
                 ),
             ));
@@ -540,11 +541,13 @@ async fn drained(
 }
 
 /// Why the finished crawl of the run file `connection` holds does not
-/// cover its scope: what its bounds and caps refused (ADRs 0093 and 0120)
-/// and, when requests `failed` with `response_unavailable`, that (ADR
+/// cover its scope: what its bounds and caps refused (ADRs 0093 and 0120),
+/// what its learned traps refused and its listings paged only by an offset
+/// (ADR 0005) and, when requests `failed` with `response_unavailable`, that (ADR
 /// 0118), in the order of their codes.
 fn short_of_scope(connection: &Connection) -> rusqlite::Result<Vec<CompletenessReason>> {
     let mut reasons = completeness_reasons(connection)?;
+    reasons.extend(learned_completeness_reasons(connection)?);
     if work_items::any_failed_with(connection, RESPONSE_UNAVAILABLE.name)? {
         reasons.push(CompletenessReason::incomplete(unavailable_reason()));
     }

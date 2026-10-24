@@ -1,5 +1,5 @@
-# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711 and #718;
-# spec #580, ticket #783): a Collie program's pages, their locator actions
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718, #859 and #709;
+# spec #580, tickets #783 and #789): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
 # local Proving ground (ADR 0094), each case on a Run of its own whose
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "24"
+version = "26"
 
 [[capability]]
 name = "sessions.default"
@@ -95,6 +95,25 @@ covers = ["story:5-89", "operation:session.new_page", "operation:run.new_page", 
 [[capability.case]]
 id = "socks4-and-credentials-in-the-proxy-url-are-setting-invalid"
 covers = ["story:5-88", "setting:proxy.server", "error:setting_invalid"]
+
+[[capability]]
+name = "sessions.proxy_limits"
+
+[[capability.case]]
+id = "two-runs-through-a-limited-proxy-take-turns-under-the-ceiling-the-first-learned"
+covers = ["story:5-90", "error:proxy_unavailable", "setting:proxy.server", "setting:proxy.username"]
+
+[[capability.case]]
+id = "the-proxy-concurrency-and-rate-hold-a-programs-own-navigation"
+covers = ["story:5-90", "setting:politeness.proxy.concurrency", "setting:politeness.proxy.rate"]
+
+[[capability.case]]
+id = "a-run-that-shares-no-politeness-keeps-the-ceiling-it-learned-to-itself"
+covers = ["story:5-90", "setting:politeness.sharing", "error:proxy_unavailable"]
+
+[[capability.case]]
+id = "a-sites-429-through-a-proxy-lowers-no-ceiling"
+covers = ["story:5-90", "error:proxy_unavailable"]
 
 [[capability]]
 name = "navigation"
@@ -231,6 +250,10 @@ name = "routes"
 [[capability.case]]
 id = "an-unanswered-route-lets-the-request-through-and-the-page-loads"
 covers = ["story:5-40", "operation:page.route", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-routes-header-value-with-a-line-break-or-a-nul-is-refused-before-the-browser"
+covers = ["operation:route.continue", "operation:route.fallback", "operation:route.fulfill", "error:header_value_invalid"]
 
 [[capability.case]]
 id = "a-route-whose-handler-fails-aborts-its-request-is-removed-and-the-waiting-call-raises-page-handler-failed"
@@ -402,6 +425,10 @@ covers = ["story:5-101", "setting:consent.domains"]
 id = "a-run-widening-consent-domains-is-setting-locked-and-on-wall-ask-is-unavailable-until-the-human-pause"
 covers = ["story:5-101", "setting:consent.domains", "setting:consent.on_wall", "error:setting_locked", "error:capability_unavailable"]
 
+[[capability.case]]
+id = "a-domain-whose-consent-wall-a-run-left-is-offered-in-needs-you-for-consent-domains"
+covers = ["story:12-26", "operation:needs_you.list"]
+
 [[capability]]
 name = "page_states.service_workers"
 
@@ -427,6 +454,14 @@ covers = ["story:5-44", "operation:page.request", "operation:run.new_session", "
 [[capability.case]]
 id = "page-request-passes-the-pages-domain-policy"
 covers = ["story:5-44", "operation:page.request", "error:egress_refused"]
+
+[[capability.case]]
+id = "page-request-refuses-a-header-value-with-a-line-break-or-a-nul-before-the-browser"
+covers = ["operation:page.request", "error:header_value_invalid"]
+
+[[capability.case]]
+id = "page-request-refuses-a-body-past-the-runs-limits-naming-the-setting"
+covers = ["operation:page.request", "error:response_limit_exceeded"]
 
 [[capability.case]]
 id = "no-service-worker-answers-a-page-request"
@@ -513,3 +548,18 @@ covers = ["story:5-19", "operation:locator.wait_for", "operation:locator.wait_fo
 [[capability.case]]
 id = "each-wait-ends-at-timeout-wait-naming-what-it-waited-for"
 covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+
+[[capability]]
+name = "robots_txt"
+
+[[capability.case]]
+id = "a-programs-goto-to-a-disallowed-page-loads-and-provenance-names-the-disallowing-group"
+covers = ["story:6-62", "story:6-63", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "two-tabs-on-one-site-are-neither-delayed-nor-refused-under-crawl-delay-and-disallow"
+covers = ["story:6-63", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-run-reads-robots-txt-once-per-origin-into-its-own-copy-and-leaves-foxhounds-untouched"
+covers = ["story:6-62", "story:6-64", "operation:run.new_page", "operation:page.goto"]

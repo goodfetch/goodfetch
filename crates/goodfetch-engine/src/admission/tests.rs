@@ -1,16 +1,24 @@
 //! A Run's rate cap through its interface (spec #213's Seam 4): a pure
-//! function of the monotonic readings the tests give it.
+//! function of the monotonic readings the tests give it; and the room a
+//! second copy of an admitted request takes, from an in-memory Politeness
+//! on the paused test runtime.
 #![expect(
     clippy::disallowed_methods,
     reason = "a pure rule's readings may start from any moment (ADR 0059)"
 )]
 
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use proptest::prelude::*;
+use rstest::rstest;
+use rusqlite::Connection;
 use tokio::time::Instant;
 
-use super::RateCap;
+use super::{BesideShared, RateCap, Room, SecondCopies};
+use crate::clock::Clock;
+use crate::politeness::{Ending, Hold, Holder, PermitRule, Politeness, Taken, Verdict};
+use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// Offers `cap` a request at each of `offsets` from `start`, in order, and
 /// answers the offsets it admitted.
@@ -110,4 +118,178 @@ proptest! {
             prop_assert!(in_minute <= limit, "{in_minute} admitted in a minute under a cap of {per_minute}");
         }
     }
+}
+
+/// What a key admits in the second-copy tests: up to `cap` requests in
+/// flight, each start then held for `delay` of wall time.
+struct Rule {
+    cap: u64,
+    delay: Option<Duration>,
+}
+
+impl PermitRule for Rule {
+    fn admit(
+        &self,
+        _: &Connection,
+        _: &str,
+        in_flight: u64,
+        now: SystemTime,
+    ) -> rusqlite::Result<Verdict> {
+        Ok(match self.delay {
+            _ if in_flight >= self.cap => Verdict::Busy,
+            Some(delay) => Verdict::Until(now + delay, Hold::Delay),
+            None => Verdict::Go,
+        })
+    }
+
+    fn started(&self, _: &Connection, _: &str, _: SystemTime) -> rusqlite::Result<()> {
+        Ok(())
+    }
+
+    fn ended(
+        &self,
+        _: &Connection,
+        _: &str,
+        _: u64,
+        _: Ending,
+        _: SystemTime,
+    ) -> rusqlite::Result<Option<SystemTime>> {
+        Ok(None)
+    }
+}
+
+/// What a second copy's take answered, by name: `taken`, `full`, or the
+/// time from `now` it holds the copy until.
+fn named(room: &Room, now: Instant) -> String {
+    match room {
+        Room::Taken(_) => "taken".to_owned(),
+        Room::Full => "full".to_owned(),
+        Room::Until(until) => format!("until +{:?}", until.duration_since(now)),
+    }
+}
+
+/// Second copies of a Run sharing an in-memory Politeness under `rule`,
+/// whose first request of `shop.test` already holds its Permit, taken
+/// before the delay began, under the rate cap `rate`.
+async fn beside_a_first(owner: &TaskOwner, rule: Rule, rate: Option<RateCap>) -> SecondCopies {
+    let politeness = Politeness::in_memory(Vec::new(), owner).await.unwrap();
+    let holder = Holder {
+        run_id: "crawl".to_owned(),
+        epoch: 1,
+        run_folder: "crawl".into(),
+    };
+    let clock = Clock::paused(SystemTime::UNIX_EPOCH + Duration::from_hours(500_000));
+    let before_the_delay: Arc<dyn PermitRule> = Arc::new(Rule {
+        cap: rule.cap,
+        delay: None,
+    });
+    let first = politeness
+        .take("shop.test", &holder, before_the_delay, clock.wall())
+        .await
+        .unwrap();
+    assert!(matches!(first, Taken::Granted(_)), "{first:?}");
+    SecondCopies {
+        shared: Some(BesideShared {
+            politeness,
+            holder,
+            rule: Arc::new(rule),
+            clock,
+        }),
+        rate: Arc::new(Mutex::new(rate)),
+    }
+}
+
+fn on_the_runtime<T>(test: impl AsyncFnOnce(&TaskOwner) -> T) -> T {
+    goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let answer = test(&owner).await;
+        owner.cancel();
+        answer
+    })
+}
+
+/// A second copy is governed as a request of its own: a key that admits
+/// one request at a time, which its first holds, has no room for it, and
+/// one that admits two has (ADR 0086); a key whose delay has not passed
+/// holds it until it has.
+///
+/// Covers: story:3-63
+#[rstest]
+#[case::one_at_a_time(Rule { cap: 1, delay: None }, "full")]
+#[case::two_at_a_time(Rule { cap: 2, delay: None }, "taken")]
+#[case::within_the_delay(Rule { cap: 2, delay: Some(Duration::from_millis(500)) }, "until +500ms")]
+fn a_second_copy_takes_a_permit_of_its_key_beside_its_first(
+    #[case] rule: Rule,
+    #[case] expected: &str,
+) {
+    let room = on_the_runtime(async |owner| {
+        let copies = beside_a_first(owner, rule, None).await;
+        let now = Instant::now();
+        named(&copies.take("shop.test", now).await, now)
+    });
+
+    assert_eq!(room, expected);
+}
+
+/// A second copy takes its share of the Run's rate cap, as its first did:
+/// at 60 a minute, a copy sent with its first waits a second for its turn,
+/// and goes once the second passed.
+///
+/// Covers: story:3-63
+#[test]
+fn a_second_copy_takes_its_share_of_the_rate_cap() {
+    let rooms = on_the_runtime(async |owner| {
+        let start = Instant::now();
+        let mut rate = RateCap::per_minute(60);
+        rate.admit(start).unwrap();
+        let copies = beside_a_first(
+            owner,
+            Rule {
+                cap: 2,
+                delay: None,
+            },
+            Some(rate),
+        )
+        .await;
+        [
+            named(&copies.take("shop.test", start).await, start),
+            named(
+                &copies
+                    .take("shop.test", start + Duration::from_secs(1))
+                    .await,
+                start,
+            ),
+        ]
+    });
+
+    assert_eq!(rooms, ["until +1s", "taken"]);
+}
+
+/// The room a copy took goes back once it ended, so a key that admits two
+/// requests has room for another copy beside the first.
+///
+/// Covers: story:3-63
+#[test]
+fn a_second_copy_given_back_leaves_room_for_the_next() {
+    let rooms = on_the_runtime(async |owner| {
+        let copies = beside_a_first(
+            owner,
+            Rule {
+                cap: 2,
+                delay: None,
+            },
+            None,
+        )
+        .await;
+        let now = Instant::now();
+        let first_copy = copies.take("shop.test", now).await;
+        let while_held = named(&copies.take("shop.test", now).await, now);
+        let Room::Taken(first_copy) = first_copy else {
+            panic!("no room for the first copy");
+        };
+        copies.give_back(first_copy).await;
+        [while_held, named(&copies.take("shop.test", now).await, now)]
+    });
+
+    assert_eq!(rooms, ["full", "taken"]);
 }

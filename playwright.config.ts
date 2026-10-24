@@ -14,7 +14,7 @@
 import { sep } from "node:path";
 import { readFeatureIds } from "@goodfetch/test-support/features";
 import type { ServedOptions } from "@goodfetch/test-support/playwright";
-import { defineConfig, type PlaywrightTestConfig, type Project } from "@playwright/test";
+import { defineConfig, type PlaywrightTestConfig } from "@playwright/test";
 import { PLAYWRIGHT_VISUAL_TESTS, visualConfig } from "@goodfetch/test-support/visual-config";
 
 // Playwright matches a glob against a test file's absolute path, from any
@@ -36,7 +36,14 @@ const ignored = [
 // project reruns the served tests with test support's translation-emulation
 // script on every page, which wraps each new text node in `<font>` as page
 // translators do; they must still pass, with no uncaught error (ADR 0073).
-const releaseProjects: Project<ServedOptions>[] =
+// Its elsewhere project reruns them in a browser whose locale and time zone
+// are Turkish and Nepal's, whose offset is a quarter hour (ADR 0073): no
+// test asserts formatted text, so each passes there as it does here.
+//
+// A project of this configuration takes Playwright's own options as well as
+// the served fixtures' (`Project<ServedOptions>` alone drops Playwright's).
+type ServedProject = NonNullable<PlaywrightTestConfig<ServedOptions>["projects"]>[number];
+const releaseProjects: ServedProject[] =
   process.env["GOODFETCH_TEST_SUITE"] === "release"
     ? [
         ...(["firefox", "webkit"] as const).map((browserName) => ({
@@ -48,6 +55,11 @@ const releaseProjects: Project<ServedOptions>[] =
           name: "translation",
           testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS],
           use: { translationEmulation: true },
+        },
+        {
+          name: "elsewhere",
+          testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS],
+          use: { locale: "tr-TR", timezoneId: "Asia/Kathmandu" },
         },
       ]
     : [];

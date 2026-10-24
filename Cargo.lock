@@ -1875,6 +1875,8 @@ dependencies = [
  "age",
  "apple-native-keyring-store",
  "bindgen",
+ "brotli 9.0.0",
+ "brotli-decompressor 6.0.1",
  "chacha20 0.10.2",
  "chacha20poly1305",
  "data-encoding",
@@ -1891,6 +1893,7 @@ dependencies = [
  "httpdate",
  "hyper",
  "hyper-util",
+ "icu_normalizer",
  "insta",
  "jiff",
  "keyring-core",
@@ -1902,6 +1905,7 @@ dependencies = [
  "prometheus",
  "proptest",
  "proptest-state-machine",
+ "psl",
  "rcgen",
  "rstest",
  "rusqlite",
@@ -1929,6 +1933,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "zbus",
  "zip",
+ "zstd 0.14.3",
 ]
 
 [[package]]
@@ -1944,6 +1949,7 @@ dependencies = [
  "proptest",
  "rstest",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1956,6 +1962,7 @@ dependencies = [
  "dom_query",
  "flate2",
  "goodfetch-engine",
+ "goodfetch-extractor",
  "goodfetch-frontier",
  "goodfetch-page",
  "goodfetch-protocol",
@@ -1965,6 +1972,7 @@ dependencies = [
  "http-body-util",
  "http2",
  "hyper",
+ "proptest",
  "reqwest",
  "rstest",
  "rustls",
@@ -1992,6 +2000,7 @@ dependencies = [
  "goodfetch-fetch-tier",
  "goodfetch-foxhound",
  "goodfetch-frontier",
+ "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-session-pool",
  "goodfetch-test-support",
@@ -2095,6 +2104,7 @@ dependencies = [
  "hmac",
  "http-body-util",
  "httparse",
+ "httpdate",
  "hyper",
  "hyper-util",
  "indexmap",

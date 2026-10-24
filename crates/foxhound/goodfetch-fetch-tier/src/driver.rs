@@ -255,8 +255,12 @@ impl TransportFailure {
 /// connection when the site never processed it (ADR 0118): a failure
 /// [`TransportFailure::unprocessed`] names, a 421, or a 408 a reused
 /// connection gave a read. The resend's answer or failure is the hop's.
-async fn answer(transport: &dyn Transport, hop: &Hop) -> Result<Sent, TransportFailure> {
-    match transport.send(hop, Reuse::Allowed).await {
+async fn answer(
+    transport: &dyn Transport,
+    hop: &Hop,
+    reuse: Reuse,
+) -> Result<Sent, TransportFailure> {
+    match transport.send(hop, reuse).await {
         Err(failure) if !failure.unprocessed(hop) => Err(failure),
         Ok(sent) if sent.status != 421 && !(sent.status == 408 && sent.reused && hop.read) => {
             Ok(sent)
@@ -323,6 +327,36 @@ pub async fn fetch(
     deadlines: &Deadlines,
     clock: &Clock,
 ) -> Result<Fetched, CallError> {
+    fetch_on(transport, hop, Reuse::Allowed, deadlines, clock).await
+}
+
+/// [`fetch`] on a new connection, never one an earlier hop left: a
+/// hedge's (ADR 0040).
+///
+/// # Errors
+///
+/// As [`fetch`]'s.
+///
+/// # Cancel safety
+///
+/// As [`fetch`]'s.
+pub(crate) async fn fetch_anew(
+    transport: &dyn Transport,
+    hop: &Hop,
+    deadlines: &Deadlines,
+    clock: &Clock,
+) -> Result<Fetched, CallError> {
+    fetch_on(transport, hop, Reuse::Never, deadlines, clock).await
+}
+
+/// [`fetch`] whose first send goes on a connection `reuse` allows.
+async fn fetch_on(
+    transport: &dyn Transport,
+    hop: &Hop,
+    reuse: Reuse,
+    deadlines: &Deadlines,
+    clock: &Clock,
+) -> Result<Fetched, CallError> {
     let url = hop.url.as_str();
     let asked;
     let hop = if hop
@@ -342,7 +376,7 @@ pub async fn fetch(
     let whole = async {
         let mut sent = deadlines
             .first_byte
-            .within(clock, "first_byte", answer(transport, hop))
+            .within(clock, "first_byte", answer(transport, hop, reuse))
             .await?
             .map_err(|failure| failure.error(url))?;
         let expected = content_length(&sent.headers);

@@ -17,8 +17,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use data_encoding::BASE64;
-use goodfetch_cdp::Subscription;
 use goodfetch_cdp::generated::{fetch, network, page};
+use goodfetch_cdp::{NetError, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::{self, Policy, Refused, RequestKind};
@@ -1089,7 +1089,7 @@ impl PageContext {
         let url = held.url().to_owned();
         let details = NavigationFailedDetails {
             url: url.clone(),
-            error: Some(BLOCKED_BY_CLIENT.to_owned()),
+            error: Some(NetError::BlockedByClient.name().to_owned()),
         };
         let error = CallError::new(
             &NAVIGATION_FAILED,
@@ -1125,7 +1125,7 @@ impl PageContext {
             self.trace_service_worker(
                 held,
                 Some(RequestFailure {
-                    error_text: BLOCKED_BY_CLIENT.to_owned(),
+                    error_text: NetError::BlockedByClient.name().to_owned(),
                     error: Some(refusal),
                 }),
             );
@@ -1205,9 +1205,6 @@ impl PageContext {
         }
     }
 }
-
-/// The browser's network error for a request a blocker failed.
-const BLOCKED_BY_CLIENT: &str = "net::ERR_BLOCKED_BY_CLIENT";
 
 /// The URL in `headers`' `Referer`, which names the document that sent the
 /// request.

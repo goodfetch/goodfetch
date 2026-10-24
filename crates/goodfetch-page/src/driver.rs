@@ -43,7 +43,7 @@ use std::time::Duration;
 
 use goodfetch_cdp::generated::{browser, dom, emulation, input, network, page, runtime, target};
 use goodfetch_cdp::{
-    Command, Connection, Failure, Refusal, SessionId as TargetSession, Subscription,
+    Command, Connection, Failure, NetError, Refusal, SessionId as TargetSession, Subscription,
 };
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::Pins;
@@ -1184,7 +1184,7 @@ impl PageDriver {
                         // no document loads.
                         (Some(_), None) if is_javascript(&url) => Ok(None),
                         (Some(error), loader) => navigation::refused(
-                            &error,
+                            &NetError::of(&error),
                             loader,
                             navigated.is_download == Some(true),
                             superseded(),
@@ -1239,8 +1239,8 @@ impl PageDriver {
             Some(Ok(Err(Ended::Failed(error)))) => Err(self
                 .proxy
                 .as_ref()
-                .and_then(|proxy| proxy.failure(&url, &error))
-                .unwrap_or_else(|| network_error(&url, &error))),
+                .and_then(|proxy| proxy.failure(&url, error.name()))
+                .unwrap_or_else(|| network_error(&url, error.name()))),
             Some(Ok(Err(Ended::Interrupted))) => Err(interrupted(&url)),
             Some(Ok(Err(Ended::TooManyRedirects(chain)))) => Err(too_many_redirects(&url, chain)),
             Some(Ok(Err(Ended::Truncated { received, expected }))) => {
@@ -1409,7 +1409,7 @@ impl PageDriver {
     /// reported.
     async fn abandoned(
         &self,
-        error: String,
+        error: NetError,
         events: &mut Subscription,
         navigation: &mut Navigation,
         call: &Call,

@@ -24,24 +24,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use goodfetch_cdp::RawEvent;
 use goodfetch_cdp::generated::network::{self, LoaderId, RequestId, ResourceType};
 use goodfetch_cdp::generated::page::{self, FrameId, FrameStartedNavigatingNavigationType};
+use goodfetch_cdp::{NetError, RawEvent};
 use goodfetch_protocol::page::{PageResponse, WaitUntil};
-
-/// The error text of a navigation the browser cancelled.
-const ABORTED: &str = "net::ERR_ABORTED";
-
-/// The error text of a navigation past the browser's 19 redirects.
-const TOO_MANY_REDIRECTS: &str = "net::ERR_TOO_MANY_REDIRECTS";
-
-/// The error text of a body whose listed content coding did not decode.
-const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
-
-/// The error text of a navigation whose response, an error status with an
-/// empty body, the browser shows as an error page of its own: the response
-/// is still the navigation's answer, whole, as a proxy's own `429` is.
-const RESPONSE_CODE_FAILURE: &str = "net::ERR_HTTP_RESPONSE_CODE_FAILURE";
 
 /// The event of a target whose renderer crashed.
 pub(super) const CRASHED: &str = "Inspector.targetCrashed";
@@ -59,7 +45,7 @@ pub(super) enum Expected {
     FirstStarted,
     /// The one `Page.navigate` named, which the browser failed with this
     /// network error before its document committed.
-    Failed(LoaderId, String),
+    Failed(LoaderId, NetError),
 }
 
 /// Where a navigation arrived.
@@ -80,7 +66,7 @@ pub(crate) enum Arrived {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Ended {
     /// The browser failed it with this network error.
-    Failed(String),
+    Failed(NetError),
     /// Another navigation superseded it before it committed.
     Interrupted,
     /// It was redirected past the browser's limit: the URLs of its chain,
@@ -111,7 +97,7 @@ pub(super) struct Navigation {
     responses: BTreeMap<LoaderId, PageResponse>,
     /// The bytes of each document's body that arrived, decoded.
     received: BTreeMap<LoaderId, u64>,
-    failed: BTreeMap<LoaderId, String>,
+    failed: BTreeMap<LoaderId, NetError>,
     /// The documents whose navigation failed once they had committed, such
     /// as a body that broke off: the browser shows no error page for them.
     failed_committed: BTreeSet<LoaderId>,
@@ -200,7 +186,8 @@ impl Navigation {
                 if self.committed.contains(loader) {
                     self.failed_committed.insert(loader.clone());
                 }
-                self.failed.insert(loader.clone(), failed.error_text);
+                self.failed
+                    .insert(loader.clone(), NetError::of(&failed.error_text));
             }
         } else if let Some(navigated) = event.read::<page::FrameNavigatedEvent>() {
             if navigated.frame.id == self.frame && navigated.frame.parent_id.is_none() {
@@ -260,7 +247,7 @@ impl Navigation {
                         || self
                             .failed
                             .get(loader)
-                            .is_some_and(|error| error == ABORTED))
+                            .is_some_and(|error| *error == NetError::Aborted))
             })
     }
 
@@ -311,11 +298,11 @@ impl Navigation {
                 .filter(|_| !self.failed_committed.contains(loader))
         });
         if let Some(error) = before_commit {
-            let error_page = error != ABORTED && !superseded;
+            let error_page = *error != NetError::Aborted && !superseded;
             if error_page && !self.stopped && !self.reached(loader, wait_until) {
                 return None;
             }
-            if error == RESPONSE_CODE_FAILURE
+            if *error == NetError::HttpResponseCodeFailure
                 && let Some(response) = self.responses.get(loader)
             {
                 return Some(Ok(Arrived::Document(Some(response.clone()))));
@@ -365,30 +352,34 @@ impl Navigation {
 
     /// Why the navigation of `loader` failed with the network `error`;
     /// `superseded` says another navigation of the page started after it.
-    fn ended(&self, loader: &LoaderId, error: &str, superseded: bool) -> Ended {
-        if error == ABORTED && superseded {
+    fn ended(&self, loader: &LoaderId, error: &NetError, superseded: bool) -> Ended {
+        if *error == NetError::Aborted && superseded {
             return Ended::Interrupted;
         }
-        if error == TOO_MANY_REDIRECTS {
+        if *error == NetError::TooManyRedirects {
             return Ended::TooManyRedirects(self.chains.get(loader).cloned().unwrap_or_default());
         }
         match self.responses.get(loader) {
-            Some(response) if error != ABORTED && error != DECODING_FAILED => Ended::Truncated {
-                received: self.received.get(loader).copied().unwrap_or_default(),
-                expected: response
-                    .headers
-                    .get("content-length")
-                    .and_then(|length| length.trim().parse().ok()),
-            },
-            _ => Ended::Failed(error.to_owned()),
+            Some(response)
+                if !matches!(error, NetError::Aborted | NetError::ContentDecodingFailed) =>
+            {
+                Ended::Truncated {
+                    received: self.received.get(loader).copied().unwrap_or_default(),
+                    expected: response
+                        .headers
+                        .get("content-length")
+                        .and_then(|length| length.trim().parse().ok()),
+                }
+            }
+            _ => Ended::Failed(error.clone()),
         }
     }
 }
 
 /// Whether `error` is the browser abandoning a navigation, as it does for
 /// an answer with no document and for one whose renderer crashed.
-pub(super) fn abandoned(error: &str) -> bool {
-    error == ABORTED
+pub(super) fn abandoned(error: &NetError) -> bool {
+    *error == NetError::Aborted
 }
 
 /// What a navigation `Page.navigate` refused with `error` is waited for
@@ -398,7 +389,7 @@ pub(super) fn abandoned(error: &str) -> bool {
 /// interruption when the engine started another navigation of the page
 /// after it, any other error the browser's failure of it.
 pub(super) fn refused(
-    error: &str,
+    error: &NetError,
     loader: Option<LoaderId>,
     download: bool,
     superseded: bool,
@@ -407,10 +398,10 @@ pub(super) fn refused(
         return Ok(Expected::Download);
     }
     match loader {
-        Some(loader) if error == TOO_MANY_REDIRECTS => Ok(Expected::Loader(loader)),
-        _ if error == ABORTED && superseded => Err(Ended::Interrupted),
-        Some(loader) if error != ABORTED => Ok(Expected::Failed(loader, error.to_owned())),
-        _ => Err(Ended::Failed(error.to_owned())),
+        Some(loader) if *error == NetError::TooManyRedirects => Ok(Expected::Loader(loader)),
+        _ if *error == NetError::Aborted && superseded => Err(Ended::Interrupted),
+        Some(loader) if *error != NetError::Aborted => Ok(Expected::Failed(loader, error.clone())),
+        _ => Err(Ended::Failed(error.clone())),
     }
 }
 

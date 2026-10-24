@@ -184,6 +184,7 @@ impl Settled {
             folders,
             level,
             free: reading.free,
+            free_inodes: reading.inodes.map(|inodes| inodes.free),
             limit: self.limit(level, reading.size),
         }
     }

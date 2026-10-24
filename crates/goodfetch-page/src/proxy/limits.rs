@@ -23,6 +23,7 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::politeness::{
     Ending, Hold, Holder, Permit, PermitRule, Politeness, PolitenessTables, Taken, Verdict,
     milliseconds, moment,
@@ -33,6 +34,7 @@ use goodfetch_protocol::page::proxy::ProxyServer;
 use goodfetch_protocol::politeness::{POLITENESS_PROXY_CONCURRENCY, POLITENESS_PROXY_RATE};
 use rusqlite::{Connection, OptionalExtension as _};
 use tokio::sync::broadcast::error::RecvError;
+use tokio_util::sync::CancellationToken;
 
 /// How long a lowered ceiling stays quiet before it grows back by one.
 pub(crate) const RECOVERY: Duration = Duration::from_secs(10);
@@ -243,58 +245,91 @@ impl ProxyLimits {
     /// A Permit for one request through the proxy, once the rule admits
     /// it: a wait for a start's interval sleeps until then, and a wait for
     /// room until the Permit's give back wakes this Run, or the check for a
-    /// holder that died. None, with a warning, when the Politeness file
-    /// fails: the request goes unlimited.
+    /// holder that died. None once its Run is cancelled, as its end does,
+    /// and, with a warning, when the Politeness file fails: the request
+    /// goes unlimited.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave a Permit taken for no request, which
     /// its Run's end or another engine's reclaim gives back.
     pub(crate) async fn take(self: &Arc<Self>) -> Option<ProxyPermit> {
-        let clock = self.run.clock();
-        loop {
-            let mut wakes = self.politeness.wakes();
-            let wall = clock.wall();
-            let rule = Arc::clone(&self.rule);
-            match self
-                .politeness
-                .take(&self.key, &self.holder, rule, wall)
-                .await
-            {
-                Ok(Taken::Granted(permit)) => {
-                    return Some(ProxyPermit {
-                        permit: Some(permit),
-                        limits: Arc::clone(self),
-                    });
+        let permit = taken(
+            &self.politeness,
+            &self.key,
+            &self.holder,
+            &self.rule,
+            &self.run.clock(),
+            self.run.cancellation(),
+        )
+        .await?;
+        Some(ProxyPermit {
+            permit: Some(permit),
+            limits: Arc::clone(self),
+        })
+    }
+}
+
+/// A Permit under `key` for `holder` from `politeness`, once `rule` admits
+/// it: a wait for a start's interval sleeps on `clock` until then, and a
+/// wait for room until a give back wakes `holder`'s Run, or the check for a
+/// holder that died. None once `ending`, the Run's cancellation, comes, so
+/// its end never waits on another Run's request; none, with a warning, when
+/// the Politeness file fails.
+///
+/// # Cancel safety
+///
+/// Dropping the future may leave a Permit taken for no request, which its
+/// Run's end or another engine's reclaim gives back.
+async fn taken(
+    politeness: &Politeness,
+    key: &str,
+    holder: &Holder,
+    rule: &Arc<dyn PermitRule>,
+    clock: &Clock,
+    ending: &CancellationToken,
+) -> Option<Permit> {
+    loop {
+        let mut wakes = politeness.wakes();
+        let wall = clock.wall();
+        let take = politeness.take(key, holder, Arc::clone(rule), wall);
+        let taken = tokio::select! {
+            () = ending.cancelled() => return None,
+            taken = take => taken,
+        };
+        match taken {
+            Ok(Taken::Granted(permit)) => return Some(permit),
+            Ok(Taken::Wait(Some((until, _)))) => {
+                tokio::select! {
+                    () = ending.cancelled() => return None,
+                    () = clock.sleep(until.duration_since(wall).unwrap_or_default()) => {}
                 }
-                Ok(Taken::Wait(Some((until, _)))) => {
-                    clock
-                        .sleep(until.duration_since(wall).unwrap_or_default())
-                        .await;
-                }
-                Ok(Taken::Wait(None)) => {
-                    let check = clock.sleep(RECLAIM_CHECK);
-                    tokio::pin!(check);
-                    loop {
-                        tokio::select! {
-                            () = &mut check => break,
-                            wake = wakes.recv() => match wake {
-                                Ok(wake) if wake.run_id == self.holder.run_id && wake.key == self.key => break,
-                                Ok(_) => {}
-                                Err(RecvError::Lagged(_)) => break,
-                                Err(RecvError::Closed) => {
-                                    (&mut check).await;
-                                    break;
+            }
+            Ok(Taken::Wait(None)) => {
+                let check = clock.sleep(RECLAIM_CHECK);
+                tokio::pin!(check);
+                loop {
+                    tokio::select! {
+                        () = ending.cancelled() => return None,
+                        () = &mut check => break,
+                        wake = wakes.recv() => match wake {
+                            Ok(wake) if wake.run_id == holder.run_id && wake.key == key => break,
+                            Ok(_) => {}
+                            Err(RecvError::Lagged(_)) => break,
+                            Err(RecvError::Closed) => {
+                                tokio::select! {
+                                    () = ending.cancelled() => return None,
+                                    () = &mut check => break,
                                 }
-                            },
-                        }
+                            }
+                        },
                     }
                 }
-                Ok(Taken::Refused(_)) => return None,
-                Err(error) => {
-                    tracing::warn!(%error, key = %self.key, "the Politeness file refused a proxy's take: the request goes unlimited");
-                    return None;
-                }
+            }
+            Ok(Taken::Refused(_)) => return None,
+            Err(error) => {
+                tracing::warn!(%error, %key, "the Politeness file refused a proxy's take: the request goes unlimited");
+                return None;
             }
         }
     }

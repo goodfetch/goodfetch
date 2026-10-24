@@ -4,19 +4,29 @@
 //! give: each run's own cap against the count in flight together, the
 //! interval since any sharing run's last start, the ceiling a proxy's own
 //! refusal halves for every run, and its growing back after a quiet
-//! period, which a site's answer never touches.
+//! period, which a site's answer never touches; and a wait for room on an
+//! in-memory Politeness file, on Tokio's paused clock, ending with its Run.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a wait's test runs on the test Clock and Tokio's paused clock (ADR 0059)"
+)]
 
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use goodfetch_engine::politeness::{Ending, Hold, PermitRule, Verdict};
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::politeness::{Ending, Hold, Holder, PermitRule, Politeness, Verdict};
 use goodfetch_engine::settings::{Layers, Values, resolve};
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::settings::SettingsLayer;
 use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 
-use super::{ProxyRule, TABLES};
+use super::{ProxyRule, TABLES, taken};
 
 const KEY: &str = "proxy http://127.0.0.1:3128 ";
 
@@ -162,4 +172,37 @@ fn a_request_that_ended_well_leaves_an_unlearned_proxy_without_a_ceiling() {
         unlimited().admit(&file, KEY, 100, at(0)).unwrap(),
         Verdict::Go
     );
+}
+
+/// A Run's wait for room through a proxy every Permit of which another
+/// request holds ends once the Run is cancelled, with no Permit, so its end
+/// never waits for another Run's request.
+///
+/// Covers: story:5-90
+#[tokio::test(start_paused = true)]
+async fn a_wait_for_room_through_a_proxy_ends_once_its_run_is_cancelled() {
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let politeness = Politeness::in_memory(vec![TABLES], &owner).await.unwrap();
+    let clock = Clock::paused(at(0));
+    let holder = Holder {
+        run_id: "waiting".to_owned(),
+        epoch: 1,
+        run_folder: PathBuf::from("waiting"),
+    };
+    let rule: Arc<dyn PermitRule> = Arc::new(concurrency(1));
+    let ending = CancellationToken::new();
+    let held = taken(&politeness, KEY, &holder, &rule, &clock, &ending).await;
+
+    let (waited, ()) = tokio::join!(
+        tokio::time::timeout(
+            Duration::from_secs(600),
+            taken(&politeness, KEY, &holder, &rule, &clock, &ending),
+        ),
+        async {
+            clock.sleep(Duration::from_secs(45)).await;
+            ending.cancel();
+        },
+    );
+
+    assert_eq!((held.is_some(), waited.ok()), (true, Some(None)));
 }

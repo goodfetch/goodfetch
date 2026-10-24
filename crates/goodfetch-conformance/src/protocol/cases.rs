@@ -5,8 +5,8 @@
 //! cases `routes`'s, a Run's Session cases `sessions`', their proxy cases
 //! `proxies`', its events and bodies cases `events`'s, its `page.request`
 //! cases `page_request`'s, its dialog cases `dialogs`', its popup cases
-//! `popups`', its page function cases `page_functions`' and the reset
-//! gate's cases `reset`'s.
+//! `popups`', its page function cases `page_functions`', its Page check
+//! cases `page_check`'s and the reset gate's cases `reset`'s.
 
 mod clean_up;
 mod consent;
@@ -19,6 +19,7 @@ mod formats;
 mod guard;
 mod launch;
 mod navigation;
+mod page_check;
 mod page_functions;
 mod page_request;
 mod popups;
@@ -47,7 +48,7 @@ use serde_json::{Value, json};
 use self::guard::Step;
 use super::connection::{Connection, Gone};
 use super::target::{DEADLINE, EngineTarget, START_DEADLINE};
-use crate::proving_ground::{ProvingGround, TaskList};
+use crate::proving_ground::{ProvingGround, TaskAccount, TaskList};
 
 /// A method no Product carries, which every target must refuse.
 const UNKNOWN_METHOD: &str = "conformance.unknown_method";
@@ -92,7 +93,7 @@ pub(crate) enum Case {
     Consent(consent::Case),
     /// A route case.
     Route(routes::Case),
-    /// A Session case, its proxy cases among them.
+    /// A Session case, its proxy and Page check cases among them.
     Session(sessions::Case),
     /// A page events or bodies case.
     Events(events::Case),
@@ -122,6 +123,8 @@ pub(crate) enum Case {
 pub(crate) struct Site {
     page_url: Option<String>,
     start_urls: BTreeMap<String, String>,
+    /// Each task's account, by its ID, for the tasks that log in.
+    accounts: BTreeMap<String, TaskAccount>,
     access_origin: Option<String>,
     port: String,
     resolve: Value,
@@ -178,6 +181,11 @@ impl Site {
                 .iter()
                 .map(|task| (task.id.as_str().to_owned(), task.start_url.clone()))
                 .collect(),
+            accounts: task_list
+                .tasks
+                .iter()
+                .filter_map(|task| Some((task.id.as_str().to_owned(), task.account.clone()?)))
+                .collect(),
             access_origin,
             port,
             resolve: Value::Object(resolve),
@@ -200,6 +208,11 @@ impl Site {
     /// The start URL of the task `id`, such as `statuses/1`.
     fn start_url(&self, id: &str) -> Option<&str> {
         self.start_urls.get(id).map(String::as_str)
+    }
+
+    /// The account the task `id` logs in with, such as `portal/2`'s.
+    fn account(&self, id: &str) -> Option<&TaskAccount> {
+        self.accounts.get(id)
     }
 
     /// The plain HTTP URL of `path` on `host`, one of the Proving ground's
@@ -421,7 +434,7 @@ impl Case {
             Self::StillAmbiguous => guard::still_ambiguous(connection, site, checks),
             Self::NeverActionable => guard::never_actionable(connection, site, checks),
             Self::Route(case) => case.run(connection, site, checks),
-            Self::Session(case) => case.run(connection, site, checks),
+            Self::Session(case) => case.run(connection, target, site, checks),
             Self::CleanUp(case) => case.run(connection, target, site, checks),
             Self::Events(case) => case.run(connection, site, checks),
             Self::Reset(case) => case.run(connection, target, site, checks),

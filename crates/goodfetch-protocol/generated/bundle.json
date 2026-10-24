@@ -5656,7 +5656,7 @@
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "The Session's own settings, nested by key: `filter_lists.ads`,\n`.trackers`, `.annoyances`, `.first_party_scripts`,\n`browser.block_resources` and `live_view.hiding` choose its pages'\nClean-up rules over the Run's, and `browser.service_workers` whether\na site's service workers run in them. `session.source` is refused here with `setting_not_applicable`,\nas the call's own `source` sets it, and so is any other key, which\nonly the Run sets.",
+          "description": "The Session's own settings, nested by key: `filter_lists.ads`,\n`.trackers`, `.annoyances`, `.first_party_scripts`,\n`browser.block_resources` and `live_view.hiding` choose its pages'\nClean-up rules over the Run's, and `browser.service_workers` whether\na site's service workers run in them, and `session.page_check` the\nPage check its pages are judged against. `session.source` is refused here with `setting_not_applicable`,\nas the call's own `source` sets it, and so is any other key, which\nonly the Run sets.",
           "type": "object"
         },
         "source": {
@@ -14048,6 +14048,249 @@
               "session": {
                 "additionalProperties": false,
                 "properties": {
+                  "page_check": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "What `session.page_check` holds (ADR 0092): the Session's login page\nand its expected page, each optional. Without a login page no page is\njudged a login page; without an expected page every other page passes.",
+                        "properties": {
+                          "expected_page": {
+                            "anyOf": [
+                              {
+                                "description": "One page match (ADR 0092), named by `kind`: the document's URL against\na glob or a regular expression, as `page.route` takes them (ADR 0081),\nan element a CSS or `XPath` selector finds in it, or a text its body\nshows.",
+                                "oneOf": [
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The document's URL matches a glob, as Playwright reads one.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "glob",
+                                        "type": "string"
+                                      },
+                                      "pattern": {
+                                        "arrived_in": "0.1",
+                                        "description": "The glob.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "pattern"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The document's URL matches a regular expression, in the `regex`\ncrate's syntax, anywhere in it.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "regex",
+                                        "type": "string"
+                                      },
+                                      "pattern": {
+                                        "arrived_in": "0.1",
+                                        "description": "The expression's source.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "pattern"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "An element of the main frame's document matches a CSS selector.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "css",
+                                        "type": "string"
+                                      },
+                                      "selector": {
+                                        "arrived_in": "0.1",
+                                        "description": "The selector.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "selector"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "An element of the main frame's document matches an `XPath`\nexpression.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "xpath",
+                                        "type": "string"
+                                      },
+                                      "selector": {
+                                        "arrived_in": "0.1",
+                                        "description": "The expression.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "selector"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The main frame's body shows a text, its runs of white space read as\none space, case and all.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "text",
+                                        "type": "string"
+                                      },
+                                      "text": {
+                                        "arrived_in": "0.1",
+                                        "description": "The text.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "text"
+                                    ],
+                                    "type": "object"
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "arrived_in": "0.1",
+                            "description": "The page the Session's navigations should reach."
+                          },
+                          "login_page": {
+                            "anyOf": [
+                              {
+                                "description": "One page match (ADR 0092), named by `kind`: the document's URL against\na glob or a regular expression, as `page.route` takes them (ADR 0081),\nan element a CSS or `XPath` selector finds in it, or a text its body\nshows.",
+                                "oneOf": [
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The document's URL matches a glob, as Playwright reads one.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "glob",
+                                        "type": "string"
+                                      },
+                                      "pattern": {
+                                        "arrived_in": "0.1",
+                                        "description": "The glob.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "pattern"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The document's URL matches a regular expression, in the `regex`\ncrate's syntax, anywhere in it.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "regex",
+                                        "type": "string"
+                                      },
+                                      "pattern": {
+                                        "arrived_in": "0.1",
+                                        "description": "The expression's source.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "pattern"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "An element of the main frame's document matches a CSS selector.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "css",
+                                        "type": "string"
+                                      },
+                                      "selector": {
+                                        "arrived_in": "0.1",
+                                        "description": "The selector.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "selector"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "An element of the main frame's document matches an `XPath`\nexpression.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "xpath",
+                                        "type": "string"
+                                      },
+                                      "selector": {
+                                        "arrived_in": "0.1",
+                                        "description": "The expression.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "selector"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The main frame's body shows a text, its runs of white space read as\none space, case and all.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "text",
+                                        "type": "string"
+                                      },
+                                      "text": {
+                                        "arrived_in": "0.1",
+                                        "description": "The text.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "text"
+                                    ],
+                                    "type": "object"
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "arrived_in": "0.1",
+                            "description": "The page a site shows instead of the expected page once the\nSession's login is lost."
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`."
+                  },
                   "pool": {
                     "additionalProperties": false,
                     "properties": {
@@ -15701,6 +15944,249 @@
               "session": {
                 "additionalProperties": false,
                 "properties": {
+                  "page_check": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "What `session.page_check` holds (ADR 0092): the Session's login page\nand its expected page, each optional. Without a login page no page is\njudged a login page; without an expected page every other page passes.",
+                        "properties": {
+                          "expected_page": {
+                            "anyOf": [
+                              {
+                                "description": "One page match (ADR 0092), named by `kind`: the document's URL against\na glob or a regular expression, as `page.route` takes them (ADR 0081),\nan element a CSS or `XPath` selector finds in it, or a text its body\nshows.",
+                                "oneOf": [
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The document's URL matches a glob, as Playwright reads one.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "glob",
+                                        "type": "string"
+                                      },
+                                      "pattern": {
+                                        "arrived_in": "0.1",
+                                        "description": "The glob.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "pattern"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The document's URL matches a regular expression, in the `regex`\ncrate's syntax, anywhere in it.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "regex",
+                                        "type": "string"
+                                      },
+                                      "pattern": {
+                                        "arrived_in": "0.1",
+                                        "description": "The expression's source.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "pattern"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "An element of the main frame's document matches a CSS selector.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "css",
+                                        "type": "string"
+                                      },
+                                      "selector": {
+                                        "arrived_in": "0.1",
+                                        "description": "The selector.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "selector"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "An element of the main frame's document matches an `XPath`\nexpression.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "xpath",
+                                        "type": "string"
+                                      },
+                                      "selector": {
+                                        "arrived_in": "0.1",
+                                        "description": "The expression.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "selector"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The main frame's body shows a text, its runs of white space read as\none space, case and all.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "text",
+                                        "type": "string"
+                                      },
+                                      "text": {
+                                        "arrived_in": "0.1",
+                                        "description": "The text.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "text"
+                                    ],
+                                    "type": "object"
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "arrived_in": "0.1",
+                            "description": "The page the Session's navigations should reach."
+                          },
+                          "login_page": {
+                            "anyOf": [
+                              {
+                                "description": "One page match (ADR 0092), named by `kind`: the document's URL against\na glob or a regular expression, as `page.route` takes them (ADR 0081),\nan element a CSS or `XPath` selector finds in it, or a text its body\nshows.",
+                                "oneOf": [
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The document's URL matches a glob, as Playwright reads one.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "glob",
+                                        "type": "string"
+                                      },
+                                      "pattern": {
+                                        "arrived_in": "0.1",
+                                        "description": "The glob.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "pattern"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The document's URL matches a regular expression, in the `regex`\ncrate's syntax, anywhere in it.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "regex",
+                                        "type": "string"
+                                      },
+                                      "pattern": {
+                                        "arrived_in": "0.1",
+                                        "description": "The expression's source.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "pattern"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "An element of the main frame's document matches a CSS selector.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "css",
+                                        "type": "string"
+                                      },
+                                      "selector": {
+                                        "arrived_in": "0.1",
+                                        "description": "The selector.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "selector"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "An element of the main frame's document matches an `XPath`\nexpression.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "xpath",
+                                        "type": "string"
+                                      },
+                                      "selector": {
+                                        "arrived_in": "0.1",
+                                        "description": "The expression.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "selector"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The main frame's body shows a text, its runs of white space read as\none space, case and all.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "text",
+                                        "type": "string"
+                                      },
+                                      "text": {
+                                        "arrived_in": "0.1",
+                                        "description": "The text.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "text"
+                                    ],
+                                    "type": "object"
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "arrived_in": "0.1",
+                            "description": "The page a site shows instead of the expected page once the\nSession's login is lost."
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`."
+                  },
                   "pool": {
                     "additionalProperties": false,
                     "properties": {
@@ -17370,6 +17856,249 @@
               "session": {
                 "additionalProperties": false,
                 "properties": {
+                  "page_check": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "What `session.page_check` holds (ADR 0092): the Session's login page\nand its expected page, each optional. Without a login page no page is\njudged a login page; without an expected page every other page passes.",
+                        "properties": {
+                          "expected_page": {
+                            "anyOf": [
+                              {
+                                "description": "One page match (ADR 0092), named by `kind`: the document's URL against\na glob or a regular expression, as `page.route` takes them (ADR 0081),\nan element a CSS or `XPath` selector finds in it, or a text its body\nshows.",
+                                "oneOf": [
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The document's URL matches a glob, as Playwright reads one.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "glob",
+                                        "type": "string"
+                                      },
+                                      "pattern": {
+                                        "arrived_in": "0.1",
+                                        "description": "The glob.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "pattern"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The document's URL matches a regular expression, in the `regex`\ncrate's syntax, anywhere in it.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "regex",
+                                        "type": "string"
+                                      },
+                                      "pattern": {
+                                        "arrived_in": "0.1",
+                                        "description": "The expression's source.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "pattern"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "An element of the main frame's document matches a CSS selector.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "css",
+                                        "type": "string"
+                                      },
+                                      "selector": {
+                                        "arrived_in": "0.1",
+                                        "description": "The selector.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "selector"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "An element of the main frame's document matches an `XPath`\nexpression.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "xpath",
+                                        "type": "string"
+                                      },
+                                      "selector": {
+                                        "arrived_in": "0.1",
+                                        "description": "The expression.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "selector"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The main frame's body shows a text, its runs of white space read as\none space, case and all.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "text",
+                                        "type": "string"
+                                      },
+                                      "text": {
+                                        "arrived_in": "0.1",
+                                        "description": "The text.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "text"
+                                    ],
+                                    "type": "object"
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "arrived_in": "0.1",
+                            "description": "The page the Session's navigations should reach."
+                          },
+                          "login_page": {
+                            "anyOf": [
+                              {
+                                "description": "One page match (ADR 0092), named by `kind`: the document's URL against\na glob or a regular expression, as `page.route` takes them (ADR 0081),\nan element a CSS or `XPath` selector finds in it, or a text its body\nshows.",
+                                "oneOf": [
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The document's URL matches a glob, as Playwright reads one.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "glob",
+                                        "type": "string"
+                                      },
+                                      "pattern": {
+                                        "arrived_in": "0.1",
+                                        "description": "The glob.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "pattern"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The document's URL matches a regular expression, in the `regex`\ncrate's syntax, anywhere in it.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "regex",
+                                        "type": "string"
+                                      },
+                                      "pattern": {
+                                        "arrived_in": "0.1",
+                                        "description": "The expression's source.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "pattern"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "An element of the main frame's document matches a CSS selector.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "css",
+                                        "type": "string"
+                                      },
+                                      "selector": {
+                                        "arrived_in": "0.1",
+                                        "description": "The selector.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "selector"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "An element of the main frame's document matches an `XPath`\nexpression.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "xpath",
+                                        "type": "string"
+                                      },
+                                      "selector": {
+                                        "arrived_in": "0.1",
+                                        "description": "The expression.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "selector"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "description": "The main frame's body shows a text, its runs of white space read as\none space, case and all.",
+                                    "properties": {
+                                      "kind": {
+                                        "const": "text",
+                                        "type": "string"
+                                      },
+                                      "text": {
+                                        "arrived_in": "0.1",
+                                        "description": "The text.",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "text"
+                                    ],
+                                    "type": "object"
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "arrived_in": "0.1",
+                            "description": "The page a site shows instead of the expected page once the\nSession's login is lost."
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`."
+                  },
                   "pool": {
                     "additionalProperties": false,
                     "properties": {

@@ -703,6 +703,22 @@ number = 5
 kind = "error"
 prefix = "pattern_unsupported"
 
+# The Page check and its verdicts (#710, ADRs 0006 and 0092).
+[[area]]
+number = 5
+kind = "setting"
+prefix = "session.page_check"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_check_failed"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "logged_out"
+
 # The page's and the Session's routes, their answers and their Error codes
 # (#702).
 [[area]]

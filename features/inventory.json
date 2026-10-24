@@ -1106,6 +1106,17 @@
       ]
     },
     {
+      "id": "error:logged_out",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:name_lookup_failed",
       "kind": "error",
       "area": 3,
@@ -1164,6 +1175,17 @@
       "id": "error:not_in_product",
       "kind": "error",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:page_check_failed",
+      "kind": "error",
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -6218,6 +6240,17 @@
       "id": "setting:secrets.by_reference",
       "kind": "setting",
       "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:session.page_check",
+      "kind": "setting",
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [

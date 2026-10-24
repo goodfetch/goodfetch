@@ -185,10 +185,12 @@ fn a_chain_whose_third_hop_leaves_the_policy_is_refused_at_that_hop() {
     let open_requests = requests(&proving_ground);
     program.finish(&["held", "open"]);
 
+    // The browser's own request for the page's icon may come before the
+    // `goto` answers, so only the page's own requests count.
     let reached = |requests: &[(String, String)]| {
         requests
             .iter()
-            .filter(|(host, _)| host == "catalog.test")
+            .filter(|(host, target)| host == "catalog.test" && target != "/favicon.ico")
             .count()
     };
     assert_eq!(

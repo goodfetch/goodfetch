@@ -42,7 +42,7 @@ use goodfetch_protocol::page::proxy::{
 };
 use goodfetch_protocol::politeness::POLITENESS_PROXY_CONCURRENCY;
 use goodfetch_protocol::settings::{NETWORK_RESOLVE, SETTING_INVALID, SettingInvalidDetails};
-use secrecy::SecretString;
+use secrecy::{ExposeSecret as _, SecretString};
 
 use self::limits::ProxyLimits;
 pub(crate) use self::limits::{ProxyPermit, TABLES};
@@ -171,6 +171,63 @@ fn refused(settings: &Resolved, refusal: &Refusal) -> CallError {
     }
 }
 
+/// The setting, `proxy.username` or `proxy.password`, whose value is longer
+/// than the 255 bytes a SOCKS5 proxy takes it in (RFC 1929); none when both
+/// fit.
+fn too_long_for_socks5(username: &str, password: Option<&SecretString>) -> Option<&'static str> {
+    const MOST: usize = u8::MAX as usize;
+    if username.len() > MOST {
+        Some(PROXY_USERNAME.name)
+    } else if password.is_some_and(|password| password.expose_secret().len() > MOST) {
+        Some(PROXY_PASSWORD.name)
+    } else {
+        None
+    }
+}
+
+/// `setting_invalid` for credentials a SOCKS5 proxy cannot take, set as
+/// `key` in `settings`, if `username` or `password` is too long.
+fn fits_socks5(
+    settings: &Resolved,
+    key: Option<&str>,
+    username: &str,
+    password: Option<&SecretString>,
+) -> Result<(), CallError> {
+    match too_long_for_socks5(username, password) {
+        Some(long) => Err(invalid(
+            settings,
+            key.unwrap_or(long),
+            format!(
+                "a SOCKS5 proxy takes a username and a password of at most 255 bytes each (RFC 1929), and `{long}` is longer"
+            ),
+        )),
+        None => Ok(()),
+    }
+}
+
+/// How the relay relays the proxy a Proxy provider chose: SOCKS5 with its
+/// credentials, or as it is.
+///
+/// # Errors
+///
+/// `setting_invalid` for credentials too long for a SOCKS5 proxy.
+fn provided_mode(
+    settings: &Resolved,
+    chosen: &Chosen,
+    password: Option<&SecretString>,
+) -> Result<Mode, CallError> {
+    Ok(match (&chosen.username, chosen.server.scheme.is_socks()) {
+        (Some(username), true) => {
+            fits_socks5(settings, Some(PROXY_PROVIDERS.name), username, password)?;
+            Mode::Socks5 {
+                username: username.clone(),
+                password: password.cloned().unwrap_or_else(|| SecretString::from("")),
+            }
+        }
+        (_, socks) => Mode::AsItIs { http: !socks },
+    })
+}
+
 /// `setting_invalid` for `key`, whose value needs `needs`.
 fn needs(key: &str, needed: &str) -> CallError {
     CallError::new(
@@ -255,6 +312,7 @@ impl SessionProxy {
         };
         let relay = match (&username, server.scheme.is_socks()) {
             (Some(username), true) => {
+                fits_socks5(settings, None, username, password.as_ref())?;
                 let address = address_of(&server, settings).await?;
                 let password = password.clone().unwrap_or_else(|| SecretString::from(""));
                 let mode = Mode::Socks5 {
@@ -351,13 +409,7 @@ impl SessionProxy {
             _ => None,
         };
         let address = address_of(&chosen.server, settings).await?;
-        let mode = match (&chosen.username, chosen.server.scheme.is_socks()) {
-            (Some(username), true) => Mode::Socks5 {
-                username: username.clone(),
-                password: password.clone().unwrap_or_else(|| SecretString::from("")),
-            },
-            (_, socks) => Mode::AsItIs { http: !socks },
-        };
+        let mode = provided_mode(settings, &chosen, password.as_ref())?;
         let usage = Arc::new(ProxyUsage::new(run.clone(), chosen.kind, price));
         let relay = Relay::open(run, address, mode, Some(Arc::clone(&usage)))
             .await

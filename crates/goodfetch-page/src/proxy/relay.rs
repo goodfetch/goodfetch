@@ -34,6 +34,9 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
+use goodfetch_engine::clock::Clock;
 
 use goodfetch_engine::runs::Run;
 use secrecy::{ExposeSecret as _, SecretString};
@@ -43,6 +46,10 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 
 use super::party::relay_unreachable;
 use crate::proxy_provider::ProxyUsage;
+
+/// How long the relay waits before it accepts again after an error that is
+/// not one connection's own, such as too many open files.
+const ACCEPT_BACKOFF: Duration = Duration::from_millis(250);
 
 /// The most bytes relayed at once, in each direction.
 const CHUNK: usize = 16 * 1024;
@@ -85,8 +92,9 @@ pub(crate) enum Mode {
 struct Upstream {
     address: SocketAddr,
     mode: Mode,
-    /// Whether the proxy refused the credentials, which a failed request
-    /// then raises as `proxy_auth_failed`.
+    /// Whether the proxy refused the credentials on the latest connection
+    /// that reached it, which a failed request then raises as
+    /// `proxy_auth_failed`.
     refused: AtomicBool,
     /// Whether the relay's latest connection to the proxy failed to open:
     /// a proxy that is down, whose failures refuse nothing.
@@ -170,28 +178,75 @@ impl Relay {
 /// relayed on a task of its own.
 async fn accept(listener: TcpListener, upstream: Arc<Upstream>, run: Run, stop: CancellationToken) {
     let ending = run.cancellation().clone();
+    let clock = run.clock();
+    accepting(
+        || listener.accept(),
+        &clock,
+        &stop,
+        &ending,
+        |(browser, _)| {
+            let upstream = Arc::clone(&upstream);
+            let stop = stop.clone();
+            let ending = ending.clone();
+            run.spawn(async move {
+                tokio::select! {
+                    () = relay(browser, &upstream) => {}
+                    () = stop.cancelled() => {}
+                    () = ending.cancelled() => {}
+                }
+            });
+        },
+    )
+    .await;
+}
+
+/// Takes each connection `accept` gives to `serve` until `stop` or
+/// `ending`. A connection that failed before it was accepted concerns only
+/// the browser, and the next is accepted at once; any other error, such as
+/// too many open files, would fail every accept for a while, so the next
+/// waits [`ACCEPT_BACKOFF`] on `clock` rather than spin.
+async fn accepting<T, A, F, S>(
+    mut accept: A,
+    clock: &Clock,
+    stop: &CancellationToken,
+    ending: &CancellationToken,
+    mut serve: S,
+) where
+    A: FnMut() -> F,
+    F: Future<Output = std::io::Result<T>>,
+    S: FnMut(T),
+{
     loop {
         let accepted = tokio::select! {
             () = stop.cancelled() => return,
             () = ending.cancelled() => return,
-            accepted = listener.accept() => accepted,
+            accepted = accept() => accepted,
         };
-        let Ok((browser, _)) = accepted else {
-            // A connection that failed before it was accepted concerns
-            // only the browser.
-            continue;
-        };
-        let upstream = Arc::clone(&upstream);
-        let stop = stop.clone();
-        let ending = ending.clone();
-        run.spawn(async move {
-            tokio::select! {
-                () = relay(browser, &upstream) => {}
-                () = stop.cancelled() => {}
-                () = ending.cancelled() => {}
+        match accepted {
+            Ok(accepted) => serve(accepted),
+            Err(error) if one_connections(&error) => {}
+            Err(error) => {
+                tracing::warn!(%error, "the Session's relay could not accept a connection: it waits before the next");
+                tokio::select! {
+                    () = stop.cancelled() => return,
+                    () = ending.cancelled() => return,
+                    () = clock.sleep(ACCEPT_BACKOFF) => {}
+                }
             }
-        });
+        }
     }
+}
+
+/// Whether `error`, an accept's, is one connection's own, which the next
+/// accept does not meet.
+fn one_connections(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::Interrupted
+    )
 }
 
 /// Relays one of the browser's connections through the proxy.
@@ -235,15 +290,21 @@ async fn socks5(
         let _ = browser.write_all(&reply(COMMAND_NOT_SUPPORTED)).await;
         return;
     }
+    // Whether the proxy refused the credentials is this connection's
+    // answer, the latest, never one a connection before met.
     let Some(proxy) = upstream.connect().await else {
+        upstream.refused.store(false, Ordering::Relaxed);
         let _ = browser.write_all(&reply(GENERAL_FAILURE)).await;
         return;
     };
     let mut proxy = Tallied::new(proxy, upstream.usage.clone());
-    match authenticate(&mut proxy, username, password).await {
+    let authenticated = authenticate(&mut proxy, username, password).await;
+    upstream
+        .refused
+        .store(matches!(authenticated, Ok(false)), Ordering::Relaxed);
+    match authenticated {
         Ok(true) => {}
         Ok(false) => {
-            upstream.refused.store(true, Ordering::Relaxed);
             let _ = browser.write_all(&reply(NOT_ALLOWED)).await;
             return;
         }
@@ -452,10 +513,12 @@ async fn authenticate(
     }
     let username = username.as_bytes();
     let password = password.expose_secret().as_bytes();
+    // The Session refuses credentials longer than RFC 1929 carries when it
+    // opens; none reaches here, and none would be the proxy's refusal.
     let (Ok(username_length), Ok(password_length)) =
         (u8::try_from(username.len()), u8::try_from(password.len()))
     else {
-        return Ok(false);
+        return Err(std::io::ErrorKind::InvalidInput.into());
     };
     let mut credentials = Vec::with_capacity(3 + username.len() + password.len());
     credentials.extend_from_slice(&[CREDENTIALS_VERSION, username_length]);
@@ -475,3 +538,6 @@ async fn authenticate(
 fn reply(code: u8) -> [u8; 10] {
     [VERSION, code, 0, IPV4, 0, 0, 0, 0, 0, 0]
 }
+
+#[cfg(test)]
+mod tests;

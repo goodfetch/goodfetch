@@ -7,10 +7,11 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_protocol::page::proxy::ProxyServer;
+use goodfetch_protocol::page::proxy::{PROXY_PASSWORD, PROXY_USERNAME, ProxyServer};
 use rstest::rstest;
+use secrecy::SecretString;
 
-use super::{Answer, Party, SessionProxy, party};
+use super::{Answer, Party, SessionProxy, party, too_long_for_socks5};
 
 /// A Session's proxy at `server`, with `bypass`, and no relay or limits.
 fn proxy(server: &str, bypass: Option<&str>) -> SessionProxy {
@@ -94,4 +95,22 @@ fn a_tunnel_refused_is_a_refusal_of_a_proxy_without_a_relay() {
         },
         None
     ));
+}
+
+/// Covers: story:5-88, setting:proxy.username, setting:proxy.password, error:setting_invalid
+#[rstest]
+#[case::both_fit(255, 255, None)]
+#[case::a_long_username(256, 8, Some(PROXY_USERNAME.name))]
+#[case::a_long_password(8, 256, Some(PROXY_PASSWORD.name))]
+fn credentials_longer_than_socks5_carries_name_their_setting(
+    #[case] username: usize,
+    #[case] password: usize,
+    #[case] expected: Option<&str>,
+) {
+    let password = SecretString::from("p".repeat(password));
+
+    assert_eq!(
+        too_long_for_socks5(&"u".repeat(username), Some(&password)),
+        expected
+    );
 }

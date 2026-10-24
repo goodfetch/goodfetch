@@ -51,11 +51,12 @@ use std::time::Duration;
 use goodfetch_engine::browser_cache::{PinnedArtifact, Pins};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
+use goodfetch_engine::egress::CdpUrlOrigin;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::run::settings_error;
 use goodfetch_engine::run_state::{RunStateError, RunStateTables};
 use goodfetch_engine::runs::{Run, RunError};
-use goodfetch_engine::settings::{SettingsError, Values};
+use goodfetch_engine::settings::{RunSettings, SettingsError, Values};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
@@ -71,13 +72,14 @@ use goodfetch_protocol::settings::{
 };
 use goodfetch_protocol::usage::PROXY_BYTES;
 use serde_json::{Map, Value, json};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OnceCell};
 
 use self::life::{Ending, PageLife, SessionLife, page_closed, session_closed};
 pub(crate) use self::lifecycle::PageEvent;
 use self::lifecycle::{
     Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
 };
+use crate::borrowed::{CdpUrl, resolve_of};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
 use crate::driver::PageDriver;
@@ -89,6 +91,7 @@ use crate::page_value::{HandlerPages, PageValue};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
 use crate::proxy::{Opening, SessionProxy};
 use crate::recovery::Declared;
+use crate::trace;
 
 /// What the page crate adds to every run file: each Session the Run opened,
 /// by its position among them, whether it is the Run's default Session,
@@ -173,14 +176,26 @@ struct Session {
     proxy: Option<Arc<SessionProxy>>,
     /// How many calls listen to its `page` event.
     page_listeners: tabs::PageListeners,
+    /// On a Borrowed browser, set once its Provenance records that it is
+    /// held to the policy by interception alone; none elsewhere.
+    interception_only: Option<OnceCell<()>>,
 }
 
-/// What every Session this engine opens is: a fresh one a program opened,
-/// in a browser the engine launched, the only kind it opens yet.
+/// A fresh Session a program opened, in a browser the engine launched.
 const FRESH: Attributes = Attributes {
     source: Source::Launched,
     owner: Owner::Program,
 };
+
+/// A Session a program opened on a Borrowed browser, from a `cdp_url`.
+const BORROWED: Attributes = Attributes {
+    source: Source::Borrowed,
+    owner: Owner::Program,
+};
+
+/// The Provenance action of a Session held to the policy by interception
+/// alone.
+const INTERCEPTION_ONLY: &str = "interception_only";
 
 /// One page this engine holds: open, or crashed.
 #[derive(Clone)]
@@ -256,6 +271,12 @@ impl Sessions {
         }
     }
 
+    /// The consent walls the pages' Consent prompt runners left for each
+    /// page's next call.
+    pub(crate) fn consent_walls(&self) -> &crate::consent::Walls {
+        self.consent.walls()
+    }
+
     /// Opens a Session of the live Run `params` names, from its own source,
     /// else the Run's, under its own settings: its browser context is made
     /// now, launching the Run's browser when no Session has.
@@ -266,7 +287,7 @@ impl Sessions {
     ) -> Result<SessionOpened, CallError> {
         let run = live(&params.run_id, context).await?;
         let settings = own_settings(&params.settings, &run, context)?;
-        opening_source(&run, params.source)?;
+        let borrowed = opening_source(&run, params.source, context)?;
         // Its proxy is drawn for the position it is about to take, which a
         // Session opening at the same moment may take first.
         let next = {
@@ -274,14 +295,20 @@ impl Sessions {
             self.reach(&mut state, &run, context).await?.last + 1
         };
         let proxy = open_proxy(&run, &settings, context, next).await?;
+        no_proxy_under(borrowed.as_ref(), proxy.as_deref())?;
         let (position, seat) = {
             let mut state = self.state.lock().await;
             let runs = self.reach(&mut state, &run, context).await?;
             runs.last += 1;
-            (runs.last, runs.pool.seat(Placement::Shared, proxy.clone()))
+            let seat = match &borrowed {
+                Some(cdp_url) => runs.pool.borrowed_seat(cdp_url.clone()),
+                None => runs.pool.seat(Placement::Shared, proxy.clone()),
+            };
+            (runs.last, seat)
         };
         let session = session_id(run.id(), position);
-        let life = SessionLife::new(session.clone(), FRESH, SessionState::Opening);
+        let attributes = if borrowed.is_some() { BORROWED } else { FRESH };
+        let life = SessionLife::new(session.clone(), attributes, SessionState::Opening);
         let open = Arc::new(Session {
             run: run.clone(),
             position,
@@ -290,13 +317,14 @@ impl Sessions {
             life: life.clone(),
             proxy,
             page_listeners: tabs::PageListeners::default(),
+            interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
         });
         self.state
             .lock()
             .await
             .sessions
             .insert(session.clone(), Arc::clone(&open));
-        self.interception.open_session(&session);
+        self.open_in_interception(&session, &run, borrowed.is_some());
         if let Err(error) = open.seat.open().await {
             life.open_failed(error.clone())?;
             self.state.lock().await.sessions.remove(&session);
@@ -310,6 +338,7 @@ impl Sessions {
         }
         self.record(&run, position, false, &settings, context)
             .await?;
+        mark_interception_only(&open, &session).await;
         Ok(SessionOpened {
             session_id: session,
         })
@@ -323,7 +352,7 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
         let run = live(run_id, context).await?;
-        opening_source(&run, None)?;
+        let borrowed = opening_source(&run, None, context)?;
         let session = {
             let mut state = self.state.lock().await;
             let runs = self.reach(&mut state, &run, context).await?;
@@ -342,10 +371,14 @@ impl Sessions {
                 None => {
                     let proxy =
                         open_proxy(&run, &Values::default(), context, runs.last + 1).await?;
+                    no_proxy_under(borrowed.as_ref(), proxy.as_deref())?;
                     runs.last += 1;
                     runs.default = Some(runs.last);
                     let position = runs.last;
-                    let seat = runs.pool.seat(Placement::Shared, proxy.clone());
+                    let seat = match &borrowed {
+                        Some(cdp_url) => runs.pool.borrowed_seat(cdp_url.clone()),
+                        None => runs.pool.seat(Placement::Shared, proxy.clone()),
+                    };
                     self.record(&run, position, true, &Values::default(), context)
                         .await?;
                     let session = session_id(run.id(), position);
@@ -356,12 +389,17 @@ impl Sessions {
                             position,
                             seat,
                             settings: Values::default(),
-                            life: SessionLife::new(session.clone(), FRESH, SessionState::Open),
+                            life: SessionLife::new(
+                                session.clone(),
+                                if borrowed.is_some() { BORROWED } else { FRESH },
+                                SessionState::Open,
+                            ),
                             proxy,
                             page_listeners: tabs::PageListeners::default(),
+                            interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
                         }),
                     );
-                    self.interception.open_session(&session);
+                    self.open_in_interception(&session, &run, borrowed.is_some());
                     position
                 }
             };
@@ -388,6 +426,7 @@ impl Sessions {
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
         let (driver, in_browser) = open.seat.new_page(navigation_timeout).await?;
         let driver = driver.with_value(self.hooks.value(run.id(), session), run.clock());
+        let open_session = Arc::clone(&open);
         let page = self
             .adopt(tabs::Adopting {
                 observer: self.hooks.observer(run.id(), session),
@@ -399,6 +438,7 @@ impl Sessions {
             })
             .await?;
         tracing::Span::current().record("page_id", page.0.as_str());
+        mark_interception_only(&open_session, session).await;
         Ok(PageOpened {
             page_id: page,
             session_id: session.clone(),
@@ -684,6 +724,7 @@ impl Sessions {
                             life: SessionLife::new(session, FRESH, SessionState::Open),
                             proxy,
                             page_listeners: tabs::PageListeners::default(),
+                            interception_only: None,
                         }),
                     );
                 }
@@ -738,6 +779,19 @@ impl Sessions {
                 sessions.hiding.close(session).await;
             }
         });
+    }
+
+    /// Puts the Session `session` of `run` under the interception; one on
+    /// a Borrowed browser, `borrowed`, by interception alone, its
+    /// requests' hosts resolved through the Run's `network.resolve`.
+    fn open_in_interception(&self, session: &SessionId, run: &Run, borrowed: bool) {
+        self.interception.open_session(session);
+        if borrowed {
+            self.interception.hold_by_interception_only(
+                session,
+                resolve_of(run.settings().map(RunSettings::resolved)),
+            );
+        }
     }
 
     /// Records the Session at `position` of `run`, with its own `settings`
@@ -919,16 +973,24 @@ fn recorded_settings(
         .map_err(|error| unavailable(run, &error, context))
 }
 
-/// Checks the Session source a Session of `run` opens from: `own`, the
-/// call's own `source` when it gave one (`null` for a fresh Session), else
-/// the Run's `session.source`. A fresh Session is all this engine opens:
-/// any source kind raises `capability_unavailable` naming it, until the
-/// ticket of that kind builds its reader (ADR 0056).
+/// The Session source a Session of `run` opens from: `own`, the call's own
+/// `source` when it gave one (`null` for a fresh Session), else the Run's
+/// `session.source`. A fresh Session, or a Borrowed browser at a `cdp_url`
+/// (ADRs 0056 and 0115), whose address is judged when it opens, by who
+/// gave it: the layer, and whether the call that opens it acts for a
+/// model. Any other kind raises `capability_unavailable` naming it, until
+/// the ticket of that kind builds its reader, and so does a `cdp_url` with
+/// `headers`, whose Secret references the `cdp_url` Session resolves
+/// (#743).
 #[expect(
     clippy::option_option,
     reason = "a setting's three states (ADR 0083): left out inherits, `null` clears, a value sets"
 )]
-fn opening_source(run: &Run, own: Option<Option<SessionSource>>) -> Result<(), CallError> {
+fn opening_source(
+    run: &Run,
+    own: Option<Option<SessionSource>>,
+    context: &CallContext,
+) -> Result<Option<CdpUrl>, CallError> {
     let source = match own {
         Some(own) => own.map(|source| (source, SettingsLayer::Run)),
         None => run
@@ -941,13 +1003,30 @@ fn opening_source(run: &Run, own: Option<Option<SessionSource>>) -> Result<(), C
             }),
     };
     match source {
-        None => Ok(()),
+        None => Ok(None),
+        Some((
+            SessionSource::CdpUrl {
+                url, headers: None, ..
+            },
+            layer,
+        )) => Ok(Some(CdpUrl {
+            url,
+            origin: CdpUrlOrigin {
+                layer,
+                acting_for_model: context.surface().acts_for_model(),
+            },
+        })),
         Some((source, layer)) => {
             let kind = source.kind();
+            let what = if matches!(source, SessionSource::CdpUrl { .. }) {
+                "a `cdp_url` Session source with `headers`".to_owned()
+            } else {
+                format!("a `{kind}` Session source")
+            };
             Err(CallError::new(
                 &CAPABILITY_UNAVAILABLE,
                 format!(
-                    "This engine opens no Session from a `{kind}` Session source, which `session.source` names in {}: open a fresh Session with `source: null`, or leave `session.source` unset.",
+                    "This engine opens no Session from {what}, which `session.source` names in {}: open a fresh Session with `source: null`, or leave `session.source` unset.",
                     layer.as_str()
                 ),
                 &CapabilityUnavailableDetails {
@@ -959,6 +1038,59 @@ fn opening_source(run: &Run, own: Option<Option<SessionSource>>) -> Result<(), C
             ))
         }
     }
+}
+
+/// Refuses a proxy under a Borrowed browser: no proxy can be put under a
+/// browser that is already running (ADR 0056).
+fn no_proxy_under(
+    borrowed: Option<&CdpUrl>,
+    proxy: Option<&SessionProxy>,
+) -> Result<(), CallError> {
+    let (Some(cdp_url), Some(_)) = (borrowed, proxy) else {
+        return Ok(());
+    };
+    Err(CallError::new(
+        &CAPABILITY_UNAVAILABLE,
+        format!(
+            "A Session on the Borrowed browser at {} takes no `proxy.*`: no proxy can be put under a browser that is already running. Leave the `proxy.*` keys unset for it.",
+            cdp_url.address()
+        ),
+        &CapabilityUnavailableDetails {
+            key: SESSION_SOURCE.name.to_owned(),
+            layer: cdp_url.origin.layer,
+            kind: "cdp_url".to_owned(),
+            fix: "leave the `proxy.*` keys unset".to_owned(),
+        },
+    ))
+}
+
+/// Records in its Run's Provenance, once, that the Session `session` on a
+/// Borrowed browser is held to the policy by interception alone: the
+/// engine resolves each request's host itself, but the browser resolves it
+/// again, so an answer that changes in between (DNS rebinding) reaches the
+/// browser (ADR 0056). Nothing for any other Session.
+///
+/// # Cancel safety
+///
+/// Dropping the future may lose the entry.
+async fn mark_interception_only(open: &Session, session: &SessionId) {
+    let Some(marked) = &open.interception_only else {
+        return;
+    };
+    marked
+        .get_or_init(|| async {
+            trace::provenance(
+                &open.run,
+                &json!({
+                    "action": INTERCEPTION_ONLY,
+                    "session_id": session,
+                    "egress": INTERCEPTION_ONLY,
+                    "gap": "dns_rebinding",
+                }),
+            )
+            .await;
+        })
+        .await;
 }
 
 /// The live Run `run_id`; `run_ended` for one that ended `finished`, which

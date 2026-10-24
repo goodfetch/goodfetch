@@ -37,6 +37,10 @@
 //! to are judged under the Operator policy's `egress.no_private_endpoints`,
 //! and it takes no certificate exception or client certificate of a site,
 //! only the authorities trusted for its own domain (ADR 0042).
+//!
+//! Size: one client, whose lookup, egress judgement, connection race, TLS
+//! and request all serve the same request on the same connection; the
+//! proxy's tunnel is in its own module.
 
 use std::collections::BTreeMap;
 use std::future::ready;
@@ -977,6 +981,25 @@ async fn attempt(address: SocketAddr, local: Option<IpAddr>) -> io::Result<TcpSt
         socket.bind(SocketAddr::new(local, 0))?;
     }
     socket.connect(address).await
+}
+
+/// The addresses of `host` on `port`, as the engine itself resolves it
+/// before connecting: the `resolve` mapping's, its literal address (an
+/// IPv6 one without brackets), or the system resolver's, its zone ID
+/// included. A Borrowed browser resolves names itself, so the engine
+/// judges these for each of its requests at interception (ADR 0056), and a
+/// `cdp_url` before connecting to it.
+///
+/// # Errors
+///
+/// [`Failure::Network`] when the name has no address.
+pub async fn lookup(host: &str, port: u16, resolve: &Resolve) -> Result<Vec<SocketAddr>, Failure> {
+    let server = Server {
+        host,
+        port,
+        plain: true,
+    };
+    addresses(&server, resolve).await
 }
 
 /// `server`'s addresses on its port: the `resolve` mapping's, its literal

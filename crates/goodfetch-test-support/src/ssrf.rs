@@ -144,6 +144,10 @@ pub enum Family {
     /// A host the run's domain policy refuses, in any spelling the URL
     /// parser accepts: one it does not allow, one it blocks.
     DomainPolicy,
+    /// A page of a Borrowed browser, which the engine holds to the policy
+    /// by interception alone, resolving each host itself (ADR 0056): each
+    /// case is refused at interception, before the browser connects.
+    BorrowedBrowser,
 }
 
 /// The way a case's request leaves the run.

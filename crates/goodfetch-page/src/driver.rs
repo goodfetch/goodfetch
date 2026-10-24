@@ -28,6 +28,7 @@ mod carry;
 mod encoding;
 mod ending;
 mod functions;
+mod gestures;
 mod identity;
 
 mod navigation;
@@ -68,6 +69,7 @@ use self::navigation::{Ended, Expected, Navigation};
 use self::permit_waits::PermitWaits;
 pub(crate) use self::popups::OnPopup;
 pub(crate) use self::service_workers::{OnServiceWorker, ServiceWorkers};
+use crate::borrowed::CdpUrl;
 use crate::errors::{
     Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects, truncated,
 };
@@ -186,6 +188,12 @@ impl Browser {
 pub(crate) trait Connect: Send + Sync {
     /// The browser's connection.
     fn connect(&self) -> impl Future<Output = Result<Browser, CallError>> + Send;
+
+    /// Whether it is a Borrowed browser, whose Session holds its default
+    /// browser context and never closes it (ADR 0056).
+    fn borrowed(&self) -> bool {
+        false
+    }
 }
 
 /// A browser several Sessions share, as the Run's Sessions share the
@@ -193,6 +201,107 @@ pub(crate) trait Connect: Send + Sync {
 impl<B: Connect> Connect for Arc<B> {
     async fn connect(&self) -> Result<Browser, CallError> {
         B::connect(self).await
+    }
+
+    fn borrowed(&self) -> bool {
+        B::borrowed(self)
+    }
+}
+
+/// The browser behind a Session: one the engine launched, or a Borrowed
+/// one.
+pub(crate) enum Behind {
+    /// A browser of the Run's browser pool.
+    Launched(Arc<LocalBrowser>),
+    /// A Borrowed browser, outside the pool.
+    Borrowed(Arc<BorrowedBrowser>),
+}
+
+impl Connect for Behind {
+    async fn connect(&self) -> Result<Browser, CallError> {
+        match self {
+            Self::Launched(browser) => browser.connect().await,
+            Self::Borrowed(browser) => browser.connect().await,
+        }
+    }
+
+    fn borrowed(&self) -> bool {
+        matches!(self, Self::Borrowed(_))
+    }
+}
+
+/// A Borrowed browser reached through its `cdp_url` (ADRs 0056 and 0115),
+/// connected to on its Session's opening: the engine holds its own
+/// connection, which ends with the Run, and never closes the browser.
+pub(crate) struct BorrowedBrowser {
+    run: Run,
+    cdp_url: CdpUrl,
+    /// The Run trace's CDP log, which every browser of the Run shares.
+    log: Arc<OnceCell<CommandLog>>,
+    /// Never set: the engine sees no exit of a browser it did not launch.
+    exits: watch::Sender<Option<BrowserExit>>,
+    connected: OnceCell<Browser>,
+}
+
+impl BorrowedBrowser {
+    pub(crate) fn new(run: Run, cdp_url: CdpUrl, log: Arc<OnceCell<CommandLog>>) -> Self {
+        Self {
+            run,
+            cdp_url,
+            log,
+            exits: watch::Sender::new(None),
+            connected: OnceCell::new(),
+        }
+    }
+}
+
+impl Connect for BorrowedBrowser {
+    async fn connect(&self) -> Result<Browser, CallError> {
+        self.connected
+            .get_or_try_init(|| async {
+                let connection = crate::borrowed::connect(&self.run, &self.cdp_url).await?;
+                let address = self.cdp_url.address();
+                let log = self
+                    .log
+                    .get_or_try_init(|| async {
+                        CommandLog::start(self.run.owner(), self.run.folder()).map_err(|error| {
+                            CallError::new(
+                                &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
+                                format!("the Run trace's CDP log cannot start: {error}"),
+                                &goodfetch_protocol::page::BrowserLaunchFailedDetails {
+                                    executable: address.clone(),
+                                    exit: None,
+                                },
+                            )
+                        })
+                    })
+                    .await?
+                    .clone();
+                let browser = Browser {
+                    connection,
+                    log,
+                    exit: self.exits.subscribe(),
+                    executable: address,
+                    identity: None,
+                    process: None,
+                    closing: self.run.cancellation().child_token(),
+                    service_workers: Arc::default(),
+                    popups: Arc::default(),
+                    lease: None,
+                };
+                // The first answer says a browser speaks CDP there.
+                browser
+                    .send(None, &browser::GetVersionParams {}, &browser.opening())
+                    .await?;
+                service_workers::start(&browser, &self.run).await?;
+                Ok(browser)
+            })
+            .await
+            .cloned()
+    }
+
+    fn borrowed(&self) -> bool {
+        true
     }
 }
 
@@ -301,10 +410,16 @@ impl Connect for LocalBrowser {
 /// cookies and storage (ADR 0037 / SA-10) and its one proxy, set on the
 /// context so no page or request has another (SA-22), in which it opens its
 /// pages, made on its first use.
+/// On a Borrowed browser, the Session holds the browser's default context,
+/// where the login lives, and closes only the pages it opened there (ADR
+/// 0056).
 pub(crate) struct SessionDriver<B> {
     browser: B,
     proxy: Option<Arc<SessionProxy>>,
     context: OnceCell<browser::BrowserContextID>,
+    /// The pages it opened in a Borrowed browser's default context, which
+    /// its close closes.
+    opened: Mutex<Vec<target::TargetID>>,
 }
 
 impl<B: Connect> SessionDriver<B> {
@@ -315,6 +430,7 @@ impl<B: Connect> SessionDriver<B> {
             browser,
             proxy,
             context: OnceCell::new(),
+            opened: Mutex::new(Vec::new()),
         }
     }
 
@@ -326,11 +442,27 @@ impl<B: Connect> SessionDriver<B> {
         self.context_in(&browser).await.map(drop)
     }
 
-    /// The Session's browser context in `browser`, made on first use.
+    /// The Session's browser context in `browser`, made on first use; a
+    /// Borrowed browser's default one.
     async fn context_in(&self, browser: &Browser) -> Result<browser::BrowserContextID, CallError> {
         let opening = browser.opening();
         self.context
             .get_or_try_init(|| async {
+                if self.browser.borrowed() {
+                    let contexts = browser
+                        .send(None, &target::GetBrowserContextsParams {}, &opening)
+                        .await?;
+                    return contexts.default_browser_context_id.ok_or_else(|| {
+                        CallError::new(
+                            &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
+                            "the Borrowed browser names no default browser context",
+                            &goodfetch_protocol::page::BrowserLaunchFailedDetails {
+                                executable: browser.executable.clone(),
+                                exit: None,
+                            },
+                        )
+                    });
+                }
                 let proxy = self.proxy.as_deref();
                 browser
                     .send(
@@ -351,7 +483,8 @@ impl<B: Connect> SessionDriver<B> {
 
     /// Closes the Session's browser context, and with it every page in it;
     /// the browser itself stays, for the Run's other Sessions. A browser
-    /// already gone has nothing left to close.
+    /// already gone has nothing left to close. On a Borrowed browser, only
+    /// the pages the Session opened close, and its default context stays.
     pub(crate) async fn close(&self) {
         let Some(context) = self.context.get() else {
             return;
@@ -359,6 +492,17 @@ impl<B: Connect> SessionDriver<B> {
         let Ok(browser) = self.browser.connect().await else {
             return;
         };
+        if self.browser.borrowed() {
+            for target_id in std::mem::take(&mut *self.opened.lock().await) {
+                if let Err(failure) = browser
+                    .try_send(None, &target::CloseTargetParams { target_id })
+                    .await
+                {
+                    tracing::debug!(%failure, "a page of the Session was gone already");
+                }
+            }
+            return;
+        }
         if let Err(failure) = browser
             .try_send(
                 None,
@@ -386,7 +530,9 @@ impl<B: Connect> SessionDriver<B> {
                 None,
                 &target::CreateTargetParams {
                     url: "about:blank".to_owned(),
-                    browser_context_id: Some(context.clone()),
+                    // A Borrowed browser's pages open in its default
+                    // context, which takes no ID.
+                    browser_context_id: (!self.browser.borrowed()).then(|| context.clone()),
                     left: None,
                     top: None,
                     width: None,
@@ -404,6 +550,9 @@ impl<B: Connect> SessionDriver<B> {
             .await?;
         // A page's main frame has its target's ID.
         let frame = created.target_id.clone();
+        if self.browser.borrowed() {
+            self.opened.lock().await.push(created.target_id.clone());
+        }
         let attached = browser
             .send(
                 None,

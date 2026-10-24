@@ -901,6 +901,17 @@
       ]
     },
     {
+      "id": "error:cdp_url_not_allowed",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:certificate_changed",
       "kind": "error",
       "area": 4,
@@ -5374,6 +5385,17 @@
     },
     {
       "id": "setting:consent.handling",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:consent.on_wall",
       "kind": "setting",
       "area": 5,
       "milestone": null,

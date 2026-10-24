@@ -21,7 +21,11 @@ use crate::work_items::{self, Failure, Unsuccessful};
 
 /// The `fix` of a request a site's `Retry-After` holds further away than
 /// the Run waits (ADR 0118).
-pub(super) const RETRY_AFTER_FIX: &str = "The site asked for no request to its domain before `retryAfter`, further away than `politeness.retry_after.max`: re-admit the request with `run.retry_failed` once the site is back, or raise `politeness.retry_after.max` for the crawl to wait that long.";
+pub(super) const RETRY_AFTER_FIX: &str = "The site asked for no request to its domain before `retry_after`, further away than `politeness.retry_after.max`: re-admit the request with `run.retry_failed` once the site is back, or raise `politeness.retry_after.max` for the crawl to wait that long.";
+
+/// The detail naming the time a site's `Retry-After` asked for, as the
+/// engine's `blocked` spells it on the wire (ADRs 0038 and 0118).
+const RETRY_AFTER: &str = "retry_after";
 
 /// The statuses whose response backs a domain off (ADR 0086).
 const BACKS_OFF: [u64; 3] = [502, 503, 504];
@@ -33,14 +37,14 @@ const BACKS_OFF: [u64; 3] = [502, 503, 504];
 /// site refused for too many requests (`blocked` for a `rate_limit`, a 429)
 /// halves its concurrency (ADR 0021); one that says the site was failing
 /// for now (`response_unavailable` for a 502, 503 or 504) backs it off
-/// (ADR 0086). The time a failure's `retryAfter` names, read at `wall` when
+/// (ADR 0086). The time a failure's `retry_after` names, read at `wall` when
 /// the monotonic clock read `now`, holds the domain until then (ADR 0118).
 pub(super) fn domain_ending(answer: &Answer, now: Instant, wall: SystemTime) -> Ended {
     let Answer::Failed { code, details, .. } = answer else {
         return Ended::Done;
     };
     let asked = details
-        .get("retryAfter")
+        .get(RETRY_AFTER)
         .and_then(retry_after::of_detail)
         .map(|asked| now + asked.duration_since(wall).unwrap_or_default());
     if block_cause(code, details) == Some(BlockCause::RateLimit) {
@@ -67,7 +71,7 @@ pub(super) fn domain_ending(answer: &Answer, now: Instant, wall: SystemTime) -> 
     }
 }
 
-/// The time a failure's `retryAfter` names when it is further away from
+/// The time a failure's `retry_after` names when it is further away from
 /// `wall` than the Run waits, `longest_wait`; `None` when the Run waits for
 /// nothing.
 pub(super) fn held_past_bound(
@@ -77,7 +81,7 @@ pub(super) fn held_past_bound(
 ) -> Option<SystemTime> {
     let longest_wait = longest_wait?;
     details
-        .get("retryAfter")
+        .get(RETRY_AFTER)
         .and_then(retry_after::of_detail)
         .filter(|asked| {
             asked
@@ -88,7 +92,7 @@ pub(super) fn held_past_bound(
 
 /// Ends `failed` with `response_unavailable` each request admitted while
 /// its domain's site asked for a time further away than the Run waits, with
-/// no handler request sent: its status `null`, that time as `retryAfter`
+/// no handler request sent: its status `null`, that time as `retry_after`
 /// and a `fix` naming `politeness.retry_after.max` (ADR 0118). Its attempt
 /// counts, so `run.failed_requests` lists it and `run.retry_failed`
 /// re-admits it.
@@ -109,7 +113,7 @@ pub(super) async fn end_unsent(
                     let mut details = Map::new();
                     details.insert("status".to_owned(), Value::Null);
                     details.insert(
-                        "retryAfter".to_owned(),
+                        RETRY_AFTER.to_owned(),
                         Value::from(retry_after::detail(until)),
                     );
                     details.insert("fix".to_owned(), Value::from(RETRY_AFTER_FIX));

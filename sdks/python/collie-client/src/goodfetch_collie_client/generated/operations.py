@@ -153,7 +153,7 @@ class AsyncCollieOperations:
         return KeyValueStoreSet.model_construct(**_fields(await self._caller.call("key_value_store.set_bytes", params)))
 
     async def locator_click(self, params: ClickParams) -> Acted:
-        """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.
+        """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes. A click that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -167,7 +167,7 @@ class AsyncCollieOperations:
         return Acted.model_construct(**_fields(await self._caller.call("locator.fill", params)))
 
     async def locator_press(self, params: PressParams) -> Acted:
-        """Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.
+        """Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes. A press that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -667,7 +667,7 @@ class CollieOperations:
         return KeyValueStoreSet.model_construct(**_fields(self._caller.call("key_value_store.set_bytes", params)))
 
     def locator_click(self, params: ClickParams) -> Acted:
-        """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes.
+        """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes. A click that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -681,7 +681,7 @@ class CollieOperations:
         return Acted.model_construct(**_fields(self._caller.call("locator.fill", params)))
 
     def locator_press(self, params: PressParams) -> Acted:
-        """Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes.
+        """Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes. A press that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """

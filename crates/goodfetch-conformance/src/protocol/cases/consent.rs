@@ -11,7 +11,8 @@
 //! enabled, a vendor's own API is called in the main world and an isolated
 //! snippet never touches it; and `consent.handling: false` leaves prompts
 //! alone. Each is judged by the requests the pages report to the Proving
-//! ground and by the Run trace the engine writes.
+//! ground and by the Run trace the engine writes, its Provenance log
+//! among it. The consent wall cases (ticket #718) are `walls`'.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -23,6 +24,8 @@ use serde_json::{Value, json};
 use super::navigation::call;
 use super::{Checks, Site, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
+
+mod walls;
 
 /// The host the pages are served on.
 pub(super) const HOST: &str = "consent.test";
@@ -63,6 +66,10 @@ pub(crate) enum Case {
     Overrides,
     Worlds,
     Off,
+    Walls,
+    WallsOff,
+    Accepted,
+    WallSettings,
 }
 
 impl Case {
@@ -84,6 +91,16 @@ impl Case {
                 Self::Worlds
             }
             "consent-handling-off-leaves-prompts-alone" => Self::Off,
+            "a-notice-is-hidden-and-a-wall-raises-blocked-with-consent-required-and-is-never-answered" => {
+                Self::Walls
+            }
+            "with-consent-handling-off-the-wall-test-still-raises-blocked" => Self::WallsOff,
+            "on-a-domain-in-consent-domains-the-wall-is-accepted-and-provenance-records-the-acceptance" => {
+                Self::Accepted
+            }
+            "a-run-widening-consent-domains-is-setting-locked-and-on-wall-ask-is-unavailable-until-the-human-pause" => {
+                Self::WallSettings
+            }
             _ => return None,
         })
     }
@@ -105,6 +122,10 @@ impl Case {
             Self::Overrides => overrides(connection, site, checks),
             Self::Worlds => worlds(connection, home, site, checks),
             Self::Off => off(connection, home, site, checks),
+            Self::Walls => walls::walls(connection, home, site, checks),
+            Self::WallsOff => walls::walls_off(connection, home, site, checks),
+            Self::Accepted => walls::accepted(connection, home, site, checks),
+            Self::WallSettings => walls::settings(connection, site, checks),
         }
     }
 }
@@ -471,26 +492,24 @@ fn worlds(
         "the main-world snippet went through `DOM.resolveNode`",
         sent("DOM.resolveNode"),
     );
-    let outcomes = trace(home, run_id, "consent.jsonl");
+    let outcomes = trace(home, run_id, "provenance.jsonl");
     for rule in ["Cybotcookiebot", "Moove"] {
         checks.check(
-            format!("the Run trace records {rule}'s prompt refused"),
-            outcomes
-                .iter()
-                .any(|line| line["rule"] == json!(rule) && line["action"] == json!("refused")),
+            format!("Provenance records {rule}'s prompt refused"),
+            outcomes.iter().any(|line| {
+                line["action"] == json!("consent")
+                    && line["rule"] == json!(rule)
+                    && line["answer"] == json!("refused")
+            }),
         );
     }
     Ok(())
 }
 
-/// With `consent.handling: false`, the runner never starts on the page, so
-/// nothing answers OneTrust's prompt: the Run trace records no
-/// `Runtime.addBinding`, which the engine sends only to start the runner
-/// in a document, and no answer came before the Run finished, which ends
-/// its pages. Both are read once the Run finished, a state the engine
-/// names, never after a fixed wait. When the wall test (A05-24), which
-/// runs with the handling off, lands in the page, this case needs the
-/// answering's own sign instead of the binding.
+/// With `consent.handling: false`, the runner only looks: Provenance
+/// records OneTrust's prompt left, a state the engine names, and no answer
+/// came, read once the Run finished, which ends its pages, never after a
+/// fixed wait. The wall test, which still runs, is `walls`'.
 fn off(
     connection: &mut Connection,
     home: Option<&str>,
@@ -504,12 +523,11 @@ fn off(
     };
     let before = count(site, "/consent/answered", &[("vendor", "onetrust")]);
     visit(connection, site, &page, "/vendor/onetrust", checks)?;
+    let left = walls::recorded(home, run_id, &page, ("/vendor/onetrust", "left"));
     finish(connection, run_id)?;
     checks.check(
-        "with `consent.handling` off, the runner never started on the page (no `Runtime.addBinding`)",
-        !trace(home, run_id, "cdp-commands.jsonl")
-            .iter()
-            .any(|line| line["method"] == json!("Runtime.addBinding")),
+        "with `consent.handling` off, Provenance records OneTrust's prompt left",
+        left.is_some(),
     );
     checks.check(
         "with `consent.handling` off, nothing answered the prompt",

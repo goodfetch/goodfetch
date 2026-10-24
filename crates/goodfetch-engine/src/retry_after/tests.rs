@@ -104,7 +104,7 @@ fn an_absurd_number_of_seconds_is_still_a_time() {
     );
 }
 
-/// The time a site asked for reads back from the `retryAfter` detail it is
+/// The time a site asked for reads back from the `retry_after` detail it is
 /// written as, and a detail that names no time names none.
 ///
 /// Covers: story:3-160

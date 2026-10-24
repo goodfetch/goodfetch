@@ -531,7 +531,7 @@ pub const NETWORK_RESOLVE: Setting = Setting {
 /// `consent.handling` (ADR 0048).
 pub const CONSENT_HANDLING: Setting = Setting {
     name: "consent.handling",
-    description: "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering.",
+    description: "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering: the wall test still runs, and a consent wall is still `consent_required`.",
     kind: ValueKind::Boolean,
     default: yes,
     clearable: false,
@@ -543,7 +543,7 @@ pub const CONSENT_HANDLING: Setting = Setting {
 /// `consent.domains` (ADR 0048).
 pub const CONSENT_DOMAINS: Setting = Setting {
     name: "consent.domains",
-    description: "The domains whose consent prompts a run accepts instead of refusing. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+    description: "The registrable domains on which a run accepts a consent wall, a Consent prompt with no refusal that covers the content or offers payment instead, rather than raising `blocked` with `consent_required`; `*` only when written. A prompt that offers a refusal is still refused there. A Recipe or a run only narrows it; it is widened only in an Operator policy, user or project configuration, or by a person's answer.",
     kind: ValueKind::List(&ValueKind::Text),
     default: empty_list,
     clearable: false,
@@ -551,6 +551,25 @@ pub const CONSENT_DOMAINS: Setting = Setting {
     weakens: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// The values `consent.on_wall` takes (ADR 0048).
+pub const CONSENT_ON_WALL_VALUES: &[&str] = &["report", "ask"];
+
+/// `consent.on_wall` (ADR 0048).
+pub const CONSENT_ON_WALL: Setting = Setting {
+    name: "consent.on_wall",
+    description: "What a consent wall on a domain outside `consent.domains` does: `report` (the default) leaves the page at `consent_required`, raised as `blocked`; `ask` raises a Human pause for a person's answer, for this run or always for the domain. Until the Human pause takes a person's answer, `ask` opens no page: `capability_unavailable`.",
+    kind: ValueKind::Choice(CONSENT_ON_WALL_VALUES),
+    default: report,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn report() -> Value {
+    Value::String("report".to_owned())
+}
 
 /// `wall.domains` (ADR 0052).
 pub const WALL_DOMAINS: Setting = Setting {
@@ -897,6 +916,7 @@ pub const ENTRIES: Entries = Entries {
         NETWORK_RESOLVE,
         CONSENT_HANDLING,
         CONSENT_DOMAINS,
+        CONSENT_ON_WALL,
         WALL_DOMAINS,
         WALL_REFETCH_DOMAINS,
         WALL_DENIED_DOMAINS,

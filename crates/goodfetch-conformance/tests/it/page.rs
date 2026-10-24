@@ -1,5 +1,5 @@
 //! The page suite (spec #577, tickets #695, #696, #697, #698, #699, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710 and #716; spec #580,
-//! ticket #783) against an Attached engine of Collie's executable, given by path, on
+//! tickets #783 and #789) against an Attached engine of Collie's executable, given by path, on
 //! the local Proving ground (ADR 0094): its browser from a Browser cache in
 //! the test's own folder, which its environment names (ADR 0059).
 //!
@@ -77,9 +77,10 @@ const DIALOGS: Part = ("dialogs", &["dialogs"]);
 const POPUPS: Part = ("popups", &["popups"]);
 const PAGE_FUNCTIONS: Part = ("page-functions", &["page_functions"]);
 const WAITS: Part = ("waits", &["waits"]);
+const ROBOTS_TXT: Part = ("robots-txt", &["robots_txt"]);
 
 /// Every part.
-const PARTS: [Part; 15] = [
+const PARTS: [Part; 16] = [
     SESSIONS,
     NAVIGATION,
     FORMATS,
@@ -95,6 +96,7 @@ const PARTS: [Part; 15] = [
     POPUPS,
     PAGE_FUNCTIONS,
     WAITS,
+    ROBOTS_TXT,
 ];
 
 #[test]
@@ -264,4 +266,10 @@ fn the_page_suite_proves_page_functions_against_collies_attached_engine() {
 #[test]
 fn the_page_suite_proves_waits_against_collies_attached_engine() {
     prove(WAITS);
+}
+
+/// Covers: story:6-62, story:6-63, story:6-64, operation:run.new_page, operation:page.goto
+#[test]
+fn the_page_suite_proves_robots_txt_against_collies_attached_engine() {
+    prove(ROBOTS_TXT);
 }

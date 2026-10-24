@@ -116,6 +116,12 @@ pub(crate) enum Body {
 /// proxy's codes; `navigation_failed` with the browser's network error for
 /// a request that got no response, or whose content coding failed to
 /// decode; and the page's codes when the browser fails a command.
+///
+/// # Cancel safety
+///
+/// Dropping the future leaves the page's request, or its response, paused:
+/// its caller closes the page, as the Session's engine page does when
+/// dropped.
 pub(crate) async fn send(
     driver: &PageDriver,
     sender: &EngineRequests,

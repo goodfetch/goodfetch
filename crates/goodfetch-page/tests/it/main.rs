@@ -7,5 +7,6 @@
 mod gesture_navigation;
 mod handler_page;
 mod navigation_gate;
+mod page_request;
 mod robots_txt;
 mod url_pattern;

@@ -263,6 +263,24 @@ impl Program {
             .and_then(|report| report["observed"].as_str().map(str::to_owned))
     }
 
+    /// The method of each CDP command the Run trace's command log holds so
+    /// far, in order.
+    pub(crate) fn cdp_commands(&self) -> Vec<String> {
+        let file = self
+            .home
+            .join("0.0")
+            .join("runs")
+            .join(RUN)
+            .join("trace")
+            .join("cdp-commands.jsonl");
+        std::fs::read_to_string(file)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter_map(|line| line["method"].as_str().map(str::to_owned))
+            .collect()
+    }
+
     /// The lines of the Run trace's request log so far.
     pub(crate) fn request_log(&self) -> Vec<Value> {
         let file = self

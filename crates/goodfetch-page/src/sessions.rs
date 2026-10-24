@@ -248,6 +248,45 @@ fn unavailable(run: &Run, error: &impl std::fmt::Display, context: &CallContext)
     )
 }
 
+/// A page of a Session that the engine drives itself
+/// ([`Sessions::engine_page`]): closed, and its place in its browser given
+/// back, once its caller closes it or drops it, a cancelled call's
+/// included, so no tab stays open in the Session's browser.
+pub(crate) struct EnginePage {
+    driver: PageDriver,
+    /// Its place in its browser, until it closes.
+    in_browser: Option<InBrowser>,
+    /// The Run its close runs on when it is dropped.
+    run: Run,
+}
+
+impl EnginePage {
+    /// Its driver.
+    pub(crate) fn driver(&self) -> &PageDriver {
+        &self.driver
+    }
+
+    /// Closes it now.
+    pub(crate) async fn close(mut self) {
+        if let Some(in_browser) = self.in_browser.take() {
+            self.driver.close().await;
+            drop(in_browser);
+        }
+    }
+}
+
+impl Drop for EnginePage {
+    fn drop(&mut self) {
+        if let Some(in_browser) = self.in_browser.take() {
+            let driver = self.driver.clone();
+            self.run.spawn(async move {
+                driver.close().await;
+                drop(in_browser);
+            });
+        }
+    }
+}
+
 impl Sessions {
     /// The engine's Sessions, whose browsers come from `pins`, under
     /// `interception`, their pages' events in `events` and their dialogs in
@@ -582,12 +621,13 @@ impl Sessions {
     /// governor's. The browser-fetch tier sends `page.request` from one,
     /// in the Session's browser context, so its cookies are the Session's
     /// (ADR 0020). It carries `value`, the value of the page it acts for.
-    /// Its caller closes it; `closed` when the Session is.
+    /// It closes once its caller is done with it, or drops it; `closed`
+    /// when the Session is.
     pub(crate) async fn engine_page(
         &self,
         session: &SessionId,
         value: &PageValue,
-    ) -> Result<(PageDriver, InBrowser), CallError> {
+    ) -> Result<EnginePage, CallError> {
         let open = self
             .state
             .lock()
@@ -599,10 +639,11 @@ impl Sessions {
         open.life.call().await?;
         let (navigation_timeout, _) = timeouts(&open.run);
         let (driver, in_browser) = open.seat.new_page(navigation_timeout).await?;
-        Ok((
-            driver.with_value(value.clone(), open.run.clock()),
-            in_browser,
-        ))
+        Ok(EnginePage {
+            driver: driver.with_value(value.clone(), open.run.clock()),
+            in_browser: Some(in_browser),
+            run: open.run.clone(),
+        })
     }
 
     /// The page `page_id` this engine holds; `page_crashed` again for a

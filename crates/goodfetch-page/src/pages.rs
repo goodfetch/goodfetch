@@ -907,13 +907,13 @@ impl Pages {
             option: max_redirects_option(surface),
             limits,
         };
-        let (driver, in_browser) = self
+        // A cancelled call closes the engine's page as it drops.
+        let engine_page = self
             .sessions
             .engine_page(&page.session, page.driver.value())
             .await?;
-        let fetched = browser_fetch::send(&driver, &steps, &request).await;
-        driver.close().await;
-        drop(in_browser);
+        let fetched = browser_fetch::send(engine_page.driver(), &steps, &request).await;
+        engine_page.close().await;
         let fetched = fetched?;
         let kept = match fetched.body {
             browser_fetch::Body::Whole(bytes) => {

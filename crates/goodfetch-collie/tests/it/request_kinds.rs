@@ -297,7 +297,7 @@ fn an_out_of_process_frames_request_to_a_refused_host_is_refused() {
 /// page's events nor the Run trace see a worker's requests, so only the
 /// connection record says the refused one went nowhere.
 ///
-/// Covers: story:4-1, error:egress_refused, operation:page.goto
+/// Covers: story:4-1, operation:page.goto
 #[test]
 fn a_dedicated_workers_request_to_a_refused_host_is_refused() {
     let attempts = attempt(
@@ -328,7 +328,7 @@ fn a_shared_workers_request_to_a_refused_host_is_refused() {
 /// held before its first line runs, so even that first request is refused,
 /// as a page's subresource would be.
 ///
-/// Covers: story:4-7, error:egress_refused, operation:page.goto
+/// Covers: story:4-7, operation:page.goto
 #[test]
 fn a_service_worker_fetching_from_a_refused_host_as_it_installs_is_refused() {
     let attempts = attempt(

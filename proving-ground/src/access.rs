@@ -235,20 +235,7 @@ pub(crate) fn respond(
             None,
         ),
         Method::GET if path == SERVICE_WORKER_TRACKER => (script_reply("void 0;\n"), None),
-        Method::GET if path == REQUEST_KINDS_WORKER => {
-            (script_reply(REQUEST_KINDS_WORKER_SCRIPT), None)
-        }
-        Method::GET if path == REQUEST_KINDS_FRAME => (
-            scripted(seed, "request-kinds-frame", REQUEST_KINDS_FRAME_SCRIPT),
-            None,
-        ),
-        Method::GET
-            if path
-                .strip_prefix(REQUEST_KINDS)
-                .is_some_and(|kind| REQUEST_KIND_NAMES.contains(&kind)) =>
-        {
-            (scripted(seed, "request-kinds", REQUEST_KINDS_SCRIPT), None)
-        }
+        Method::GET if let Some(reply) = request_kinds(seed, path) => (reply, None),
         Method::GET => (corpus::page(path).unwrap_or_else(Reply::not_found), None),
         Method::POST if path == "/reports" => match Report::parse(request.body) {
             Some(report) => (Reply::no_content(), Some(Recorded::Report(report))),
@@ -259,6 +246,23 @@ pub(crate) fn respond(
         },
         _ => (Reply::not_found(), None),
     })
+}
+
+/// A request kinds page, its worker's script or its frame, for `path`.
+fn request_kinds(seed: u64, path: &str) -> Option<Reply> {
+    if path == REQUEST_KINDS_WORKER {
+        return Some(script_reply(REQUEST_KINDS_WORKER_SCRIPT));
+    }
+    if path == REQUEST_KINDS_FRAME {
+        return Some(scripted(
+            seed,
+            "request-kinds-frame",
+            REQUEST_KINDS_FRAME_SCRIPT,
+        ));
+    }
+    path.strip_prefix(REQUEST_KINDS)
+        .is_some_and(|kind| REQUEST_KIND_NAMES.contains(&kind))
+        .then(|| scripted(seed, "request-kinds", REQUEST_KINDS_SCRIPT))
 }
 
 /// The connection a request to `name` and `path` asks the server to hold

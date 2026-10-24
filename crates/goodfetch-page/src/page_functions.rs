@@ -9,20 +9,25 @@
 //! first main-world call and first init script are marked in its
 //! Provenance (ADRs 0019 and 0021), and a navigation sent after an init
 //! script's call waits until the script is registered, or removed once its
-//! call was cancelled (`InitScripts`).
+//! call was cancelled (`InitScripts`). `page.wait_for_function` runs the
+//! same expression again at each interval until its result is truthy
+//! ([`until_truthy`]).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use goodfetch_cdp::generated::page::ScriptIdentifier;
 use goodfetch_cdp::generated::runtime;
 use goodfetch_engine::CallError;
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::page::functions::{
     Evaluated, PAGE_FUNCTION_FAILED, PAGE_VALUE_INVALID, PageFunctionFailedDetails,
-    PageValueDirection, PageValueInvalidDetails, PageValueKind,
+    PageValueDirection, PageValueInvalidDetails, PageValueKind, World,
 };
+use goodfetch_protocol::page::waits::PAGE_WAIT_FOR_FUNCTION;
 use goodfetch_protocol::page::{PageId, SessionId};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
@@ -83,6 +88,51 @@ struct Thrown {
     name: Option<String>,
     message: String,
     stack: Option<String>,
+}
+
+/// Runs `expression`, as [`expression`] built it, in `world` of the page
+/// `driver` drives, again every `interval` on `clock`, and in each new
+/// document, until its result is truthy as JavaScript judges it, and
+/// answers that result; its errors are spelled for `surface`.
+///
+/// # Errors
+///
+/// What [`answered`] raises for a result outside JSON or a function that
+/// threw, and the browser's failures as their codes.
+///
+/// # Cancel safety
+///
+/// Dropping the future runs the function no more.
+pub(crate) async fn until_truthy(
+    driver: &PageDriver,
+    expression: &str,
+    world: World,
+    (interval, clock): (Duration, &Clock),
+    surface: Surface,
+) -> Result<Evaluated, CallError> {
+    loop {
+        let returns = driver
+            .evaluate(expression, world, PAGE_WAIT_FOR_FUNCTION.name)
+            .await?;
+        let evaluated = answered(returns, surface)?;
+        if truthy(evaluated.value.as_ref()) {
+            return Ok(evaluated);
+        }
+        clock.sleep(interval).await;
+    }
+}
+
+/// Whether a page function's result is truthy, as JavaScript judges it:
+/// not `undefined`, `null`, `false`, `0` or the empty string, which is all
+/// JSON carries of the falsy values.
+fn truthy(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(value)) => *value,
+        Some(Value::Number(number)) => number.as_f64().is_some_and(|number| number != 0.0),
+        Some(Value::String(text)) => !text.is_empty(),
+        Some(Value::Array(_) | Value::Object(_)) => true,
+    }
 }
 
 /// The answer to a page function `Runtime.evaluate` ran as [`expression`]
@@ -319,6 +369,8 @@ pub(crate) enum Injection {
     Evaluate,
     /// An init script.
     InitScript,
+    /// A main-world `page.wait_for_function`.
+    WaitForFunction,
 }
 
 impl Injection {
@@ -327,6 +379,7 @@ impl Injection {
         match self {
             Self::Evaluate => goodfetch_protocol::page::functions::PAGE_EVALUATE.name,
             Self::InitScript => goodfetch_protocol::page::functions::PAGE_ADD_INIT_SCRIPT.name,
+            Self::WaitForFunction => PAGE_WAIT_FOR_FUNCTION.name,
         }
     }
 }

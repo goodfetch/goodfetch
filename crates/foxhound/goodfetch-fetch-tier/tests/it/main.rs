@@ -1,6 +1,7 @@
 //! `goodfetch-fetch-tier` through its public interface, against the
-//! Proving ground (ADR 0062): the HTTP transport's failures and the
-//! transport conformance gate (pitfall H13).
+//! Proving ground (ADR 0062): each HTTP transport's failures, the
+//! transport conformance gate (pitfall H13) and the fingerprint an
+//! HTTP-only `stealth` Session presents.
 #![expect(
     clippy::unwrap_used,
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
@@ -8,12 +9,13 @@
 
 mod conformance_gate;
 mod fetch_edge;
+mod fingerprint;
 mod transport_failures;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::tls::{Trust, read_certificates};
-use goodfetch_fetch_tier::{Reqwest, ReqwestConfig};
+use goodfetch_fetch_tier::{HttpProfile, Reqwest, Transport, TransportConfig, Wreq};
 use goodfetch_test_support::ProvingGround;
 use url::Url;
 
@@ -30,10 +32,21 @@ fn running_clock_runtime() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
-/// reqwest reaching every host the Proving ground serves at its address,
-/// through `proxy` when one is given, trusting its certificate authority
-/// for the fetch edge hosts, so they are reached over TLS and HTTP/2 too.
-fn reqwest(proving_ground: &ProvingGround, proxy: Option<Url>) -> Reqwest {
+/// The HTTP transports each test runs on.
+#[derive(Clone, Copy, Debug)]
+enum Stack {
+    /// reqwest, of `standard` and `identified` Sessions.
+    Reqwest,
+    /// `wreq`, of HTTP-only `stealth` Sessions, presenting the default
+    /// HTTP profile.
+    Wreq,
+}
+
+/// What a transport reaching every host the Proving ground serves at its
+/// address takes, through `proxy` when one is given, trusting its
+/// certificate authority for the fetch edge hosts and `trusted`, so they
+/// are reached over TLS and HTTP/2 too.
+fn config(proving_ground: &ProvingGround, proxy: Option<Url>, trusted: &[&str]) -> TransportConfig {
     let resolve = proving_ground
         .description()
         .resolve
@@ -45,15 +58,39 @@ fn reqwest(proving_ground: &ProvingGround, proxy: Option<Url>) -> Reqwest {
         reason = "a test helper reads the authority's file before any runtime starts"
     )]
     let authority = std::fs::read(&proving_ground.description().ca).unwrap();
-    let trust = Trust::default_roots()
-        .with_trusted_cas("fetch-edge.test", read_certificates(&authority).unwrap())
-        .unwrap();
-    Reqwest::new(ReqwestConfig {
+    let trust =
+        ["fetch-edge.test"]
+            .iter()
+            .chain(trusted)
+            .fold(Trust::default_roots(), |trust, domain| {
+                trust
+                    .with_trusted_cas(domain, read_certificates(&authority).unwrap())
+                    .unwrap()
+            });
+    TransportConfig {
         trust,
         proxy,
         resolve,
         egress: Policy::new(&["*"], &[] as &[&str]).unwrap(),
         clock: Clock::system(),
-    })
-    .unwrap()
+    }
+}
+
+/// reqwest, under [`config`].
+fn reqwest(proving_ground: &ProvingGround, proxy: Option<Url>) -> Reqwest {
+    Reqwest::new(config(proving_ground, proxy, &[])).unwrap()
+}
+
+/// `stack`'s transport, under [`config`].
+fn transport(
+    stack: Stack,
+    proving_ground: &ProvingGround,
+    proxy: Option<Url>,
+) -> Box<dyn Transport> {
+    match stack {
+        Stack::Reqwest => Box::new(reqwest(proving_ground, proxy)),
+        Stack::Wreq => {
+            Box::new(Wreq::new(config(proving_ground, proxy, &[]), HttpProfile::default()).unwrap())
+        }
+    }
 }

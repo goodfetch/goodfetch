@@ -4,7 +4,7 @@
 allow-unwrap-in-tests = true
 # Clippy's own list (`..`) plus the registry names and the words in prose the
 # docs spell as written.
-doc-valid-idents = ["PyPI", "JUnit", "LazyFS", "RustSec", "EasyList", "EasyPrivacy", "DuckDuckGo", "OneTrust", "TrustArc", "TikTok", ".."]
+doc-valid-idents = ["PyPI", "JUnit", "LazyFS", "RustSec", "EasyList", "EasyPrivacy", "DuckDuckGo", "OneTrust", "TrustArc", "TikTok", "BoringSSL", "ClientHello", ".."]
 
 disallowed-methods = [
   # Tasks start only through their owner's tracker, in the `tasks` module.
@@ -33,6 +33,8 @@ disallowed-methods = [
   { path = "tokio::io::stdout", reason = "stdout is opened only in the transport module (ADR 0060)", allow-invalid = true },
   # A reqwest client opens its own sockets: only the HTTP fetch tier's transport builds one (ADR 0060).
   { path = "reqwest::ClientBuilder::build", reason = "a reqwest client opens its own sockets: only the HTTP fetch tier's transport builds one (ADR 0060)", allow-invalid = true },
+  # So does a wreq client: only the stealth HTTP fetch tier's transport builds one (ADR 0060).
+  { path = "wreq::ClientBuilder::build", reason = "a wreq client opens its own sockets: only the HTTP fetch tier's `wreq` transport builds one (ADR 0060)", allow-invalid = true },
   # Time, randomness and the environment come from their handles (ADR 0059).
   { path = "std::time::SystemTime::now", reason = "read time through the Clock handle (ADR 0059)" },
   { path = "std::time::Instant::now", reason = "read time through the Clock handle (ADR 0059)" },

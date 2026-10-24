@@ -49,6 +49,7 @@ fn traffic(proving_ground: &ProvingGround, domains: &[&str]) -> PageTraffic {
             .with_private_ranges(&[proving_ground.address().ip().to_string()])
             .unwrap(),
         resolve,
+        proxy: None,
         trust,
         exceptions: CertificateExceptions::default(),
         cookies: Vec::new(),

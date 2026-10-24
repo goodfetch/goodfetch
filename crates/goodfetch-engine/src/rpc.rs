@@ -18,6 +18,7 @@
 //! request the engine sends has its `CLIENT` span, whose Trace context its
 //! `_meta` carries ([`crate::trace`], ADR 0132).
 
+pub mod event_stream;
 pub mod framing;
 
 mod connection;
@@ -37,7 +38,7 @@ use serde_json::Value;
 use crate::composition::{CallContext, CallError, Handler};
 use crate::product::{Identity, Requested};
 
-pub(crate) use connection::{Access, Dispatch, serve, serve_console};
+pub(crate) use connection::{Access, ConsoleConnection, Dispatch, serve, serve_console};
 pub use connection::{CONSOLE_LISTENER, REFUSAL_TARGET};
 pub use websocket::Authorities;
 pub(crate) use websocket::{ConsoleSocket, Refusal};

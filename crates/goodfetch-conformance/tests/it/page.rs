@@ -1,4 +1,4 @@
-//! The page suite (spec #577, tickets #695, #696, #697, #698, #699, #702, #703, #704, #706, #707, #708, #713, #715, #717 and #719; spec #580,
+//! The page suite (spec #577, tickets #695, #696, #697, #698, #699, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719 and #705; spec #580,
 //! ticket #783) against an Attached engine of Collie's executable, given by path, on
 //! the local Proving ground (ADR 0094): its browser from a Browser cache in
 //! the test's own folder, which its environment names (ADR 0059).
@@ -69,9 +69,10 @@ const PAGE_REQUEST: Part = (
 const DIALOGS: Part = ("dialogs", &["dialogs"]);
 const POPUPS: Part = ("popups", &["popups"]);
 const PAGE_FUNCTIONS: Part = ("page-functions", &["page_functions"]);
+const WAITS: Part = ("waits", &["waits"]);
 
 /// Every part.
-const PARTS: [Part; 14] = [
+const PARTS: [Part; 15] = [
     SESSIONS,
     NAVIGATION,
     FORMATS,
@@ -86,6 +87,7 @@ const PARTS: [Part; 14] = [
     DIALOGS,
     POPUPS,
     PAGE_FUNCTIONS,
+    WAITS,
 ];
 
 #[test]
@@ -221,7 +223,7 @@ fn the_page_suite_proves_events_against_collies_attached_engine() {
     prove(EVENTS);
 }
 
-/// Covers: operation:run.new_session, operation:page.route, operation:session.route, event:page.request, event:page.response, story:5-49, story:5-50, setting:browser.service_workers
+/// Covers: operation:run.new_session, operation:page.route, operation:session.route, event:page.request, event:page.response, story:5-49, story:5-50, setting:browser.service_workers, operation:page.wait_for_response, operation:page.wait_for_load_state
 #[test]
 fn the_page_suite_proves_page_states_against_collies_attached_engine() {
     prove(PAGE_STATES);
@@ -249,4 +251,10 @@ fn the_page_suite_proves_popups_against_collies_attached_engine() {
 #[test]
 fn the_page_suite_proves_page_functions_against_collies_attached_engine() {
     prove(PAGE_FUNCTIONS);
+}
+
+/// Covers: story:5-19, story:5-20, story:5-21, story:5-22, operation:page.wait_for_url, operation:page.wait_for_request, operation:page.wait_for_response, operation:page.wait_for_load_state, operation:page.wait_for_function, operation:locator.wait_for, operation:locator.wait_for_count, operation:page.evaluate, operation:locator.click, error:deadline_exceeded, setting:timeout.wait
+#[test]
+fn the_page_suite_proves_waits_against_collies_attached_engine() {
+    prove(WAITS);
 }

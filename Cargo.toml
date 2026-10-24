@@ -131,6 +131,24 @@ flate2 = { version = "1.1.9", default-features = false, features = ["rust_backen
 # configuration (no provider of its own, no system proxy), with none of its
 # content decoding, which the fetch driver does as Chrome does (ADR 0119).
 reqwest = { version = "0.13.5", default-features = false }
+# The HTTP fetch tier's transport in HTTP-only `stealth` Sessions (spec #579,
+# ADR 0020): BoringSSL through `btls` and the `http2` fork, which send a
+# browser's TLS ClientHello and HTTP/2 settings, with its emulation profiles
+# from `wreq-util` until area 8's captured ones (M3). Pinned exactly: its
+# transport's translation point reads its failures (ADR 0127), and a test
+# beside it fails when the pin moves. None of its content decoding, which
+# the fetch driver does as Chrome does (ADR 0119).
+wreq = { version = "=0.16.1", default-features = false, features = ["tokio-rt"] }
+wreq-util = { version = "=0.2.0", default-features = false, features = ["emulation"] }
+# The forks under `wreq` whose failures its translation point reads, pinned
+# at the versions `wreq` takes: BoringSSL's `btls`, `http2` (h2's) and
+# `wreq-proto` (hyper's).
+btls = { version = "=0.5.6", default-features = false }
+http2 = { version = "=0.5.20", default-features = false }
+wreq-proto = { version = "=0.2.6", default-features = false }
+# Mozilla's root certificates whole, which BoringSSL's certificate store
+# takes in the `wreq` transport (rustls takes `webpki-roots`' anchors).
+webpki-root-certs = { version = "1.0.11", default-features = false }
 # Brotli's decoder alone, for the fetch driver's `br` (ADR 0119).
 brotli-decompressor = { version = "6.0.1", default-features = false, features = ["std"] }
 # HMAC-SHA-1, from which the Proving ground and its tests compute TOTP codes

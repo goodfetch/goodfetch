@@ -52,6 +52,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
+use super::event_stream::{EventStream, PostedReader, StreamedWriter};
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use super::websocket::{
     self, Authorities, ConsoleSocket, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
@@ -172,7 +173,8 @@ pub const CONSOLE_LISTENER: &str = "console";
 /// The endpoint table's name of a Daemon's WebSocket listener (ADR 0067).
 const WEBSOCKET_LISTENER: &str = "daemon_websocket";
 
-/// How a Connection's messages arrive: as lines, or as WebSocket messages.
+/// How a Connection's messages arrive: as lines, as WebSocket messages, or
+/// in the Console's `POST` bodies.
 enum Reading {
     Lines {
         reader: Prefixed,
@@ -180,6 +182,7 @@ enum Reading {
         chunk: Vec<u8>,
     },
     Messages(MessageReader),
+    Posted(PostedReader),
 }
 
 impl Reading {
@@ -214,14 +217,17 @@ impl Reading {
                 }
             },
             Self::Messages(messages) => messages.read(frames).await,
+            Self::Posted(posted) => posted.read(frames).await,
         }
     }
 }
 
-/// How a Connection's messages leave: as lines, or as WebSocket messages.
+/// How a Connection's messages leave: as lines, as WebSocket messages, or
+/// as the events of the Console's event stream.
 enum Writing {
     Lines(ConnectionWriter),
     Messages(MessageWriter),
+    Streamed(StreamedWriter),
 }
 
 /// How `connection`, reached through `access`, carries its messages, and
@@ -303,7 +309,16 @@ pub(crate) async fn serve(
     .await;
 }
 
-/// Serves the Console's WebSocket `socket`, a Connection of the Daemon
+/// A Connection the Console's server opened on its own origin, its sign-in
+/// already checked, which the Daemon serves (ADR 0031): a WebSocket, or,
+/// where a proxy refuses `WebSocket`s, an event stream and the page's
+/// `POST`s.
+pub(crate) enum ConsoleConnection {
+    WebSocket(ConsoleSocket),
+    EventStream(EventStream),
+}
+
+/// Serves the Console's Connection `console`, a Connection of the Daemon
 /// `daemon` reaches, until it ends, its tasks those of `owner`, lingering
 /// on `clock` after the engine closes it.
 ///
@@ -313,16 +328,26 @@ pub(crate) async fn serve(
 /// them.
 pub(crate) async fn serve_console(
     dispatch: Arc<Dispatch>,
-    socket: ConsoleSocket,
+    console: ConsoleConnection,
     owner: &TaskOwner,
     runs: Runs,
     events: Events,
     daemon: Arc<dyn DaemonSide>,
     clock: Clock,
 ) {
+    let (reading, writing) = match console {
+        ConsoleConnection::WebSocket(socket) => (
+            Reading::Messages(socket.reader),
+            Writing::Messages(socket.writer),
+        ),
+        ConsoleConnection::EventStream(stream) => (
+            Reading::Posted(stream.reader),
+            Writing::Streamed(stream.writer),
+        ),
+    };
     let carried = Carried {
-        reading: Reading::Messages(socket.reader),
-        writing: Writing::Messages(socket.writer),
+        reading,
+        writing,
         listener: CONSOLE_LISTENER,
     };
     serve_carried(
@@ -448,6 +473,7 @@ async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>) {
         let sent = match &mut writing {
             Writing::Lines(writer) => writer.write_all(&line).await.is_ok(),
             Writing::Messages(messages) => messages.feed(line).await,
+            Writing::Streamed(streamed) => streamed.feed(line).await,
         };
         if !sent {
             return;
@@ -456,6 +482,7 @@ async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>) {
             let flushed = match &mut writing {
                 Writing::Lines(writer) => writer.flush().await.is_ok(),
                 Writing::Messages(messages) => messages.flush().await,
+                Writing::Streamed(_) => true,
             };
             if !flushed {
                 return;
@@ -467,6 +494,7 @@ async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>) {
             let _ = writer.shutdown().await;
         }
         Writing::Messages(messages) => messages.close().await,
+        Writing::Streamed(streamed) => streamed.close(),
     }
 }
 

@@ -143,6 +143,13 @@ export type DialogType = "alert" | "confirm" | "prompt" | "beforeunload";
  */
 export type DownloadId = string;
 /**
+ * A state of the element a locator matches (Playwright's `waitFor`).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ElementState".
+ */
+export type ElementState = "attached" | "detached" | "visible" | "hidden";
+/**
  * One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -300,6 +307,13 @@ export type LimitSetter = "person" | "managed_policy" | "client";
  * via the `definition` "LimitStanding".
  */
 export type LimitStanding = "held" | "foxhound" | "not_understood";
+/**
+ * A state the page's document reaches (Playwright's `LoadState`).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LoadState".
+ */
+export type LoadState = "domcontentloaded" | "load" | "networkidle";
 /**
  * Whether the extractor found the document's main content.
  *
@@ -1368,6 +1382,35 @@ export interface ConsoleFailure1 {
    * What happened.
    */
   message: string;
+}
+/**
+ * A count of matches, bounded on either side or both: an exact count is
+ * both bounds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Count".
+ */
+export interface Count {
+  /**
+   * The most; no bound when absent.
+   */
+  max?: number | null;
+  /**
+   * The fewest; no bound when absent.
+   */
+  min?: number | null;
+}
+/**
+ * What `locator.wait_for_count` answers: how many elements matched.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Counted".
+ */
+export interface Counted {
+  /**
+   * The number of matches.
+   */
+  count: number;
 }
 /**
  * The engine's CPU and Tokio workers, as the governor read them.
@@ -2592,6 +2635,32 @@ export interface Locator2 {
   selector: string;
 }
 /**
+ * What `locator.wait_for` takes: the locator and the state of its element.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LocatorWaitForParams".
+ */
+export interface LocatorWaitForParams {
+  locator: Locator3;
+  /**
+   * The state; `visible` when absent.
+   */
+  state?: ElementState | null;
+}
+/**
+ * The locator.
+ */
+export interface Locator3 {
+  /**
+   * The page it looks on.
+   */
+  page_id: string;
+  /**
+   * A CSS selector, which also matches inside open shadow roots.
+   */
+  selector: string;
+}
+/**
  * What `$/log` carries: one log event of the engine.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -3363,12 +3432,12 @@ export interface PressParams {
    * Playwright's key names.
    */
   key: string;
-  locator: Locator3;
+  locator: Locator4;
 }
 /**
  * The locator.
  */
-export interface Locator3 {
+export interface Locator4 {
   /**
    * The page it looks on.
    */
@@ -3394,6 +3463,14 @@ export interface ProxyKindBytes {
    */
   kind: string;
 }
+/**
+ * What `page.wait_for_url`, `page.wait_for_load_state` and
+ * `locator.wait_for` answer once the state they waited for came.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Reached".
+ */
+export interface Reached {}
 /**
  * The Limit a Run cannot take more of: what `limit_reached` details, and
  * what a Run stopped for it names (ADR 0041).
@@ -5010,6 +5087,110 @@ export interface UsageSetParams {
   usage_kind: string;
 }
 /**
+ * What `locator.wait_for_count` takes: the locator and the count its
+ * matches must reach.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WaitForCountParams".
+ */
+export interface WaitForCountParams {
+  count: Count1;
+  locator: Locator5;
+}
+/**
+ * The count.
+ */
+export interface Count1 {
+  /**
+   * The most; no bound when absent.
+   */
+  max?: number | null;
+  /**
+   * The fewest; no bound when absent.
+   */
+  min?: number | null;
+}
+/**
+ * The locator.
+ */
+export interface Locator5 {
+  /**
+   * The page it looks on.
+   */
+  page_id: string;
+  /**
+   * A CSS selector, which also matches inside open shadow roots.
+   */
+  selector: string;
+}
+/**
+ * What `page.wait_for_request` and `page.wait_for_response` take: the
+ * page, and the URLs of the requests they wait for; any request when none
+ * is given.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WaitForExchangeParams".
+ */
+export interface WaitForExchangeParams {
+  /**
+   * A page of a Run, named by the engine when it opens it.
+   */
+  page_id: string;
+  /**
+   * The URLs it waits for.
+   */
+  url?: UrlMatcher | null;
+}
+/**
+ * What `page.wait_for_function` takes: the page, the function's source,
+ * its argument, its world, and how often it is checked.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WaitForFunctionParams".
+ */
+export interface WaitForFunctionParams {
+  /**
+   * Its one argument, JSON; absent for none.
+   */
+  arg?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The page function's JavaScript source: a function, called with
+   * `arg`, or an expression, which takes none.
+   */
+  function: string;
+  /**
+   * A page of a Run, named by the engine when it opens it.
+   */
+  page_id: string;
+  /**
+   * The milliseconds between two checks, at least 1; absent, about one
+   * frame's, 16.
+   */
+  polling_interval?: number | null;
+  /**
+   * Where it runs; the main world when absent.
+   */
+  world?: World | null;
+}
+/**
+ * What `page.wait_for_load_state` takes: the page and the state.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WaitForLoadStateParams".
+ */
+export interface WaitForLoadStateParams {
+  /**
+   * A page of a Run, named by the engine when it opens it.
+   */
+  page_id: string;
+  /**
+   * The state; `load` when absent.
+   */
+  state?: LoadState | null;
+}
+/**
  * What `page.wait_for_request_finished` takes: the page, and the URLs of
  * the requests it waits for; any request when none is given.
  *
@@ -5025,6 +5206,45 @@ export interface WaitForRequestFinishedParams {
    * The URLs it waits for.
    */
   url?: UrlMatcher | null;
+}
+/**
+ * What `page.wait_for_url` takes: the page, the URL it waits for, and the
+ * state a new document must reach.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WaitForUrlParams".
+ */
+export interface WaitForUrlParams {
+  /**
+   * A page of a Run, named by the engine when it opens it.
+   */
+  page_id: string;
+  /**
+   * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
+   * one, or a regular expression in the `regex` crate's syntax. A predicate
+   * runs in the program, which routes every URL and falls back for the
+   * requests it does not match.
+   */
+  url:
+    | {
+        kind: "glob";
+        /**
+         * The glob.
+         */
+        pattern: string;
+      }
+    | {
+        kind: "regex";
+        /**
+         * The expression's source.
+         */
+        pattern: string;
+      };
+  /**
+   * The state a new document at that URL must reach; `load` when
+   * absent. A change within the document waits for none.
+   */
+  wait_until?: LoadState | null;
 }
 /**
  * What `page.page_error` reports, `WebError`: an exception the page did

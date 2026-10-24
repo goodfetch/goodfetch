@@ -12,11 +12,14 @@
 // stream's events, each marked lossless or telemetry, and a `resync`
 // carries the snapshot that replaces a screen's state (ADR 0031).
 //
-// When its Connection drops, a call waiting for its answer fails with
-// `connection_lost`, and nothing is sent again but each subscription,
-// after the last position it read: the Client is `reconnecting` while it
-// opens a Connection, `read_only` while it waits to try again or for the
-// page to be visible, and `connected` once `hello` is answered.
+// When its Connection drops, it sends again only each subscription, after
+// the last position it read, and each read or idempotent write waiting for
+// its answer; an Effect waiting for its answer fails with
+// `connection_lost`, an `UnavailableError`, and so does one called with no
+// Connection, while a read or idempotent write waits for the next (ADR
+// 0079). The Client is `reconnecting` while it opens a Connection,
+// `read_only` while it waits to try again or for the page to be visible,
+// and `connected` once `hello` is answered.
 import {
   Channel,
   PRODUCT_VERSION,
@@ -39,7 +42,12 @@ import {
   type Product,
   type Resync,
 } from "@goodfetch/collie-client/generated";
-import { eventClasses, type ConsoleOperations, type EventClass } from "#generated/operations.ts";
+import {
+  eventClasses,
+  operationClasses,
+  type ConsoleOperations,
+  type EventClass,
+} from "#generated/operations.ts";
 
 export type { ConsoleOperations, EventClass, LastRead };
 
@@ -93,6 +101,8 @@ export interface ConsoleClientOptions {
   readonly product: Product;
   /** How long to wait before each new attempt once one failed, the last repeating. */
   readonly retryDelays?: readonly number[] | undefined;
+  /** How long a Connection may send nothing before it is asked something, and then before it counts as stalled. */
+  readonly stallTimeout?: number | undefined;
 }
 
 /** One of the stream's events, as a subscription gives it. */
@@ -159,14 +169,25 @@ const NOT_CONNECTED =
 /** How many events a subscription lets the engine send ahead of what was read. */
 const WINDOW = 64;
 
+/** How long a silent Connection waits to be asked something, then to answer it, in milliseconds. */
+const STALL_TIMEOUT = 10_000;
+
 /** The waits between attempts once one failed, in milliseconds, the last repeating. */
 const RETRY_DELAYS = [1_000, 2_000, 5_000, 10_000];
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** The byte stream a Channel runs over, made of a Connection's text messages, one line each. */
-function byteTransport(transport: Transport): { bytes: ByteTransport; connection: Connection } {
+/**
+ * The byte stream a Channel runs over, made of a Connection's text
+ * messages, one line each; `heard` is called at each message, and
+ * `abandon` ends the stream at once and closes the Connection, without
+ * waiting for a stalled one to say it closed.
+ */
+function byteTransport(
+  transport: Transport,
+  heard: () => void,
+): { bytes: ByteTransport; connection: Connection; abandon: () => void } {
   let push: ((text: string) => void) | undefined;
   let end: (() => void) | undefined;
   const readable = new ReadableStream<Uint8Array>({
@@ -175,14 +196,18 @@ function byteTransport(transport: Transport): { bytes: ByteTransport; connection
       end = () => controller.close();
     },
   });
+  const closed = (): void => {
+    const ending = end;
+    end = undefined;
+    push = undefined;
+    ending?.();
+  };
   const connection = transport.open({
-    message: (text) => push?.(text),
-    close: () => {
-      const ending = end;
-      end = undefined;
-      push = undefined;
-      ending?.();
+    message: (text) => {
+      heard();
+      push?.(text);
     },
+    close: closed,
   });
   let pending = "";
   const writable = new WritableStream<Uint8Array>({
@@ -199,7 +224,11 @@ function byteTransport(transport: Transport): { bytes: ByteTransport; connection
       connection.close();
     },
   });
-  return { bytes: { readable, writable }, connection };
+  const abandon = (): void => {
+    closed();
+    connection.close();
+  };
+  return { bytes: { readable, writable }, connection, abandon };
 }
 
 /** A subscription's events waiting to be read, and its readers waiting for them. */
@@ -346,12 +375,16 @@ class KeptSubscription implements Subscription {
 interface Opened {
   readonly channel: Channel;
   readonly connection: Connection;
+  /** What looks for a stall, until the Connection ends. */
+  readonly watchdog: ReturnType<typeof setInterval>;
 }
 
 class Client implements ConsoleClient {
   readonly #options: ConsoleClientOptions;
   readonly #listeners = new Set<(state: ConnectionState) => void>();
   readonly #subscriptions = new Set<KeptSubscription>();
+  /** The calls waiting for a Connection. */
+  readonly #waiting = new Set<() => void>();
   readonly #stopWatching: () => void;
   #state: ConnectionState = "reconnecting";
   #engine: EngineIdentity | undefined;
@@ -387,13 +420,53 @@ class Client implements ConsoleClient {
     operation: Name,
     params: ConsoleOperations[Name]["params"],
   ): Promise<ConsoleOperations[Name]["result"]> {
+    // A read or an idempotent write waits for a Connection and is sent
+    // again on the next one when its own drops; an Effect never is (ADR
+    // 0079).
+    const sentAgain = operationClasses[operation] !== "effect";
+    for (;;) {
+      const opened = sentAgain ? await this.#connected(operation) : this.#current(operation);
+      try {
+        const result = await opened.channel.call(operation, params);
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): the result is the operation's as the catalog types it.
+        return result as ConsoleOperations[Name]["result"];
+      } catch (error) {
+        const dropped = error instanceof ConnectionLostError && this.#opened !== opened;
+        if (!sentAgain || !dropped || this.#closed) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  /** The Connection a call goes on now; `connection_lost` when there is none. */
+  #current(operation: string): Opened {
     const opened = this.#opened;
     if (opened === undefined || this.#state !== "connected") {
       throw lost(operation);
     }
-    const result = await opened.channel.call(operation, params);
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): the result is the operation's as the catalog types it.
-    return result as ConsoleOperations[Name]["result"];
+    return opened;
+  }
+
+  /** The Connection a call goes on, once there is one; `connection_lost` once the Client is closed. */
+  async #connected(operation: string): Promise<Opened> {
+    while (!this.#closed) {
+      const opened = this.#opened;
+      if (opened !== undefined && this.#state === "connected") {
+        return opened;
+      }
+      await new Promise<void>((resolve) => this.#waiting.add(resolve));
+    }
+    throw lost(operation);
+  }
+
+  /** Wakes every call waiting for a Connection, to look again. */
+  #wake(): void {
+    const waiting = [...this.#waiting];
+    this.#waiting.clear();
+    for (const resolve of waiting) {
+      resolve();
+    }
   }
 
   subscribe(
@@ -425,7 +498,11 @@ class Client implements ConsoleClient {
     }
     const opened = this.#opened;
     this.#opened = undefined;
-    void opened?.channel.close();
+    if (opened !== undefined) {
+      clearInterval(opened.watchdog);
+      void opened.channel.close();
+    }
+    this.#wake();
   }
 
   /** Forgets a closed subscription. */
@@ -439,6 +516,7 @@ class Client implements ConsoleClient {
       for (const listener of this.#listeners) {
         listener(state);
       }
+      this.#wake();
     }
   }
 
@@ -449,13 +527,31 @@ class Client implements ConsoleClient {
     }
     this.#retry = undefined;
     this.#enter("reconnecting");
-    const { bytes, connection } = byteTransport(this.#options.transport);
+    // A Connection that sends nothing for a stall timeout is asked
+    // something, `hello` first; one still silent a stall timeout later is
+    // stalled, and abandoned as a dropped one is.
+    let heard = false;
+    let asked = true;
+    const { bytes, connection, abandon } = byteTransport(this.#options.transport, () => {
+      heard = true;
+    });
     let current: Opened | undefined;
     const channel = new Channel(bytes, {
       ended: async (end) => this.#ended(current, end),
       failure: (error: unknown) => errorOfReply(error, collieErrorClasses),
     });
-    current = { channel, connection };
+    const watchdog = setInterval(() => {
+      if (heard) {
+        heard = false;
+        asked = false;
+      } else if (asked) {
+        abandon();
+      } else {
+        asked = true;
+        channel.call("engine.info", {}).catch(() => undefined);
+      }
+    }, this.#options.stallTimeout ?? STALL_TIMEOUT);
+    current = { channel, connection, watchdog };
     this.#opened = current;
     const hello: HelloParams = {
       protocol_version: PROTOCOL_VERSION,
@@ -496,6 +592,9 @@ class Client implements ConsoleClient {
   /** The Connection `opened` ended: every waiting call fails, and the Client tries again. */
   async #ended(opened: Opened | undefined, end: TransportEnd): Promise<GoodfetchError> {
     const failure = new ConnectionLostError(end.kind === "invalid" ? INVALID : DROPPED);
+    if (opened !== undefined) {
+      clearInterval(opened.watchdog);
+    }
     if (this.#opened !== opened || this.#closed) {
       return failure;
     }

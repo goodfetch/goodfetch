@@ -382,6 +382,10 @@ _Avoid_: profile, access profile, stealth level
 The consistent set of values a Session presents to sites, such as its user agent, network and browser fingerprints, signing key, language and time zone, fixed for the Session's life.
 _Avoid_: fingerprint (alone), persona, profile (alone)
 
+**HTTP profile**:
+The part of an Identity profile a Session's HTTP-only requests present: the TLS ClientHello, HTTP/2 settings, header order and client hints of the browser it claims.
+_Avoid_: impersonation profile, TLS profile
+
 **Fingerprint method**:
 How a Session's browser comes to present its Identity profile: not changed at all, changed by page scripts, changed through the browser's debugging protocol, or changed inside the browser engine itself.
 _Avoid_: stealth engine, spoofing mode, fingerprinting

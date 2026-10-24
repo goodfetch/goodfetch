@@ -78,6 +78,30 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 123
+title = "As a user, I want the Console to resubscribe from its last position after a reconnect, and to get a fresh snapshot when the engine no longer holds it, never missing a Record, an axis change or a \"Needs you\" item, so that a dropped connection loses nothing (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 124
+title = "As a user behind a proxy that blocks WebSockets, I want the Console to fall back to Server-Sent Events plus `POST`, so that it works on any network (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 125
+title = "As a user, I want the tab read-only under a banner while disconnected, reconnecting by itself, so that I never act on a stale view (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 127
 title = "As a user, I want scraped HTML, screenshots and DOM snapshots served from a separate origin in sandboxed frames with no cookies, so that a hostile page can never act as the Console (ADR 0031)."
 milestone = "M1 Core"

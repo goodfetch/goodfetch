@@ -882,6 +882,49 @@
         }
       ]
     },
+    "Count": {
+      "additionalProperties": false,
+      "description": "A count of matches, bounded on either side or both: an exact count is\nboth bounds.",
+      "properties": {
+        "max": {
+          "arrived_in": "0.1",
+          "description": "The most; no bound when absent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "min": {
+          "arrived_in": "0.1",
+          "description": "The fewest; no bound when absent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Counted": {
+      "description": "What `locator.wait_for_count` answers: how many elements matched.",
+      "properties": {
+        "count": {
+          "arrived_in": "0.1",
+          "description": "The number of matches.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count"
+      ],
+      "type": "object"
+    },
     "CpuReading": {
       "description": "The engine's CPU and Tokio workers, as the governor read them.",
       "properties": {
@@ -1316,6 +1359,31 @@
         "written"
       ],
       "type": "object"
+    },
+    "ElementState": {
+      "description": "A state of the element a locator matches (Playwright's `waitFor`).",
+      "oneOf": [
+        {
+          "const": "attached",
+          "description": "One element matches.",
+          "type": "string"
+        },
+        {
+          "const": "detached",
+          "description": "No element matches.",
+          "type": "string"
+        },
+        {
+          "const": "visible",
+          "description": "One element matches, with a box of its own and `visibility:\nvisible`.",
+          "type": "string"
+        },
+        {
+          "const": "hidden",
+          "description": "No element matches, or the one that does is not visible.",
+          "type": "string"
+        }
+      ]
     },
     "EndingError": {
       "description": "An Error code a Run's ending raises, with its message and details.",
@@ -2291,6 +2359,26 @@
       ],
       "type": "object"
     },
+    "LoadState": {
+      "description": "A state the page's document reaches (Playwright's `LoadState`).",
+      "oneOf": [
+        {
+          "const": "domcontentloaded",
+          "description": "The document fired `DOMContentLoaded`.",
+          "type": "string"
+        },
+        {
+          "const": "load",
+          "description": "The document fired `load`.",
+          "type": "string"
+        },
+        {
+          "const": "networkidle",
+          "description": "The document fired `load`, and no request of the page was in flight\nfor 500 ms since, WebSocket and server-sent-event connections left\nout.",
+          "type": "string"
+        }
+      ]
+    },
     "Locator": {
       "additionalProperties": false,
       "description": "A locator (ADR 0085): what an action looks for on a page, resolved\nagain at each use, never a handle on an element. This tracer's locators\nare CSS selectors.",
@@ -2309,6 +2397,37 @@
       "required": [
         "page_id",
         "selector"
+      ],
+      "type": "object"
+    },
+    "LocatorWaitForParams": {
+      "additionalProperties": false,
+      "description": "What `locator.wait_for` takes: the locator and the state of its element.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ElementState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The state; `visible` when absent."
+        }
+      },
+      "required": [
+        "locator"
       ],
       "type": "object"
     },
@@ -3524,6 +3643,10 @@
         "kind",
         "bytes"
       ],
+      "type": "object"
+    },
+    "Reached": {
+      "description": "What `page.wait_for_url`, `page.wait_for_load_state` and\n`locator.wait_for` answer once the state they waited for came.",
       "type": "object"
     },
     "ReachedLimit": {
@@ -6256,6 +6379,144 @@
         }
       ]
     },
+    "WaitForCountParams": {
+      "additionalProperties": false,
+      "description": "What `locator.wait_for_count` takes: the locator and the count its\nmatches must reach.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "count": {
+          "$ref": "#/$defs/Count",
+          "arrived_in": "0.1",
+          "description": "The count."
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        }
+      },
+      "required": [
+        "locator",
+        "count"
+      ],
+      "type": "object"
+    },
+    "WaitForExchangeParams": {
+      "additionalProperties": false,
+      "description": "What `page.wait_for_request` and `page.wait_for_response` take: the\npage, and the URLs of the requests they wait for; any request when none\nis given.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "url": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UrlMatcher"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The URLs it waits for."
+        }
+      },
+      "required": [
+        "page_id"
+      ],
+      "type": "object"
+    },
+    "WaitForFunctionParams": {
+      "additionalProperties": false,
+      "description": "What `page.wait_for_function` takes: the page, the function's source,\nits argument, its world, and how often it is checked.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "arg": {
+          "arrived_in": "0.1",
+          "description": "Its one argument, JSON; absent for none."
+        },
+        "function": {
+          "arrived_in": "0.1",
+          "description": "The page function's JavaScript source: a function, called with\n`arg`, or an expression, which takes none.",
+          "type": "string"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "polling_interval": {
+          "arrived_in": "0.1",
+          "description": "The milliseconds between two checks, at least 1; absent, about one\nframe's, 16.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "world": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/World"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where it runs; the main world when absent."
+        }
+      },
+      "required": [
+        "page_id",
+        "function"
+      ],
+      "type": "object"
+    },
+    "WaitForLoadStateParams": {
+      "additionalProperties": false,
+      "description": "What `page.wait_for_load_state` takes: the page and the state.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LoadState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The state; `load` when absent."
+        }
+      },
+      "required": [
+        "page_id"
+      ],
+      "type": "object"
+    },
     "WaitForRequestFinishedParams": {
       "additionalProperties": false,
       "description": "What `page.wait_for_request_finished` takes: the page, and the URLs of\nthe requests it waits for; any request when none is given.",
@@ -6284,6 +6545,43 @@
       },
       "required": [
         "page_id"
+      ],
+      "type": "object"
+    },
+    "WaitForUrlParams": {
+      "additionalProperties": false,
+      "description": "What `page.wait_for_url` takes: the page, the URL it waits for, and the\nstate a new document must reach.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "url": {
+          "$ref": "#/$defs/UrlMatcher",
+          "arrived_in": "0.1",
+          "description": "The URL it waits for."
+        },
+        "wait_until": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LoadState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The state a new document at that URL must reach; `load` when\nabsent. A change within the document waits for none."
+        }
+      },
+      "required": [
+        "page_id",
+        "url"
       ],
       "type": "object"
     },
@@ -8356,6 +8654,44 @@
     {
       "arrived_in": "0.1",
       "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Waits until the element the locator matches is in the state: attached or visible, one element; detached, none; hidden, none or one not visible. The locator is resolved again at each check, so a re-render that replaces its element changes nothing. Past `timeout.wait`, several matches raise `target_not_unique` listing them, and anything else `deadline_exceeded` naming the state.",
+      "events": [],
+      "kind": "waiter",
+      "name": "locator.wait_for",
+      "params": {
+        "$ref": "#/$defs/LocatorWaitForParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Reached"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Waits until the number of elements the locator matches is within the count, and answers it. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "events": [],
+      "kind": "waiter",
+      "name": "locator.wait_for_count",
+      "params": {
+        "$ref": "#/$defs/WaitForCountParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Counted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
       "description": "Registers a script, registered when the call arrives, that runs in the main world of every document the page loads afterwards, its frames' included, before the document's own scripts: the call stays in flight, and a navigation sent after it waits until the script is registered. A function is called with its one JSON argument. The Session's Provenance marks the main-world injection. Cancelling the call, as closing its `Subscription` does, removes the script; it answers when the page closes.",
@@ -8622,6 +8958,63 @@
     {
       "arrived_in": "0.1",
       "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "events": [],
+      "kind": "waiter",
+      "name": "page.wait_for_function",
+      "params": {
+        "$ref": "#/$defs/WaitForFunctionParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/Evaluated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "events": [],
+      "kind": "waiter",
+      "name": "page.wait_for_load_state",
+      "params": {
+        "$ref": "#/$defs/WaitForLoadStateParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Reached"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Waits, armed when the call arrives, until the page sends a request whose URL matches, and answers it, so a request an action triggers is caught by a waiter sent before the action. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "events": [],
+      "kind": "waiter",
+      "name": "page.wait_for_request",
+      "params": {
+        "$ref": "#/$defs/WaitForExchangeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageRequest"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
       "class": "read",
       "deprecated": null,
       "description": "Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past `timeout.wait`, it fails with `deadline_exceeded`.",
@@ -8635,6 +9028,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageExchange"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Waits, armed when the call arrives, until a request of the page whose URL matches gets its response, a redirect's included, and answers both, so a response an action triggers is caught by a waiter sent before the action, even one that arrives before the program awaits it. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "events": [],
+      "kind": "waiter",
+      "name": "page.wait_for_response",
+      "params": {
+        "$ref": "#/$defs/WaitForExchangeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageExchange"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Waits, armed when the call arrives, until the page's URL matches: at once when it already does, else on a committed navigation, then until its document reaches `wait_until`, or on a change within the document, a `pushState`, a `replaceState` or a hash change. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "events": [],
+      "kind": "waiter",
+      "name": "page.wait_for_url",
+      "params": {
+        "$ref": "#/$defs/WaitForUrlParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Reached"
       },
       "stability": "experimental"
     },

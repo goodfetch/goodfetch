@@ -752,10 +752,12 @@ number = 5
 kind = "operation"
 prefix = "page.on"
 
+# The page's app-state waits, `page.wait_for_request_finished` among them
+# (#703, #705); the locator waits fall under `locator.`.
 [[area]]
 number = 5
 kind = "operation"
-prefix = "page.wait_for_request_finished"
+prefix = "page.wait_for_"
 
 # Dialogs, popups and the page's close (#719).
 [[area]]

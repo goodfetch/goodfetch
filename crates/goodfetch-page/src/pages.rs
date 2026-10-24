@@ -25,7 +25,12 @@
 //! (`dialogs`); a failure a dialog handler left is raised by the action the
 //! dialog blocked, or else by the page's next call. `page.evaluate` runs a
 //! page function and `page.add_init_script` registers an init script
-//! (`page_functions`), which the page's navigations wait for.
+//! (`page_functions`), which the page's navigations wait for. The
+//! app-state waits are armed when their call arrives (ADR 0080): those on
+//! the page's requests, URL and load states in its events
+//! (`page_events`), `page.wait_for_function` by running its function until
+//! it is truthy (`page_functions`), and the locator waits through the
+//! guard's check, each under the Run's `timeout.wait`.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -83,6 +88,7 @@ use crate::trace;
 use crate::url_pattern::UrlPattern;
 
 mod clean_up;
+mod waits;
 
 /// What the page crate adds to the engine (ADR 0087): its run state's
 /// Sessions table and the handlers of `run.new_page`, of the Sessions'
@@ -131,6 +137,7 @@ pub fn contribution_with(pins: Vec<PinnedArtifact>, hooks: Arc<dyn HandlerPages>
     let contribution = with_route_handlers(contribution, &pages.interception);
     let contribution = with_dialog_handlers(contribution, &pages.dialogs);
     let contribution = with_function_handlers(contribution, &pages);
+    let contribution = waits::with_wait_handlers(contribution, &pages);
     with_request_handler(contribution, &pages)
 }
 

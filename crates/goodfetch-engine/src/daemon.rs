@@ -46,7 +46,7 @@ use crate::metrics::Metrics;
 use crate::ops::{self, Health, Ops};
 use crate::people::{SignInDriver, SignInPolicy};
 use crate::product::{Channel, Identity};
-use crate::rpc::{self, Authorities, ConsoleSocket, Dispatch};
+use crate::rpc::{self, Authorities, ConsoleConnection, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::runs::{ConnectionId, Runs};
 use crate::tasks::TaskOwner;
@@ -227,8 +227,8 @@ pub(crate) struct Serving {
     pub(crate) clock: Clock,
     /// Where its Console is served, or why it is not.
     pub(crate) console: ConsoleState,
-    /// The `WebSocket`s its Console's server opens, each a Connection.
-    pub(crate) console_sockets: mpsc::Receiver<ConsoleSocket>,
+    /// The Connections its Console's server opens: `WebSocket`s and event streams.
+    pub(crate) console_connections: mpsc::Receiver<ConsoleConnection>,
     /// The runtime's metrics.
     pub(crate) metrics: Metrics,
     /// The sign-in driver of its Console, if it serves one.
@@ -538,8 +538,8 @@ pub(crate) async fn serve(
                     return finish(DaemonEnd::Drained, &connections_owner, &shared).await;
                 }
             }
-            socket = serving.console_sockets.recv(), if console_open => match socket {
-                Some(socket) => admit(&mut open, &mut next, |id| serve_connection(&serving, &shared, &connections_owner, Arriving::Console(socket), id, ended.clone())),
+            console = serving.console_connections.recv(), if console_open => match console {
+                Some(console) => admit(&mut open, &mut next, |id| serve_connection(&serving, &shared, &connections_owner, Arriving::Console(console), id, ended.clone())),
                 // The Console's server stopped, or there is none.
                 None => console_open = false,
             },
@@ -582,10 +582,10 @@ fn admit(
 }
 
 /// A Connection that reached the Daemon: through its listener, or as a
-/// WebSocket its Console's server opened.
+/// Connection its Console's server opened.
 enum Arriving {
     Listener(Connection),
-    Console(ConsoleSocket),
+    Console(ConsoleConnection),
 }
 
 /// Serves `connection` as the Daemon's Connection `id`, a task of
@@ -631,10 +631,10 @@ fn serve_connection(
                     )
                     .await;
                 }
-                Arriving::Console(socket) => {
+                Arriving::Console(console) => {
                     rpc::serve_console(
                         dispatch,
-                        socket,
+                        console,
                         &its_owner,
                         runs.clone(),
                         events,

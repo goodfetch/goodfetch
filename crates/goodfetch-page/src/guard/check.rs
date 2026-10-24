@@ -40,6 +40,30 @@ pub(crate) fn argument(target: Target<'_>, kind: &str, slice: Duration) -> Value
     argument
 }
 
+/// A locator wait's check's argument: the selector, the state its
+/// matches are waited for in, `attached`, `detached`, `visible`, `hidden`
+/// or `count` within `min` and `max`, and how long it may wait in the page
+/// before it answers.
+pub(crate) fn wait_argument(
+    selector: &str,
+    state: &str,
+    (min, max): (Option<u64>, Option<u64>),
+    slice: Duration,
+) -> Value {
+    let mut argument = json!({
+        "selector": selector,
+        "action": state,
+        "slice": u64::try_from(slice.as_millis()).unwrap_or(u64::MAX),
+    });
+    if let Some(min) = min {
+        argument["min"] = json!(min);
+    }
+    if let Some(max) = max {
+        argument["max"] = json!(max);
+    }
+    argument
+}
+
 /// What one check saw.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
@@ -51,6 +75,8 @@ pub(crate) enum Seen {
         x: Option<f64>,
         /// Its distance from the viewport's top.
         y: Option<f64>,
+        /// For a locator wait's `count`, how many elements matched.
+        count: Option<u64>,
     },
     /// It is not, at the step `step`.
     Waiting {

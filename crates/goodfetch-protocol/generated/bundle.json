@@ -1740,6 +1740,33 @@
         }
       ]
     },
+    "Count": {
+      "additionalProperties": false,
+      "description": "A count of matches, bounded on either side or both: an exact count is\nboth bounds.",
+      "properties": {
+        "max": {
+          "arrived_in": "0.1",
+          "description": "The most; no bound when absent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "min": {
+          "arrived_in": "0.1",
+          "description": "The fewest; no bound when absent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "CountOf": {
       "description": "How many requests ended for one reason, code or cause.",
       "properties": {
@@ -1758,6 +1785,22 @@
       },
       "required": [
         "name",
+        "count"
+      ],
+      "type": "object"
+    },
+    "Counted": {
+      "description": "What `locator.wait_for_count` answers: how many elements matched.",
+      "properties": {
+        "count": {
+          "arrived_in": "0.1",
+          "description": "The number of matches.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
         "count"
       ],
       "type": "object"
@@ -3168,6 +3211,31 @@
         "written"
       ],
       "type": "object"
+    },
+    "ElementState": {
+      "description": "A state of the element a locator matches (Playwright's `waitFor`).",
+      "oneOf": [
+        {
+          "const": "attached",
+          "description": "One element matches.",
+          "type": "string"
+        },
+        {
+          "const": "detached",
+          "description": "No element matches.",
+          "type": "string"
+        },
+        {
+          "const": "visible",
+          "description": "One element matches, with a box of its own and `visibility:\nvisible`.",
+          "type": "string"
+        },
+        {
+          "const": "hidden",
+          "description": "No element matches, or the one that does is not visible.",
+          "type": "string"
+        }
+      ]
     },
     "EndingError": {
       "description": "An Error code a Run's ending raises, with its message and details.",
@@ -5166,6 +5234,26 @@
       ],
       "type": "object"
     },
+    "LoadState": {
+      "description": "A state the page's document reaches (Playwright's `LoadState`).",
+      "oneOf": [
+        {
+          "const": "domcontentloaded",
+          "description": "The document fired `DOMContentLoaded`.",
+          "type": "string"
+        },
+        {
+          "const": "load",
+          "description": "The document fired `load`.",
+          "type": "string"
+        },
+        {
+          "const": "networkidle",
+          "description": "The document fired `load`, and no request of the page was in flight\nfor 500 ms since, WebSocket and server-sent-event connections left\nout.",
+          "type": "string"
+        }
+      ]
+    },
     "Locator": {
       "additionalProperties": false,
       "description": "A locator (ADR 0085): what an action looks for on a page, resolved\nagain at each use, never a handle on an element. This tracer's locators\nare CSS selectors.",
@@ -5184,6 +5272,37 @@
       "required": [
         "page_id",
         "selector"
+      ],
+      "type": "object"
+    },
+    "LocatorWaitForParams": {
+      "additionalProperties": false,
+      "description": "What `locator.wait_for` takes: the locator and the state of its element.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ElementState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The state; `visible` when absent."
+        }
+      },
+      "required": [
+        "locator"
       ],
       "type": "object"
     },
@@ -7072,6 +7191,10 @@
         "dataset",
         "data"
       ],
+      "type": "object"
+    },
+    "Reached": {
+      "description": "What `page.wait_for_url`, `page.wait_for_load_state` and\n`locator.wait_for` answer once the state they waited for came.",
       "type": "object"
     },
     "ReachedLimit": {
@@ -11419,6 +11542,144 @@
         }
       ]
     },
+    "WaitForCountParams": {
+      "additionalProperties": false,
+      "description": "What `locator.wait_for_count` takes: the locator and the count its\nmatches must reach.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "count": {
+          "$ref": "#/$defs/Count",
+          "arrived_in": "0.1",
+          "description": "The count."
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator."
+        }
+      },
+      "required": [
+        "locator",
+        "count"
+      ],
+      "type": "object"
+    },
+    "WaitForExchangeParams": {
+      "additionalProperties": false,
+      "description": "What `page.wait_for_request` and `page.wait_for_response` take: the\npage, and the URLs of the requests they wait for; any request when none\nis given.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "url": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UrlMatcher"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The URLs it waits for."
+        }
+      },
+      "required": [
+        "page_id"
+      ],
+      "type": "object"
+    },
+    "WaitForFunctionParams": {
+      "additionalProperties": false,
+      "description": "What `page.wait_for_function` takes: the page, the function's source,\nits argument, its world, and how often it is checked.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "arg": {
+          "arrived_in": "0.1",
+          "description": "Its one argument, JSON; absent for none."
+        },
+        "function": {
+          "arrived_in": "0.1",
+          "description": "The page function's JavaScript source: a function, called with\n`arg`, or an expression, which takes none.",
+          "type": "string"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "polling_interval": {
+          "arrived_in": "0.1",
+          "description": "The milliseconds between two checks, at least 1; absent, about one\nframe's, 16.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "world": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/World"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where it runs; the main world when absent."
+        }
+      },
+      "required": [
+        "page_id",
+        "function"
+      ],
+      "type": "object"
+    },
+    "WaitForLoadStateParams": {
+      "additionalProperties": false,
+      "description": "What `page.wait_for_load_state` takes: the page and the state.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LoadState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The state; `load` when absent."
+        }
+      },
+      "required": [
+        "page_id"
+      ],
+      "type": "object"
+    },
     "WaitForRequestFinishedParams": {
       "additionalProperties": false,
       "description": "What `page.wait_for_request_finished` takes: the page, and the URLs of\nthe requests it waits for; any request when none is given.",
@@ -11447,6 +11708,43 @@
       },
       "required": [
         "page_id"
+      ],
+      "type": "object"
+    },
+    "WaitForUrlParams": {
+      "additionalProperties": false,
+      "description": "What `page.wait_for_url` takes: the page, the URL it waits for, and the\nstate a new document must reach.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "url": {
+          "$ref": "#/$defs/UrlMatcher",
+          "arrived_in": "0.1",
+          "description": "The URL it waits for."
+        },
+        "wait_until": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LoadState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The state a new document at that URL must reach; `load` when\nabsent. A change within the document waits for none."
+        }
+      },
+      "required": [
+        "page_id",
+        "url"
       ],
       "type": "object"
     },

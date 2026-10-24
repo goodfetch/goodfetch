@@ -25,6 +25,13 @@
 //! A request the interception refused carries the refusal's Error code in
 //! its `failure`, and one no call waited on is recorded in the Run trace as
 //! `page.request_failed`, so a refusal is never a timeout.
+//!
+//! The app-state waits on a page's requests, its URL and its load states
+//! are armed here when their call arrives (ADR 0080): a request waiter is
+//! answered by the next matching request sent, a response waiter by the
+//! next matching response, a redirect's included, and the page's document
+//! (`document`) answers the URL and load state waits. Each waits at most
+//! the Run's `timeout.wait`.
 #![expect(
     clippy::disallowed_types,
     reason = "listeners and waiters are armed as their call arrives, before any `.await`: each lock guards one page's state for one step, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -58,9 +65,13 @@ use goodfetch_protocol::page::{
 };
 use tokio::sync::{Notify, oneshot, watch};
 
+mod document;
 mod runtime_values;
+mod waiters;
 
+use self::document::{Document, InFlight, UrlWaiter};
 use self::runtime_values::{console_message, web_error};
+use self::waiters::{Armed, answer_armed};
 use crate::driver::{PageDriver, response_of};
 use crate::url_pattern::UrlPattern;
 
@@ -152,6 +163,8 @@ struct Shared {
     /// Whether the page left the engine, closed or with its Run: its
     /// listeners' calls answer then, and a crash leaves them listening.
     closed: watch::Sender<bool>,
+    /// The main frame's document and the load states it reached.
+    document: watch::Sender<Document>,
 }
 
 #[derive(Default)]
@@ -168,6 +181,16 @@ struct State {
     /// page's Session, whole or cut.
     requested: BTreeMap<String, Requested>,
     waiters: Vec<Waiter>,
+    /// The `page.wait_for_request` waiters.
+    request_waiters: Vec<Armed<PageRequest>>,
+    /// The `page.wait_for_response` waiters.
+    response_waiters: Vec<Armed<PageExchange>>,
+    /// The `page.wait_for_url` waiters.
+    url_waiters: Vec<UrlWaiter>,
+    /// The main frame's URL.
+    url: String,
+    /// The requests `networkidle` counts while they are in flight.
+    in_flight: InFlight,
     /// The sockets the page opened, by the browser's ID.
     sockets: BTreeMap<String, String>,
 }
@@ -270,12 +293,17 @@ impl PageEvents {
             wait,
             clock: run.clock(),
             log: Arc::new(RequestLog::new(run.owner().child(), run.folder())),
-            state: Mutex::new(State::default()),
+            state: Mutex::new(State {
+                url: "about:blank".to_owned(),
+                ..State::default()
+            }),
             changed: Notify::new(),
             gone: watch::Sender::new(false),
             closed: watch::Sender::new(false),
+            document: watch::Sender::new(Document::blank()),
         });
         run.spawn(read(subscription, Arc::clone(&shared)));
+        run.spawn(document::watch_idle(Arc::clone(&shared)));
         Self { shared }
     }
 
@@ -339,7 +367,13 @@ impl PageEvents {
 
     /// The page went: every listener's and waiter's call answers.
     pub(crate) fn close(&self) {
-        lock(&self.shared.state).waiters.clear();
+        {
+            let mut state = lock(&self.shared.state);
+            state.waiters.clear();
+            state.request_waiters.clear();
+            state.response_waiters.clear();
+            state.url_waiters.clear();
+        }
         self.shared.gone.send_replace(true);
         self.shared.closed.send_replace(true);
         self.shared.changed.notify_waiters();
@@ -585,6 +619,11 @@ fn take_in(shared: &Arc<Shared>, event: &goodfetch_cdp::RawEvent) -> Vec<Publish
                 request: tracked.request.clone(),
                 response,
             };
+            answer_armed(
+                &mut state.response_waiters,
+                &exchange.request.url,
+                &exchange,
+            );
             emit(
                 state,
                 &mut out,
@@ -612,11 +651,14 @@ fn take_in(shared: &Arc<Shared>, event: &goodfetch_cdp::RawEvent) -> Vec<Publish
                 answer_waiters(shared, state, request, response);
             }
         }
+        document::ended(shared, state, &finished.request_id);
         shared.changed.notify_waiters();
     } else if let Some(failed) = event.read::<network::LoadingFailedEvent>() {
         failed_request(shared, state, &mut out, &failed);
+        document::ended(shared, state, &failed.request_id);
         shared.changed.notify_waiters();
     } else {
+        document::take_in(shared, state, event);
         take_in_other(shared, state, &mut out, event);
     }
     out
@@ -640,6 +682,11 @@ fn sent_request(
         };
         chain.clone_from(&exchange.request.redirect_chain);
         chain.push(exchange.request.url.clone());
+        answer_armed(
+            &mut state.response_waiters,
+            &exchange.request.url,
+            &exchange,
+        );
         emit(
             state,
             out,
@@ -668,6 +715,8 @@ fn sent_request(
         redirect_chain: chain,
         failure: None,
     };
+    answer_armed(&mut state.request_waiters, &request.url, &request);
+    document::sent(shared, state, &sent);
     emit(state, out, PageEventName::Request, &PAGE_REQUEST, &request);
     state.requests.insert(
         sent.request_id,

@@ -4,8 +4,8 @@ use rustls::CertificateError;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 use super::{
-    CertificateFileError, InvalidDomain, KeyFileError, Trust, failure_of, read_certificates,
-    read_private_key,
+    CertificateFileError, InvalidDomain, KeyFileError, Trust, TrustScope, failure_of,
+    read_certificates, read_private_key,
 };
 
 /// `der` as a PEM block labelled `label`.
@@ -162,4 +162,56 @@ fn a_trusted_cas_entry_that_names_no_host_is_refused(#[case] domain: &str) {
             domain: domain.to_owned()
         })
     );
+}
+
+#[test]
+fn each_listed_domain_is_a_scope_with_its_own_and_its_parents_authorities() {
+    let (endpoint, _) = authority("endpoint");
+    let (parent, _) = authority("parent");
+    let (child, _) = authority("child");
+    let endpoint = endpoint.der().clone();
+    let parent = parent.der().clone();
+    let child = child.der().clone();
+    let trust = Trust::endpoint(std::slice::from_ref(&endpoint))
+        .with_trusted_cas("example.test", vec![parent.clone()])
+        .unwrap()
+        .with_trusted_cas("Sub.Example.test.", vec![child.clone()])
+        .unwrap();
+
+    assert_eq!(
+        trust.scopes(),
+        vec![
+            TrustScope {
+                domain: None,
+                authorities: vec![endpoint.clone()],
+            },
+            TrustScope {
+                domain: Some("example.test".to_owned()),
+                authorities: vec![endpoint.clone(), parent.clone()],
+            },
+            TrustScope {
+                domain: Some("sub.example.test".to_owned()),
+                authorities: vec![endpoint, child, parent],
+            },
+        ]
+    );
+}
+
+#[rstest]
+#[case::the_listed_domain("example.test", Some("example.test"))]
+#[case::a_subdomain("www.example.test", Some("example.test"))]
+#[case::the_most_specific_domain("a.sub.example.test", Some("sub.example.test"))]
+#[case::an_unlisted_host("example.com", None)]
+#[case::a_host_that_only_ends_alike("notexample.test", None)]
+fn a_host_is_in_the_scope_of_the_most_specific_domain_listed_for_it(
+    #[case] host: &str,
+    #[case] scope: Option<&str>,
+) {
+    let trust = Trust::default_roots()
+        .with_trusted_cas("example.test", Vec::new())
+        .unwrap()
+        .with_trusted_cas("sub.example.test", Vec::new())
+        .unwrap();
+
+    assert_eq!(trust.scope_of(host), scope);
 }

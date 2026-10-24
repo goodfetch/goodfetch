@@ -183,7 +183,25 @@ impl Events {
             accepted,
         };
         if self.commands.send(Command::Publish(publish)).await.is_ok() {
-            let _ = acceptance.await;
+            let _ = self.answered(acceptance).await;
+        }
+    }
+
+    /// The stream's answer to a command sent to it, `None` once the stream
+    /// has stopped. Its end, not only the answer, ends the wait: a command
+    /// sent under a permit taken just before the stream stopped lands after
+    /// its mailbox was emptied, where the stream never reads it and the
+    /// channel keeps it, its answer's sender with it, while any handle
+    /// lives, such as the waiting caller's own.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses the answer.
+    async fn answered<T>(&self, answer: oneshot::Receiver<T>) -> Option<T> {
+        tokio::select! {
+            biased;
+            answered = answer => answered.ok(),
+            () = self.commands.closed() => None,
         }
     }
 
@@ -211,7 +229,7 @@ impl Events {
             })
             .await
             .ok()?;
-        let id = answered.await.ok()?;
+        let id = self.answered(answered).await?;
         Some(Subscription {
             id,
             events: self.clone(),
@@ -239,7 +257,7 @@ impl Subscription {
             })
             .await
             .ok()?;
-        answered.await.ok()
+        self.events.answered(answered).await
     }
 }
 
@@ -540,3 +558,6 @@ fn serve(queue: &mut Queue, last: &mut u64, runs: &BTreeMap<RunId, RunAxes>) {
         let _ = answer.send(taken);
     }
 }
+
+#[cfg(test)]
+mod tests;

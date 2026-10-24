@@ -32,6 +32,8 @@ pub struct Filesystem {
     pub level: StorageLevel,
     /// The space left on it to the engine's user, in bytes.
     pub free: u64,
+    /// The inodes left on it to the engine's user, where it reports them.
+    pub free_inodes: Option<u64>,
     /// The setting that set its level, with the size in force; none at
     /// `normal`.
     pub limit: Option<SettingLimit>,

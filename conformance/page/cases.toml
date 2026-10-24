@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719 and #705;
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705 and #710;
 # spec #580, ticket #783): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "20"
+version = "21"
 
 [[capability]]
 name = "sessions.default"
@@ -38,6 +38,21 @@ covers = ["story:5-62", "operation:run.new_session", "error:setting_not_applicab
 [[capability.case]]
 id = "new-work-on-a-finished-run-raises-run-ended"
 covers = ["operation:run.new_session", "operation:run.new_page", "error:run_ended"]
+
+[[capability]]
+name = "sessions.page_check"
+
+[[capability.case]]
+id = "a-login-page-answering-200-is-a-lost-login-and-a-page-that-is-neither-fails-the-page-check"
+covers = ["story:5-79", "setting:session.page_check", "error:logged_out", "error:page_check_failed", "operation:page.goto"]
+
+[[capability.case]]
+id = "each-form-of-a-page-match-judges-the-expected-page-the-login-page-and-neither"
+covers = ["story:5-79", "setting:session.page_check", "operation:run.new_session", "error:logged_out", "error:page_check_failed"]
+
+[[capability.case]]
+id = "without-a-page-check-the-built-in-detector-judges-and-each-page-is-weakly-checked"
+covers = ["story:5-79", "error:logged_out", "operation:page.goto"]
 
 [[capability]]
 name = "sessions.proxy"

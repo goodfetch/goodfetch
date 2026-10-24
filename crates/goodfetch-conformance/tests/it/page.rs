@@ -1,4 +1,4 @@
-//! The page suite (spec #577, tickets #695, #696, #697, #698, #699, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719 and #705; spec #580,
+//! The page suite (spec #577, tickets #695, #696, #697, #698, #699, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705 and #710; spec #580,
 //! ticket #783) against an Attached engine of Collie's executable, given by path, on
 //! the local Proving ground (ADR 0094): its browser from a Browser cache in
 //! the test's own folder, which its environment names (ADR 0059).
@@ -28,7 +28,12 @@ type Part = (&'static str, &'static [&'static str]);
 
 const SESSIONS: Part = (
     "sessions",
-    &["sessions.default", "sessions", "sessions.proxy"],
+    &[
+        "sessions.default",
+        "sessions",
+        "sessions.page_check",
+        "sessions.proxy",
+    ],
 );
 const NAVIGATION: Part = (
     "navigation",
@@ -169,7 +174,7 @@ fn prove((name, capabilities): Part) {
     );
 }
 
-/// Covers: story:5-61, story:5-60, story:5-62, operation:run.new_session, operation:session.new_page, operation:session.close, error:closed, error:setting_not_applicable, error:capability_unavailable, error:run_ended, operation:run.new_page, operation:page.goto, error:setting_invalid, story:5-88, story:5-89, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server
+/// Covers: story:5-61, story:5-60, story:5-62, operation:run.new_session, operation:session.new_page, operation:session.close, error:closed, error:setting_not_applicable, error:capability_unavailable, error:run_ended, story:5-79, setting:session.page_check, error:logged_out, error:page_check_failed, operation:run.new_page, operation:page.goto, error:setting_invalid, story:5-88, story:5-89, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server
 #[test]
 fn the_page_suite_proves_sessions_against_collies_attached_engine() {
     prove(SESSIONS);

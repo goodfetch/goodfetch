@@ -17,7 +17,7 @@ product = "collie"
 
 [suite]
 name = "reset"
-version = "1"
+version = "2"
 
 [[capability]]
 name = "run.discard"

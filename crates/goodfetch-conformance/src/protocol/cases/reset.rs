@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::key_value_store::{KEY_VALUE_STORE_GET, KEY_VALUE_STORE_SET};
 use goodfetch_protocol::page::events::PAGE_WAIT_FOR_REQUEST_FINISHED;
-use goodfetch_protocol::page::{LOCATOR_CLICK, LOCATOR_FILL, PAGE_GOTO};
+use goodfetch_protocol::page::{LOCATOR_CLICK, LOCATOR_FILL, LOGGED_OUT, PAGE_GOTO};
 use goodfetch_protocol::run::{RUN_DISCARD, RUN_SET_PROGRESS_MESSAGE, RUN_START};
 use serde_json::{Value, json};
 
@@ -246,11 +246,14 @@ fn session_cookie(
             PAGE_GOTO.name,
             &json!({ "page_id": later.page_id, "url": account_url }),
         )?;
+        // The built-in detector judges the login page the account page
+        // sends to a lost login (ADR 0006).
         checks.check(
             "a later Run under the same Run ID sends no cookie of it: the account page sends it to log in",
-            went["result"]["response"]["url"]
-                .as_str()
-                .is_some_and(|url| url.ends_with("/login")),
+            went["error"]["data"]["code"] == json!(LOGGED_OUT.name)
+                && went["error"]["data"]["url"]
+                    .as_str()
+                    .is_some_and(|url| url.ends_with("/login")),
         );
     }
     finish_run(connection, run_id)?;

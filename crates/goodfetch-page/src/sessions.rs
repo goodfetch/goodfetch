@@ -66,8 +66,8 @@ use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use goodfetch_protocol::run::{Lifecycle, RUN_ENDED, RUN_NOT_FOUND, RunDetails, RunId};
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{
-    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SESSION_SOURCE, SettingLimit,
-    SettingsLayer, TIMEOUT_ACTION, TIMEOUT_NAVIGATION, TIMEOUT_WAIT,
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SESSION_PAGE_CHECK,
+    SESSION_SOURCE, SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_NAVIGATION, TIMEOUT_WAIT,
 };
 use goodfetch_protocol::usage::PROXY_BYTES;
 use serde_json::{Map, Value, json};
@@ -88,6 +88,7 @@ use crate::page_events;
 use crate::page_value::{HandlerPages, PageValue};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
 use crate::proxy::{Opening, SessionProxy};
+use crate::recovery::Declared;
 
 /// What the page crate adds to every run file: each Session the Run opened,
 /// by its position among them, whether it is the Run's default Session,
@@ -196,6 +197,8 @@ pub(crate) struct OpenPage {
     pub(crate) clock: Clock,
     /// Its live hiding, when it hides anything.
     pub(crate) hiding: Option<Arc<PageHiding>>,
+    /// Its Session's Page check, when it declares one.
+    pub(crate) page_check: Option<Arc<Declared>>,
     /// Its admission of the governor's `browser_page` kind, given back once
     /// the page leaves and no call holds it.
     _admission: Arc<Permit>,
@@ -771,7 +774,8 @@ impl Sessions {
 }
 
 /// Reads a Session's own `settings` (ADRs 0083 and 0092): the Clean-up
-/// rules' keys, which its pages take over the Run's (ADR 0047), and the
+/// rules' keys, which its pages take over the Run's (ADR 0047), its Page
+/// check, `session.page_check` (ADR 0092), and the
 /// `proxy.*` keys, its one proxy (ADR 0021; SA-22), which a Client acting
 /// for a model may not set; and `setting_locked` for one the Run's layers
 /// lock. Any other key is refused with `setting_not_applicable`:
@@ -800,7 +804,11 @@ fn own_settings(
     } else {
         values
             .keys()
-            .find(|key| !SESSION_KEYS.contains(key) && !key.starts_with(PROXY_PREFIX))
+            .find(|key| {
+                !SESSION_KEYS.contains(key)
+                    && *key != SESSION_PAGE_CHECK.name
+                    && !key.starts_with(PROXY_PREFIX)
+            })
             .map(|key| (key, "set it on the Run, whose Sessions all take it"))
     };
     if let Some((key, fix)) = refused {

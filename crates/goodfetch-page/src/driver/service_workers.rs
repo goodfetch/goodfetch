@@ -5,7 +5,9 @@
 //! its workers: under `allow` a worker of a site is handed to its Session's
 //! interception, then let run; under `block` the fetch of every worker's
 //! script is failed, so `register()` rejects as on a network failure, with
-//! `register` the browser's own function and no worker ever running. The
+//! `register` the browser's own function and no worker ever running; one
+//! that attaches all the same is closed before it runs, and a script fetch
+//! whose worker's context the browser cannot name is failed too. The
 //! pinned builds have no per-context switch that makes `register()` reject,
 //! so this is spec #577's floor, and never a bypass of service workers.
 //! Chromium fetches a worker's script outside every target's interception,
@@ -81,6 +83,13 @@ impl ServiceWorkerChoices {
     /// The choice of the context `context`, if one was made.
     fn of(&self, context: Option<&browser::BrowserContextID>) -> Option<ServiceWorkers> {
         lock(&self.contexts).get(context?).cloned()
+    }
+
+    /// Lets go of the choice of the context `context`, which closed, with
+    /// what it holds of its Session's Run.
+    pub(super) fn forget(&self, context: &browser::BrowserContextID) {
+        let forgotten = lock(&self.contexts).remove(context);
+        drop(forgotten);
     }
 }
 
@@ -242,31 +251,36 @@ async fn attach(browser: Browser, attached: target::AttachedToTargetEvent, run: 
         .service_workers
         .of(info.browser_context_id.as_ref())
         .filter(|_| of_a_site);
-    if let (Some(ServiceWorkers::Allow(handle)), Some(context)) =
-        (choice, info.browser_context_id.clone())
-    {
-        let gone = run.cancellation().child_token();
-        lock(&browser.service_workers.attached).insert(session.clone(), gone.clone());
-        let driver = PageDriver::service_worker(
-            browser.clone(),
-            session.clone(),
-            context,
-            info.target_id.clone(),
-        );
-        if !handle(driver, gone).await {
-            let closed = browser
-                .try_send(
-                    None,
-                    &target::CloseTargetParams {
-                        target_id: info.target_id,
-                    },
-                )
-                .await;
-            if let Err(failure) = closed {
-                tracing::debug!(%failure, "a service worker the interception could not hold went first");
-            }
-            return;
+    let held = match (choice, info.browser_context_id.clone()) {
+        (Some(ServiceWorkers::Allow(handle)), Some(context)) => {
+            let gone = run.cancellation().child_token();
+            lock(&browser.service_workers.attached).insert(session.clone(), gone.clone());
+            let driver = PageDriver::service_worker(
+                browser.clone(),
+                session.clone(),
+                context,
+                info.target_id.clone(),
+            );
+            handle(driver, gone).await
         }
+        // A worker of a context that blocks them, whose script fetch went
+        // through all the same, never runs.
+        (Some(ServiceWorkers::Block), _) => false,
+        (None | Some(ServiceWorkers::Allow(_)), _) => true,
+    };
+    if !held {
+        let closed = browser
+            .try_send(
+                None,
+                &target::CloseTargetParams {
+                    target_id: info.target_id,
+                },
+            )
+            .await;
+        if let Err(failure) = closed {
+            tracing::debug!(%failure, "a service worker that may not run went first");
+        }
+        return;
     }
     if attached.waiting_for_debugger
         && let Err(failure) = browser
@@ -318,7 +332,9 @@ async fn script_fetch(browser: Browser, paused: fetch::RequestPausedEvent) {
 }
 
 /// Whether the worker whose target is `worker`, which a script fetch names
-/// as its frame, is of a context that blocks its workers.
+/// as its frame, is of a context that blocks its workers; one the browser
+/// cannot name a context for is held as blocking, so a failed lookup lets
+/// no worker run (ADR 0014: the policy fails closed).
 async fn blocks(browser: &Browser, worker: &str) -> bool {
     let Ok(found) = browser
         .try_send(
@@ -329,7 +345,7 @@ async fn blocks(browser: &Browser, worker: &str) -> bool {
         )
         .await
     else {
-        return false;
+        return true;
     };
     matches!(
         browser
@@ -337,4 +353,33 @@ async fn blocks(browser: &Browser, worker: &str) -> bool {
             .of(found.target_info.browser_context_id.as_ref()),
         Some(ServiceWorkers::Block)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ServiceWorkerChoices, ServiceWorkers, browser, lock};
+
+    /// A context's choice goes once the context closes, with what it holds
+    /// of its Session's Run, and another context's stays.
+    #[test]
+    fn a_closed_contexts_choice_goes() {
+        let choices = ServiceWorkerChoices::default();
+        let (closed, open) = (
+            browser::BrowserContextID::from("closed"),
+            browser::BrowserContextID::from("open"),
+        );
+        for context in [&closed, &open] {
+            lock(&choices.contexts).insert(context.clone(), ServiceWorkers::Block);
+        }
+
+        choices.forget(&closed);
+
+        assert_eq!(
+            (
+                choices.of(Some(&closed)).is_some(),
+                choices.of(Some(&open)).is_some()
+            ),
+            (false, true)
+        );
+    }
 }

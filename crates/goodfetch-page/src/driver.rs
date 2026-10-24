@@ -495,6 +495,8 @@ impl<B: Connect> SessionDriver<B> {
         let Ok(browser) = self.browser.connect().await else {
             return;
         };
+        // Its service workers' choice goes with it, and what that holds.
+        browser.service_workers.forget(context);
         if self.browser.borrowed() {
             for target_id in std::mem::take(&mut *self.opened.lock().await) {
                 if let Err(failure) = browser

@@ -48,6 +48,11 @@ const WRITERS: &[(&str, usize, &str)] = &[
         "holds no value: request identities: URL fingerprints",
     ),
     (
+        "crates/foxhound/goodfetch-frontier/src/payload.rs",
+        3,
+        "holds no value: the program's own Payloads and the Labels' schemas",
+    ),
+    (
         "crates/foxhound/goodfetch-frontier/src/politeness.rs",
         1,
         "holds no value: per-domain Politeness state",
@@ -179,8 +184,8 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/goodfetch-engine/src/run_index.rs",
-        3,
-        "masked: its progress message is masked as `Scope::Kept` where the program sets it",
+        4,
+        "masked: its progress message is masked as `Scope::Kept` where the program sets it; consent walls and refetch stops hold domains and causes",
     ),
     (
         "crates/goodfetch-engine/src/run_key.rs",

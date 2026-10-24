@@ -121,6 +121,7 @@ use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation
 use crate::metrics::Metrics;
 use crate::needs_you::NeedsYou;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
+use crate::robots_txt::RunCopies;
 use crate::run_files::{self, FileKind, KeepError, Kept};
 use crate::run_index;
 use crate::run_key::{self, KeyError, RunKey, StoredKey};
@@ -1071,6 +1072,9 @@ struct Shared {
     /// The Politeness its own code shares outside admission, once it asked
     /// for it.
     politeness: tokio::sync::OnceCell<Politeness>,
+    /// Its own copies of the robots.txt files its program's navigation
+    /// read, one per origin (ADRs 0086 and 0098).
+    robots_txt: RunCopies,
 }
 
 impl std::fmt::Debug for Run {
@@ -1503,6 +1507,13 @@ impl Run {
                 },
             }
         });
+    }
+
+    /// Its own copies of the robots.txt files its program's navigation
+    /// read, one fetch per origin while it lives, apart from the copy
+    /// Foxhound shares across a user's runs (ADRs 0086 and 0098).
+    pub fn robots_txt(&self) -> &RunCopies {
+        &self.shared.robots_txt
     }
 
     /// Its owner, whose tasks and blocking work stop with the Run.
@@ -4129,6 +4140,7 @@ impl Registry {
                 progress,
                 system_info: self.setup.governor.system_info(),
                 politeness: tokio::sync::OnceCell::new(),
+                robots_txt: RunCopies::default(),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),

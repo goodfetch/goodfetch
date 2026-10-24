@@ -57,6 +57,7 @@ pub mod pinned_download;
 pub mod politeness;
 mod product;
 pub mod retry_after;
+pub mod robots_txt;
 pub mod rpc;
 pub mod rule_sources;
 pub mod run;

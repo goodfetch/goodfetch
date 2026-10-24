@@ -9,6 +9,8 @@
 use std::time::Duration;
 
 use goodfetch_cdp::{Connection, Failure, Framer};
+use goodfetch_engine::deadline::Deadline;
+use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use goodfetch_test_support::runtime;
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -98,6 +100,12 @@ fn open_page() -> Call {
     }
 }
 
+fn action() -> Call {
+    Call::Action {
+        operation: "locator.click",
+    }
+}
+
 /// Covers: error:navigation_failed, error:page_crashed, error:browser_launch_failed
 #[rstest]
 #[case::unknown_refusal_of_a_navigation(
@@ -110,7 +118,8 @@ fn open_page() -> Call {
     Browser::Refuses("Cannot navigate to invalid URL"),
     "navigation_failed"
 )]
-#[case::navigation_timeout(navigation(), Browser::Silent, "navigation_failed")]
+/// Covers: error:deadline_exceeded
+#[case::navigation_timeout(navigation(), Browser::Silent, "deadline_exceeded")]
 #[case::target_closed_under_a_navigation(
     navigation(),
     Browser::Refuses("Target closed"),
@@ -122,7 +131,8 @@ fn open_page() -> Call {
     Browser::Refuses("Something new"),
     "browser_launch_failed"
 )]
-#[case::new_page_timeout(open_page(), Browser::Silent, "browser_launch_failed")]
+/// Covers: error:deadline_exceeded
+#[case::new_page_timeout(open_page(), Browser::Silent, "deadline_exceeded")]
 #[case::session_gone_under_a_new_page(
     open_page(),
     Browser::Refuses("Session with given id not found"),
@@ -134,12 +144,21 @@ fn open_page() -> Call {
     Browser::Refuses("Could not find node with given id"),
     "page_crashed"
 )]
-#[case::document_read_timeout(document(), Browser::Silent, "page_crashed")]
+/// Covers: error:deadline_exceeded
+#[case::document_read_timeout(document(), Browser::Silent, "deadline_exceeded")]
 #[case::browser_lost_under_a_document_read(document(), Browser::Exits, "page_crashed")]
+/// Covers: error:deadline_exceeded
+#[case::action_timeout(action(), Browser::Silent, "deadline_exceeded")]
+#[case::browser_lost_under_an_action(action(), Browser::Exits, "page_crashed")]
 fn each_cdp_failure_raises_the_code_of_the_call_that_met_it(
     #[case] call: Call,
     #[case] browser: Browser,
     #[case] code: &str,
 ) {
-    assert_eq!(call_error(&call, &failure(browser), None).code(), code);
+    let deadline = Deadline::declared(&TIMEOUT_NAVIGATION);
+
+    assert_eq!(
+        call_error(&call, &failure(browser), None, &deadline).code(),
+        code
+    );
 }

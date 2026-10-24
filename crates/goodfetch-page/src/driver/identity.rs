@@ -14,8 +14,6 @@
 //! answers. `Runtime.evaluate` runs there without enabling `Runtime`
 //! (ADR 0019).
 
-use std::time::Duration;
-
 use goodfetch_cdp::SessionId as TargetSession;
 use goodfetch_cdp::generated::{emulation, network, page, runtime, target};
 use goodfetch_engine::CallError;
@@ -53,9 +51,6 @@ const READ_HINTS: &str = r#"(async () => {
     formFactors: high.formFactors,
   };
 })()"#;
-
-/// How long the secure page may take to load.
-const LOAD_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The identity a headless browser's pages show: its window's.
 #[derive(Clone, Debug)]
@@ -189,7 +184,8 @@ async fn hints_of(
         ));
     }
     if let Some(loader) = navigated.loader_id {
-        let loaded = tokio::time::timeout(LOAD_TIMEOUT, async {
+        // The secure page loads within a navigation's deadline.
+        let loaded = tokio::time::timeout(browser.deadlines.navigation.duration(), async {
             while let Some(event) = events.next().await {
                 if let Some(lifecycle) = event.read::<page::LifecycleEventEvent>()
                     && lifecycle.loader_id == loader

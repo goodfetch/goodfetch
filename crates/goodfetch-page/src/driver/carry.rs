@@ -248,7 +248,7 @@ async fn run_on(
         .send(Some(&session), &page::EnableParams::default(), call)
         .await?;
     let committed = tokio::time::timeout(
-        super::COMMAND_TIMEOUT,
+        browser.deadlines.navigation.duration(),
         commit(browser, &session, &mut events, origin, call),
     )
     .await;

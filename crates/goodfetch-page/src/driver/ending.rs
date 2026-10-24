@@ -3,10 +3,19 @@
 //! `BrowserCrash`): its renderer's crash, its target destroyed, or its
 //! browser's connection ending, told apart by the process's exit status.
 
+use std::time::Duration;
+
 use goodfetch_cdp::generated::target;
 use goodfetch_protocol::page::BrowserExit;
 
-use super::{EXIT_WAIT, PageDriver, navigation};
+use super::{PageDriver, navigation};
+
+/// How soon after a target's end its browser's connection ends when the
+/// browser quit: a quitting browser closes its windows, then exits at
+/// once. It tells a quit from a tab closed in the browser, so it is the
+/// browser's own pace, never a wait on a call's behalf, and no setting
+/// moves it (ADR 0059's note of 2026-10-24).
+const QUIT_WINDOW: Duration = Duration::from_secs(2);
 
 /// How a page's target ended when the engine did not close its browser
 /// (ADR 0113; spec #594's `TargetDestroyed`, `RendererCrash`, `BrowserQuit`
@@ -67,11 +76,11 @@ impl PageDriver {
         // A quitting browser closes its windows before it exits: a target
         // destroyed with the connection ending soon after is the quit's.
         let ending = async { while root.next().await.is_some() {} };
-        if tokio::time::timeout(EXIT_WAIT, ending).await.is_err() {
+        if tokio::time::timeout(QUIT_WINDOW, ending).await.is_err() {
             return Lost::Destroyed;
         }
         let mut exit = self.browser.exit.clone();
-        let ended = tokio::time::timeout(EXIT_WAIT, exit.wait_for(Option::is_some))
+        let ended = tokio::time::timeout(QUIT_WINDOW, exit.wait_for(Option::is_some))
             .await
             .ok()
             .and_then(Result::ok)

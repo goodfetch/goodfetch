@@ -237,6 +237,10 @@ covers = ["story:5-3", "operation:locator.click", "error:target_not_unique", "se
 id = "a-target-never-actionable-raises-deadline-exceeded-naming-the-step"
 covers = ["story:5-2", "operation:locator.click", "error:deadline_exceeded", "setting:timeout.action"]
 
+[[capability.case]]
+id = "an-action-on-a-busy-page-raises-deadline-exceeded-at-its-deadline"
+covers = ["operation:locator.click", "operation:page.evaluate", "error:deadline_exceeded", "setting:timeout.action"]
+
 [[capability]]
 name = "locators.input"
 

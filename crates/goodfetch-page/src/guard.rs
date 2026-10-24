@@ -120,7 +120,10 @@ enum Landed {
     Intercepted { observed: String },
 }
 
-/// Performs `request` on `page`, through the guard, timed by `clock`.
+/// Performs `request` on `page`, through the guard, timed by `clock`. The
+/// deadline holds however long the page takes to answer: an action whose
+/// page answers none of its checks, its main thread busy, or that never
+/// gets its turn, ends one check's slice after it (ADR 0080).
 ///
 /// # Errors
 ///
@@ -138,6 +141,34 @@ pub(crate) async fn act(
     request: Request<'_>,
     clock: &Clock,
 ) -> Result<(), CallError> {
+    let started = clock.now();
+    let asked = Asked {
+        operation: request.operation,
+        selector: request.selector,
+        surface: request.surface,
+        limit: request.window.limit.clone(),
+    };
+    // A check answers within its slice of the deadline, so the guard's own
+    // loop reports what it saw last; past that, the page is not answering.
+    let unanswered = started + request.window.duration + SLICE;
+    tokio::select! {
+        biased;
+        acted = Box::pin(attempt(page, request, clock)) => acted,
+        () = clock.sleep_until(unanswered) => Err(at_deadline(
+            asked,
+            Seen::Waiting {
+                step: "attached".to_owned(),
+                observed: "the page answered none of the action's checks in time: its main thread is busy, or another action holds its turn".to_owned(),
+                matches: Vec::new(),
+            },
+            clock.now() - started,
+        )),
+    }
+}
+
+/// Performs `request` on `page` through the guard, as [`act`] does, until
+/// it lands, fails or its deadline passes between two checks.
+async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Result<(), CallError> {
     let started = clock.now();
     let end = started + request.window.duration;
     let mut turn = page.turn(request.operation).await;

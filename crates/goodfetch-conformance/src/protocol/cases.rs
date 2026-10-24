@@ -93,6 +93,7 @@ pub(crate) enum Case {
     KeyReachesAField,
     StillAmbiguous,
     NeverActionable,
+    BusyPage,
     /// A Clean-up case.
     CleanUp(clean_up::Case),
     /// A Consent prompt case.
@@ -328,6 +329,7 @@ impl Case {
             "a-target-never-actionable-raises-deadline-exceeded-naming-the-step" => {
                 Self::NeverActionable
             }
+            "an-action-on-a-busy-page-raises-deadline-exceeded-at-its-deadline" => Self::BusyPage,
             _ => {
                 return fetch_edge::Case::from_id(id)
                     .map(Self::FetchEdge)
@@ -453,6 +455,7 @@ impl Case {
             ),
             Self::StillAmbiguous => guard::still_ambiguous(connection, site, checks),
             Self::NeverActionable => guard::never_actionable(connection, site, checks),
+            Self::BusyPage => guard::busy_page(connection, site, checks),
             Self::Route(case) => case.run(connection, site, checks),
             Self::Session(case) => case.run(connection, target, site, checks),
             Self::CleanUp(case) => case.run(connection, target, site, checks),

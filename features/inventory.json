@@ -5643,6 +5643,17 @@
       ]
     },
     {
+      "id": "setting:egress.no_private_endpoints",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:egress.offline",
       "kind": "setting",
       "area": 4,

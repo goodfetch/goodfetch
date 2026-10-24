@@ -368,6 +368,7 @@ fn the_committed_table_covers_the_committed_iana_registries() {
 #[case::upstream_proxy(Family::UpstreamProxy)]
 #[case::plugin_traffic(Family::PluginTraffic)]
 #[case::lent_page_client(Family::LentPageClient)]
+#[case::operator_endpoint(Family::OperatorEndpoint)]
 #[case::domain_policy(Family::DomainPolicy)]
 fn the_committed_table_has_cases_of_every_family(#[case] family: Family) {
     let table = SsrfTable::committed().unwrap();

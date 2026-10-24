@@ -132,6 +132,11 @@
           "type": "string"
         },
         {
+          "const": "operator_endpoint",
+          "description": "An Operator-configured endpoint at an address that is not globally\nreachable, under an Operator policy that sets\n`egress.no_private_endpoints` (ADR 0017), as Goodfetch Cloud does.",
+          "type": "string"
+        },
+        {
           "const": "domain_policy",
           "description": "A host the run's domain policy refuses, in any spelling the URL\nparser accepts: one it does not allow, one it blocks.",
           "type": "string"
@@ -329,6 +334,24 @@
           },
           "required": [
             "via"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The engine's own request to an Operator-configured endpoint of\n`kind` at the URL, such as an OTLP collector.",
+          "properties": {
+            "kind": {
+              "description": "The endpoint's kind, as `goodfetch-protocol`'s table names it\nin snake case: `otlp`, `model_provider`, `notification_webhook`.",
+              "type": "string"
+            },
+            "via": {
+              "const": "operator_endpoint",
+              "type": "string"
+            }
+          },
+          "required": [
+            "via",
+            "kind"
           ],
           "type": "object"
         }

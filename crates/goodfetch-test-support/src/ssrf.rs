@@ -137,6 +137,10 @@ pub enum Family {
     /// A Lent page's client trying a browser context with its own proxy, or
     /// an extension (ADR 0089).
     LentPageClient,
+    /// An Operator-configured endpoint at an address that is not globally
+    /// reachable, under an Operator policy that sets
+    /// `egress.no_private_endpoints` (ADR 0017), as Goodfetch Cloud does.
+    OperatorEndpoint,
     /// A host the run's domain policy refuses, in any spelling the URL
     /// parser accepts: one it does not allow, one it blocks.
     DomainPolicy,
@@ -160,6 +164,13 @@ pub enum Route {
     },
     /// An extension a Lent page's client loads, which requests the URL.
     Extension,
+    /// The engine's own request to an Operator-configured endpoint of
+    /// `kind` at the URL, such as an OTLP collector.
+    OperatorEndpoint {
+        /// The endpoint's kind, as `goodfetch-protocol`'s table names it
+        /// in snake case: `otlp`, `model_provider`, `notification_webhook`.
+        kind: String,
+    },
 }
 
 /// A case's scripted DNS answer to one lookup.

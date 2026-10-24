@@ -272,7 +272,8 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 # The executables' opt-in OTLP export of the engine's spans (RT-18, ADR
 # 0132): tracing-opentelemetry turns spans into OpenTelemetry's, which the
 # SDK's batch processor exports over OTLP/HTTP in protobuf on its own thread,
-# through ureq, the blocking client ureq's users already link. The engine's
+# through the engine's own HTTP client, the collector an Operator-configured
+# endpoint (ADR 0017). The engine's
 # metrics, instrumented once with OpenTelemetry's API (ADR 0050): the
 # executables' SDK exports them through the Prometheus exporter their ops
 # listener serves, and over OTLP/HTTP from the periodic reader's own thread.

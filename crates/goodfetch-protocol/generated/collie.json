@@ -2698,7 +2698,7 @@
         "details": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`.",
+          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,\n`limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`.",
           "type": "object"
         },
         "id": {
@@ -13358,6 +13358,13 @@
       "name": "requests",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run stopped by a Limit that still has nothing left in its period (ADR 0041); `details` give the `limit` as `limit_reached` names it, the `amount` it allows now, the Product the Run `needs` and, for a Recipe's Run, its `recipe`. Its actions offer `usage.raise`, a person's answer, and for a Recipe's Run `run.resume`, which resumes it in the Daemon once the Limit is raised; an SDK script's Run then waits for its script, which resumes it by its Run ID (ADR 0031). It leaves the list once the Limit has room again (a person raised it, or its period started again), once the Run runs again, or when a person dismisses it.",
+      "name": "run_stopped_by_limit",
+      "product": "collie",
+      "type": "needs_you_kind"
     },
     {
       "arrived_in": "0.1",

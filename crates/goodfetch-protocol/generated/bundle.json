@@ -5717,7 +5717,7 @@
         "details": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`.",
+          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,\n`limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`.",
           "type": "object"
         },
         "id": {

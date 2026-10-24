@@ -137,6 +137,10 @@ name = "navigation.back_forward_cache"
 id = "going-back-loads-the-document-again"
 covers = ["story:5-24", "operation:page.go_back"]
 
+[[capability.case]]
+id = "a-wait-armed-before-going-back-passes"
+covers = ["story:5-24", "operation:page.go_back", "operation:page.wait_for_url", "operation:page.wait_for_response"]
+
 [[capability]]
 name = "navigation.failures"
 
@@ -544,6 +548,10 @@ covers = ["story:5-19", "story:5-20", "operation:page.wait_for_response", "opera
 [[capability.case]]
 id = "locator-and-function-waits-resolve-on-re-rendering-pages"
 covers = ["story:5-19", "operation:locator.wait_for", "operation:locator.wait_for_count", "operation:page.wait_for_function"]
+
+[[capability.case]]
+id = "a-route-or-a-wait-whose-pattern-the-engine-cannot-match-is-refused-at-the-call"
+covers = ["story:5-43", "error:pattern_unsupported", "operation:page.route", "operation:page.wait_for_url"]
 
 [[capability.case]]
 id = "each-wait-ends-at-timeout-wait-naming-what-it-waited-for"

@@ -299,10 +299,11 @@ pub struct Navigated {
 /// What `navigation_failed` details.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct NavigationFailedDetails {
-    /// The URL the navigation went to; empty when the page's history, which
+    /// The URL the navigation went to; none when the page's history, which
     /// names it for a reload or a step back or forward, did not read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub url: String,
+    pub url: Option<String>,
     /// The browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`,
     /// when the browser named one.
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -379,9 +380,11 @@ pub struct BlockedDetails {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RedirectLimit {
     /// The browser's own count, 20 requests in a navigation's chain, its
-    /// first included, which a navigation cannot change.
+    /// first included, which a navigation cannot change: it follows 19
+    /// redirects (ADR 0118).
     Browser {
-        /// The count.
+        /// The requests the chain may hold, its first included: 20, one
+        /// more than the redirects followed, which `hops` lists.
         #[schemars(extend("arrived_in" = "0.1"))]
         count: u32,
     },
@@ -390,7 +393,7 @@ pub enum RedirectLimit {
         /// The setting's key.
         #[schemars(extend("arrived_in" = "0.1"))]
         name: String,
-        /// The count.
+        /// The redirects it allows, the chain's first request left out.
         #[schemars(extend("arrived_in" = "0.1"))]
         count: u32,
     },
@@ -399,7 +402,7 @@ pub enum RedirectLimit {
         /// The option's name.
         #[schemars(extend("arrived_in" = "0.1"))]
         name: String,
-        /// The count.
+        /// The redirects it allows, the chain's first request left out.
         #[schemars(extend("arrived_in" = "0.1"))]
         count: u32,
     },
@@ -809,7 +812,7 @@ pub const LOCATOR_CLICK: Operation = Operation {
 /// `locator.fill`.
 pub const LOCATOR_FILL: Operation = Operation {
     name: "locator.fill",
-    description: "Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.",
+    description: "Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,

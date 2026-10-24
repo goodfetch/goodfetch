@@ -38,21 +38,9 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     "track",
     "wbr",
   ];
-  const FILLABLE = [
-    "",
-    "email",
-    "number",
-    "password",
-    "search",
-    "tel",
-    "text",
-    "url",
-    "date",
-    "datetime-local",
-    "month",
-    "time",
-    "week",
-  ];
+  const FILLABLE = ["", "email", "number", "password", "search", "tel", "text", "url"];
+  // The inputs whose value a person picks rather than types: `fill` sets it.
+  const PICKED = ["color", "date", "datetime-local", "month", "range", "time", "week"];
   const clip = (text, length) => (text.length > length ? `${text.slice(0, length - 1)}…` : text);
   const describe = (element) => {
     if (!element) return "nothing";
@@ -66,7 +54,8 @@ async function check({ selector, handle, action, events, slice, min, max }) {
       .join("");
     const opening = `<${element.localName}${attributes}>`;
     if (VOID.includes(element.localName)) return opening;
-    const text = clip((element.textContent ?? "").replace(/\s+/g, " ").trim(), 50);
+    // Cut before it is normalized: a large element's text is read once.
+    const text = clip((element.textContent ?? "").slice(0, 200).replace(/\s+/g, " ").trim(), 50);
     return `${opening}${text}</${element.localName}>`;
   };
   // CSS, inside open shadow roots too, as Playwright's CSS engine matches.
@@ -93,7 +82,10 @@ async function check({ selector, handle, action, events, slice, min, max }) {
   const editable = (element) => {
     if (element.isContentEditable) return true;
     if (element.localName === "textarea") return !element.readOnly;
-    if (element.localName === "input") return FILLABLE.includes(element.type) && !element.readOnly;
+    if (element.localName === "input")
+      return (
+        (FILLABLE.includes(element.type) || PICKED.includes(element.type)) && !element.readOnly
+      );
     return false;
   };
   const moving = (element) =>
@@ -121,8 +113,7 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     if (action === "detached") {
       return count === 0 ? { state: "ready" } : waiting("detached", `${count} elements match`);
     }
-    if (count > 1)
-      return { ...waiting("unique", `${count} elements match`), matches: found.map(describe) };
+    if (count > 1) return { ...waiting("unique", `${count} elements match`), matches: found };
     const element = found[0];
     if (action === "hidden") {
       return element === undefined || !shown(element)
@@ -146,7 +137,7 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     if (found.length > 1)
       return {
         ...waiting("unique", `${found.length} elements match`),
-        matches: found.map(describe),
+        matches: found,
       };
     const element = found[0];
     if (!shown(element)) return waiting("visible", `${describe(element)} is not visible`);
@@ -156,6 +147,10 @@ async function check({ selector, handle, action, events, slice, min, max }) {
       return waiting("editable", `${describe(element)} is not editable`);
     if (action !== "pointer") {
       element.focus();
+      if (action === "fill" && element.localName === "input" && PICKED.includes(element.type)) {
+        world[Symbol.for("goodfetch.guard.fill")] = element;
+        return { state: "focused", set_value: true };
+      }
       if (action === "fill") {
         if (element.isContentEditable) {
           const range = document.createRange();
@@ -167,7 +162,7 @@ async function check({ selector, handle, action, events, slice, min, max }) {
           element.select();
         }
       }
-      return { state: "ready" };
+      return { state: "focused" };
     }
     const centre = () => ({ x: box.left + box.width / 2, y: box.top + box.height / 2 });
     let { x, y } = centre();
@@ -193,6 +188,9 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     }
     const state = { intercepted: null, reached: false };
     const listener = (event) => {
+      // The page's own synthetic events are not the gesture's: they go on
+      // as the page sent them, as Playwright's listener lets them.
+      if (!event.isTrusted) return;
       if (event.composedPath().includes(element)) {
         state.reached = true;
         return;
@@ -213,11 +211,15 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     // The gesture follows at once; an arm whose call was dropped expires.
     const expiry = setTimeout(() => arm.disarm(), 10000);
     world[ARM] = arm;
-    return { state: "ready", x, y };
+    return { state: "armed", x, y };
   };
   for (;;) {
     const seen = observe();
-    if (seen.state !== "waiting" || performance.now() >= end) return seen;
+    if (seen.state !== "waiting" || performance.now() >= end) {
+      // The matches are described once, for the answer, never each frame.
+      if (seen.matches) seen.matches = seen.matches.map(describe);
+      return seen;
+    }
     // A frame or 20 ms, whichever comes first: a page in the background
     // gets no frames.
     await new Promise((resolve) => {

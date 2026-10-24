@@ -83,7 +83,7 @@ pub(crate) fn call_error(call: &Call, failure: &Failure, exit: Option<BrowserExi
             &NAVIGATION_FAILED,
             format!("the navigation to {url} failed: {failure}"),
             &NavigationFailedDetails {
-                url: url.clone(),
+                url: Some(url.clone()),
                 error: None,
             },
         ),
@@ -98,7 +98,7 @@ pub(crate) fn call_error(call: &Call, failure: &Failure, exit: Option<BrowserExi
                 "the page's history, which the navigation goes through, did not read: {failure}"
             ),
             &NavigationFailedDetails {
-                url: String::new(),
+                url: None,
                 error: None,
             },
         ),
@@ -289,10 +289,15 @@ pub(crate) fn too_many_redirects(url: &str, chain: Vec<String>) -> CallError {
 /// `response_truncated` for the document of the navigation to `url`, whose
 /// body broke off after `received` bytes of the `expected`.
 pub(crate) fn truncated(url: &str, received: u64, expected: Option<u64>) -> CallError {
-    let of = expected.map_or_else(String::new, |expected| format!(" of {expected}"));
+    // `received` counts decoded bytes and `expected` the bytes as sent, so
+    // a compressed body's count can pass its `Content-Length`: the two are
+    // never read as a fraction.
+    let of = expected.map_or_else(String::new, |expected| {
+        format!("; its `Content-Length` declared {expected} as sent")
+    });
     CallError::new(
         &RESPONSE_TRUNCATED,
-        format!("the document of {url} broke off after {received} bytes{of}"),
+        format!("the document of {url} broke off after {received} bytes once decoded{of}"),
         &ResponseTruncatedDetails {
             url: url.to_owned(),
             received,
@@ -307,7 +312,7 @@ pub(crate) fn network_error(url: &str, error: &str) -> CallError {
         &NAVIGATION_FAILED,
         format!("the navigation to {url} failed: {error}"),
         &NavigationFailedDetails {
-            url: url.to_owned(),
+            url: Some(url.to_owned()),
             error: Some(error.to_owned()),
         },
     )

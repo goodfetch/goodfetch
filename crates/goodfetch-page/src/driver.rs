@@ -43,7 +43,7 @@ use std::time::Duration;
 
 use goodfetch_cdp::generated::{browser, dom, emulation, input, network, page, runtime, target};
 use goodfetch_cdp::{
-    Command, Connection, Failure, Refusal, SessionId as TargetSession, Subscription,
+    Command, Connection, Failure, NetError, Refusal, SessionId as TargetSession, Subscription,
 };
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::Pins;
@@ -650,8 +650,10 @@ pub(crate) struct PageDriver {
     /// the browser cancelled is known to be superseded.
     started: Arc<watch::Sender<u64>>,
     /// The page's input order (ADR 0085): a gesture holds it from its first
-    /// command to its last, and waiters take it in arrival order. It keeps
-    /// the guard's world in the current document, once one was made.
+    /// command to its last, and waiters take it in arrival order, as Tokio
+    /// grants its lock (`STYLE.md`'s one exception to holding a lock across
+    /// `.await`). It keeps the guard's world in the current document, once
+    /// one was made.
     turn: Arc<Mutex<Option<runtime::ExecutionContextId>>>,
     /// The page's pointer, held from a check that arms the guard's listener
     /// to its disarm, so no two gestures interleave (`targets`).
@@ -1184,7 +1186,7 @@ impl PageDriver {
                         // no document loads.
                         (Some(_), None) if is_javascript(&url) => Ok(None),
                         (Some(error), loader) => navigation::refused(
-                            &error,
+                            &NetError::of(&error),
                             loader,
                             navigated.is_download == Some(true),
                             superseded(),
@@ -1239,8 +1241,8 @@ impl PageDriver {
             Some(Ok(Err(Ended::Failed(error)))) => Err(self
                 .proxy
                 .as_ref()
-                .and_then(|proxy| proxy.failure(&url, &error))
-                .unwrap_or_else(|| network_error(&url, &error))),
+                .and_then(|proxy| proxy.failure(&url, error.name()))
+                .unwrap_or_else(|| network_error(&url, error.name()))),
             Some(Ok(Err(Ended::Interrupted))) => Err(interrupted(&url)),
             Some(Ok(Err(Ended::TooManyRedirects(chain)))) => Err(too_many_redirects(&url, chain)),
             Some(Ok(Err(Ended::Truncated { received, expected }))) => {
@@ -1391,36 +1393,44 @@ impl PageDriver {
             }
         };
         match outcome {
-            Err(Ended::Failed(error)) if navigation::abandoned(&error) => self
-                .abandoned(error, events, &mut navigation, call)
-                .await
-                .map(Err),
+            Err(Ended::Failed(error)) if navigation::abandoned(&error) => {
+                if self.renderer_crashed(events, &mut navigation, call).await? {
+                    return Ok(Err(Ended::Crashed));
+                }
+                // Every event the browser sent before the renderer answered
+                // is read now: a navigation the page started that cancelled
+                // this one has started by then.
+                Ok(Err(expected
+                    .and_then(|expected| navigation.outcome(&expected, wait_until, superseded()))
+                    .and_then(Result::err)
+                    .unwrap_or(Ended::Failed(error))))
+            }
             outcome => Ok(outcome),
         }
     }
 
-    /// How a navigation the browser abandoned with `error` ended: under a
-    /// renderer that crashed, or else as the browser's own failure of it,
-    /// such as for an answer with no document. The pinned Chromium
-    /// abandons the navigation of a renderer that crashes before it reports
-    /// the crash, once the crash's dump is written (~200 ms idle, longer
-    /// under load), so the page's renderer is asked for its frame tree: a
+    /// Whether the renderer of a navigation the browser abandoned crashed;
+    /// else it is the browser's own failure of it, such as for an answer
+    /// with no document, or a navigation the page started superseded it.
+    /// The pinned Chromium abandons the navigation of a renderer that
+    /// crashes before it reports the crash, once the crash's dump is
+    /// written (~200 ms idle, longer under load), so the page's renderer is
+    /// asked for its frame tree, the main frame's events read meanwhile: a
     /// live one answers, and a crashed one never does before its crash is
     /// reported.
-    async fn abandoned(
+    async fn renderer_crashed(
         &self,
-        error: String,
         events: &mut Subscription,
         navigation: &mut Navigation,
         call: &Call,
-    ) -> Result<Ended, CallError> {
+    ) -> Result<bool, CallError> {
         let alive = self
             .browser
             .try_send(Some(&self.session), &page::GetFrameTreeParams {});
         let mut alive = std::pin::pin!(alive);
         loop {
             if navigation.crashed() {
-                return Ok(Ended::Crashed);
+                return Ok(true);
             }
             tokio::select! {
                 biased;
@@ -1432,7 +1442,7 @@ impl PageDriver {
                     Err(Failure::Disconnected) => {
                         Err(self.browser.failed(call, &Failure::Disconnected).await)
                     }
-                    Ok(_) | Err(_) => Ok(Ended::Failed(error)),
+                    Ok(_) | Err(_) => Ok(false),
                 },
             }
         }

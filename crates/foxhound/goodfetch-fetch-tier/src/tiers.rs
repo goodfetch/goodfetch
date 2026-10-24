@@ -190,7 +190,7 @@ impl FetchTiers {
                     request.url
                 ),
                 &goodfetch_protocol::page::NavigationFailedDetails {
-                    url: request.url.clone(),
+                    url: Some(request.url.clone()),
                     error: None,
                 },
             )

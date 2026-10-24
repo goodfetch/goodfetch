@@ -78,6 +78,7 @@ pub(crate) enum Case {
     ErrorStatusesAreResponses,
     HistoryAnswersResponsesAcrossSites,
     BackLoadsTheDocumentAgain,
+    WaitsArmedBeforeBackPass,
     UnresolvedNameFailsTheNavigation,
     SupersededNavigationIsInterrupted,
     /// A fetch edge or response decoding case, Collie's lines.
@@ -298,6 +299,7 @@ impl Case {
                 Self::HistoryAnswersResponsesAcrossSites
             }
             "going-back-loads-the-document-again" => Self::BackLoadsTheDocumentAgain,
+            "a-wait-armed-before-going-back-passes" => Self::WaitsArmedBeforeBackPass,
             "a-name-that-does-not-resolve-fails-apart-from-a-refused-connection" => {
                 Self::UnresolvedNameFailsTheNavigation
             }
@@ -383,6 +385,9 @@ impl Case {
             }
             Self::BackLoadsTheDocumentAgain => {
                 navigation::back_loads_again(connection, site, checks)
+            }
+            Self::WaitsArmedBeforeBackPass => {
+                navigation::waits_armed_before_back(connection, site, checks)
             }
             Self::UnresolvedNameFailsTheNavigation => {
                 navigation::unresolved_name(connection, site, checks)

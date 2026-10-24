@@ -29,8 +29,8 @@
 use std::collections::BTreeMap;
 
 use data_encoding::BASE64;
-use goodfetch_cdp::Subscription;
 use goodfetch_cdp::generated::{emulation, fetch, network, page};
+use goodfetch_cdp::{NetError, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_protocol::page::{
@@ -43,9 +43,6 @@ use crate::driver::PageDriver;
 use crate::errors::{network_error, site_preferences_refused};
 use crate::interception::{EngineRequests, Overrides};
 use crate::page_value::{Navigation, NavigationKind, Permit};
-
-/// The network error of a body whose content coding did not decode.
-const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
 
 /// The headers the page's copy of the response loses, so that nothing
 /// renders it or turns it into a download.
@@ -212,7 +209,7 @@ impl<'a> Load<'a> {
                         Ok(page::NavigateReturns { error_text: Some(error), .. })
                             if self.network_id.is_none() =>
                         {
-                            return Err(network_error(self.request.url, &error));
+                            return Err(network_error(self.request.url, NetError::of(&error).name()));
                         }
                         Ok(_) => {}
                         Err(failure) => return Err(network_error(self.request.url, &failure.to_string())),
@@ -236,7 +233,7 @@ impl<'a> Load<'a> {
                     } else if let Some(failed) = event.read::<network::LoadingFailedEvent>()
                         && self.ours(&failed.request_id)
                     {
-                        return self.failed(&failed.error_text);
+                        return self.failed(&NetError::of(&failed.error_text));
                     }
                 }
             }
@@ -480,9 +477,9 @@ impl<'a> Load<'a> {
     /// The outcome of a load the browser failed with `error`: a body that
     /// broke off after its response arrived is cut, one whose content coding
     /// failed to decode, or a request with no response, fails.
-    fn failed(&mut self, error: &str) -> Result<Fetched, CallError> {
+    fn failed(&mut self, error: &NetError) -> Result<Fetched, CallError> {
         match self.answered.take() {
-            Some((response, bytes)) if error != DECODING_FAILED => {
+            Some((response, bytes)) if *error != NetError::ContentDecodingFailed => {
                 let expected = response
                     .headers
                     .get("content-length")
@@ -500,8 +497,8 @@ impl<'a> Load<'a> {
                 Err(self
                     .driver
                     .proxy()
-                    .and_then(|proxy| proxy.failure(url, error))
-                    .unwrap_or_else(|| network_error(url, error)))
+                    .and_then(|proxy| proxy.failure(url, error.name()))
+                    .unwrap_or_else(|| network_error(url, error.name())))
             }
         }
     }

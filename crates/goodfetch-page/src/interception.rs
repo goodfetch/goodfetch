@@ -72,6 +72,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
+use goodfetch_cdp::NetError;
 use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
 use goodfetch_clean_up_rules::rules::FilterLists;
@@ -287,8 +288,8 @@ impl EngineRequests {
                         "{url} was blocked by the Session's Filter lists or `browser.block_resources`"
                     ),
                     &NavigationFailedDetails {
-                        url: url.to_owned(),
-                        error: Some(BLOCKED_BY_CLIENT.to_owned()),
+                        url: Some(url.to_owned()),
+                        error: Some(NetError::BlockedByClient.name().to_owned()),
                     },
                 ))
             }
@@ -296,9 +297,6 @@ impl EngineRequests {
         }
     }
 }
-
-/// The browser's network error for a request a blocker failed.
-const BLOCKED_BY_CLIENT: &str = "net::ERR_BLOCKED_BY_CLIENT";
 
 /// The cosmetic rules a page's Session holds (ADR 0047): the embedded
 /// Filter lists, shared, and which of them its settings turn on; live

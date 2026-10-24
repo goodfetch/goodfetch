@@ -246,6 +246,23 @@ fn glob_source(glob: &str) -> Result<String, PatternConstruct> {
     Ok(source)
 }
 
+/// How a back-reference by name opens: JavaScript's and Python's.
+const NAMED_BACK_REFERENCES: [&str; 2] = ["\\k<", "(?P="];
+
+/// The text of the pattern from where the parser's `error` points on,
+/// or, for a group, from the group's opening.
+fn refused_text(error: &regex_syntax::ast::Error) -> &str {
+    let pattern = error.pattern();
+    let start = error.span().start.offset;
+    // The parser points inside `(?P=name)`, past its opening.
+    let within = (start + "(?P=".len()).min(pattern.len());
+    let group = pattern
+        .get(..within)
+        .and_then(|before| before.rfind("(?P="))
+        .filter(|opened| !pattern[*opened..start.max(*opened)].contains(')'));
+    pattern.get(group.unwrap_or(start)..).unwrap_or_default()
+}
+
 /// The construct of a regular expression the `regex` crate's parser
 /// refused, and how the message names it.
 fn construct_of(error: &regex_syntax::Error) -> (PatternConstruct, String) {
@@ -255,10 +272,31 @@ fn construct_of(error: &regex_syntax::Error) -> (PatternConstruct, String) {
                 PatternConstruct::LookAround,
                 "look-around (a look-ahead or look-behind)".to_owned(),
             ),
+            // JavaScript's `\0` is the null character, never a group.
+            regex_syntax::ast::ErrorKind::UnsupportedBackreference
+                if refused_text(error).starts_with("\\0") =>
+            {
+                (
+                    PatternConstruct::Other,
+                    "`\\0`, JavaScript's null character, which the `regex` crate writes `\\x00`"
+                        .to_owned(),
+                )
+            }
             regex_syntax::ast::ErrorKind::UnsupportedBackreference => (
                 PatternConstruct::Backreference,
                 "a back-reference".to_owned(),
             ),
+            // A back-reference by name, JavaScript's `\k<name>` or Python's
+            // `(?P=name)`, which the parser reads as another construct.
+            _ if NAMED_BACK_REFERENCES
+                .iter()
+                .any(|opening| refused_text(error).starts_with(opening)) =>
+            {
+                (
+                    PatternConstruct::Backreference,
+                    "a back-reference by name".to_owned(),
+                )
+            }
             kind => (
                 PatternConstruct::Other,
                 format!("a construct outside the `regex` crate's syntax ({kind})"),

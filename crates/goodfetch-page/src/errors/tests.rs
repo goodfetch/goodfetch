@@ -143,3 +143,23 @@ fn each_cdp_failure_raises_the_code_of_the_call_that_met_it(
 ) {
     assert_eq!(call_error(&call, &failure(browser), None).code(), code);
 }
+
+/// A navigation through the page's history whose read failed names no URL,
+/// since only the history names it, rather than an empty one.
+/// Covers: error:navigation_failed
+#[test]
+fn a_failed_history_read_names_no_url() {
+    let refused = call_error(
+        &Call::History,
+        &failure(Browser::Refuses("Something new")),
+        None,
+    );
+
+    assert_eq!(
+        (
+            refused.code(),
+            refused.details().and_then(|details| details.get("url"))
+        ),
+        ("navigation_failed", None)
+    );
+}

@@ -110,6 +110,10 @@ pub(super) struct Navigation {
     requested: Option<String>,
     /// Whether the main frame stopped loading.
     stopped: bool,
+    /// Whether the back/forward cache restored the main frame's document,
+    /// which fires no `load` and has no response: only a Borrowed browser,
+    /// whose launch the engine never chose, keeps the cache on (ADR 0121).
+    restored: bool,
     crashed: bool,
 }
 
@@ -133,6 +137,7 @@ impl Navigation {
             download: None,
             requested: None,
             stopped: false,
+            restored: false,
             crashed: false,
         }
     }
@@ -191,6 +196,15 @@ impl Navigation {
             }
         } else if let Some(navigated) = event.read::<page::FrameNavigatedEvent>() {
             if navigated.frame.id == self.frame && navigated.frame.parent_id.is_none() {
+                if navigated.r#type == page::NavigationType::BackForwardCacheRestore {
+                    // Its requests never passed the interception or the
+                    // navigation gate this time (ADR 0121).
+                    tracing::info!(
+                        url.origin = goodfetch_engine::log::origin(&navigated.frame.url),
+                        "the browser's back/forward cache restored the page's document"
+                    );
+                    self.restored = true;
+                }
                 self.committed.push(navigated.frame.loader_id);
             }
         } else if let Some(stopped) = event.read::<page::FrameStoppedLoadingEvent>() {
@@ -275,6 +289,11 @@ impl Navigation {
             }
             Expected::Loader(loader) => (self.place(loader), loader, None),
             Expected::Failed(loader, error) => (self.place(loader), loader, Some(error)),
+            // A history navigation the back/forward cache answered: the
+            // restored document arrived as it was, with no response.
+            Expected::FirstStarted if self.restored => {
+                return Some(Ok(Arrived::Document(None)));
+            }
             Expected::FirstStarted => {
                 let (loader, within) = self.started.first()?;
                 if *within {

@@ -579,3 +579,48 @@ fn every_borrowed_browser_case_of_the_ssrf_table_is_refused_at_interception() {
         (Ok(()), None, vec![public])
     );
 }
+
+/// On a Borrowed browser, whose launch the engine never chose, the
+/// back/forward cache may restore the page `goBack` returns to: the call
+/// answers once the page is restored, rather than waiting out
+/// `timeout.navigation` for a `load` a restored page never fires
+/// (ADR 0121; pitfall B21).
+///
+/// Covers: story:5-24, operation:page.go_back
+#[test]
+fn going_back_on_a_borrowed_browser_answers_a_page_its_cache_restored() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let site = Site::start();
+    let mut program = Program::start(&env, &cache, "sdk_python");
+    let started = program.call(
+        "run.start",
+        &json!({
+            "run_id": "restored",
+            "settings": {
+                "network": { "resolve": { SITE: [PUBLIC] } },
+                "timeout": { "navigation": 5000 },
+            },
+        }),
+    );
+    assert!(started.get("result").is_some(), "{started}");
+    let borrowed = program.borrow("restored", &lent.cdp_url);
+    let page = program.new_page(&borrowed["result"]["session_id"]);
+
+    program.goto(&page, &site.url(SITE, "/a"));
+    program.goto(&page, &site.url(SITE, "/b"));
+    let back = program.call("page.go_back", &json!({ "page_id": page }));
+    let path = program.call(
+        "page.evaluate",
+        &json!({ "page_id": page, "function": "() => location.pathname" }),
+    );
+    program.finish("restored");
+    lent.stop();
+
+    assert_eq!(
+        (back.get("result").is_some(), &path["result"]["value"]),
+        (true, &json!("/a")),
+        "{back}"
+    );
+}

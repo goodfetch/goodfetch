@@ -6,8 +6,11 @@
 /** "Needs you": everything waiting for a person, across every run (ADR 0031). */
 export const NEEDS_YOU = "/needs-you";
 
+/** Runs: every run of the user and major, filtered and sorted, its filter in the address's query (ADRs 0031 and 0117). */
+export const RUNS = "/runs";
+
 /** Engine & settings: every effective value with its layer and lock (ADR 0031). */
 export const ENGINE_SETTINGS = "/settings";
 
 /** Every route of Collie's build, in its side menu's order. */
-export const ROUTES: readonly string[] = [NEEDS_YOU, ENGINE_SETTINGS];
+export const ROUTES: readonly string[] = [NEEDS_YOU, RUNS, ENGINE_SETTINGS];

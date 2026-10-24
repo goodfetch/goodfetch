@@ -6,8 +6,9 @@
 // a banner, its actions disabled, until it reconnects by itself and
 // resubscribes after the last event it read, missing no lossless event; a
 // Daemon restarted, whose engine holds none of the old positions, answers
-// with a resync snapshot; and with WebSockets refused the Console works over
-// Server-Sent Events plus `POST`, each `POST` refused without its CSRF token.
+// with a resync snapshot, on which the Runs screen reads its list again; and
+// with WebSockets refused the Console works over Server-Sent Events plus
+// `POST`, each `POST` refused without its CSRF token.
 import { execFile } from "node:child_process";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -171,9 +172,50 @@ class Carrier {
   }
 }
 
-/** The runs the first screen lists, as `run: lifecycle`. */
-function activity(page: Page) {
-  return page.getByRole("list", { name: "Run activity" }).getByRole("listitem");
+/** The runs the Runs screen lists, each as `run: lifecycle`, in Run ID order. */
+async function listed(page: Page): Promise<string[]> {
+  const rows = await page
+    .getByRole("row")
+    .filter({ has: page.getByRole("rowheader") })
+    .evaluateAll((found) =>
+      found.map(
+        (row) =>
+          `${row.querySelector("th code")?.textContent ?? ""}: ${row.querySelector("td")?.textContent ?? ""}`,
+      ),
+    );
+  return rows.toSorted();
+}
+
+/** The first WebSocket after `earlier` the page subscribed through, once it did. */
+async function subscribedAfter(carrier: Carrier, earlier: Carried): Promise<Carried> {
+  const later = (): Carried | undefined =>
+    carrier.connections
+      .slice(carrier.connections.indexOf(earlier) + 1)
+      .find(({ subscriptions }) => subscriptions.length > 0);
+  await expect.poll(() => later() !== undefined).toBe(true);
+  const found = later();
+  if (found === undefined) {
+    throw new Error("invariant: the page subscribed again");
+  }
+  return found;
+}
+
+/**
+ * Opens the Runs screen of the signed-in page, answering the WebSocket it
+ * subscribes through: the first screen's own WebSocket subscribes to
+ * nothing, and may open after the screen's.
+ */
+async function openRuns(page: Page, daemon: ServedDaemon, carrier: Carrier): Promise<Carried> {
+  await page.goto(new URL("/runs", daemon.url).href);
+  await expect(page.getByRole("heading", { name: "Runs", level: 1 })).toBeVisible();
+  await expect
+    .poll(() => carrier.connections.some(({ subscriptions }) => subscriptions.length > 0))
+    .toBe(true);
+  const subscribed = carrier.connections.findLast(({ subscriptions }) => subscriptions.length > 0);
+  if (subscribed === undefined) {
+    throw new Error("invariant: a WebSocket of the page subscribed");
+  }
+  return subscribed;
 }
 
 test(
@@ -187,11 +229,10 @@ test(
   async ({ page, daemon, signIn }) => {
     const carrier = await Carrier.on(page);
     await signIn.withLink(page);
-    await expect(page.getByRole("status")).toHaveText(/^Connected to Collie /);
-    const first = await carrier.nth(0);
+    const first = await openRuns(page, daemon, carrier);
     await expect.poll(() => first.subscriptions.length).toBeGreaterThan(0);
     await startRun(daemon, "first");
-    await expect(activity(page)).toHaveText(["first: running"]);
+    await expect.poll(() => listed(page)).toEqual(["first: running"]);
     const lastRead = first.events.at(-1);
 
     const release = carrier.hold();
@@ -202,12 +243,10 @@ test(
     release();
 
     await expect(page.getByRole("alert")).toHaveCount(0);
-    await expect(activity(page)).toHaveText([
-      "first: running",
-      "second: running",
-      "third: running",
-    ]);
-    const second = await carrier.nth(1);
+    await expect
+      .poll(() => listed(page))
+      .toEqual(["first: running", "second: running", "third: running"]);
+    const second = await subscribedAfter(carrier, first);
     expect(second.subscriptions.at(-1)).toEqual({
       after: { engine_instance: expect.any(String), position: lastRead?.position },
     });
@@ -273,25 +312,42 @@ test(
   { annotation: { type: "covers", description: "story:12-123" } },
   async ({ page, daemon, signIn, failOnErrors }) => {
     const carrier = await Carrier.on(page);
+    // While the Daemon is stopped, a refused WebSocket turns the Client to
+    // Server-Sent Events, which the test cannot read: refusing them keeps
+    // the reconnection on a WebSocket it carries.
+    await page.route(/\/protocol\/events$/, (route) => route.abort());
     await signIn.withLink(page);
-    const first = await carrier.nth(0);
+    const first = await openRuns(page, daemon, carrier);
     await expect.poll(() => first.subscriptions.length).toBeGreaterThan(0);
     await startRun(daemon, "first");
-    await expect(activity(page)).toHaveText(["first: running"]);
+    await expect.poll(() => listed(page)).toEqual(["first: running"]);
 
     await restartedOnItsPort(daemon);
 
-    // The snapshot of the new engine, which reported no run yet, replaces
-    // the list; the run started after it is listed from the stream.
-    await expect(page.getByText("No run has changed since this page opened.")).toBeVisible({
-      timeout: RECONNECTED,
-    });
+    // The new engine answers the resubscription with its snapshot, on which
+    // the screen reads the Run index again; the run started after it is
+    // listed too.
+    await expect
+      .poll(
+        () =>
+          carrier.connections.some(({ events }) =>
+            events.some(({ event }) => event === "events.resync"),
+          ),
+        {
+          timeout: RECONNECTED,
+        },
+      )
+      .toBe(true);
     await expect(page.getByRole("alert")).toHaveCount(0);
     await startRun(daemon, "fourth");
-    await expect(activity(page)).toHaveText(["fourth: running"]);
+    await expect.poll(() => listed(page)).toContain("fourth: running");
     // Each attempt while the Daemon was stopped failed, as the browser says.
     expect(
-      failOnErrors.errors.every(({ text }) => /\/protocol|ERR_CONNECTION_REFUSED/.test(text)),
+      failOnErrors.errors.every(
+        ({ text, url }) =>
+          /\/protocol|ERR_CONNECTION_REFUSED|ERR_FAILED/.test(text) ||
+          url.includes("/protocol/events"),
+      ),
     ).toBe(true);
     await failOnErrors.take();
   },
@@ -316,8 +372,9 @@ test(
 
     await signIn.withLink(page);
     await expect(page.getByRole("status")).toHaveText(/^Connected to Collie /);
+    await page.goto(new URL("/runs", daemon.url).href);
     await startRun(daemon, "first");
-    await expect(activity(page)).toHaveText(["first: running"]);
+    await expect.poll(() => listed(page)).toEqual(["first: running"]);
     await page.goto(new URL("/settings", daemon.url).href);
     await expect(page.getByRole("table").first()).toBeVisible();
 

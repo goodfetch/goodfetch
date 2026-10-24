@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, AddInitScriptParams, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunList, RunListParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 
 
 class AsyncCaller(Protocol):
@@ -403,6 +403,13 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunReport.model_construct(**_fields(await self._caller.call("run.finish", params)))
+
+    async def run_list(self, params: RunListParams) -> RunList:
+        """Lists the Runs of the Run index of the user and major, of either Product (ADRs 0031 and 0098): each row with its tags, Lifecycle, Verdict, Completeness, start and end, the engine that owns it while it is live, and its presence, a Run whose state is gone `missing` and one discarded on purpose `erased`, never left out. The engine filters by tags, the Recipe, Schedule, occurrence and trigger its reserved `goodfetch.` tags name, Product, each axis, start and end time, and a text found in its Run ID or tags, and sorts by the key given; Watch runs are left out unless `watch_runs` asks for them (ADR 0036).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunList.model_construct(**_fields(await self._caller.call("run.list", params)))
 
     async def run_migrate(self, params: RunCheckpointParams) -> RunReport:
         """Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.
@@ -910,6 +917,13 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunReport.model_construct(**_fields(self._caller.call("run.finish", params)))
+
+    def run_list(self, params: RunListParams) -> RunList:
+        """Lists the Runs of the Run index of the user and major, of either Product (ADRs 0031 and 0098): each row with its tags, Lifecycle, Verdict, Completeness, start and end, the engine that owns it while it is live, and its presence, a Run whose state is gone `missing` and one discarded on purpose `erased`, never left out. The engine filters by tags, the Recipe, Schedule, occurrence and trigger its reserved `goodfetch.` tags name, Product, each axis, start and end time, and a text found in its Run ID or tags, and sorts by the key given; Watch runs are left out unless `watch_runs` asks for them (ADR 0036).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunList.model_construct(**_fields(self._caller.call("run.list", params)))
 
     def run_migrate(self, params: RunCheckpointParams) -> RunReport:
         """Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.

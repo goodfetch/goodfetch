@@ -10,7 +10,7 @@ both scripts' runs."""
 area = 3
 product = "collie"
 status = "active"
-covers = ["row:RT-19", "story:3-1", "story:3-2"]
+covers = ["row:RT-19", "story:3-1", "story:3-2", "story:12-10"]
 
 [proving_ground]
 seed = 13

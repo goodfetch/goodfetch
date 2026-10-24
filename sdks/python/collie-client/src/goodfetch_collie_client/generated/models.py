@@ -1260,6 +1260,23 @@ class Position(RootModel[int]):
     """An event's position among every event of one engine, which only goes up."""
 
 
+class Presence(StrEnum):
+    """
+    Whether the state a Run index row points at is there (ADRs 0031 and
+    0036).
+    """
+
+    present = "present"
+    """Its state is at its location."""
+    missing = "missing"
+    """`runs reindex` found no state at its location; the row is kept."""
+    erased = "erased"
+    """
+    The Run was discarded on purpose; `runs reindex` keeps its row
+    erased.
+    """
+
+
 class PressureSource(StrEnum):
     """The reading that holds the engine above `normal`."""
 
@@ -1537,6 +1554,18 @@ class RunId(RootModel[str]):
     """A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device."""
 
 
+class RunKind(StrEnum):
+    """
+    What kind of Run it is: a Collie Run its program drives, or a crawl
+    (ADR 0102), which its start's inputs name.
+    """
+
+    collie = "collie"
+    """A Run its program drives page by page."""
+    crawl = "crawl"
+    """A crawl, whose work items the engine leases to its handlers."""
+
+
 class RunMigrating(BaseModel):
     """What `run.migrating` carries."""
 
@@ -1558,6 +1587,32 @@ class RunOrigin(StrEnum):
     """A CLI flag."""
     form = "form"
     """An Integration's form."""
+
+
+class RunOwner1(BaseModel):
+    """
+    A Daemon, at the endpoint of its runtime file, which also holds its
+    token.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    daemon: DaemonEndpoint
+
+
+class RunOwner2(BaseModel):
+    """An Attached engine, at its private endpoint."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attached: PrivateEndpoint
+
+
+class RunOwner(RootModel[RunOwner1 | RunOwner2]):
+    root: RunOwner1 | RunOwner2
+    """Where the engine that owns a live Run is reached (ADR 0031)."""
 
 
 class RunParams(BaseModel):
@@ -1619,6 +1674,52 @@ class RunSetProgressMessageParams(BaseModel):
     """The program's status line, which replaces the one before."""
     run_id: RunId
     """The Run's ID."""
+
+
+class RunSortKey(StrEnum):
+    """What `run.list` sorts its rows by."""
+
+    started_at = "started_at"
+    """When the Run started."""
+    ended_at = "ended_at"
+    """
+    When it ended; a Run that has not ended comes after every one that
+    did, in ascending order.
+    """
+    run_id = "run_id"
+    """Its Run ID."""
+    recipe = "recipe"
+    """Its Recipe's name."""
+    schedule = "schedule"
+    """The Schedule that started it."""
+    occurrence = "occurrence"
+    """The occurrence that started it."""
+    trigger = "trigger"
+    """What fired that occurrence."""
+    product = "product"
+    """The Product it needs."""
+    lifecycle = "lifecycle"
+    """Its Lifecycle."""
+    verdict = "verdict"
+    """Its Verdict."""
+    completeness = "completeness"
+    """Its Completeness."""
+
+
+class RunTrigger(StrEnum):
+    """
+    What fired a Schedule's occurrence (ADR 0036), as its run's reserved
+    `goodfetch.trigger` tag names it.
+    """
+
+    time = "time"
+    """A time trigger: cron or an interval."""
+    watch = "watch"
+    """A Watch that found a change."""
+    after_run = "after_run"
+    """The end of another run."""
+    run_now = "run_now"
+    """A person's or a program's "run now"."""
 
 
 class RunWaitParams(BaseModel):
@@ -2025,6 +2126,15 @@ class SignInSummary(BaseModel):
     """
 
 
+class SortOrder(StrEnum):
+    """Which way `run.list` sorts."""
+
+    ascending = "ascending"
+    """Smallest first."""
+    descending = "descending"
+    """Largest first: the newest first, when sorting by time."""
+
+
 class StartedAs(StrEnum):
     """Whether a start began its Run or found it."""
 
@@ -2212,6 +2322,21 @@ class Tags(RootModel[list[Tag]]):
 
     root: Annotated[list[Tag], Field(max_length=16)]
     """A Run's tags, in the order given."""
+
+
+class TimeRange(BaseModel):
+    """
+    A span of time: from its first point, included, until its last,
+    excluded; an end left out leaves that side open.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    from_: Annotated[PointInTime | None, Field(alias="from")] = None
+    """Its first point, included."""
+    until: PointInTime | None = None
+    """The point it ends before, excluded."""
 
 
 class TraceContext(BaseModel):
@@ -3741,6 +3866,59 @@ class RunDiscarded(BaseModel):
     """The Run's ID."""
 
 
+class RunListParams(BaseModel):
+    """
+    What `run.list` takes: which rows of the Run index it answers, each
+    field given narrowing them, and in which order.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    completeness: Completeness | None = None
+    """Their Completeness: only Runs that ended have one."""
+    ended: TimeRange | None = None
+    """When they ended: only Runs that ended match."""
+    lifecycle: Lifecycle | None = None
+    """Their Lifecycle."""
+    occurrence: str | None = None
+    """The occurrence that started the Runs, by its ID."""
+    order: SortOrder | None = None
+    """Which way, descending by default."""
+    product: Product | None = None
+    """The Product the Runs need (ADR 0098)."""
+    recipe: str | None = None
+    """
+    The Recipe the Runs ran, by its name, as their reserved
+    `goodfetch.recipe` tag names it.
+    """
+    schedule: str | None = None
+    """The Schedule that started the Runs, by its ID."""
+    sort: RunSortKey | None = None
+    """
+    What the rows are sorted by, when they started by default; rows
+    that compare equal follow in Run ID order.
+    """
+    started: TimeRange | None = None
+    """When they started."""
+    tags: list[Tag] | None = None
+    """Tags each row carries, every one of them."""
+    text: str | None = None
+    """
+    Text found, ignoring case, in their Run ID or one of their tags,
+    their Recipe's among them.
+    """
+    trigger: RunTrigger | None = None
+    """What fired the occurrence that started the Runs."""
+    verdict: Verdict | None = None
+    """Their Verdict: only Runs that ended have one."""
+    watch_runs: bool | None = None
+    """
+    Whether Watch runs are listed too; they are left out by default
+    (ADR 0036).
+    """
+
+
 class RunStartParams(BaseModel):
     """What `run.start` takes."""
 
@@ -4359,6 +4537,69 @@ class Resync(BaseModel):
     """Every item of "Needs you", by `since`, then by ID."""
     runs: list[RunAxes]
     """The axes of each Run the engine knows, live or ended."""
+
+
+class RunIndexRow(BaseModel):
+    """
+    One row of the Run index (ADR 0031): a Run, where its state is, its three
+    axes and, while it is live, the engine that owns it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    completeness: Completeness | None = None
+    """Its Completeness, once it ended."""
+    ended_at: PointInTime | None = None
+    """When it ended."""
+    kind: RunKind
+    """What kind of Run it is."""
+    lifecycle: Lifecycle
+    """Where it is."""
+    location: str
+    """
+    Its folder: relative to the per-major data folder when it is inside,
+    absolute otherwise.
+    """
+    needs: Product
+    """The Product it needs (ADR 0098)."""
+    owner: RunOwner | None = None
+    """
+    While it is live, where the engine that owns it is reached: a
+    Daemon's endpoint, or an Attached engine's private endpoint. An
+    engine that cannot take the Run's writer lock forwards live actions
+    there.
+    """
+    presence: Presence
+    """Whether its state is at its location."""
+    progress_message: str | None = None
+    """The program's own status line, once it set one (RT-15)."""
+    run_id: RunId
+    """The Run's ID."""
+    started_at: PointInTime
+    """When it started."""
+    stop_reason: StopReason | None = None
+    """
+    Why it stopped, once it stopped: "Needs you" lists a Run stopped by
+    storage from it (ADR 0122).
+    """
+    tags: Tags
+    """Its tags (ADR 0036)."""
+    verdict: Verdict | None = None
+    """Its Verdict, once it ended."""
+
+
+class RunList(BaseModel):
+    """What `run.list` answers: the rows of its filter, in its order."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    runs: list[RunIndexRow]
+    """
+    The rows, every presence kept: a Run whose state is gone is listed
+    `missing`, one discarded on purpose `erased` (ADR 0031).
+    """
 
 
 class RunProgress(BaseModel):

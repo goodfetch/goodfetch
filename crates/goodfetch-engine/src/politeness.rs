@@ -496,12 +496,52 @@ impl Politeness {
         let holder = holder.clone();
         let (taken, turn) = self
             .run(move |connection, context| {
-                take_in(connection, context, &key, &holder, rule.as_ref(), now)
+                take_in(connection, context, &key, &holder, rule.as_ref(), now, true)
             })
             .await?;
         if let Some(turn) = turn {
             self.wake_turn(turn).await;
         }
+        Ok(taken)
+    }
+
+    /// Takes a Permit under `key` for `holder` at `now` as [`take`] does,
+    /// for a request beside one `holder` already sent, such as a hedge's
+    /// second copy (ADRs 0040 and 0086): it never waits in turn, so a
+    /// refusal for want of room registers no waiter, and a grant leaves
+    /// `holder`'s place among the key's waiters as it was.
+    ///
+    /// [`take`]: Politeness::take
+    ///
+    /// # Errors
+    ///
+    /// As [`Politeness::take`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Politeness::take`].
+    pub async fn take_beside(
+        &self,
+        key: &str,
+        holder: &Holder,
+        rule: Arc<dyn PermitRule>,
+        now: SystemTime,
+    ) -> Result<Taken, PolitenessError> {
+        let key = key.to_owned();
+        let holder = holder.clone();
+        let (taken, _) = self
+            .run(move |connection, context| {
+                take_in(
+                    connection,
+                    context,
+                    &key,
+                    &holder,
+                    rule.as_ref(),
+                    now,
+                    false,
+                )
+            })
+            .await?;
         Ok(taken)
     }
 
@@ -875,6 +915,7 @@ fn take_in(
     holder: &Holder,
     rule: &dyn PermitRule,
     now: SystemTime,
+    in_turn: bool,
 ) -> Result<(Taken, Option<Turn>), PolitenessError> {
     let failed = |error: rusqlite::Error| sqlite_error(&context.path, &error);
     let transaction = connection
@@ -908,12 +949,14 @@ fn take_in(
                 .map_err(failed)?;
             let id = transaction.last_insert_rowid();
             rule.started(&transaction, key, now).map_err(failed)?;
-            transaction
-                .execute(
-                    "DELETE FROM waiters WHERE key = ?1 AND run_id = ?2",
-                    (key, &holder.run_id),
-                )
-                .map_err(failed)?;
+            if in_turn {
+                transaction
+                    .execute(
+                        "DELETE FROM waiters WHERE key = ?1 AND run_id = ?2",
+                        (key, &holder.run_id),
+                    )
+                    .map_err(failed)?;
+            }
             Taken::Granted(Permit {
                 id,
                 key: key.to_owned(),
@@ -922,7 +965,7 @@ fn take_in(
         Verdict::Until(until, hold) => Taken::Wait(Some((until, hold))),
         Verdict::Refused(until) => Taken::Refused(until),
         Verdict::Busy => {
-            if let Some(endpoint) = &context.endpoint {
+            if in_turn && let Some(endpoint) = &context.endpoint {
                 turn = wait_in_turn(&transaction, key, &holder.run_id, endpoint, now)
                     .map_err(failed)?;
             }

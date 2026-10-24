@@ -71,8 +71,10 @@ use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
     WORK_ITEM_RETRIED,
 };
+use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::governor::WorkKind;
+use goodfetch_protocol::page::SITE_PREFERENCES_REFUSED;
 use goodfetch_protocol::run::{
     EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, StopReason,
 };
@@ -922,7 +924,15 @@ async fn settle(
         Answer::Handled(CrawlRequestHandled {
             skipped: Some(skip),
             ..
-        }) => Unsuccessful::Skipped(skip.message),
+        }) => Unsuccessful::Skipped {
+            reason: SkipReason::Handler,
+            message: Some(skip.message),
+        },
+        Answer::Refused(reason) => refused(reason),
+        Answer::RobotsTxtUnreachable(message) if policy.may_retry(leased.attempt) => {
+            Unsuccessful::Retried(Failure::new(SITE_PREFERENCES_REFUSED.name, &message))
+        }
+        Answer::RobotsTxtUnreachable(_) => refused(SkipReason::RobotsTxt),
         Answer::Handled(handled) => {
             match lease
                 .commit(run.state(), handled.records, run.point_in_time())
@@ -974,7 +984,7 @@ async fn settle(
         Unsuccessful::Retried(failure) | Unsuccessful::Failed(failure) => {
             Some(failure.code.clone())
         }
-        Unsuccessful::Skipped(_) | Unsuccessful::Blocked(_) => None,
+        Unsuccessful::Skipped { .. } | Unsuccessful::Blocked(_) => None,
     };
     let ended_at = run.point_in_time();
     let written = run
@@ -997,6 +1007,15 @@ async fn settle(
             tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
             false
         }
+    }
+}
+
+/// A request the site's preferences refused before its handler ran,
+/// skipped with `reason` (ADR 0086).
+fn refused(reason: SkipReason) -> Unsuccessful {
+    Unsuccessful::Skipped {
+        reason,
+        message: None,
     }
 }
 

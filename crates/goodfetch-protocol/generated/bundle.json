@@ -6257,6 +6257,31 @@
         }
       ]
     },
+    "NeedsYouDenyWallDomainParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.deny_wall_domain` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The registrable domain to deny.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why, such as the site's objection; required.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "reason"
+      ],
+      "type": "object"
+    },
     "NeedsYouDismissParams": {
       "additionalProperties": false,
       "description": "What `needs_you.dismiss` takes.",
@@ -6304,7 +6329,7 @@
         "details": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,\n`limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for\n`consent_wall`, `domain`.",
+          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,\n`limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for\n`consent_wall`, `domain`; for `wall_refetch_stopped`, `domain`,\n`cause`, the `layer` and `file` that list it and `only_star`; for\n`certificate_changed`, `host`, `person`, `pinned_spki_sha256` and\n`presented_spki_sha256`.",
           "type": "object"
         },
         "id": {
@@ -6426,6 +6451,36 @@
           "type": "string"
         }
       ]
+    },
+    "NeedsYouRemoveRefetchDomainParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.remove_refetch_domain` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The registrable domain, as a `wall_refetch_stopped` item names it.",
+          "type": "string"
+        },
+        "instead_of_star": {
+          "arrived_in": "0.1",
+          "description": "When only `*` covers the domain in its layer, the registrable\ndomains that replace `*` there, the domain itself not among them.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
     },
     "NewPageParams": {
       "additionalProperties": false,
@@ -8138,6 +8193,47 @@
         "mode",
         "file",
         "responses_used"
+      ],
+      "type": "object"
+    },
+    "RefetchDomainRemoved": {
+      "description": "What `needs_you.remove_refetch_domain` answers.",
+      "properties": {
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain.",
+          "type": "string"
+        },
+        "domains": {
+          "arrived_in": "0.1",
+          "description": "That layer's `wall.refetch_domains` now.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "layer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsLayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The layer that listed it, and now does not; none when no layer was\nchanged."
+        },
+        "removed": {
+          "arrived_in": "0.1",
+          "description": "Whether its layer changed: false when neither user configuration\nnor the Operator policy lists it, which then changed nothing and\nrecorded nothing.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "domain",
+        "removed",
+        "domains"
       ],
       "type": "object"
     },
@@ -13019,6 +13115,32 @@
         }
       ]
     },
+    "WallDomainDenied": {
+      "description": "What `needs_you.deny_wall_domain` answers.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "Whether it was added: false when the Operator policy denied it\nalready, which then changed nothing and recorded nothing.",
+          "type": "boolean"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain, as `wall.denied_domains` now lists it.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "The reason, as the Audit log records it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "added",
+        "reason"
+      ],
+      "type": "object"
+    },
     "WeakenedSetting": {
       "description": "A setting that weakened a safeguard for a Run (ADR 0028): its key, its\nvalue, the layer that set it and, for the run layer, where the value came\nfrom.",
       "properties": {
@@ -13945,6 +14067,17 @@
                       }
                     },
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "site_preferences": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_crawl_delay": {
+                    "description": "The longest robots.txt Crawl-delay a crawl waits out between request starts on a domain key while `site_preferences.respect_robots_txt` is on: 30 s. A host asking for more has its crawl requests skipped with `crawl_delay`, and its delay is not raised.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -15937,6 +16070,28 @@
               "site_preferences": {
                 "additionalProperties": false,
                 "properties": {
+                  "max_crawl_delay": {
+                    "description": "The longest robots.txt Crawl-delay a crawl waits out between request starts on a domain key while `site_preferences.respect_robots_txt` is on: 30 s. A host asking for more has its crawl requests skipped with `crawl_delay`, and its delay is not raised.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "purpose": {
+                    "description": "What the run's results are for, against which the AI-use signals are judged while `site_preferences.respect_use_signals` is on: `search` (the default, which no signal is judged against), `ai-input` (input to an AI model), `ai-train` (training an AI model) or `collect` (plain collection, text and data mining).",
+                    "enum": [
+                      "search",
+                      "ai-input",
+                      "ai-train",
+                      "collect"
+                    ]
+                  },
+                  "respect_robots_txt": {
+                    "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is read but not obeyed, and it is listed in the run's result as a value that presses a site harder.",
+                    "type": "boolean"
+                  },
+                  "respect_use_signals": {
+                    "description": "Whether the AI-use signals a site sends (IETF aipref's `Content-Usage` header, TDMRep's `tdm-reservation` header) are applied to the run's `site_preferences.purpose`: on, a crawl request whose response's signal refuses the Purpose ends `skipped` with `use_signals` and its handler never runs. Off by default; the signals are read either way.",
+                    "type": "boolean"
+                  },
                   "robots_txt_user_agent": {
                     "anyOf": [
                       {
@@ -18055,6 +18210,28 @@
               "site_preferences": {
                 "additionalProperties": false,
                 "properties": {
+                  "max_crawl_delay": {
+                    "description": "The longest robots.txt Crawl-delay a crawl waits out between request starts on a domain key while `site_preferences.respect_robots_txt` is on: 30 s. A host asking for more has its crawl requests skipped with `crawl_delay`, and its delay is not raised.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "purpose": {
+                    "description": "What the run's results are for, against which the AI-use signals are judged while `site_preferences.respect_use_signals` is on: `search` (the default, which no signal is judged against), `ai-input` (input to an AI model), `ai-train` (training an AI model) or `collect` (plain collection, text and data mining).",
+                    "enum": [
+                      "search",
+                      "ai-input",
+                      "ai-train",
+                      "collect"
+                    ]
+                  },
+                  "respect_robots_txt": {
+                    "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is read but not obeyed, and it is listed in the run's result as a value that presses a site harder.",
+                    "type": "boolean"
+                  },
+                  "respect_use_signals": {
+                    "description": "Whether the AI-use signals a site sends (IETF aipref's `Content-Usage` header, TDMRep's `tdm-reservation` header) are applied to the run's `site_preferences.purpose`: on, a crawl request whose response's signal refuses the Purpose ends `skipped` with `use_signals` and its handler never runs. Off by default; the signals are read either way.",
+                    "type": "boolean"
+                  },
                   "robots_txt_user_agent": {
                     "anyOf": [
                       {
@@ -20189,6 +20366,28 @@
               "site_preferences": {
                 "additionalProperties": false,
                 "properties": {
+                  "max_crawl_delay": {
+                    "description": "The longest robots.txt Crawl-delay a crawl waits out between request starts on a domain key while `site_preferences.respect_robots_txt` is on: 30 s. A host asking for more has its crawl requests skipped with `crawl_delay`, and its delay is not raised.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "purpose": {
+                    "description": "What the run's results are for, against which the AI-use signals are judged while `site_preferences.respect_use_signals` is on: `search` (the default, which no signal is judged against), `ai-input` (input to an AI model), `ai-train` (training an AI model) or `collect` (plain collection, text and data mining).",
+                    "enum": [
+                      "search",
+                      "ai-input",
+                      "ai-train",
+                      "collect"
+                    ]
+                  },
+                  "respect_robots_txt": {
+                    "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is read but not obeyed, and it is listed in the run's result as a value that presses a site harder.",
+                    "type": "boolean"
+                  },
+                  "respect_use_signals": {
+                    "description": "Whether the AI-use signals a site sends (IETF aipref's `Content-Usage` header, TDMRep's `tdm-reservation` header) are applied to the run's `site_preferences.purpose`: on, a crawl request whose response's signal refuses the Purpose ends `skipped` with `use_signals` and its handler never runs. Off by default; the signals are read either way.",
+                    "type": "boolean"
+                  },
                   "robots_txt_user_agent": {
                     "anyOf": [
                       {

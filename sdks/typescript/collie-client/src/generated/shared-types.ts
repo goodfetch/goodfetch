@@ -8,6 +8,7 @@
  * - `certificate_any_used`: A run reached a host whose domain accepts any certificate, `any` (ADR 0042).
  * - `certificate_change_accepted`: A person accepted a pinned host's changed certificate, with both hashes (ADR 0042).
  * - `certificate_exceptions_used`: The certificate exceptions a run used, once per run, by host and kind (ADR 0042).
+ * - `certificate_pin_forgotten`: A person removed their pin of a host, and any change waiting for it, so its next connection under trust on first use pins again (ADR 0042).
  * - `certificate_pinned`: A host's certificate was pinned on first use under its domain's exception, with the SHA-256 of its public key (ADR 0042).
  * - `consent_domain_allowed`: A person added a domain, or `*`, to `consent.domains` in user configuration, so later runs accept its consent walls (ADR 0048), with the warning of what they take on that they were shown (ADR 0052).
  * - `console_key_rotated`: The Console key was replaced, which ended every Console sign-in, with how many it ended.
@@ -17,6 +18,7 @@
  * - `pressing_harder_value_set`: A run set a value that presses a site harder than its default, with the setting and its value (ADR 0086).
  * - `private_addresses_allowed`: A run allowed private addresses through `egress.private_ranges`, with the ranges it listed.
  * - `raw_cdp_attached`: A raw CDP client attached to a Session's browser.
+ * - `refetch_domain_removed`: A person removed a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that listed it, or replaced `*` there with a list (ADR 0052); `details` give the `domain` and the layer's `domains` after.
  * - `secret_reference_used`: A Secret reference was resolved and used: its placeholder, its reference and the domain that received it, never its value.
  * - `security_switch_turned_off`: A security control was switched off for a run, once per run, with its setting and the layer that set it (ADR 0016).
  * - `session_exported`: A Session was exported to an encrypted bundle.
@@ -24,8 +26,9 @@
  * - `sign_in_revoked`: A Console sign-in was ended, by its person signing out or by `sign_in.revoke`, with its identifier.
  * - `signed_in`: A person signed in to the Console, with the sign-in's identifier and how they proved who they are, such as the single-user link.
  * - `tls_terminated_upstream`: An Exposed Daemon started with `daemon.tls.upstream`, TLS terminated in front of it (ADR 0049).
+ * - `wall_domain_denied`: A person added a domain to `wall.denied_domains` in the Operator policy, so no run reads past its Walls or refetches its pages (ADR 0052); `details` give the `domain` and the `reason`.
  */
-export type AuditKind = "audit_log_anchor" | "audit_log_pruned" | "certificate_any_used" | "certificate_change_accepted" | "certificate_exceptions_used" | "certificate_pinned" | "consent_domain_allowed" | "console_key_rotated" | "endpoint_authentication_failed" | "exposed_daemon_set_up" | "lent_page_attached" | "pressing_harder_value_set" | "private_addresses_allowed" | "raw_cdp_attached" | "secret_reference_used" | "security_switch_turned_off" | "session_exported" | "session_imported" | "sign_in_revoked" | "signed_in" | "tls_terminated_upstream" | (string & {});
+export type AuditKind = "audit_log_anchor" | "audit_log_pruned" | "certificate_any_used" | "certificate_change_accepted" | "certificate_exceptions_used" | "certificate_pin_forgotten" | "certificate_pinned" | "consent_domain_allowed" | "console_key_rotated" | "endpoint_authentication_failed" | "exposed_daemon_set_up" | "lent_page_attached" | "pressing_harder_value_set" | "private_addresses_allowed" | "raw_cdp_attached" | "refetch_domain_removed" | "secret_reference_used" | "security_switch_turned_off" | "session_exported" | "session_imported" | "sign_in_revoked" | "signed_in" | "tls_terminated_upstream" | "wall_domain_denied" | (string & {});
 
 /**
  * A `block_cause`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).
@@ -61,12 +64,14 @@ export type LimitScope = "connection" | "daemon" | "install" | "person" | "token
 /**
  * A `needs_you_kind`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).
  *
+ * - `certificate_changed`: A pinned host whose certificate presented another public key, stopped with `certificate_changed` (ADR 0042); `details` give the `host`, the `person` whose known-certificates store holds the pin, and both keys' SHA-256 as `pinned_spki_sha256` and `presented_spki_sha256`; `run` is the Run that met it. Its actions offer `certs.accept` and `certs.forget`, which that person alone answers. It leaves the list once they answer.
  * - `consent_wall`: A domain whose consent wall a Run met and left at `consent_required` (ADR 0048), offered for `consent.domains` with `needs_you.allow_consent_domain`, a domain in `wall.denied_domains` too (ADR 0052); `details` give the `domain`, and `run` the last Run that met it. It leaves the list once `consent.domains` in the Operator policy or user configuration covers the domain, or when a person dismisses it.
  * - `run_stopped_by_limit`: A Run stopped by a Limit that still holds it (ADR 0041): the Limit's period has not started again since the stop, and it was not set again since then with something left. `details` give the `limit` as `limit_reached` names it, the `amount` it allows now, the Product the Run `needs` and, for a Recipe's Run, its `recipe`. Its actions offer `usage.raise`, a person's answer, and for a Recipe's Run `run.resume`, which resumes it in the Daemon once the Limit is raised; an SDK script's Run then waits for its script, which resumes it by its Run ID (ADR 0031). It leaves the list once a person raises the Limit or its period starts again, once the Run runs again, or when a person dismisses it.
  * - `run_stopped_by_storage`: A Run stopped by storage, resumable once space is freed by a start with its Run ID (ADR 0122); `details` give the `folder` whose filesystem filled. It leaves the list once the Run runs again, or when a person dismisses it.
  * - `storage_level`: A filesystem a Run writes to is at the `low` or `critical` storage level (ADR 0122); `details` give its `level` and a `folder` on it. It leaves the list at the first sample that finds the space again.
+ * - `wall_refetch_stopped`: A domain on which a Run's refetch without the site's stored data stopped, at a Block cause, a 401 or 403 status or a login page (ADR 0052); `details` give the `domain`, the `cause`, and the `layer` of `wall.refetch_domains` that lists it with its `file`, and whether `only_star` covers it there; `run` is the last Run whose refetch stopped there. Its actions offer `needs_you.remove_refetch_domain`, except for a domain project configuration lists, which is changed in its file, and `needs_you.deny_wall_domain`. It leaves the list once no layer lists the domain, once `wall.denied_domains` denies it, or when a person dismisses it.
  */
-export type NeedsYouKind = "consent_wall" | "run_stopped_by_limit" | "run_stopped_by_storage" | "storage_level" | (string & {});
+export type NeedsYouKind = "certificate_changed" | "consent_wall" | "run_stopped_by_limit" | "run_stopped_by_storage" | "storage_level" | "wall_refetch_stopped" | (string & {});
 
 /**
  * A `run_warning_code`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).

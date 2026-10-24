@@ -46,6 +46,7 @@ use crate::driver::{Deadlines, Hop, fetch};
 use crate::gate::{Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::redundant::{Redundant, Requester};
 use crate::transports::{Reqwest, TransportConfig};
+use crate::use_signals::UseSignals;
 
 /// Foxhound's fetch tiers: the pages they serve, which Collie's page
 /// crate reads through it as its [`HandlerPages`] seam, and
@@ -99,6 +100,8 @@ struct Pages {
     /// The `Link` header fields of each open page that had any, where
     /// its `rel=canonical` may be.
     links: BTreeMap<PageId, Vec<(String, String)>>,
+    /// The AI-use signals each open page's response carried.
+    use_signals: BTreeMap<PageId, UseSignals>,
     /// The encoding each open page's document was decoded in.
     encodings: BTreeMap<PageId, &'static Encoding>,
 }
@@ -299,6 +302,7 @@ impl FetchTiers {
         let (html, encoding) = decode(&fetched.body, content_type);
         let base_url = goodfetch_frontier::document_base(&url, base_href(&html).as_deref())
             .map_or_else(|| url.clone(), |base| base.to_string());
+        let use_signals = UseSignals::of(&fetched.headers);
         let links: Vec<(String, String)> = fetched
             .headers
             .into_iter()
@@ -318,7 +322,20 @@ impl FetchTiers {
         if !links.is_empty() {
             pages.links.insert(page_id.clone(), links);
         }
+        if use_signals != UseSignals::default() {
+            pages.use_signals.insert(page_id.clone(), use_signals);
+        }
         Ok(page_id)
+    }
+
+    /// The AI-use signals the response of the served page `page_id`
+    /// carried; none once the page closed.
+    pub fn use_signals(&self, page_id: &PageId) -> UseSignals {
+        lock(&self.served.pages)
+            .use_signals
+            .get(page_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// The URL, the page signature and the `rel=canonical` of the served
@@ -409,6 +426,7 @@ impl FetchTiers {
         pages.open.remove(page_id);
         pages.links.remove(page_id);
         pages.encodings.remove(page_id);
+        pages.use_signals.remove(page_id);
     }
 }
 

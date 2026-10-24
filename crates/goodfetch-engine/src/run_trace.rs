@@ -108,6 +108,35 @@ impl RequestLog {
     }
 }
 
+/// The Run trace's Provenance log in the Run's folder (ADR 0047): one JSON
+/// line per entry, each naming its `action` and its page.
+pub const PROVENANCE: &str = "trace/provenance.jsonl";
+
+/// Appends `entry`, one Provenance entry, as a line of the Provenance log of
+/// the Run whose folder is `run_folder`, masked by `mask`, the Run's, and
+/// written through `owner`'s blocking policy.
+///
+/// # Errors
+///
+/// When the file cannot be written.
+///
+/// # Cancel safety
+///
+/// Dropping the future never stops a line being written once it began.
+pub async fn provenance(
+    owner: &TaskOwner,
+    run_folder: &Path,
+    mask: &Mask,
+    entry: &serde_json::Value,
+) -> io::Result<()> {
+    let mut entry = entry.clone();
+    mask.masks().apply_value(&mut entry, Scope::KeptOutput);
+    let mut line = serde_json::to_vec(&entry)?;
+    line.push(b'\n');
+    let file = run_folder.join(PROVENANCE);
+    owner.blocking(move || append(&file, &line)).await
+}
+
 fn append(file: &Path, line: &[u8]) -> io::Result<()> {
     if let Some(folder) = file.parent() {
         std::fs::create_dir_all(folder)?;
@@ -118,3 +147,6 @@ fn append(file: &Path, line: &[u8]) -> io::Result<()> {
         .open(file)?
         .write_all(line)
 }
+
+#[cfg(test)]
+mod tests;

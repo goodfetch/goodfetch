@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_types,
+    reason = "the log writer test shares what the subscriber wrote with the test through a Mutex"
+)]
+
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 

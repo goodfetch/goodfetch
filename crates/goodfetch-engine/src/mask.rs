@@ -30,10 +30,13 @@
 //! The automata are built from the values' forms, which they hold in their
 //! own tables until the next rebuild drops them: that memory is freed, not
 //! zeroized.
+#![expect(
+    clippy::disallowed_types,
+    reason = "a log writer masks from any thread and a Run's values leave as its last handle drops, which cannot wait: one RwLock guards the values and their automata, with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
+)]
 
 use std::borrow::Cow;
 use std::io::{self, Write};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use aho_corasick::{AhoCorasick, MatchKind};
@@ -88,12 +91,13 @@ pub struct Masks(Arc<Shared>);
 
 #[derive(Default)]
 struct Shared {
-    next: AtomicU64,
     state: RwLock<State>,
 }
 
 #[derive(Default)]
 struct State {
+    /// The next Run's number.
+    next: u64,
     entries: Vec<Entry>,
     /// One automaton per [`Scope`], none where it masks no value.
     returned: Option<Automaton>,
@@ -268,9 +272,14 @@ impl Masks {
     /// A new Run's mask, its values masked in [`Scope::KeptOutput`] unless
     /// `redaction` is off. Its values leave once its last handle drops.
     pub fn for_run(&self, redaction: Redaction) -> Mask {
+        let run = {
+            let mut state = self.write();
+            state.next += 1;
+            state.next
+        };
         Mask(Arc::new(RunMask {
             masks: self.clone(),
-            run: self.0.next.fetch_add(1, Ordering::Relaxed),
+            run,
             redaction,
         }))
     }

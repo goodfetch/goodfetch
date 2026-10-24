@@ -81,8 +81,9 @@ function listed(adapter: ProtocolAdapter): unknown[] {
     .map((request) => request.params);
 }
 
-/** A client of `adapter`'s engine. */
+/** A client of `adapter`'s engine, its "Needs you" list empty. */
 function clientOf(adapter: ProtocolAdapter): ConsoleClient {
+  adapter.answer("needs_you.list", { items: [] });
   return createConsoleClient({
     transport: adapter.transport,
     bodyFetcher: adapter.bodyFetcher,

@@ -1,0 +1,471 @@
+//! A crawl request's redirect chain (ADR 0118; pitfalls U12 and U13), the
+//! fetch driver following the Proving ground's `fetch-edge.test` redirects
+//! and refresh stubs over reqwest: Fetch's statuses, method, body and
+//! `Authorization` rules as the site sees them; a loop costing the site
+//! exactly `fetch.redirect.max` + 1 requests; a 3xx's `Retry-After` delaying
+//! the next hop or failing the request past the crawl's bound; refresh
+//! stubs within `fetch.refresh.max_delay` followed as one more hop, others
+//! not; and every hop after the first through the gate.
+#![expect(
+    clippy::disallowed_types,
+    reason = "a test gate's record, written and read in one step each, never across an `.await`"
+)]
+
+use std::collections::BTreeSet;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
+
+use bytes::Bytes;
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::deadline::Deadline;
+use goodfetch_fetch_tier::{
+    Deadlines, Fetched, Following, Gating, Hop, HopGate, Skip, Stop, Transport, fetch, follow,
+};
+use goodfetch_page::page_value::Permit;
+use goodfetch_protocol::foxhound::outcomes::SkipReason;
+use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
+use goodfetch_test_support::{ProvingGround, TestEnv};
+use rstest::rstest;
+use serde_json::Value;
+use url::Url;
+
+use crate::{reqwest, running_clock_runtime};
+
+const SEED: u64 = 762;
+const HOST: &str = "fetch-edge.test";
+const HTTP1_HOST: &str = "h1.fetch-edge.test";
+
+fn deadlines() -> Deadlines {
+    Deadlines {
+        first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
+        navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
+    }
+}
+
+/// The defaults: 19 redirects, refreshes up to 100 s, no status handled,
+/// a `Retry-After` waited up to 15 minutes.
+fn defaults() -> Following {
+    Following {
+        max: 19,
+        refresh_max_delay: Some(Duration::from_secs(100)),
+        handled: BTreeSet::new(),
+        retry_after_max: Some(Duration::from_secs(900)),
+    }
+}
+
+/// A gate that admits every hop, or skips those whose path is `skipped`,
+/// and records what it admitted, the permits it gave back and the waits.
+#[derive(Default)]
+struct Recording {
+    skipped: Option<&'static str>,
+    admitted: Mutex<Vec<String>>,
+    released: Arc<Mutex<usize>>,
+    waits: Mutex<Vec<(String, Duration)>>,
+}
+
+impl HopGate for Recording {
+    fn admit<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<Permit, Stop>> {
+        Box::pin(async move {
+            if self.skipped == Some(hop.url.path()) {
+                return Err(Stop::Skipped(Skip {
+                    reason: SkipReason::RobotsTxt,
+                    message: "disallowed".to_owned(),
+                }));
+            }
+            self.admitted
+                .lock()
+                .unwrap()
+                .push(hop.url.path().to_owned());
+            let released = Arc::clone(&self.released);
+            Ok(Permit::new(move || *released.lock().unwrap() += 1))
+        })
+    }
+
+    fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()> {
+        Box::pin(async move {
+            let wait = until.duration_since(SystemTime::now()).unwrap_or_default();
+            self.waits
+                .lock()
+                .unwrap()
+                .push((hop.url.path().to_owned(), wait));
+            tokio::time::sleep(wait).await;
+        })
+    }
+}
+
+/// The chain from `first` through `transport` under `following`.
+fn followed(
+    transport: &dyn Transport,
+    first: Hop,
+    following: &Following,
+    gate: &Recording,
+) -> Result<Fetched, Stop> {
+    running_clock_runtime().block_on(follow(
+        first,
+        following,
+        gate,
+        &Clock::system(),
+        |hop| async move { fetch(transport, &hop, &deadlines(), &Clock::system()).await },
+    ))
+}
+
+fn hop(proving_ground: &ProvingGround, path: &str) -> Hop {
+    Hop::get(Url::parse(&proving_ground.url(HOST, path)).unwrap())
+}
+
+/// The requests the Proving ground received on `host` for `path`.
+fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<Value> {
+    proving_ground.observations().unwrap()["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| {
+            request["host"]
+                .as_str()
+                .is_some_and(|seen| seen.split(':').next() == Some(host))
+                && request["target"] == path
+        })
+        .cloned()
+        .collect()
+}
+
+/// The value of a request's header `name`, if it has one.
+fn header<'a>(request: &'a Value, name: &str) -> Option<&'a str> {
+    request["headers"].as_array()?.iter().find_map(|pair| {
+        (pair[0].as_str()?.eq_ignore_ascii_case(name))
+            .then(|| pair[1].as_str())
+            .flatten()
+    })
+}
+
+fn failed(stop: Result<Fetched, Stop>) -> goodfetch_engine::CallError {
+    match stop {
+        Err(Stop::Failed(error)) => error,
+        other => panic!("not failed: {:?}", other.map(|fetched| fetched.url)),
+    }
+}
+
+/// Covers: story:5-124, setting:fetch.redirect.max, error:too_many_redirects
+#[rstest]
+#[case::one(1)]
+#[case::five(5)]
+#[case::nineteen(19)]
+fn a_redirect_loop_costs_the_site_exactly_its_count_and_one_more_requests(#[case] max: u32) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let gate = Recording::default();
+    let following = Following { max, ..defaults() };
+
+    let error = failed(followed(
+        &transport,
+        hop(&proving_ground, "/redirect/loop"),
+        &following,
+        &gate,
+    ));
+
+    assert_eq!(error.code(), "too_many_redirects", "{error:?}");
+    assert!(!error.retryable());
+    let details = error.details().unwrap();
+    assert_eq!(details["hops"].as_array().unwrap().len(), max as usize);
+    assert_eq!(
+        details["limit"],
+        serde_json::json!({ "kind": "setting", "name": "fetch.redirect.max", "count": max })
+    );
+    assert_eq!(
+        requests_for(&proving_ground, HOST, "/redirect/loop").len(),
+        max as usize + 1
+    );
+    assert_eq!(gate.admitted.lock().unwrap().len(), max as usize);
+    assert_eq!(*gate.released.lock().unwrap(), max as usize);
+}
+
+/// Covers: story:5-124, setting:fetch.redirect.max
+#[test]
+fn a_chain_of_nineteen_redirects_reaches_its_document_each_hop_through_the_gate() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let gate = Recording::default();
+
+    let fetched = followed(
+        &transport,
+        hop(&proving_ground, "/redirect/hops/19"),
+        &defaults(),
+        &gate,
+    )
+    .unwrap();
+
+    assert_eq!(
+        (fetched.status, fetched.url.path()),
+        (200, "/redirect/hops/0")
+    );
+    let admitted: Vec<String> = (0..19)
+        .rev()
+        .map(|n| format!("/redirect/hops/{n}"))
+        .collect();
+    assert_eq!(*gate.admitted.lock().unwrap(), admitted);
+}
+
+/// Covers: story:5-124
+#[rstest]
+#[case::a_301_turns_a_post_into_a_get("/redirect/301", "POST", "GET", false)]
+#[case::a_302_turns_a_post_into_a_get("/redirect/302", "POST", "GET", false)]
+#[case::a_303_turns_a_put_into_a_get("/redirect/303", "PUT", "GET", false)]
+#[case::a_307_keeps_a_post_and_its_body("/redirect/307", "POST", "POST", true)]
+#[case::a_308_keeps_a_put_and_its_body("/redirect/308", "PUT", "PUT", true)]
+fn the_site_gets_each_redirects_method_and_body_as_fetch_sends_them(
+    #[case] path: &str,
+    #[case] method: &str,
+    #[case] arrives_as: &str,
+    #[case] body_kept: bool,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let mut first = hop(&proving_ground, path);
+    first.method = http::Method::from_bytes(method.as_bytes()).unwrap();
+    first.body = Some(Bytes::from_static(b"q=1"));
+    first.headers.push((
+        "content-type".to_owned(),
+        "application/x-www-form-urlencoded".to_owned(),
+    ));
+
+    let fetched = followed(&transport, first, &defaults(), &Recording::default()).unwrap();
+
+    assert_eq!(fetched.url.path(), "/target");
+    let target = requests_for(&proving_ground, HOST, "/target");
+    assert_eq!(target.len(), 1, "{target:?}");
+    assert_eq!(target[0]["method"], arrives_as);
+    assert_eq!(
+        (
+            header(&target[0], "content-length").is_some(),
+            header(&target[0], "content-type").is_some()
+        ),
+        (body_kept, body_kept),
+        "{:?}",
+        target[0]
+    );
+}
+
+/// Covers: story:5-124
+#[rstest]
+#[case::to_another_origin("/redirect/cross-origin", HTTP1_HOST, false)]
+#[case::on_its_own_origin("/redirect/302", HOST, true)]
+fn authorization_is_absent_once_the_chain_reaches_another_origin(
+    #[case] path: &str,
+    #[case] target_host: &str,
+    #[case] kept: bool,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let port = proving_ground.address().port();
+    let mut first = Hop::get(Url::parse(&format!("https://{HOST}:{port}{path}")).unwrap());
+    first
+        .headers
+        .push(("authorization".to_owned(), "Bearer test-token".to_owned()));
+
+    let fetched = followed(&transport, first, &defaults(), &Recording::default()).unwrap();
+
+    assert_eq!(fetched.url.path(), "/target");
+    let target = requests_for(&proving_ground, target_host, "/target");
+    assert_eq!(target.len(), 1, "{target:?}");
+    assert_eq!(header(&target[0], "authorization").is_some(), kept);
+}
+
+/// Covers: story:5-124, error:response_not_ok
+#[rstest]
+#[case::a_300("/redirect/300")]
+#[case::a_redirect_with_no_location("/redirect/no-location")]
+#[case::a_redirect_to_ftp("/redirect/ftp")]
+fn any_other_3xx_fails_at_once_with_response_not_ok(#[case] path: &str) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let gate = Recording::default();
+
+    let error = failed(followed(
+        &transport,
+        hop(&proving_ground, path),
+        &defaults(),
+        &gate,
+    ));
+
+    assert_eq!(error.code(), "response_not_ok", "{error:?}");
+    assert!(!error.retryable());
+    let details = error.details().unwrap();
+    assert!(
+        details["status"]
+            .as_u64()
+            .is_some_and(|status| (300..400).contains(&status))
+    );
+    assert!(
+        details["fix"]
+            .as_str()
+            .unwrap()
+            .contains("crawl.handle_statuses")
+    );
+    assert_eq!(requests_for(&proving_ground, HOST, "/target").len(), 0);
+    assert!(gate.admitted.lock().unwrap().is_empty());
+}
+
+/// Covers: story:5-124, setting:crawl.handle_statuses
+#[test]
+fn a_redirect_status_the_crawl_handles_is_its_document_unfollowed() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let following = Following {
+        handled: BTreeSet::from([301]),
+        ..defaults()
+    };
+
+    let fetched = followed(
+        &transport,
+        hop(&proving_ground, "/redirect/301"),
+        &following,
+        &Recording::default(),
+    )
+    .unwrap();
+
+    assert_eq!((fetched.status, fetched.url.path()), (301, "/redirect/301"));
+    assert_eq!(requests_for(&proving_ground, HOST, "/target").len(), 0);
+}
+
+/// Covers: story:5-124, setting:politeness.retry_after.max
+#[test]
+fn a_redirects_retry_after_delays_its_next_hop() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let gate = Recording::default();
+
+    let fetched = followed(
+        &transport,
+        hop(&proving_ground, "/retry-after/302/seconds"),
+        &defaults(),
+        &gate,
+    )
+    .unwrap();
+
+    assert_eq!(fetched.url.path(), "/target");
+    let waits = gate.waits.lock().unwrap().clone();
+    assert_eq!(waits.len(), 1, "{waits:?}");
+    assert_eq!(waits[0].0, "/target");
+    assert!(
+        waits[0].1 > Duration::from_secs(1) && waits[0].1 <= Duration::from_secs(2),
+        "{waits:?}"
+    );
+    let first = &requests_for(&proving_ground, HOST, "/retry-after/302/seconds")[0];
+    let gap = first["next_request"]["after_microseconds"]
+        .as_u64()
+        .unwrap();
+    assert!(gap >= 1_500_000, "the next hop came {gap} µs after the 302");
+}
+
+/// Covers: story:5-124, setting:politeness.retry_after.max, error:response_unavailable
+#[test]
+fn a_redirects_retry_after_past_the_crawls_bound_fails_with_its_status() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let gate = Recording::default();
+    let following = Following {
+        retry_after_max: Some(Duration::from_secs(3)),
+        ..defaults()
+    };
+
+    let error = failed(followed(
+        &transport,
+        hop(&proving_ground, "/retry-after/302/seconds/long"),
+        &following,
+        &gate,
+    ));
+
+    assert_eq!(error.code(), "response_unavailable", "{error:?}");
+    let details = error.details().unwrap();
+    assert_eq!(details["status"], 302);
+    assert!(details["retry_after"].is_string(), "{details:?}");
+    assert_eq!(requests_for(&proving_ground, HOST, "/target").len(), 0);
+    assert!(gate.waits.lock().unwrap().is_empty());
+}
+
+/// Covers: story:5-125, setting:fetch.refresh.max_delay
+#[rstest]
+#[case::a_refresh_header("/refresh/header", Some(100), true)]
+#[case::an_instant_meta("/refresh/meta/0", Some(100), true)]
+#[case::a_five_second_meta_at_the_default("/refresh/meta/5", Some(100), true)]
+#[case::a_200_second_meta_at_the_default("/refresh/meta/200", Some(100), false)]
+#[case::a_200_second_meta_at_null("/refresh/meta/200", None, true)]
+#[case::a_five_second_meta_at_zero("/refresh/meta/5", Some(0), false)]
+#[case::an_instant_meta_at_zero("/refresh/meta/0", Some(0), true)]
+#[case::a_meta_inside_noscript("/refresh/noscript", None, false)]
+#[case::a_refresh_with_no_url("/refresh/no-url", None, false)]
+#[case::a_refresh_to_itself("/refresh/self", None, false)]
+#[case::a_script_redirect("/refresh/script", None, false)]
+fn a_refresh_stub_within_the_crawls_delay_is_one_more_hop_through_the_gate(
+    #[case] path: &str,
+    #[case] max_delay: Option<u64>,
+    #[case] refreshed: bool,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let gate = Recording::default();
+    let following = Following {
+        refresh_max_delay: max_delay.map(Duration::from_secs),
+        ..defaults()
+    };
+
+    let fetched = followed(&transport, hop(&proving_ground, path), &following, &gate).unwrap();
+
+    let (ended_on, admitted) = if refreshed {
+        ("/target", vec!["/target".to_owned()])
+    } else {
+        (path, Vec::new())
+    };
+    assert_eq!(
+        (fetched.status, fetched.url.path()),
+        (200, ended_on),
+        "{:?}",
+        String::from_utf8_lossy(&fetched.body)
+    );
+    assert_eq!(*gate.admitted.lock().unwrap(), admitted);
+    assert_eq!(requests_for(&proving_ground, HOST, path).len(), 1);
+}
+
+/// Covers: story:5-124
+#[test]
+fn a_hop_the_gate_skips_is_never_sent() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let gate = Recording {
+        skipped: Some("/private/target"),
+        ..Recording::default()
+    };
+
+    let stopped = followed(
+        &transport,
+        hop(&proving_ground, "/redirect/robots"),
+        &defaults(),
+        &gate,
+    );
+
+    assert!(
+        matches!(
+            &stopped,
+            Err(Stop::Skipped(Skip {
+                reason: SkipReason::RobotsTxt,
+                ..
+            }))
+        ),
+        "{:?}",
+        stopped.map(|fetched| fetched.url)
+    );
+    assert_eq!(
+        requests_for(&proving_ground, HOST, "/private/target").len(),
+        0
+    );
+}

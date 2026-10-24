@@ -1,6 +1,7 @@
 # Which of goodfetch-fetch-tier's top-level modules may import which (ADR 0126).
 [modules]
 canonical = []
+chain = ["driver", "redirects", "refresh"]
 decoding = []
 driver = ["decoding"]
 gate = []

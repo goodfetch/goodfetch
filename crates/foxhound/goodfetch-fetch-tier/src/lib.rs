@@ -16,6 +16,7 @@
 //! Collie's executable (STYLE.md, reason 2).
 
 mod canonical;
+mod chain;
 mod decoding;
 mod driver;
 mod gate;
@@ -27,6 +28,7 @@ mod refresh;
 mod tiers;
 mod transports;
 
+pub use chain::{Following, Gating, HopGate, Skip, Stop, follow};
 pub use driver::{
     Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
 };

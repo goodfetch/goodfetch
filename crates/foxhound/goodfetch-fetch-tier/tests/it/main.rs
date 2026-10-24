@@ -7,11 +7,12 @@
 )]
 
 mod conformance_gate;
+mod fetch_edge;
 mod transport_failures;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::Policy;
-use goodfetch_engine::tls::Trust;
+use goodfetch_engine::tls::{Trust, read_certificates};
 use goodfetch_fetch_tier::{Reqwest, ReqwestConfig};
 use goodfetch_test_support::ProvingGround;
 use url::Url;
@@ -30,7 +31,8 @@ fn running_clock_runtime() -> tokio::runtime::Runtime {
 }
 
 /// reqwest reaching every host the Proving ground serves at its address,
-/// through `proxy` when one is given.
+/// through `proxy` when one is given, trusting its certificate authority
+/// for the fetch edge hosts, so they are reached over TLS and HTTP/2 too.
 fn reqwest(proving_ground: &ProvingGround, proxy: Option<Url>) -> Reqwest {
     let resolve = proving_ground
         .description()
@@ -38,8 +40,16 @@ fn reqwest(proving_ground: &ProvingGround, proxy: Option<Url>) -> Reqwest {
         .iter()
         .map(|(host, address)| (host.clone(), vec![address.parse().unwrap()]))
         .collect();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test helper reads the authority's file before any runtime starts"
+    )]
+    let authority = std::fs::read(&proving_ground.description().ca).unwrap();
+    let trust = Trust::default_roots()
+        .with_trusted_cas("fetch-edge.test", read_certificates(&authority).unwrap())
+        .unwrap();
     Reqwest::new(ReqwestConfig {
-        trust: Trust::default_roots(),
+        trust,
         proxy,
         resolve,
         egress: Policy::new(&["*"], &[] as &[&str]).unwrap(),

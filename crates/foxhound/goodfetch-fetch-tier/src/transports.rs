@@ -6,6 +6,13 @@
 //! engine's [`Trust`]. It follows no redirect, resends nothing, decodes no
 //! content coding and sets no timeout of its own: the driver does each.
 //!
+//! **Connections (ADR 0118):** it keeps a pool of idle connections for
+//! [`Reuse::Allowed`] hops and opens a new one, kept for nothing, for
+//! each [`Reuse::Never`] hop, a resend's. It tells a reused connection
+//! from a new one by a mark its connector sets on the hop's task when the
+//! hop opens one. An origin that answered `HTTP_1_1_REQUIRED` is sent
+//! HTTP/1.1 alone from then on.
+//!
 //! **Translation point (ADR 0127):** [`classify`] is where reqwest's,
 //! hyper's, rustls's and the OS's failures, and a proxy's answer to the
 //! tunnel request, become a [`TransportFailure`]; any failure it does not
@@ -21,9 +28,12 @@
 //! setting a Run can declare (#622, #623). Through a proxy, which resolves
 //! the site's name itself, only the URL is judged.
 
+use std::cell::Cell;
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
@@ -34,7 +44,7 @@ use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 use goodfetch_engine::tls::Trust;
 use url::Url;
 
-use crate::driver::{Body, Hop, Sending, Sent, Transport, TransportFailure};
+use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
 
 /// What a reqwest transport reaches and trusts.
 #[derive(Clone, Debug)]
@@ -67,13 +77,24 @@ pub enum ReqwestUnavailable {
 /// reqwest, the transport of `standard` and `identified` Sessions.
 #[derive(Clone, Debug)]
 pub struct Reqwest {
-    client: reqwest::Client,
+    /// Its clients offering HTTP/2 and HTTP/1.1.
+    any: Clients,
+    /// Its clients offering HTTP/1.1 alone, for the origins that asked.
+    http1: Clients,
+    http1_origins: Http1Origins,
     egress: Policy,
+}
+
+/// A pooled client and one that opens a new connection for each request.
+#[derive(Clone, Debug)]
+struct Clients {
+    pooled: reqwest::Client,
+    new: reqwest::Client,
 }
 
 impl Reqwest {
     /// A transport under `config`, holding its own connection pool, so
-    /// hops of one Run reuse connections (#763).
+    /// hops of one Run reuse connections.
     ///
     /// # Errors
     ///
@@ -90,32 +111,66 @@ impl Reqwest {
             ResolverConfiguration::system()?,
             config.clock,
         );
-        let mut tls = config.trust.client_config();
-        tls.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-        let resolver = Resolver {
+        let resolver = Arc::new(Resolver {
             dns,
             judged: config.proxy.is_none().then(|| config.egress.clone()),
+        });
+        let clients = |alpn: &[&[u8]]| -> Result<Clients, ReqwestUnavailable> {
+            let mut tls = config.trust.client_config();
+            tls.alpn_protocols = alpn.iter().map(|protocol| protocol.to_vec()).collect();
+            let client = |pooled: bool| {
+                let builder = reqwest::Client::builder()
+                    .tls_backend_preconfigured(tls.clone())
+                    .dns_resolver(Arc::clone(&resolver))
+                    // A folded header line is read as a space, as Chrome
+                    // reads it.
+                    .http1_allow_obsolete_multiline_headers_in_responses(true)
+                    .redirect(reqwest::redirect::Policy::none())
+                    .retry(reqwest::retry::never())
+                    .connector_layer(MarkConnects);
+                let builder = if pooled {
+                    builder
+                } else {
+                    builder.pool_max_idle_per_host(0)
+                };
+                let builder = if alpn.contains(&&b"h2"[..]) {
+                    builder
+                } else {
+                    builder.http1_only()
+                };
+                let builder = match &config.proxy {
+                    Some(proxy) => builder.proxy(
+                        reqwest::Proxy::all(proxy.as_str())
+                            .map_err(|error| ReqwestUnavailable::Client(error.to_string()))?,
+                    ),
+                    None => builder.no_proxy(),
+                };
+                build(builder).map_err(|error| ReqwestUnavailable::Client(error.to_string()))
+            };
+            Ok(Clients {
+                pooled: client(true)?,
+                new: client(false)?,
+            })
         };
-        let builder = reqwest::Client::builder()
-            .tls_backend_preconfigured(tls)
-            .dns_resolver(Arc::new(resolver))
-            // A folded header line is read as a space, as Chrome reads it.
-            .http1_allow_obsolete_multiline_headers_in_responses(true)
-            .redirect(reqwest::redirect::Policy::none())
-            .retry(reqwest::retry::never());
-        let builder = match &config.proxy {
-            Some(proxy) => builder.proxy(
-                reqwest::Proxy::all(proxy.as_str())
-                    .map_err(|error| ReqwestUnavailable::Client(error.to_string()))?,
-            ),
-            None => builder.no_proxy(),
-        };
-        let client =
-            build(builder).map_err(|error| ReqwestUnavailable::Client(error.to_string()))?;
         Ok(Self {
-            client,
+            any: clients(&[b"h2", b"http/1.1"])?,
+            http1: clients(&[b"http/1.1"])?,
+            http1_origins: Http1Origins::default(),
             egress: config.egress,
         })
+    }
+
+    /// The client `hop` goes out on, as `reuse` allows.
+    fn client(&self, hop: &Hop, reuse: Reuse) -> &reqwest::Client {
+        let clients = if self.http1_origins.contains(&hop.url) {
+            &self.http1
+        } else {
+            &self.any
+        };
+        match reuse {
+            Reuse::Allowed => &clients.pooled,
+            Reuse::Never => &clients.new,
+        }
     }
 }
 
@@ -128,7 +183,7 @@ fn build(builder: reqwest::ClientBuilder) -> reqwest::Result<reqwest::Client> {
 }
 
 impl Transport for Reqwest {
-    fn send<'a>(&'a self, hop: &'a Hop) -> Sending<'a, Sent> {
+    fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             let request = egress::Request {
                 url: hop.url.as_str(),
@@ -137,17 +192,34 @@ impl Transport for Reqwest {
             if let Judgment::Refused(refused) = egress::judge(&request, &self.egress) {
                 return Err(TransportFailure::Egress(refused));
             }
-            let mut request = self.client.request(hop.method.clone(), hop.url.clone());
+            let mut request = self
+                .client(hop, reuse)
+                .request(hop.method.clone(), hop.url.clone());
             for (name, value) in &hop.headers {
                 request = request.header(name, value);
             }
             if let Some(body) = &hop.body {
                 request = request.body(body.clone());
             }
-            let response = request
-                .send()
-                .await
-                .map_err(|error| failure_of(&error, &hop.url))?;
+            let (response, connected) = CONNECTED
+                .scope(Cell::new(false), async {
+                    let response = request.send().await;
+                    (response, CONNECTED.with(Cell::get))
+                })
+                .await;
+            let reused = reuse == Reuse::Allowed && !connected;
+            let response = response.map_err(|error| match failure_of(&error, &hop.url) {
+                TransportFailure::ConnectionClosed | TransportFailure::ConnectionReset
+                    if reused =>
+                {
+                    TransportFailure::ClosedAtReuse
+                }
+                TransportFailure::Http11Required => {
+                    self.http1_origins.insert(&hop.url);
+                    TransportFailure::Http11Required
+                }
+                failure => failure,
+            })?;
             let headers = response
                 .headers()
                 .iter()
@@ -165,8 +237,78 @@ impl Transport for Reqwest {
                     response,
                     url: hop.url.clone(),
                 }),
+                reused,
             })
         })
+    }
+}
+
+tokio::task_local! {
+    /// Whether the hop sent on this task opened a connection: set by
+    /// [`MarkConnects`] when reqwest's connector is asked for one, which
+    /// reqwest does on the hop's own task, and only when no idle
+    /// connection is ready for it.
+    static CONNECTED: Cell<bool>;
+}
+
+/// The connector layer that marks the hop's task when it opens a
+/// connection, so a hop that opened none is known to have reused one.
+#[derive(Clone, Copy, Debug)]
+struct MarkConnects;
+
+impl<S> tower_layer::Layer<S> for MarkConnects {
+    type Service = Marking<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        Marking(inner)
+    }
+}
+
+/// reqwest's connector, behind [`MarkConnects`].
+#[derive(Clone, Debug)]
+struct Marking<S>(S);
+
+impl<S, Request> tower_service::Service<Request> for Marking<S>
+where
+    S: tower_service::Service<Request>,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = S::Future;
+
+    fn poll_ready(&mut self, context: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.0.poll_ready(context)
+    }
+
+    fn call(&mut self, request: Request) -> Self::Future {
+        // A connection opened outside a hop's scope, which no hop reads.
+        let _ = CONNECTED.try_with(|connected| connected.set(true));
+        self.0.call(request)
+    }
+}
+
+/// The origins that answered `HTTP_1_1_REQUIRED`, which keep HTTP/1.1 for
+/// the transport's life (ADR 0118). Clones share them.
+#[derive(Clone, Debug, Default)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the set is read or written in one step, never across an `.await` or another lock, so there is no lock order to test under loom (ADR 0060)"
+)]
+struct Http1Origins(Arc<std::sync::Mutex<BTreeSet<String>>>);
+
+impl Http1Origins {
+    fn origins(&self) -> std::sync::MutexGuard<'_, BTreeSet<String>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn contains(&self, url: &Url) -> bool {
+        self.origins().contains(&url.origin().ascii_serialization())
+    }
+
+    fn insert(&self, url: &Url) {
+        self.origins().insert(url.origin().ascii_serialization());
     }
 }
 
@@ -273,6 +415,18 @@ fn named(error: &(dyn Error + 'static)) -> Option<TransportFailure> {
             rustls::Error::InvalidCertificate(_) => TransportFailure::CertificateInvalid,
             _ => TransportFailure::Tls,
         });
+    }
+    if let Some(h2) = error.downcast_ref::<h2::Error>() {
+        return match h2.reason() {
+            Some(h2::Reason::REFUSED_STREAM) => Some(TransportFailure::RefusedStream),
+            Some(h2::Reason::HTTP_1_1_REQUIRED) => Some(TransportFailure::Http11Required),
+            // A graceful `GOAWAY` fails only the streams above its last
+            // one, which the site never processed (RFC 9113, section 6.8).
+            Some(h2::Reason::NO_ERROR) if h2.is_go_away() && h2.is_remote() => {
+                Some(TransportFailure::RefusedStream)
+            }
+            _ => None,
+        };
     }
     if let Some(hyper) = error.downcast_ref::<hyper::Error>() {
         if hyper.is_parse() {

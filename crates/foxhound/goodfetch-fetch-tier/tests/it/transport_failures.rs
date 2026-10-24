@@ -2,7 +2,7 @@
 //! proxy's refusal of the tunnel is its own variant (ADR 0053), and so is
 //! its demand for credentials and a proxy nothing answers on.
 
-use goodfetch_fetch_tier::{Hop, Transport as _, TransportFailure};
+use goodfetch_fetch_tier::{Hop, Reuse, Transport as _, TransportFailure};
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rstest::rstest;
 use url::Url;
@@ -35,7 +35,7 @@ fn a_proxy_s_answer_to_the_tunnel_request_is_its_own_failure(
     );
 
     let failure = running_clock_runtime()
-        .block_on(transport.send(&hop))
+        .block_on(transport.send(&hop, Reuse::Allowed))
         .unwrap_err();
 
     assert_eq!(failure, expected);

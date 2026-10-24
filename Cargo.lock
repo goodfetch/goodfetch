@@ -1844,6 +1844,7 @@ dependencies = [
  "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-test-support",
+ "h2",
  "http",
  "hyper",
  "reqwest",
@@ -1852,6 +1853,8 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
+ "tower-layer",
+ "tower-service",
  "url",
  "zstd",
 ]

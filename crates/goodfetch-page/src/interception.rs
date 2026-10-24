@@ -67,6 +67,8 @@ mod navigations;
 mod pipeline;
 mod routes;
 mod steps;
+#[cfg(test)]
+mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -801,13 +803,16 @@ impl Interception {
     }
 
     /// Takes the pages `pages` out of the interception, as each ends: their
-    /// own routes' subscriptions end. Their Session's routes stay with its
+    /// own routes' subscriptions end, and a navigation pending on one,
+    /// whose `load` never comes now, gives back the permit a service
+    /// worker's request took for it. Their Session's routes stay with its
     /// other pages.
     pub(crate) fn close_pages(&self, pages: &[PageId]) {
         let mut tables = lock(&self.shared.tables);
         for page in pages {
             if let Some(state) = tables.pages.remove(page) {
                 state.routes.close();
+                state.pending.ended(page);
             }
         }
     }

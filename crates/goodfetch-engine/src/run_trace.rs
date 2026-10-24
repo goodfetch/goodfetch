@@ -8,7 +8,9 @@
 //! no page sent, with the URL, method and failure it knows (`RequestFailed`).
 //! A request a site's service worker sent itself, which belongs to no page,
 //! is recorded as `service_worker.request` whether it went on or was refused
-//! (ADR 0121).
+//! (ADR 0121). Every line passes through the Run's `Mask` as a kept output
+//! (spec #564): no value a Run resolved is written, unless the Run's
+//! `security.redaction` is off.
 #![expect(
     clippy::disallowed_methods,
     reason = "the log appends to its file through the owner's blocking policy, never on an async worker"
@@ -25,6 +27,7 @@ use goodfetch_protocol::page::{RequestFailed, SERVICE_WORKER_REQUEST, ServiceWor
 
 use serde::Serialize;
 
+use crate::mask::{Mask, Scope};
 use crate::tasks::TaskOwner;
 
 /// The log's file in the Run's folder.
@@ -35,16 +38,19 @@ pub const FILE: &str = "trace/requests.jsonl";
 pub struct RequestLog {
     file: Arc<Path>,
     owner: TaskOwner,
+    mask: Mask,
 }
 
 impl RequestLog {
     /// The log of the Run whose folder is `run_folder`, written through
-    /// `owner`'s blocking policy; its holder waits for `owner`.
-    pub fn new(owner: TaskOwner, run_folder: &Path) -> Self {
+    /// `owner`'s blocking policy, masked by `mask`, the Run's; its holder
+    /// waits for `owner`.
+    pub fn new(owner: TaskOwner, run_folder: &Path, mask: Mask) -> Self {
         let file: PathBuf = run_folder.join(FILE);
         Self {
             file: file.into(),
             owner,
+            mask,
         }
     }
 
@@ -90,10 +96,12 @@ impl RequestLog {
     }
 
     async fn record_line(&self, name: &str, data: &impl Serialize) -> io::Result<()> {
-        let mut line = serde_json::to_vec(&serde_json::json!({
+        let mut entry = serde_json::json!({
             "event": name,
             "data": data,
-        }))?;
+        });
+        self.mask.masks().apply_value(&mut entry, Scope::KeptOutput);
+        let mut line = serde_json::to_vec(&entry)?;
         line.push(b'\n');
         let file = Arc::clone(&self.file);
         self.owner.blocking(move || append(&file, &line)).await

@@ -68,6 +68,7 @@ use crate::composition::{
 };
 use crate::events::{Credits, Events};
 use crate::log::{ConnectionLog, LogEvents};
+use crate::mask::{Masks, Scope};
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
@@ -105,6 +106,9 @@ pub(crate) struct Dispatch {
     /// own level; `None` when the engine was given none, so no layer feeds
     /// them and no buffer is kept for them.
     pub(crate) log_events: Option<LogEvents>,
+    /// Every live Run's resolved values, masked in every message the
+    /// Connection sends (spec #564).
+    pub(crate) masks: Masks,
 }
 
 /// How a Connection reached the engine, which says what its `hello` must
@@ -386,7 +390,7 @@ async fn serve_carried(
         listener,
     } = carried;
     let (outgoing, lines) = mpsc::channel(OUTGOING_LINES);
-    owner.spawn(write_lines(writing, lines));
+    owner.spawn(write_lines(writing, lines, dispatch.masks.clone()));
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
     let (client, requests) = Client::new();
     let daemon = access.daemon();
@@ -467,9 +471,12 @@ async fn linger(reading: &mut Reading, clock: Clock) {
 
 /// Writes each line whole, or as one WebSocket message, flushing once no
 /// other line waits; shuts the Connection's sending side down, or closes
-/// its WebSocket, when every sender is gone.
-async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>) {
+/// its WebSocket, when every sender is gone. Every line passes through
+/// `masks` first, as what a call returns or an event carries: no message
+/// the Connection sends holds a value a Run resolved (spec #564).
+async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>, masks: Masks) {
     while let Some(line) = lines.recv().await {
+        let line = masks.apply_json_line(line, Scope::Returned);
         let sent = match &mut writing {
             Writing::Lines(writer) => writer.write_all(&line).await.is_ok(),
             Writing::Messages(messages) => messages.feed(line).await,

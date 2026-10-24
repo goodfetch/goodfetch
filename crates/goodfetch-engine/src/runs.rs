@@ -45,6 +45,7 @@
 //! Size: one registry actor, its handles and the commands it answers, kept
 //! whole so every change to a Run's state passes through one loop.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::File;
@@ -67,15 +68,16 @@ use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, HumanPause, Lifecycle,
-    NotUnderstoodLimit, NothingDone, PointInTime, Presence, ProgressMessage, RUN_IN_USE,
-    RUN_STATE_DURABILITY, ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunListParams,
-    RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage, RunWarning, RunWriter,
-    StartInput, StartedAs, StopReason, Tags,
+    MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, PointInTime, Presence,
+    ProgressMessage, RUN_IN_USE, RUN_STATE_DURABILITY, ReachedLimit, RunAxes, RunId, RunIndexRow,
+    RunKind, RunListParams, RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage,
+    RunWarning, RunWriter, StartInput, StartedAs, StopReason, Tags,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure, TIMEOUT_SECRET,
 };
+use goodfetch_protocol::security::SECURITY_REDACTION;
 use goodfetch_protocol::settings::{SettingsLayer, WeakenedSetting};
 use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::Limit;
@@ -120,6 +122,7 @@ use crate::governor::{
 use crate::home::{Home, RunStateLocation, major_name};
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation};
+use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::Metrics;
 use crate::needs_you::NeedsYou;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
@@ -157,6 +160,8 @@ const COMMANDS: usize = 256;
 
 /// What the registry starts from.
 pub(crate) struct RunsSetup {
+    /// Every live Run's resolved values, which each Run's own join.
+    pub(crate) masks: Masks,
     /// The engine's environment map, which `env:` Secret references
     /// resolve in.
     pub(crate) environment: BTreeMap<OsString, OsString>,
@@ -1324,9 +1329,24 @@ impl Run {
     ///
     /// Dropping the future after the write was queued still writes it.
     pub async fn warn(&self, warning: RunWarning) -> Result<(), RunStateError> {
+        let warning = self.masked(warning);
         self.state
             .write(move |connection| report::warn(connection, &warning))
             .await
+    }
+
+    /// `warning` with every value a Run resolved masked, as what the engine
+    /// keeps.
+    fn masked(&self, mut warning: RunWarning) -> RunWarning {
+        if let Cow::Owned(message) = self
+            .secrets()
+            .mask()
+            .masks()
+            .apply(&warning.message, Scope::Kept)
+        {
+            warning.message = message;
+        }
+        warning
     }
 
     /// Hands `warning` over to the Run's report unless it holds a warning
@@ -1337,6 +1357,7 @@ impl Run {
     ///
     /// When its run state cannot be written.
     pub async fn warn_once(&self, warning: RunWarning) -> Result<(), RunStateError> {
+        let warning = self.masked(warning);
         self.state
             .write(move |connection| {
                 if report::warned(connection, &warning.code)? {
@@ -1935,6 +1956,15 @@ fn secret_timeout(settings: Option<&RunSettings>) -> Duration {
         .unwrap_or(Duration::from_secs(30))
 }
 
+/// Whether a Run whose settings resolved as `settings` masks its values in
+/// its kept outputs: its `security.redaction`, on when none resolved.
+fn redaction(settings: Option<&RunSettings>) -> Redaction {
+    match settings.and_then(|settings| settings.resolved().boolean(SECURITY_REDACTION.name)) {
+        Some(false) => Redaction::Off,
+        Some(true) | None => Redaction::On,
+    }
+}
+
 impl Runs {
     /// Starts the registry as a task of `owner`, each Run's tasks under a
     /// child of it.
@@ -1965,7 +1995,8 @@ impl Runs {
             ),
             Arc::clone(&readers),
             setup.clock,
-        );
+        )
+        .masked_by(setup.masks.clone());
         let runs = Self {
             commands,
             settings: setup.settings.clone(),
@@ -2176,9 +2207,10 @@ impl Runs {
 
     /// [`Runs::start_chosen`] before its switched-off controls are reported.
     async fn start_reported(&self, start: Start) -> Result<Started, StartError> {
-        let secrets = self
-            .secrets
-            .for_run(secret_timeout(start.settings.as_ref()));
+        let secrets = self.secrets.for_run_with(
+            secret_timeout(start.settings.as_ref()),
+            redaction(start.settings.as_ref()),
+        );
         // Only a reference a layer set resolves here: the default's item,
         // in the OS keychain or the encrypted local file, is the engine's
         // own, made when run state first wraps a data key with it (#617).
@@ -2275,6 +2307,16 @@ impl Runs {
         run_id: RunId,
         message: ProgressMessage,
     ) -> Result<RunProgress, RunError> {
+        let message = match self.secrets.masks().apply(message.as_str(), Scope::Kept) {
+            Cow::Borrowed(_) => message,
+            Cow::Owned(masked) => ProgressMessage::parse(
+                &masked
+                    .chars()
+                    .take(MAX_PROGRESS_MESSAGE_CHARACTERS)
+                    .collect::<String>(),
+            )
+            .expect("invariant: a message cut to the most characters it holds parses"),
+        };
         let (answer, answered) = oneshot::channel();
         self.commands
             .send(Command::ProgressMessage(run_id, message, answer))
@@ -2447,9 +2489,10 @@ impl Runs {
     ///
     /// Dropping the future after the resume was sent still resumes the Run.
     pub async fn resume(&self, resume: Resume) -> Result<Resumed, RunError> {
-        let secrets = self
-            .secrets
-            .for_run(secret_timeout(resume.settings.as_ref()));
+        let secrets = self.secrets.for_run_with(
+            secret_timeout(resume.settings.as_ref()),
+            redaction(resume.settings.as_ref()),
+        );
         let unwrapped = self.unwrapped_key(&resume, &secrets).await?;
         let (stored, key) = match unwrapped {
             Some(Unwrapped { stored, key }) => (Some(stored), Some(key)),
@@ -5221,11 +5264,15 @@ impl Closing {
         };
         let state = run.state.clone();
         let (run_id, folder) = (run.id.clone(), run.folder.clone());
+        // The Run's values stay in the engine's masks until its report,
+        // which its error and warnings may hold, is masked and kept.
+        let mask = run.secrets().mask().clone();
         drop(run);
-        let bare = facts.bare();
+        let bare = report::masked(facts.bare(), mask.masks());
         let ended = state
             .write(move |connection| {
-                let report = report::assemble(connection, &facts, &parts)?;
+                let report =
+                    report::masked(report::assemble(connection, &facts, &parts)?, mask.masks());
                 write_end(connection, &report)?;
                 Ok(report)
             })

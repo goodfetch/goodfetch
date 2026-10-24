@@ -16,6 +16,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::http_client::{FetchError, PageTraffic, Resolve, Waiter};
+use goodfetch_engine::mask::{Masks, Redaction};
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::tls::{CertificateExceptions, ClientCertificates, Trust};
@@ -193,7 +194,11 @@ fn a_refused_request_no_call_waits_on_is_a_request_failed_event_in_the_run_trace
     let scope_only = traffic(&proving_ground, &["scope.test"], &[]);
     let refused_url = target_url(&proving_ground);
     let run_folder = env.folder().join("run");
-    let log = RequestLog::new(TaskOwner::root(BlockingPolicy::Inline), &run_folder);
+    let log = RequestLog::new(
+        TaskOwner::root(BlockingPolicy::Inline),
+        &run_folder,
+        Masks::new().for_run(Redaction::On),
+    );
     let runtime = goodfetch_test_support::runtime();
 
     let (allowed, refused) = runtime.block_on(async {

@@ -7,6 +7,11 @@
 //! `networkidle` (no request in flight for 500 ms, WebSocket connections
 //! and server-sent events left out) comes on the first and never on the second,
 //! and a tool that reads the board before its last update reads a stale one.
+//!
+//! Each host also serves a late board at `/late`, which no task names: its
+//! one periodic request starts [`LATE`] after its document's `load`, so
+//! `networkidle` comes only once that request finished, not 500 ms after
+//! `load` (pitfall B03).
 
 use std::time::Duration;
 
@@ -28,6 +33,10 @@ const UPDATES: u64 = 6;
 /// The most periodic requests task 2's page is answered, past which it is
 /// answered `404`: a never-settling page left open for days.
 const MOST_UPDATES: u64 = 10_000_000;
+
+/// How long after its document's `load` the late board makes its one
+/// request.
+const LATE: Duration = Duration::from_millis(400);
 
 /// How long the server holds each periodic request in flight.
 const HOLD: Duration = Duration::from_millis(100);
@@ -66,6 +75,9 @@ pub(super) fn page(seed: u64, ordinal: u32, path: &str) -> Option<Reply> {
     if path == "/board" {
         return Some(Reply::html(board(ordinal)));
     }
+    if path == "/late" {
+        return Some(Reply::html(late()));
+    }
     let number = update(ordinal, path)?;
     Some(Reply::json(
         StatusCode::OK,
@@ -91,11 +103,29 @@ pub(super) fn hold(path: &str) -> Option<Duration> {
 fn board(ordinal: u32) -> String {
     let updates =
         updates(ordinal).map_or_else(|| "unbounded".to_owned(), |count| count.to_string());
+    page_of("Live board", &format!("data-updates=\"{updates}\""))
+}
+
+/// The late board: one periodic request, [`LATE`] after its `load`.
+fn late() -> String {
+    page_of(
+        "Late board",
+        &format!(
+            "data-updates=\"1\" data-after-load=\"{}\"",
+            LATE.as_millis()
+        ),
+    )
+}
+
+/// A board titled `title`, its script given `attributes`.
+fn page_of(title: &str, attributes: &str) -> String {
     document(
-        "Live board",
+        title,
         "",
-        "<h1>Live board</h1>\n<dl class=\"board\" data-id=\"board\">\n<dt>State</dt><dd id=\"state\">loading</dd>\n<dt>Updates</dt><dd id=\"updates\">0</dd>\n<dt>Reading</dt><dd id=\"reading\">none</dd>\n<dt>Socket messages</dt><dd id=\"socket\">0</dd>\n<dt>Server-sent events</dt><dd id=\"events\">0</dd>\n</dl>\n",
-        &format!("<script data-updates=\"{updates}\">\n{SCRIPT}</script>\n"),
+        &format!(
+            "<h1>{title}</h1>\n<dl class=\"board\" data-id=\"board\">\n<dt>State</dt><dd id=\"state\">loading</dd>\n<dt>Updates</dt><dd id=\"updates\">0</dd>\n<dt>Reading</dt><dd id=\"reading\">none</dd>\n<dt>Socket messages</dt><dd id=\"socket\">0</dd>\n<dt>Server-sent events</dt><dd id=\"events\">0</dd>\n</dl>\n"
+        ),
+        &format!("<script {attributes}>\n{SCRIPT}</script>\n"),
     )
 }
 

@@ -2,14 +2,16 @@
 // stream open and counts their messages, and makes periodic requests one
 // after another, each starting when the one before it is answered, until
 // `data-updates` of them are done ("unbounded": never). The board then says
-// it settled. It is the page's only script, so its names stay its own.
+// it settled. With `data-after-load`, the requests start that many
+// milliseconds after the document's `load`, and the board waits until then.
+// It is the page's only script, so its names stay its own.
 "use strict";
 
 const show = (id, value) => {
   document.getElementById(id).textContent = String(value);
 };
 
-const live = (limit) => {
+const live = (limit, afterLoad) => {
   const last = limit === "unbounded" ? Number.POSITIVE_INFINITY : Number(limit);
   let messages = 0;
   let events = 0;
@@ -34,7 +36,15 @@ const live = (limit) => {
     }
     show("state", "settled");
   };
-  run().catch(() => show("state", "failed"));
+  const start = () => {
+    run().catch(() => show("state", "failed"));
+  };
+  if (afterLoad === undefined) {
+    start();
+  } else {
+    show("state", "waiting");
+    addEventListener("load", () => setTimeout(start, Number(afterLoad)));
+  }
 };
 
-live(document.currentScript.dataset.updates);
+live(document.currentScript.dataset.updates, document.currentScript.dataset.afterLoad);

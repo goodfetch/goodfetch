@@ -88,6 +88,7 @@ target = []
 # Which of `pages`'s own modules may import which.
 [submodules.pages]
 clean_up = []
+waits = []
 
 # Which of `clean_up_versions' own modules may import which.
 [submodules.clean_up_versions]

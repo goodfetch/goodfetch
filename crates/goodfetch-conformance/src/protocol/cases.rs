@@ -27,6 +27,7 @@ mod reset;
 mod routes;
 mod service_workers;
 mod sessions;
+mod waits;
 
 use std::collections::BTreeMap;
 
@@ -109,6 +110,8 @@ pub(crate) enum Case {
     Popup(popups::Case),
     /// A page function case.
     PageFunction(page_functions::Case),
+    /// An app-state wait case.
+    Wait(waits::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -315,7 +318,8 @@ impl Case {
                     .or_else(|| fetch_tiers::Case::from_id(id).map(Self::FetchTier))
                     .or_else(|| dialogs::Case::from_id(id).map(Self::Dialog))
                     .or_else(|| popups::Case::from_id(id).map(Self::Popup))
-                    .or_else(|| page_functions::Case::from_id(id).map(Self::PageFunction));
+                    .or_else(|| page_functions::Case::from_id(id).map(Self::PageFunction))
+                    .or_else(|| waits::Case::from_id(id).map(Self::Wait));
             }
         })
     }
@@ -364,6 +368,7 @@ impl Case {
             Self::Dialog(case) => case.run(connection, site, checks),
             Self::Popup(case) => case.run(connection, site, checks),
             Self::PageFunction(case) => case.run(connection, target, site, checks),
+            Self::Wait(case) => case.run(connection, site, checks),
             Self::MarkdownMatchesTheOracle => {
                 formats::markdown_matches_the_oracle(connection, site, checks)
             }

@@ -200,7 +200,7 @@ pub(super) async fn start(browser: &Browser, run: &Run) -> Result<(), CallError>
                     },
                 ]),
             },
-            &browser.opening(),
+            &browser.launching(),
         )
         .await
         .map(drop)

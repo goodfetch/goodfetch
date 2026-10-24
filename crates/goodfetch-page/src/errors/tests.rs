@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use goodfetch_cdp::{Connection, Failure, Framer};
 use goodfetch_engine::deadline::Deadline;
+use goodfetch_protocol::page::BrowserExit;
 use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use goodfetch_test_support::runtime;
 use rstest::rstest;
@@ -160,5 +161,44 @@ fn each_cdp_failure_raises_the_code_of_the_call_that_met_it(
     assert_eq!(
         call_error(&call, &failure(browser), None, &deadline).code(),
         code
+    );
+}
+
+/// A browser lost before it came up, such as one that exits at start for a
+/// missing library, raises `browser_launch_failed`, not retryable, naming
+/// its executable and how it ended; a refusal while it comes up does too.
+/// Covers: error:browser_launch_failed
+#[rstest]
+#[case::lost_at_start(Browser::Exits)]
+#[case::refusing_at_start(Browser::Refuses("Target closed"))]
+fn a_browser_lost_while_it_comes_up_raises_browser_launch_failed_naming_how_it_ended(
+    #[case] browser: Browser,
+) {
+    let launch = Call::Launch {
+        executable: "chrome".to_owned(),
+    };
+    let ended = BrowserExit {
+        code: Some(127),
+        signal: None,
+    };
+
+    let error = call_error(
+        &launch,
+        &failure(browser),
+        Some(ended),
+        &Deadline::declared(&TIMEOUT_NAVIGATION),
+    );
+
+    assert_eq!(
+        (
+            error.code(),
+            error.retryable(),
+            error.details().cloned().map(Value::Object)
+        ),
+        (
+            "browser_launch_failed",
+            false,
+            Some(json!({ "executable": "chrome", "exit": { "code": 127, "signal": null } }))
+        )
     );
 }

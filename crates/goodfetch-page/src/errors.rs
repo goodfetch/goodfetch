@@ -1,7 +1,9 @@
 //! What each CDP failure raises (ADR 0127): the CDP client types every
 //! error and disconnection of the browser's as a [`Failure`]; this module
 //! is where each variant becomes the Error code of the call that met it.
-//! A lost browser or page is `page_crashed`, with how the browser ended
+//! Any failure but a deadline while a launched browser comes up is
+//! `browser_launch_failed`, naming how the browser ended when it did. A
+//! lost browser or page is `page_crashed`, with how the browser ended
 //! when it is the browser that was lost; a command the browser leaves
 //! unanswered past the call's deadline is `deadline_exceeded` naming the
 //! call's timeout setting (ADR 0080); any other failure is the call's
@@ -35,8 +37,15 @@ use crate::page_value::Refusal as GateRefusal;
 /// The call a failure met.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Call {
-    /// Opening a page: the launch's last steps, a browser context, a
-    /// target and its domains. Holds the browser's executable.
+    /// Bringing up a browser the engine launched: its first answer, the
+    /// identity a headless one shows, and the attach to its workers. Holds
+    /// the browser's executable.
+    Launch {
+        /// The browser's executable.
+        executable: String,
+    },
+    /// Opening a page: a browser context, a target and its domains, in a
+    /// browser that came up. Holds the browser's executable.
     OpenPage {
         /// The browser's executable.
         executable: String,
@@ -80,6 +89,18 @@ pub(crate) fn call_error(
     if let Failure::TimedOut { .. } = failure {
         return deadline.exceeded(BROWSER_ANSWER, deadline.duration());
     }
+    // A browser lost or refusing before it came up never started: it is
+    // the launch that failed, however it ended (ADR 0115).
+    if let Call::Launch { executable } = call {
+        return CallError::new(
+            &BROWSER_LAUNCH_FAILED,
+            format!("the browser at {executable} did not come up: {failure}"),
+            &BrowserLaunchFailedDetails {
+                executable: executable.clone(),
+                exit,
+            },
+        );
+    }
     let lost = match failure {
         Failure::Disconnected => Some(exit.clone()),
         Failure::Refused {
@@ -119,7 +140,7 @@ pub(crate) fn call_error(
                 error: None,
             },
         ),
-        Call::OpenPage { executable } => CallError::new(
+        Call::Launch { executable } | Call::OpenPage { executable } => CallError::new(
             &BROWSER_LAUNCH_FAILED,
             format!("the browser did not open the page: {failure}"),
             &BrowserLaunchFailedDetails {

@@ -113,9 +113,11 @@ impl Deadlines {
     /// The deadline the commands of `call` wait under.
     fn of_call(&self, call: &Call) -> &Deadline {
         match call {
-            Call::OpenPage { .. } | Call::Document | Call::Navigation { .. } | Call::History => {
-                &self.navigation
-            }
+            Call::Launch { .. }
+            | Call::OpenPage { .. }
+            | Call::Document
+            | Call::Navigation { .. }
+            | Call::History => &self.navigation,
             Call::Action { .. } => &self.action,
         }
     }
@@ -230,8 +232,17 @@ impl Browser {
         call_error(call, failure, ended, self.deadlines.of_call(call))
     }
 
+    /// The call of opening a page in the browser, once it came up.
     fn opening(&self) -> Call {
         Call::OpenPage {
+            executable: self.executable.clone(),
+        }
+    }
+
+    /// The call of bringing the browser up, whose every failure is the
+    /// launch's.
+    fn launching(&self) -> Call {
+        Call::Launch {
             executable: self.executable.clone(),
         }
     }
@@ -346,7 +357,7 @@ impl Connect for BorrowedBrowser {
                 };
                 // The first answer says a browser speaks CDP there.
                 browser
-                    .send(None, &browser::GetVersionParams {}, &browser.opening())
+                    .send(None, &browser::GetVersionParams {}, &browser.launching())
                     .await?;
                 service_workers::start(&browser, &self.run).await?;
                 Ok(browser)
@@ -477,7 +488,7 @@ impl Connect for LocalBrowser {
                 };
                 // The first answer says the browser is up.
                 let version = browser
-                    .send(None, &browser::GetVersionParams {}, &browser.opening())
+                    .send(None, &browser::GetVersionParams {}, &browser.launching())
                     .await?;
                 if launched.headless {
                     browser.identity = Some(identity::read(&browser, &version.user_agent).await?);

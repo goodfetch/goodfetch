@@ -96,7 +96,7 @@ fn window_user_agent(headless: &str) -> String {
 /// `browser_launch_failed` when the browser does not open, load or read its
 /// secure page; a lost browser raises what [`Browser::send`] raises.
 pub(super) async fn read(browser: &Browser, user_agent: &str) -> Result<Identity, CallError> {
-    let opening = browser.opening();
+    let opening = browser.launching();
     let created = browser
         .send(
             None,
@@ -152,7 +152,7 @@ async fn hints_of(
     browser: &Browser,
     session: &TargetSession,
 ) -> Result<emulation::UserAgentMetadata, CallError> {
-    let opening = browser.opening();
+    let opening = browser.launching();
     let mut events = browser.connection.subscribe(Some(session)).await;
     browser
         .send(Some(session), &page::EnableParams::default(), &opening)

@@ -120,19 +120,20 @@ mod waits;
 /// observer, as a Collie program's pages do, and no document has a Block
 /// cause.
 pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
-    contribution_with(pins, Arc::new(ProgramPages), Arc::new(NoBlocks))
+    contribution_with(pins, ProgramPages, Arc::new(NoBlocks))
 }
 
 /// What the page crate adds to the engine, as [`contribution`], each page
-/// it opens taking its value and its response observer from `hooks` (ADR
-/// 0087): the hook through which Foxhound sets them on the pages it hands
-/// to handlers; `blocks` tells a page's Block cause, from the Product's
-/// rules (ADR 0035).
+/// it opens taking its value and its response observer from
+/// `handler_pages` (ADR 0087): the seam through which Foxhound sets them
+/// on the pages it hands to handlers; `blocks` tells a page's Block cause,
+/// from the Product's rules (ADR 0035).
 pub fn contribution_with(
     pins: Vec<PinnedArtifact>,
-    hooks: Arc<dyn HandlerPages>,
+    handler_pages: impl HandlerPages + 'static,
     blocks: Arc<dyn BlockClassifier>,
 ) -> Contribution {
+    let handler_pages: Arc<dyn HandlerPages> = Arc::new(handler_pages);
     let interception = Interception::default();
     let events = page_events::Table::default();
     let dialogs = Dialogs::default();
@@ -142,12 +143,12 @@ pub fn contribution_with(
             interception.clone(),
             events.clone(),
             dialogs.clone(),
-            Arc::clone(&hooks),
+            Arc::clone(&handler_pages),
         ),
         interception,
         events,
         dialogs,
-        hooks,
+        product: handler_pages,
         blocks,
         init_scripts: InitScripts::default(),
         injections: Injections::default(),
@@ -699,9 +700,9 @@ struct Pages {
     events: page_events::Table,
     /// Each open page's dialogs and their handlers.
     dialogs: Dialogs,
-    /// The Product's hook, which also serves the pages its fetch tiers
-    /// opened from a document.
-    hooks: Arc<dyn HandlerPages>,
+    /// The Product's seam that sets what its handlers' pages carry, which
+    /// also serves the pages its fetch tiers opened from a document.
+    product: Arc<dyn HandlerPages>,
     /// The Product's Block classification.
     blocks: Arc<dyn BlockClassifier>,
     /// Each page's init scripts on their way in or out, which its
@@ -805,7 +806,6 @@ impl Pages {
         {
             return Err(blocked::blocked(block, &response, received));
         }
-        let first_request = response.request_id.clone();
         let judged =
             recovery::judge(&arrival::judging(&page, page_id, destination), &response).await;
         let first = blocking_off::FirstLoad {
@@ -813,29 +813,15 @@ impl Pages {
             wait_until,
             response,
             judged,
-            blocked_before,
+            block,
+            touched,
         };
         let navigated = self
             .unless_blocking_broke_it(page_id, &page, first, events)
             .await?;
-        // A document loaded once more with blocking off is judged for its
-        // Block cause too.
-        if let Some(again) = &navigated.response
-            && again.request_id != first_request
-        {
-            page_events.judged(&again.request_id);
-            let received = page_events
-                .answered_at(&again.request_id)
-                .unwrap_or_else(|| page.clock.wall());
-            if let Some(block) =
-                blocked::block_of(&page.driver, self.blocks.as_ref(), again, operation).await?
-            {
-                return Err(blocked::blocked(block, again, received));
-            }
-        }
-        // A consent wall the runner found before the navigation answered
-        // is the navigation's (ADR 0048).
-        self.consent_wall(page_id)?;
+        // A consent wall the runner found on the navigation's document is
+        // the navigation's, once the runner judged it (ADR 0048).
+        self.consent_verdict(page_id, &page, true).await?;
         Ok(navigated)
     }
 
@@ -907,13 +893,13 @@ impl Pages {
             option: max_redirects_option(surface),
             limits,
         };
-        let (driver, in_browser) = self
+        // A cancelled call closes the engine's page as it drops.
+        let engine_page = self
             .sessions
             .engine_page(&page.session, page.driver.value())
             .await?;
-        let fetched = browser_fetch::send(&driver, &steps, &request).await;
-        driver.close().await;
-        drop(in_browser);
+        let fetched = browser_fetch::send(engine_page.driver(), &steps, &request).await;
+        engine_page.close().await;
         let fetched = fetched?;
         let kept = match fetched.body {
             browser_fetch::Body::Whole(bytes) => {
@@ -1020,9 +1006,32 @@ impl Pages {
         if let Some(failure) = self.left_failure(page_id) {
             return Err(failure);
         }
-        self.consent_wall(page_id)?;
+        self.consent_verdict(page_id, &page, false).await?;
         self.judge_unjudged(&page, page_id, None).await?;
         Ok(page)
+    }
+
+    /// Raises the consent wall the Consent prompt runner left in the main
+    /// document of `page`, the page `page_id`, once, after waiting, within
+    /// the page's action deadline, for the verdict on a prompt the runner's
+    /// first pass there found (ADR 0048): a call that `navigated` asks the
+    /// runner first whether it found one, as its report may still be on its
+    /// way.
+    async fn consent_verdict(
+        &self,
+        page_id: &PageId,
+        page: &OpenPage,
+        navigated: bool,
+    ) -> Result<(), CallError> {
+        let walls = self.sessions.consent_walls();
+        if navigated && crate::consent::first_pass_found(&page.driver).await {
+            walls.detected(page_id);
+        }
+        let (_, limit) = &page.action_timeout;
+        if !walls.verdict(page_id, *limit, page.clock).await {
+            tracing::debug!(page_id = %page_id.0, "the Consent prompt runner gave no verdict on a prompt it found within the action deadline");
+        }
+        self.consent_wall(page_id)
     }
 
     /// Raises the consent wall the Consent prompt runner left in the
@@ -1093,7 +1102,7 @@ impl Pages {
     /// cosmetic rules match (ADR 0047), which Provenance records.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_FORMATS.name, run_id = tracing::field::Empty))]
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
-        if let Some(served) = self.hooks.document(&params.page_id) {
+        if let Some(served) = self.product.document(&params.page_id) {
             tracing::Span::current().record("run_id", served.run.id().as_str());
             let document = SerializedDocument {
                 html: served.html,
@@ -1104,7 +1113,7 @@ impl Pages {
             let (formats, _) = served
                 .run
                 .owner()
-                .blocking(move || clean_up::read(&document, request, None))
+                .blocking(move || clean_up::read(&document, request, None, &[]))
                 .await;
             return Ok(formats);
         }
@@ -1116,10 +1125,11 @@ impl Pages {
             .await?;
         let request = params.formats;
         let cosmetic = self.interception.cosmetic(&params.page_id);
+        let hidden = page.sheets.runner_hidden();
         let (formats, removed) = page
             .run
             .owner()
-            .blocking(move || clean_up::read(&document, request, cosmetic.as_ref()))
+            .blocking(move || clean_up::read(&document, request, cosmetic.as_ref(), &hidden))
             .await;
         if let Some(removed) = removed {
             trace::provenance(&page.run, &removed.entry(&params.page_id, &page.session)).await;

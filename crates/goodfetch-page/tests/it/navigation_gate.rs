@@ -301,9 +301,67 @@ fn a_refused_navigation_no_call_waits_on_is_aborted_and_the_page_keeps_its_docum
     });
 }
 
+/// A refusal no navigation call waits on raises from the waiters armed for
+/// it: a `page.wait_for_url` and a `page.wait_for_response` armed for the
+/// URL a click navigates to raise `site_preferences_refused` at once,
+/// never `deadline_exceeded` at `timeout.wait`.
+/// Covers: error:site_preferences_refused, operation:page.wait_for_url, operation:page.wait_for_response
+#[test]
+fn a_refused_navigation_raises_from_the_waiters_armed_for_it() {
+    let gate = RecordingGate::new();
+    gate.refuse("/b", SitePreference::RobotsTxt);
+    with_handler_page(&gate, Map::new(), async |program| {
+        program.goto(HISTORY, "/").await;
+        let page = program.page.clone();
+        let matcher = json!({ "kind": "glob", "pattern": "**/b" });
+        let url = program
+            .request(
+                "page.wait_for_url",
+                &json!({ "page_id": page, "url": matcher }),
+            )
+            .await;
+        let response = program
+            .request(
+                "page.wait_for_response",
+                &json!({ "page_id": page, "url": matcher }),
+            )
+            .await;
+        let clicked = program
+            .call(
+                "locator.click",
+                &json!({ "locator": { "page_id": page, "selector": "#next" } }),
+            )
+            .await;
+        let waited_url = program.answer(url).await;
+        let waited_response = program.answer(response).await;
+
+        assert_eq!(
+            (
+                clicked.get("result").is_some(),
+                refusal(&waited_url),
+                refusal(&waited_response),
+            ),
+            (
+                true,
+                (
+                    json!("site_preferences_refused"),
+                    json!("robots_txt"),
+                    Some("/b".to_owned())
+                ),
+                (
+                    json!("site_preferences_refused"),
+                    json!("robots_txt"),
+                    Some("/b".to_owned())
+                ),
+            )
+        );
+    });
+}
+
 /// The lease check is asked before each command the page sends, a
 /// `page.request`'s included: once the lease ended, a navigation, a
-/// `page.request` and a click each raise `attempt_ended` and nothing
+/// `page.request` and a click each raise the error the lease check gives
+/// (the Recording gate's `call_cancelled`, Foxhound's `attempt_ended`) and nothing
 /// reaches the site.
 /// Covers: operation:page.goto, operation:page.request, operation:locator.click
 #[test]
@@ -354,9 +412,9 @@ fn a_page_whose_lease_ended_sends_nothing_more() {
             (
                 true,
                 true,
-                json!("attempt_ended"),
-                json!("attempt_ended"),
-                json!("attempt_ended"),
+                json!("call_cancelled"),
+                json!("call_cancelled"),
+                json!("call_cancelled"),
                 false,
                 false,
                 true,
@@ -425,9 +483,11 @@ fn a_permit_wait_counts_against_no_timeout_and_holds_the_lease() {
 }
 
 /// The response observer Foxhound registers receives each response the
-/// engine observes whose URL its patterns match, with its body cut at its
-/// byte cap, a service worker's own included; one that matches nothing is
-/// never passed to it.
+/// engine observes on the page whose URL its patterns match, with its body
+/// cut at its byte cap, its whole length and its page named, those a
+/// service worker answered included and marked so: one from its Cache
+/// Storage, and one it fetched itself. One that matches nothing is never
+/// passed to it.
 /// Covers: operation:page.goto
 #[test]
 fn the_response_observer_receives_each_kept_response_with_its_body_a_service_workers_included() {
@@ -435,22 +495,24 @@ fn the_response_observer_receives_each_kept_response_with_its_body_a_service_wor
     gate.observe(Kept {
         urls: vec![
             UrlPattern::glob("**/effects.js").unwrap(),
+            UrlPattern::glob("**/cached.json*").unwrap(),
             UrlPattern::glob("**/network.json*").unwrap(),
         ],
         byte_cap: 8,
     });
     with_handler_page(&gate, Map::new(), async |program| {
-        program.goto(HISTORY, "/").await;
+        let went = program.goto(HISTORY, "/").await;
         program
             .goto("access.localhost", "/service-worker/?case=observed")
             .await;
-        let from_worker = |gate: &RecordingGate| {
-            gate.observed()
+        let observed_both = |gate: &RecordingGate| {
+            let observed = gate.observed();
+            ["/cached.json", "/network.json"]
                 .iter()
-                .any(|observed| observed.url.contains("/network.json"))
+                .all(|path| observed.iter().any(|response| response.url.contains(path)))
         };
-        settled(|| from_worker(&gate)).await;
-        let observed: Vec<(Option<String>, u16, bool, usize)> = gate
+        settled(|| observed_both(&gate)).await;
+        let mut observed: Vec<(Option<String>, u16, bool, usize)> = gate
             .observed()
             .into_iter()
             .map(|observed| {
@@ -462,18 +524,40 @@ fn the_response_observer_receives_each_kept_response_with_its_body_a_service_wor
                 )
             })
             .collect();
+        observed.sort();
+        let on_its_page = gate
+            .observed()
+            .iter()
+            .all(|observed| observed.page_id.0 == program.page);
+        let cached_length = gate
+            .observed()
+            .iter()
+            .find(|observed| observed.url.contains("/cached.json"))
+            .map(|observed| observed.body_length);
 
         assert_eq!(
-            observed,
-            vec![
-                (Some("/effects.js".to_owned()), 200, false, 8),
-                (
-                    Some("/service-worker/network.json".to_owned()),
-                    200,
-                    true,
-                    8
-                ),
-            ]
+            (
+                went["response"]["status"].clone(),
+                observed,
+                on_its_page,
+                cached_length
+            ),
+            (
+                json!(200),
+                vec![
+                    (Some("/effects.js".to_owned()), 200, false, 8),
+                    (Some("/service-worker/cached.json".to_owned()), 200, true, 8),
+                    (
+                        Some("/service-worker/network.json".to_owned()),
+                        200,
+                        true,
+                        8
+                    ),
+                ],
+                true,
+                // `{"cached":true}`, whole, though its body arrives cut.
+                Some(15),
+            )
         );
     });
 }
@@ -511,9 +595,127 @@ fn a_service_workers_request_carrying_a_navigation_is_admitted_once(#[case] navi
     });
 }
 
+/// A navigation a service worker carries is its page's: its wait for the
+/// gate's permit counts against no `timeout.navigation` of the page, and
+/// the gate's refusal raises `site_preferences_refused` from the page's
+/// `page.reload`, never a retryable `navigation_failed`.
+/// Covers: operation:page.reload, error:site_preferences_refused
+#[test]
+fn a_service_workers_navigation_waits_and_is_refused_as_its_pages() {
+    let gate = RecordingGate::new();
+    let mut settings = Map::new();
+    settings.insert("timeout".to_owned(), json!({ "navigation": 1000 }));
+    with_handler_page(&gate, settings, async |program| {
+        let page = "/service-worker/?navigations=pass";
+        program.goto("access.localhost", page).await;
+        settled_or(
+            || program.reported(page, "controlled").as_deref() == Some("true"),
+            || format!("{:?}", program.reported(page, "register")),
+        )
+        .await;
+        gate.hold("navigations=pass", Duration::from_millis(1500));
+        let held = program.on_page("page.reload", json!({})).await;
+        gate.refuse("navigations=pass", SitePreference::RobotsTxt);
+        let refused = program.on_page("page.reload", json!({})).await;
+
+        assert_eq!(
+            (
+                held["result"]["response"]["status"].clone(),
+                refusal(&refused),
+            ),
+            (
+                json!(200),
+                (
+                    json!("site_preferences_refused"),
+                    json!("robots_txt"),
+                    Some("/service-worker/".to_owned())
+                ),
+            )
+        );
+    });
+}
+
+/// The gate judges the document a service worker's request carrying a
+/// page's navigation brought back, as it judges a page's own: its refusal
+/// raises from the page's `page.reload`.
+/// Covers: operation:page.reload, error:site_preferences_refused
+#[test]
+fn a_document_a_service_worker_brought_is_judged_when_it_arrives() {
+    let gate = RecordingGate::new();
+    with_handler_page(&gate, Map::new(), async |program| {
+        let page = "/service-worker/?navigations=pass";
+        program.goto("access.localhost", page).await;
+        settled_or(
+            || program.reported(page, "controlled").as_deref() == Some("true"),
+            || format!("{:?}", program.reported(page, "register")),
+        )
+        .await;
+        gate.refuse_documents("navigations=pass", SitePreference::UseSignals);
+        let refused = program.on_page("page.reload", json!({})).await;
+
+        assert_eq!(
+            refusal(&refused),
+            (
+                json!("site_preferences_refused"),
+                json!("use_signals"),
+                Some("/service-worker/".to_owned())
+            )
+        );
+    });
+}
+
+/// The gate judges a main-frame document a route fetched before the route
+/// gets it: `route.fetch` and the navigation raise its refusal, and the
+/// page is left on a blank document.
+/// Covers: operation:page.goto, operation:route.fetch, error:site_preferences_refused
+#[test]
+fn a_document_a_route_fetched_is_judged_before_the_route_gets_it() {
+    let gate = RecordingGate::new();
+    gate.refuse_documents("/target", SitePreference::UseSignals);
+    with_handler_page(&gate, Map::new(), async |program| {
+        let page = program.page.clone();
+        program
+            .request(
+                "page.route",
+                &json!({ "page_id": page, "url": { "kind": "glob", "pattern": "**/target" } }),
+            )
+            .await;
+        let url = program.proving_ground.url(FETCH_EDGE, "/target");
+        let navigating = program
+            .request("page.goto", &json!({ "page_id": page, "url": url }))
+            .await;
+        let handle = program.until_request("route.handle").await;
+        let fetched = program
+            .call(
+                "route.fetch",
+                &json!({ "route_id": handle["params"]["route_id"] }),
+            )
+            .await;
+        program.reply(&handle, json!({})).await;
+        let navigated = program.answer(navigating).await;
+        let left = program
+            .on_page("page.formats", json!({ "formats": { "markdown": true } }))
+            .await;
+        let refused = (
+            json!("site_preferences_refused"),
+            json!("use_signals"),
+            Some("/target".to_owned()),
+        );
+
+        assert_eq!(
+            (
+                refusal(&fetched),
+                refusal(&navigated),
+                left["result"]["markdown"].as_str().map(str::trim),
+            ),
+            (refused.clone(), refused, Some("")),
+        );
+    });
+}
+
 /// A popup a handler's page opens takes the page's value (A05-26): its
 /// first navigation is admitted by the opener's gate before it leaves, and
-/// once the lease ended a call on the popup raises `attempt_ended` and
+/// once the lease ended a call on the popup raises its lease check's error and
 /// nothing more reaches the site.
 /// Covers: event:page.popup, operation:locator.click, operation:page.goto
 #[test]
@@ -557,7 +759,7 @@ fn a_popup_takes_its_openers_gate_and_lease_check() {
             ),
             (
                 vec![("/popup/opened".to_owned(), NavigationKind::Document)],
-                json!("attempt_ended"),
+                json!("call_cancelled"),
                 false,
             )
         );

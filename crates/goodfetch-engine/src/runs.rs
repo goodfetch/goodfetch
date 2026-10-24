@@ -85,7 +85,7 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
-pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Holding, RulesContext};
+pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext};
 pub use self::import::fuzz_run_state_import;
 pub use self::progress::{PauseHeld, ProgressPart};
 pub use self::reader::RunReader;
@@ -104,6 +104,7 @@ use self::report::EndFacts;
 pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
+use crate::CallError;
 use crate::admission::{Admission, Gates};
 use crate::audit::{AuditEvents, AuditLog};
 use crate::body;
@@ -434,6 +435,10 @@ pub enum StartError {
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
+    /// The composition refused the start's settings, such as a version of
+    /// the Clean-up rules it cannot have (ADR 0047).
+    #[error("the start was refused: {0}")]
+    Refused(Box<CallError>),
 }
 
 /// A filesystem a Run needs at the `critical` storage level (ADR 0122).
@@ -2080,7 +2085,8 @@ impl Runs {
             let chosen = rules
                 .versions
                 .choose(self.rules_context(rules, start.settings.as_ref()))
-                .await;
+                .await
+                .map_err(|refused| StartError::Refused(Box::new(refused)))?;
             start.clean_up_digest = Some(chosen.digest);
             fallback = chosen.fallback;
         }
@@ -4728,6 +4734,7 @@ impl Registry {
                 | StartError::LimitNotUnderstood(_)
                 | StartError::Draining { .. }
                 | StartError::Secret(_)
+                | StartError::Refused(_)
                 | StartError::Stopped => RunError::Stopped,
             })?;
         let mut after = 0;

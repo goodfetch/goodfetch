@@ -43,6 +43,8 @@ pub(crate) struct Child {
     pub(crate) session: TargetSession,
     /// Its target.
     pub(crate) target: target::TargetID,
+    /// The URL the browser named when it attached it.
+    pub(crate) url: String,
 }
 
 /// What one of a page's parts does with each child before it runs: it
@@ -133,6 +135,7 @@ fn follow(
                 parent: parent.clone(),
                 session: TargetSession(attached.session_id),
                 target: attached.target_info.target_id,
+                url: attached.target_info.url,
             };
             let waiting = attached.waiting_for_debugger;
             run.spawn(attach(

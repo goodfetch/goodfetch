@@ -48,6 +48,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_cdp::Command as _;
+use goodfetch_cdp::generated::target;
 use goodfetch_engine::browser_cache::{PinnedArtifact, Pins};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
@@ -126,7 +128,7 @@ pub(crate) struct Sessions {
     dialogs: Dialogs,
     /// What each page carries for the Product that hands pages to
     /// handlers: its value and its response observer (ADR 0087).
-    hooks: Arc<dyn HandlerPages>,
+    handler_pages: Arc<dyn HandlerPages>,
 }
 
 #[derive(Default)]
@@ -208,6 +210,9 @@ pub(crate) struct OpenPage {
     pub(crate) clock: Clock,
     /// Its live hiding, when it hides anything.
     pub(crate) hiding: Option<Arc<PageHiding>>,
+    /// Its documents' hiding sheets, which the Consent prompt runner writes
+    /// into too.
+    pub(crate) sheets: Arc<crate::hiding::Sheets>,
     /// How its Session's pages are judged: its Page check, when it declares
     /// one, and whether it may hold a login.
     pub(crate) page_check: Arc<Checking>,
@@ -245,16 +250,67 @@ fn unavailable(run: &Run, error: &impl std::fmt::Display, context: &CallContext)
     )
 }
 
+/// Refuses to open a page whose value's lease ended, before any command
+/// leaves for it, the one that opens its target included (ADR 0087): the
+/// lease check's own error.
+fn lease_holds(value: &PageValue) -> Result<(), CallError> {
+    match value.lease() {
+        Some(lease) => lease
+            .check()
+            .map_err(|ended| lease.withheld(ended, target::CreateTargetParams::METHOD)),
+        None => Ok(()),
+    }
+}
+
+/// A page of a Session that the engine drives itself
+/// ([`Sessions::engine_page`]): closed, and its place in its browser given
+/// back, once its caller closes it or drops it, a cancelled call's
+/// included, so no tab stays open in the Session's browser.
+pub(crate) struct EnginePage {
+    driver: PageDriver,
+    /// Its place in its browser, until it closes.
+    in_browser: Option<InBrowser>,
+    /// The Run its close runs on when it is dropped.
+    run: Run,
+}
+
+impl EnginePage {
+    /// Its driver.
+    pub(crate) fn driver(&self) -> &PageDriver {
+        &self.driver
+    }
+
+    /// Closes it now.
+    pub(crate) async fn close(mut self) {
+        if let Some(in_browser) = self.in_browser.take() {
+            self.driver.close().await;
+            drop(in_browser);
+        }
+    }
+}
+
+impl Drop for EnginePage {
+    fn drop(&mut self) {
+        if let Some(in_browser) = self.in_browser.take() {
+            let driver = self.driver.clone();
+            self.run.spawn(async move {
+                driver.close().await;
+                drop(in_browser);
+            });
+        }
+    }
+}
+
 impl Sessions {
     /// The engine's Sessions, whose browsers come from `pins`, under
     /// `interception`, their pages' events in `events` and their dialogs in
-    /// `dialogs`, each page's value and response observer from `hooks`.
+    /// `dialogs`, each page's value and response observer from `handler_pages`.
     pub(crate) fn new(
         pins: Vec<PinnedArtifact>,
         interception: Interception,
         events: page_events::Table,
         dialogs: Dialogs,
-        hooks: Arc<dyn HandlerPages>,
+        handler_pages: Arc<dyn HandlerPages>,
     ) -> Self {
         Self {
             state: Arc::new(Mutex::new(State::default())),
@@ -264,7 +320,7 @@ impl Sessions {
             hiding: Hiding::default(),
             events,
             dialogs,
-            hooks,
+            handler_pages,
         }
     }
 
@@ -324,7 +380,7 @@ impl Sessions {
         if let Err(error) = open.seat.open().await {
             life.open_failed(error.clone())?;
             self.state.lock().await.sessions.remove(&session);
-            self.interception.close(&[], &session);
+            self.interception.close_session(&session, &[]);
             return Err(error);
         }
         match life.apply(SessionEvent::SourceReady, None)? {
@@ -436,13 +492,15 @@ impl Sessions {
         if let Some(proxy) = &open.proxy {
             proxy.warn_if_outlived(&run, session).await;
         }
+        let value = self.handler_pages.value(run.id(), session);
+        lease_holds(&value)?;
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
         let (driver, in_browser) = open.seat.new_page().await?;
-        let driver = driver.with_value(self.hooks.value(run.id(), session), run.clock());
+        let driver = driver.with_value(value, run.clock());
         let open_session = Arc::clone(&open);
         let page = self
             .adopt(tabs::Adopting {
-                observer: self.hooks.observer(run.id(), session),
+                observer: self.handler_pages.observer(run.id(), session),
                 open,
                 driver,
                 in_browser,
@@ -517,7 +575,7 @@ impl Sessions {
         for (page_id, page) in self.pages_of(session).await {
             match page.life.end(&Ending::Closed(ClosedValue::Session))? {
                 PageEffect::Close => closing.push((page_id, page)),
-                effect => self.page_ended(&page_id, session, &open.run, effect).await,
+                effect => self.page_ended(&page_id, &open.run, effect).await,
             }
         }
         open.seat.close().await;
@@ -525,7 +583,7 @@ impl Sessions {
             // The context's disposal destroyed each target: the close the
             // engine sent is confirmed (P29).
             let effect = page.life.end(&Ending::Destroyed)?;
-            self.page_ended(page_id, session, &open.run, effect).await;
+            self.page_ended(page_id, &open.run, effect).await;
         }
         if crashed {
             self.hiding.close(session).await;
@@ -575,7 +633,7 @@ impl Sessions {
         };
         self.events.close(&pages);
         self.dialogs.close(&pages);
-        self.interception.close(&pages, session);
+        self.interception.close_session(session, &pages);
         self.hiding.close(session).await;
         let position = open.position;
         open.run
@@ -597,12 +655,13 @@ impl Sessions {
     /// governor's. The browser-fetch tier sends `page.request` from one,
     /// in the Session's browser context, so its cookies are the Session's
     /// (ADR 0020). It carries `value`, the value of the page it acts for.
-    /// Its caller closes it; `closed` when the Session is.
+    /// It closes once its caller is done with it, or drops it; `closed`
+    /// when the Session is.
     pub(crate) async fn engine_page(
         &self,
         session: &SessionId,
         value: &PageValue,
-    ) -> Result<(PageDriver, InBrowser), CallError> {
+    ) -> Result<EnginePage, CallError> {
         let open = self
             .state
             .lock()
@@ -615,11 +674,13 @@ impl Sessions {
             return Err(failed.clone());
         }
         open.life.call().await?;
+        lease_holds(value)?;
         let (driver, in_browser) = open.seat.new_page().await?;
-        Ok((
-            driver.with_value(value.clone(), open.run.clock()),
-            in_browser,
-        ))
+        Ok(EnginePage {
+            driver: driver.with_value(value.clone(), open.run.clock()),
+            in_browser: Some(in_browser),
+            run: open.run.clone(),
+        })
     }
 
     /// The page `page_id` this engine holds; `page_crashed` again for a
@@ -813,7 +874,7 @@ impl Sessions {
                 let pages = pages.remove(session).unwrap_or_default();
                 sessions.events.close(&pages);
                 sessions.dialogs.close(&pages);
-                sessions.interception.close(&pages, session);
+                sessions.interception.close_session(session, &pages);
                 sessions.hiding.close(session).await;
             }
         });

@@ -2,7 +2,9 @@
 //! (`route-<n>`, numbered from 1 by the engine): an answer is delivered to
 //! its request's slot when its call arrives, and answered once the pipeline
 //! acted on it. A request's slot closes once it is answered or its handler
-//! ended, so any later answer raises `route_already_handled`.
+//! ended, so any later answer raises `route_already_handled`; a slot holds
+//! one answer at a time (STYLE.md: every channel is bounded), so one that
+//! comes while the one before is still unread raises it too.
 #![expect(
     clippy::disallowed_types,
     reason = "routes are armed and answers delivered as their call arrives, before any `.await`: each lock guards one table or map for one operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -68,14 +70,14 @@ pub(super) struct Answers {
 struct Shared {
     /// The last number given.
     given: AtomicU64,
-    slots: Mutex<BTreeMap<u64, mpsc::UnboundedSender<Delivered>>>,
+    slots: Mutex<BTreeMap<u64, mpsc::Sender<Delivered>>>,
 }
 
 /// One request's slot, which the pipeline reads its answers from; dropped,
 /// it closes.
 pub(super) struct Slot {
     number: u64,
-    answers: mpsc::UnboundedReceiver<Delivered>,
+    answers: mpsc::Receiver<Delivered>,
     shared: Arc<Shared>,
 }
 
@@ -83,7 +85,7 @@ impl Answers {
     /// Opens the slot of a new request, and names it.
     pub(super) fn open(&self) -> (RouteId, Slot) {
         let number = self.shared.given.fetch_add(1, Ordering::Relaxed) + 1;
-        let (sender, answers) = mpsc::unbounded_channel();
+        let (sender, answers) = mpsc::channel(1);
         lock(&self.shared.slots).insert(number, sender);
         (
             RouteId(format!("route-{number}")),
@@ -119,7 +121,7 @@ impl Answers {
         let (reply, replied) = oneshot::channel();
         let delivered = lock(&self.shared.slots)
             .get(&number)
-            .is_some_and(|slot| slot.send((answer, reply)).is_ok());
+            .is_some_and(|slot| slot.try_send((answer, reply)).is_ok());
         if !delivered {
             return Err(already_handled(route_id));
         }

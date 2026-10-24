@@ -19,7 +19,7 @@ use crate::sample;
 /// ```
 pub fn composition() -> Composition {
     let tiers = FetchTiers::new();
-    goodfetch_collie::composition_with(tiers.handler_pages())
+    goodfetch_collie::composition_with(tiers.clone())
         .with(sample::contribution())
         .with(goodfetch_frontier::contribution())
         .with(goodfetch_session_pool::contribution())

@@ -113,6 +113,12 @@ pub(crate) enum Body {
 /// a request that got no response, or whose content coding failed to
 /// decode; `deadline_exceeded` naming `timeout.navigation` for one with no
 /// response by then; and the page's codes when the browser fails a command.
+///
+/// # Cancel safety
+///
+/// Dropping the future leaves the page's request, or its response, paused:
+/// its caller closes the page, as the Session's engine page does when
+/// dropped.
 pub(crate) async fn send(
     driver: &PageDriver,
     sender: &EngineRequests,

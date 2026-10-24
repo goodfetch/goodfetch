@@ -20,19 +20,19 @@ use crate::{pins, sample};
 /// assert!(composition.operations().any(|operation| operation == "engine.info"));
 /// ```
 pub fn composition() -> Composition {
-    composition_with(Arc::new(ProgramPages))
+    composition_with(ProgramPages)
 }
 
 /// What Collie's engine is composed of, as [`composition`], each page it
-/// hands a handler set by `hooks` (ADR 0087): the hook through which
+/// hands a handler set by `handler_pages` (ADR 0087): the seam through which
 /// Foxhound's composition sets the pages of its crawl's handlers.
-pub fn composition_with(hooks: Arc<dyn HandlerPages>) -> Composition {
+pub fn composition_with(handler_pages: impl HandlerPages + 'static) -> Composition {
     Composition::default()
         .with(goodfetch_engine::contribution())
         .with(sample::contribution())
         .with(goodfetch_page::contribution_with(
             pins::pinned_artifacts(),
-            hooks,
+            handler_pages,
             Arc::new(Detector),
         ))
 }

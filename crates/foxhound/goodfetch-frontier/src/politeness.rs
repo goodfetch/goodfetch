@@ -33,7 +33,8 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::{
-    Ending, Hold, PermitRule, PolitenessTables, Verdict, milliseconds, moment,
+    Ending, Hold, PermitRule, Politeness, PolitenessError, PolitenessTables, Verdict, milliseconds,
+    moment,
 };
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::foxhound::settings::{
@@ -343,6 +344,33 @@ impl PermitRule for DomainRule {
             })
             .map(moment))
     }
+}
+
+/// A second request under the Permit a request of `key` holds started at
+/// `now`, such as its document after its origin's robots.txt: every run
+/// sharing `politeness` counts its delay from it (ADR 0086).
+///
+/// # Errors
+///
+/// When the Politeness file's transaction failed.
+///
+/// # Cancel safety
+///
+/// Dropping the future does not withdraw a transaction already queued.
+pub async fn started_again(
+    politeness: &Politeness,
+    key: &str,
+    now: SystemTime,
+) -> Result<(), PolitenessError> {
+    let key = key.to_owned();
+    politeness
+        .transact(move |connection| {
+            let mut limits = Limits::read(connection, &key)?;
+            let now = milliseconds(now);
+            limits.last_start = Some(limits.last_start.map_or(now, |last| last.max(now)));
+            limits.write(connection, &key)
+        })
+        .await
 }
 
 #[cfg(test)]

@@ -19,6 +19,7 @@ mod learned_rules;
 mod limits;
 mod outcomes;
 mod politeness;
+mod robots_txt;
 mod scope;
 mod seeds;
 mod service_manager;

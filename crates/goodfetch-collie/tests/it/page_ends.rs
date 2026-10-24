@@ -105,16 +105,7 @@ fn click_in_flight(exchange: &mut Exchange<'_>, page: &str) -> i64 {
 /// The answers to the requests `ids`, in that order, whatever order they
 /// came in.
 fn answers(exchange: &mut Exchange<'_>, ids: &[i64]) -> Vec<Value> {
-    let mut answered: Vec<Option<Value>> = vec![None; ids.len()];
-    while answered.iter().any(Option::is_none) {
-        if let Some(message) = exchange.read()
-            && message.get("method").is_none()
-            && let Some(at) = ids.iter().position(|id| message["id"] == json!(id))
-        {
-            answered[at] = Some(message);
-        }
-    }
-    answered.into_iter().flatten().collect()
+    ids.iter().map(|id| exchange.answer(*id)).collect()
 }
 
 /// An answer's Error code and details, which its `data` carries beside

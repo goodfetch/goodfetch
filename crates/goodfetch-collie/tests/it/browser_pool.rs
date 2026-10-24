@@ -443,6 +443,71 @@ fn a_browser_launching_for_a_session_is_not_idle_before_its_page_opens() {
     assert_eq!(stored, json!(200));
 }
 
+/// A browser that does not come up within the call's deadline is closed
+/// before the call answers its failure, so no launch the call gave up on
+/// stays running beside the next one on the same profile: with
+/// `timeout.navigation` far shorter than any browser takes to answer, each
+/// `run.new_page` raises `deadline_exceeded`, and no browser is left.
+/// Covers: operation:run.new_page, error:deadline_exceeded, setting:timeout.navigation
+#[cfg(unix)]
+#[test]
+fn a_browser_that_does_not_come_up_in_time_is_closed_before_the_next_launch() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut settings = Map::new();
+    settings.insert(
+        "timeout".to_owned(),
+        json!({ "navigation": 1, "close": 1_000 }),
+    );
+    let mut engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "slow-start",
+        &settings,
+        |_| {},
+    );
+
+    let first = call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "slow-start" }),
+    );
+    let after_first = browsers_once(&env, 0);
+    let second = call(
+        &mut engine,
+        3,
+        "run.new_page",
+        &json!({ "run_id": "slow-start" }),
+    );
+    let after_second = browsers_once(&env, 0);
+    let _ = call(
+        &mut engine,
+        4,
+        "run.finish",
+        &json!({ "run_id": "slow-start" }),
+    );
+    let _ = engine.finish();
+
+    assert_eq!(
+        (
+            &first["error"]["data"]["code"],
+            &second["error"]["data"]["code"],
+            after_first,
+            after_second,
+        ),
+        (
+            &json!("deadline_exceeded"),
+            &json!("deadline_exceeded"),
+            0,
+            0
+        ),
+        "{first} {second}"
+    );
+}
+
 /// The identity seed of each Session the Run's run state keeps, by its
 /// position.
 fn identity_seeds(env: &TestEnv, run_id: &str) -> Vec<(u32, i64)> {

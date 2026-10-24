@@ -372,6 +372,10 @@ pub(crate) struct LocalBrowser {
     log: Arc<OnceCell<CommandLog>>,
     stopping: CancellationToken,
     launched: OnceCell<Browser>,
+    /// Cancelled once the browser the last launch started is gone, its
+    /// profile with it: a launch whose browser did not come up waits for
+    /// it before it takes the same profile.
+    released: Mutex<Option<CancellationToken>>,
 }
 
 impl LocalBrowser {
@@ -391,6 +395,7 @@ impl LocalBrowser {
             log,
             stopping,
             launched: OnceCell::new(),
+            released: Mutex::new(None),
         }
     }
 
@@ -406,18 +411,41 @@ impl LocalBrowser {
     }
 }
 
+/// A browser launched and not yet up: closed, then killed, unless it comes
+/// up, whether its bring-up fails or its call gives up on it.
+struct Attempt(Option<tokio_util::sync::DropGuard>);
+
+impl Attempt {
+    /// The browser came up: it stays.
+    fn up(mut self) {
+        if let Some(guard) = self.0.take() {
+            guard.disarm();
+        }
+    }
+}
+
 impl Connect for LocalBrowser {
+    /// Launches the browser on the first call, then answers its connection.
+    /// A launch whose browser does not come up closes it before it answers,
+    /// and the next launch takes the profile once that browser is gone.
     async fn connect(&self) -> Result<Browser, CallError> {
         self.launched
             .get_or_try_init(|| async {
+                let earlier = self.released.lock().await.take();
+                if let Some(released) = earlier {
+                    released.cancelled().await;
+                }
+                let attempt = self.stopping.child_token();
                 let launched = launch(
                     &self.run,
                     &self.home,
                     &self.pins,
                     self.number,
-                    self.stopping.clone(),
+                    attempt.clone(),
                 )
                 .await?;
+                *self.released.lock().await = Some(launched.released.clone());
+                let coming_up = Attempt(Some(attempt.clone().drop_guard()));
                 let log = self
                     .log
                     .get_or_try_init(|| async {
@@ -441,7 +469,7 @@ impl Connect for LocalBrowser {
                     executable: launched.executable.display().to_string(),
                     identity: None,
                     process: launched.process,
-                    closing: self.stopping.clone(),
+                    closing: attempt,
                     service_workers: Arc::default(),
                     popups: Arc::default(),
                     lease: None,
@@ -455,6 +483,7 @@ impl Connect for LocalBrowser {
                     browser.identity = Some(identity::read(&browser, &version.user_agent).await?);
                 }
                 service_workers::start(&browser, &self.run).await?;
+                coming_up.up();
                 Ok(browser)
             })
             .await

@@ -64,6 +64,9 @@ pub(crate) struct Launched {
     pub(crate) headless: bool,
     /// Its process's ID, by which its memory is read.
     pub(crate) process: Option<u32>,
+    /// Cancelled once its process exited and its profile is gone, so
+    /// another launch may take the profile.
+    pub(crate) released: CancellationToken,
 }
 
 /// The executable of Chrome for Testing's build for `platform`, in the
@@ -265,6 +268,7 @@ pub(crate) async fn launch(
         start(command).map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
     let process = child.child.id();
     let (exits, exit) = watch::channel(None);
+    let released = CancellationToken::new();
     run.spawn(supervise(Supervised {
         run: run.clone(),
         stopping,
@@ -275,6 +279,7 @@ pub(crate) async fn launch(
         held,
         profile,
         running: run.metrics().browser_running(kind),
+        released: released.clone(),
     }));
     Ok(Launched {
         connection,
@@ -282,6 +287,7 @@ pub(crate) async fn launch(
         executable,
         headless,
         process,
+        released,
     })
 }
 
@@ -370,6 +376,8 @@ struct Supervised {
     profile: PathBuf,
     /// Its count among the running browsers.
     running: Counted,
+    /// Cancelled once it exited and its profile is gone.
+    released: CancellationToken,
 }
 
 /// Runs the browser's connection, waits for its process to exit or for
@@ -386,6 +394,7 @@ async fn supervise(supervised: Supervised) {
         held,
         profile,
         running,
+        released,
     } = supervised;
     let Process {
         mut child,
@@ -435,4 +444,5 @@ async fn supervise(supervised: Supervised) {
             let _ = std::fs::remove_dir_all(profile);
         })
         .await;
+    released.cancel();
 }

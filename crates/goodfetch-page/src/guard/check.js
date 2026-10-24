@@ -66,7 +66,8 @@ async function check({ selector, handle, action, events, slice, min, max }) {
       .join("");
     const opening = `<${element.localName}${attributes}>`;
     if (VOID.includes(element.localName)) return opening;
-    const text = clip((element.textContent ?? "").replace(/\s+/g, " ").trim(), 50);
+    // Cut before it is normalized: a large element's text is read once.
+    const text = clip((element.textContent ?? "").slice(0, 200).replace(/\s+/g, " ").trim(), 50);
     return `${opening}${text}</${element.localName}>`;
   };
   // CSS, inside open shadow roots too, as Playwright's CSS engine matches.
@@ -121,8 +122,7 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     if (action === "detached") {
       return count === 0 ? { state: "ready" } : waiting("detached", `${count} elements match`);
     }
-    if (count > 1)
-      return { ...waiting("unique", `${count} elements match`), matches: found.map(describe) };
+    if (count > 1) return { ...waiting("unique", `${count} elements match`), matches: found };
     const element = found[0];
     if (action === "hidden") {
       return element === undefined || !shown(element)
@@ -146,7 +146,7 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     if (found.length > 1)
       return {
         ...waiting("unique", `${found.length} elements match`),
-        matches: found.map(describe),
+        matches: found,
       };
     const element = found[0];
     if (!shown(element)) return waiting("visible", `${describe(element)} is not visible`);
@@ -220,7 +220,11 @@ async function check({ selector, handle, action, events, slice, min, max }) {
   };
   for (;;) {
     const seen = observe();
-    if (seen.state !== "waiting" || performance.now() >= end) return seen;
+    if (seen.state !== "waiting" || performance.now() >= end) {
+      // The matches are described once, for the answer, never each frame.
+      if (seen.matches) seen.matches = seen.matches.map(describe);
+      return seen;
+    }
     // A frame or 20 ms, whichever comes first: a page in the background
     // gets no frames.
     await new Promise((resolve) => {

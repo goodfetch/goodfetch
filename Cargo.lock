@@ -1961,6 +1961,7 @@ dependencies = [
  "btls",
  "bytes",
  "dom_query",
+ "encoding_rs",
  "flate2",
  "goodfetch-engine",
  "goodfetch-extractor",

@@ -145,14 +145,29 @@ pub enum Rule {
     TokenWrong,
     /// The token is valid, but for another listener.
     TokenFromAnotherListener,
+    /// The token's life ended with the launch that issued it: the token of
+    /// the listener's earlier launch.
+    TokenExpired,
+    /// The token was replaced while it was in force, as `daemon restart`
+    /// or an operator's new ops token replaces it.
+    TokenRevoked,
+    /// The token is one of the same Daemon whose scope is another, such as
+    /// the ops token, read-only on `/metrics`, on a protocol listener.
+    TokenScopedElsewhere,
     /// The valid token is sent in the query string.
     TokenInQueryString,
     /// The request names a foreign `Host`.
     HostForeign,
     /// The request carries a foreign `Origin`.
     OriginForeign,
-    /// The WebSocket handshake carries no `Origin`.
+    /// The request or the WebSocket handshake carries no `Origin`: an HTTP
+    /// listener accepts it with a header token, which a browser page cannot
+    /// send cross-site.
     OriginMissing,
+    /// The request carries no `Origin` and no header token, the valid token
+    /// only in a cookie, as a browser page's cross-site request could send
+    /// it.
+    OriginMissingWithoutHeaderToken,
     /// The connection's first message is not a `hello`.
     HelloNotFirst,
     /// The ops listener's probes answer with a status and no body.
@@ -180,12 +195,18 @@ impl Rule {
         );
         let sign_ins = matches!(transport, Transport::SignedInWebSocket { .. });
         match self {
-            Self::TokenMissing | Self::TokenWrong | Self::TokenFromAnotherListener => true,
+            Self::TokenMissing
+            | Self::TokenWrong
+            | Self::TokenFromAnotherListener
+            | Self::TokenExpired
+            | Self::TokenRevoked
+            | Self::TokenScopedElsewhere => true,
             Self::CsrfTokenMissing | Self::SignInRevoked | Self::SignInRateExceeded => sign_ins,
             Self::TokenInQueryString => http || websocket,
             Self::HostForeign | Self::OriginForeign => http || websocket || signed,
             Self::ProbesAnswerStatusOnly => http,
-            Self::OriginMissing => websocket,
+            Self::OriginMissing => websocket || http,
+            Self::OriginMissingWithoutHeaderToken => http,
             Self::HelloNotFirst => !http && !signed,
             Self::TokenForAnotherFile => signed,
         }
@@ -227,6 +248,9 @@ pub enum Expected {
     /// An HTTP listener answers with a status and no body. No refusal, so
     /// no Audit log entry.
     StatusOnly,
+    /// An HTTP listener accepts the request, as it does the valid one, with
+    /// a 2xx. No refusal, so no Audit log entry.
+    Accepted,
 }
 
 impl Expected {
@@ -234,7 +258,7 @@ impl Expected {
     pub(super) fn is_refusal(self) -> bool {
         match self {
             Self::Closed | Self::Status { .. } => true,
-            Self::StatusOnly => false,
+            Self::StatusOnly | Self::Accepted => false,
         }
     }
 
@@ -258,6 +282,9 @@ impl Expected {
                         && rule != Rule::ProbesAnswerStatusOnly
                 }
                 Self::StatusOnly => http && rule == Rule::ProbesAnswerStatusOnly,
+                Self::Accepted => {
+                    matches!(transport, Transport::Http { .. }) && rule == Rule::OriginMissing
+                }
             }
     }
 }
@@ -272,6 +299,10 @@ pub(crate) struct Row {
     pub(crate) summary: String,
     /// The ADRs the rule comes from.
     pub(crate) adrs: Vec<u16>,
+    /// The advisories whose bypass the row's attempt repeats, such as
+    /// `CVE-2025-49596`, whose regression tests run the rows citing them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) advisories: Vec<String>,
     /// The cell of each listener the rule applies to.
     #[serde(default)]
     #[schemars(schema_with = "map_keyed_by::<ListenerKind, Expected>")]

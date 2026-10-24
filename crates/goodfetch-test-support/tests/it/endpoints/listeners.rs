@@ -46,9 +46,13 @@ impl AuditLog {
     pub(super) fn records(&mut self, rule: Rule) -> bool {
         let expected = match rule {
             Rule::TokenMissing => Reason::TokenMissing,
-            Rule::TokenWrong | Rule::TokenFromAnotherListener | Rule::TokenForAnotherFile => {
-                Reason::TokenRefused
-            }
+            Rule::TokenWrong
+            | Rule::TokenFromAnotherListener
+            | Rule::TokenExpired
+            | Rule::TokenRevoked
+            | Rule::TokenScopedElsewhere
+            | Rule::TokenForAnotherFile => Reason::TokenRefused,
+            Rule::OriginMissingWithoutHeaderToken => Reason::TokenMissing,
             Rule::TokenInQueryString => Reason::TokenInQuery,
             Rule::HostForeign => Reason::ForeignHost,
             Rule::OriginForeign => Reason::ForeignOrigin,

@@ -7,6 +7,7 @@
 
 use std::time::Duration;
 
+use goodfetch_protocol::page::waits::{PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL};
 use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NAVIGATION_INTERRUPTED, Navigated, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO,
     PAGE_RELOAD, PageResponse,
@@ -226,6 +227,83 @@ pub(super) fn back_loads_again(
         finish_run(connection, run_id)?;
     }
     Ok(())
+}
+
+/// A URL waiter for the first page, until its `load`, and a response
+/// waiter for its document, both armed before going back to it, pass
+/// with the Back navigation: the page loads again from the network and
+/// fires `load`, never restored from the back/forward cache (ADR 0121;
+/// pitfall B21).
+pub(super) fn waits_armed_before_back(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-waits-armed-before-back";
+    let first = url_on(site, "navigation/2", "/");
+    let second = url_on(site, "navigation/2", "/b");
+    if let (Some(page), Some(first), Some(second)) = (
+        open(connection, site, run_id, &[&first, &second], checks)?,
+        &first,
+        &second,
+    ) {
+        call(connection, PAGE_GOTO.name, &page, &json!({ "url": first }))?;
+        call(connection, PAGE_GOTO.name, &page, &json!({ "url": second }))?;
+        let exact = json!({ "kind": "glob", "pattern": first });
+        let by_url = connection.request(
+            PAGE_WAIT_FOR_URL.name,
+            &json!({ "page_id": page, "url": exact, "wait_until": "load" }),
+        )?;
+        let by_response = connection.request(
+            PAGE_WAIT_FOR_RESPONSE.name,
+            &json!({ "page_id": page, "url": exact }),
+        )?;
+        let back = connection.request(PAGE_GO_BACK.name, &json!({ "page_id": page }))?;
+        let mut answers = answers_to(connection, &[by_url, by_response, back])?.into_iter();
+        let (url_reached, response_caught, back) = (
+            answers.next().unwrap_or_default(),
+            answers.next().unwrap_or_default(),
+            answers.next().unwrap_or_default(),
+        );
+        answered(
+            &back,
+            "`page.go_back` with waiters armed",
+            first,
+            200,
+            checks,
+        );
+        checks.check(
+            "the URL waiter armed before `page.go_back` passes once the page fired `load`",
+            url_reached.get("result").is_some(),
+        );
+        checks.check(
+            "the response waiter armed before `page.go_back` gets the document's response from the network",
+            response_caught["result"]["response"]["status"] == json!(200),
+        );
+    }
+    if first.is_some() && second.is_some() {
+        finish_run(connection, run_id)?;
+    }
+    Ok(())
+}
+
+/// The answers to the requests `ids`, in that order, whichever came first.
+fn answers_to(connection: &mut Connection, ids: &[i64]) -> Result<Vec<Value>, Gone> {
+    let mut read: Vec<Value> = Vec::new();
+    let mut answers = Vec::with_capacity(ids.len());
+    for id in ids {
+        let at = read
+            .iter()
+            .position(|message| message.get("method").is_none() && message["id"] == json!(id));
+        if let Some(at) = at {
+            answers.push(read.remove(at));
+        } else {
+            let answer = connection.browser_answer(*id)?;
+            read.extend(answer.others);
+            answers.push(answer.message);
+        }
+    }
+    Ok(answers)
 }
 
 /// Checks that `answer` fails with `navigation_failed`, retryable, naming

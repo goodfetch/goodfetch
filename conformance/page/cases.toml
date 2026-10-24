@@ -137,6 +137,10 @@ name = "navigation.back_forward_cache"
 id = "going-back-loads-the-document-again"
 covers = ["story:5-24", "operation:page.go_back"]
 
+[[capability.case]]
+id = "a-wait-armed-before-going-back-passes"
+covers = ["story:5-24", "operation:page.go_back", "operation:page.wait_for_url", "operation:page.wait_for_response"]
+
 [[capability]]
 name = "navigation.failures"
 

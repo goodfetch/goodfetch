@@ -27,15 +27,17 @@ mod redundant;
 mod refresh;
 mod tiers;
 mod transports;
+mod use_signals;
 
 pub use chain::{Following, Gating, HopGate, Skip, Stop, follow};
 pub use driver::{
     Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
 };
-pub use gate::{HandOver, RobotsTxtFetch};
+pub use gate::{HandOver, RobotsTxtFetch, disallowing};
 pub use http_profile::HttpProfile;
 pub use redundant::Requester;
 #[doc(hidden)]
 pub use refresh::fuzz_refresh;
 pub use tiers::{FetchTiers, HandedOver, HttpTier, Signed};
 pub use transports::{Reqwest, TransportConfig, TransportUnavailable, Wreq};
+pub use use_signals::{Purpose, UseSignals};

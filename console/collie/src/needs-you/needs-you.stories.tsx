@@ -4,8 +4,10 @@
 // renderer for, the Console read-only, and the engine's refusal; runs
 // stopped by a Limit, an SDK script's and a Recipe's priced one, and what a
 // person's raise left: a run waiting for its script, with its resume
-// command, and one resumed in the Daemon; and a domain that showed a
-// consent wall, with and without a Connection.
+// command, and one resumed in the Daemon; a domain that showed a consent
+// wall, with and without a Connection; stops of the refetch without the
+// site's stored data, one per layer that lists the domain; and a
+// certificate whose key changed.
 import { RunStateUnavailableError, type NeedsYouItem } from "@goodfetch/collie-client/generated";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NeedsYouView } from "./needs-you.tsx";
@@ -86,6 +88,43 @@ const wall: NeedsYouItem = {
   details: { domain: "walled.example" },
 };
 
+/** A stop of the refetch without the site's stored data on `domain`, listed in `layer`'s `file`, or only by `*` there. */
+function refetchStopped(
+  domain: string,
+  layer: "user_configuration" | "operator_policy" | "project_configuration",
+  file: string,
+  onlyStar: boolean,
+): NeedsYouItem {
+  return {
+    id: `wall_refetch_stopped:${domain}`,
+    kind: "wall_refetch_stopped",
+    since: "2026-10-24T09:30:00Z",
+    run: "nightly",
+    summary: `${domain} refused a page fetched again without its stored cookies and storage.`,
+    actions: [
+      ...(layer === "project_configuration" ? [] : ["needs_you.remove_refetch_domain"]),
+      "needs_you.deny_wall_domain",
+      "needs_you.dismiss",
+    ],
+    details: { domain, cause: "challenge", layer, file, only_star: onlyStar },
+  };
+}
+
+const changedCertificate: NeedsYouItem = {
+  id: "certificate_changed:intranet.example",
+  kind: "certificate_changed",
+  since: "2026-10-24T09:40:00Z",
+  run: "nightly",
+  summary: "intranet.example presented another key.",
+  actions: ["certs.accept", "certs.forget"],
+  details: {
+    host: "intranet.example",
+    person: "os_user",
+    pinned_spki_sha256: "sha256/pinned-key-of-the-example-host",
+    presented_spki_sha256: "sha256/changed-key-of-the-example-host",
+  },
+};
+
 const meta: Meta<typeof NeedsYouView> = {
   title: "Needs you",
   component: NeedsYouView,
@@ -94,6 +133,10 @@ const meta: Meta<typeof NeedsYouView> = {
     onRaise: (): void => {},
     onCopy: (): void => {},
     onAllowConsentDomain: (): void => {},
+    onRemoveRefetchDomain: (): void => {},
+    onDenyWallDomain: (): void => {},
+    onAcceptCertificate: (): void => {},
+    onForgetCertificate: (): void => {},
   },
 };
 
@@ -166,6 +209,40 @@ export const ConsentWall: Story = { args: { state: { kind: "listed", items: [wal
 /** The same with no Connection: both offers are disabled. */
 export const ConsentWallReadOnly: Story = {
   args: { state: { kind: "listed", items: [wall] }, readOnly: true },
+};
+
+/** A refetch without the site's stored data stopped on a domain each layer lists: user configuration, `*` alone, and project configuration, each with its file. */
+export const RefetchStopped: Story = {
+  args: {
+    state: {
+      kind: "listed",
+      items: [
+        refetchStopped(
+          "walled.example",
+          "user_configuration",
+          "/home/ada/.goodfetch/1/configuration.toml",
+          false,
+        ),
+        refetchStopped(
+          "starred.example",
+          "operator_policy",
+          "/home/ada/.goodfetch/1/operator-policy.toml",
+          true,
+        ),
+        refetchStopped(
+          "project.example",
+          "project_configuration",
+          "/home/ada/shop/goodfetch.toml",
+          false,
+        ),
+      ],
+    },
+  },
+};
+
+/** A pinned host whose certificate's key changed, with both keys and its person's two answers. */
+export const CertificateChanged: Story = {
+  args: { state: { kind: "listed", items: [changedCertificate] } },
 };
 
 /** The engine refused the list. */

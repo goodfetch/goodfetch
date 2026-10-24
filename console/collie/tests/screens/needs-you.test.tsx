@@ -9,7 +9,12 @@
 // resume command to copy, and a Recipe's run resumes in the Daemon. A
 // domain that showed a consent wall is offered for `consent.domains`, alone
 // or as `*`, each with the warning of what the person takes on, answered in
-// one click.
+// one click. A stop of the refetch without the site's stored data (ADR 0052)
+// is shown with the file that lists its domain: a person removes it there,
+// replaces `*` with a list, dismisses the item or denies the domain with a
+// reason, and a domain from project configuration offers no removal. A
+// certificate whose key changed (ADR 0042) shows both keys, and its person
+// accepts the new key or forgets the pin.
 import type { LimitUsage, NeedsYouItem } from "@goodfetch/collie-client/generated";
 import {
   createProtocolAdapter,
@@ -486,6 +491,232 @@ test(
 
     await expect.element(page.getByRole("alert")).toMatchTextContent(/could not add the domain/);
     await expect.poll(() => items().elements().length).toBe(1);
+    client.close();
+  },
+);
+
+const CONFIGURATION = "/home/ada/.goodfetch/1/configuration.toml";
+
+/** A stop of the refetch without the site's stored data on walled.test, its domain listed in `layer`'s `file`. */
+function refetchStopped(layer: string, file: string, onlyStar = false): NeedsYouItem {
+  return {
+    id: "wall_refetch_stopped:walled.test",
+    kind: "wall_refetch_stopped",
+    since: "2026-10-24T09:20:00Z",
+    run: "nightly",
+    summary: "walled.test refused a page fetched again without its stored cookies and storage.",
+    actions: [
+      ...(layer === "project_configuration" ? [] : ["needs_you.remove_refetch_domain"]),
+      "needs_you.deny_wall_domain",
+      "needs_you.dismiss",
+    ],
+    details: { domain: "walled.test", cause: "challenge", layer, file, only_star: onlyStar },
+  };
+}
+
+/** Takes `id` off the list, as the engine does once it took an answer. */
+function resolve(adapter: ConsoleAdapter, id: string): void {
+  adapter.push(
+    { event: "needs_you.changed", data: { change: "removed", id, reason: "resolved" } },
+    1,
+  );
+}
+
+test(
+  "a refetch stopped without the site's stored data is listed with the file that lists its domain, and a person removes the domain there",
+  { tags: ["story:12-27", "screen:/needs-you", "operation:needs_you.remove_refetch_domain"] },
+  async () => {
+    const adapter = consoleAdapter();
+    const item = refetchStopped("user_configuration", CONFIGURATION);
+    adapter.answer("needs_you.list", { items: [item] });
+    adapter.answer("needs_you.remove_refetch_domain", ({ domain }) => {
+      resolve(adapter, item.id);
+      return { domain, removed: true, layer: "user_configuration", domains: [] };
+    });
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+
+    const stop = items().nth(0);
+    await expect
+      .element(stop.getByRole("heading"))
+      .toHaveTextContent("walled.test refused a page fetched again without its stored data");
+    await expect.element(stop).toMatchTextContent(CONFIGURATION);
+    await expect.element(stop).toMatchTextContent(/challenge/);
+    await stop
+      .getByRole("button", { name: "Remove walled.test from wall.refetch_domains" })
+      .click();
+
+    await expect.poll(() => items().elements().length).toBe(0);
+    expect(calls(adapter, "needs_you.remove_refetch_domain")).toEqual([{ domain: "walled.test" }]);
+    client.close();
+  },
+);
+
+test(
+  "when only * covers the domain, the person replaces * with the list they give",
+  { tags: ["story:12-27", "screen:/needs-you"] },
+  async () => {
+    const adapter = consoleAdapter();
+    const item = refetchStopped("user_configuration", CONFIGURATION, true);
+    adapter.answer("needs_you.list", { items: [item] });
+    adapter.answer("needs_you.remove_refetch_domain", ({ domain, instead_of_star }) => {
+      resolve(adapter, item.id);
+      return { domain, removed: true, layer: "user_configuration", domains: instead_of_star ?? [] };
+    });
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+
+    const stop = items().nth(0);
+    expect(
+      stop.getByRole("button", { name: "Remove walled.test from wall.refetch_domains" }).elements(),
+    ).toHaveLength(0);
+    await userEvent.type(
+      stop.getByRole("textbox", { name: "Domains that replace *" }),
+      "other.test, third.test",
+    );
+    await stop.getByRole("button", { name: "Replace * with this list" }).click();
+
+    await expect.poll(() => items().elements().length).toBe(0);
+    expect(calls(adapter, "needs_you.remove_refetch_domain")).toEqual([
+      { domain: "walled.test", instead_of_star: ["other.test", "third.test"] },
+    ]);
+    client.close();
+  },
+);
+
+test(
+  "a domain project configuration lists is shown with its file, offering no removal, and a person dismisses the item",
+  { tags: ["story:12-27", "screen:/needs-you", "operation:needs_you.dismiss"] },
+  async () => {
+    const adapter = consoleAdapter();
+    const file = "/home/ada/project/goodfetch.toml";
+    const item = refetchStopped("project_configuration", file);
+    adapter.answer("needs_you.list", { items: [item] });
+    adapter.answer("needs_you.dismiss", () => {
+      adapter.push(
+        {
+          event: "needs_you.changed",
+          data: { change: "removed", id: item.id, reason: "dismissed" },
+        },
+        1,
+      );
+      return { dismissed: true };
+    });
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+
+    const stop = items().nth(0);
+    await expect.element(stop).toMatchTextContent(file);
+    await expect.element(stop).toMatchTextContent(/remove it from that file/);
+    expect(stop.getByRole("button", { name: /^Remove/ }).elements()).toHaveLength(0);
+    await stop.getByRole("button", { name: "Dismiss" }).click();
+
+    await expect.poll(() => items().elements().length).toBe(0);
+    expect(calls(adapter, "needs_you.dismiss")).toEqual([{ item: item.id }]);
+    client.close();
+  },
+);
+
+test(
+  "a person denies the domain with a reason, which wall.denied_domains records",
+  { tags: ["story:12-27", "screen:/needs-you", "operation:needs_you.deny_wall_domain"] },
+  async () => {
+    const adapter = consoleAdapter();
+    const item = refetchStopped("user_configuration", CONFIGURATION);
+    adapter.answer("needs_you.list", { items: [item] });
+    adapter.answer("needs_you.deny_wall_domain", ({ domain, reason }) => {
+      resolve(adapter, item.id);
+      return { domain, added: true, reason };
+    });
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+
+    const reason = "The site's owner objected in writing.";
+    const stop = items().nth(0);
+    const field = stop.getByRole("textbox", { name: "Reason for the denial" });
+    await expect.element(field).toBeRequired();
+    await userEvent.type(field, reason);
+    await stop.getByRole("button", { name: "Deny walled.test" }).click();
+
+    await expect.poll(() => items().elements().length).toBe(0);
+    expect(calls(adapter, "needs_you.deny_wall_domain")).toEqual([
+      { domain: "walled.test", reason },
+    ]);
+    client.close();
+  },
+);
+
+const PINNED = "sha256/pinned-key-of-the-test-host";
+const PRESENTED = "sha256/changed-key-of-the-test-host";
+
+const CHANGED: NeedsYouItem = {
+  id: "certificate_changed:self-signed.test",
+  kind: "certificate_changed",
+  since: "2026-10-24T09:30:00Z",
+  run: "nightly",
+  summary: "self-signed.test presented another key.",
+  actions: ["certs.accept", "certs.forget"],
+  details: {
+    host: "self-signed.test",
+    person: "os_user",
+    pinned_spki_sha256: PINNED,
+    presented_spki_sha256: PRESENTED,
+  },
+};
+
+test(
+  "a certificate whose key changed shows both keys, and its person accepts the new key",
+  { tags: ["story:12-28", "screen:/needs-you", "operation:certs.accept"] },
+  async () => {
+    const adapter = consoleAdapter();
+    adapter.answer("needs_you.list", { items: [CHANGED] });
+    adapter.answer("certs.accept", ({ host, spki_sha256 }) => {
+      resolve(adapter, CHANGED.id);
+      return { host, spki_sha256 };
+    });
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+
+    const changed = items().nth(0);
+    await expect
+      .element(changed.getByRole("heading"))
+      .toHaveTextContent("The certificate of self-signed.test changed its key");
+    await expect.element(changed).toMatchTextContent(PINNED);
+    await expect.element(changed).toMatchTextContent(PRESENTED);
+    expect(changed.getByRole("button", { name: "Dismiss" }).elements()).toHaveLength(0);
+    await changed.getByRole("button", { name: "Accept the new key" }).click();
+
+    await expect.poll(() => items().elements().length).toBe(0);
+    expect(calls(adapter, "certs.accept")).toEqual([
+      { host: "self-signed.test", spki_sha256: PRESENTED },
+    ]);
+    client.close();
+  },
+);
+
+test(
+  "a person forgets the pin of a host whose key changed",
+  { tags: ["story:12-28", "screen:/needs-you", "operation:certs.forget"] },
+  async () => {
+    const adapter = consoleAdapter();
+    adapter.answer("needs_you.list", { items: [CHANGED] });
+    adapter.answer("certs.forget", ({ host }) => {
+      resolve(adapter, CHANGED.id);
+      return { host, forgotten: true };
+    });
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+
+    await items().nth(0).getByRole("button", { name: "Forget the pin" }).click();
+
+    await expect.poll(() => items().elements().length).toBe(0);
+    expect(calls(adapter, "certs.forget")).toEqual([{ host: "self-signed.test" }]);
     client.close();
   },
 );

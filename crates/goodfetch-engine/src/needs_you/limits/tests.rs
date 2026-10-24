@@ -27,6 +27,7 @@ use super::runs_stopped;
 use crate::clock::Clock;
 use crate::governor::StorageSample;
 use crate::home::Home;
+use crate::known_certificates::KnownCertificates;
 use crate::ledger::{Holder, Ledger, SliceSizing};
 use crate::needs_you::SourceContext;
 use crate::run_index;
@@ -159,6 +160,7 @@ fn listed(then: Then, after: Duration) -> Vec<(String, Option<String>)> {
             ),
             version,
             ledger,
+            known_certificates: KnownCertificates::of(&Home::new(folder.path().to_owned()), None),
             owner: Arc::new(owner.child()),
         };
         let items = runs_stopped().0.items(&context).await.unwrap();

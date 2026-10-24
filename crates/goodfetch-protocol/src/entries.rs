@@ -7,11 +7,11 @@ use crate::{
     audit, block, browser_cache, checkpoint, connection, console, daemon, dns, download, egress,
     engine, events, executables, foxhound, governor, hostile_input, key_value_store, log,
     needs_you, ops, page, people, politeness, response_limits, run, sample, secrets, security,
-    settings, storage, tls, usage, versions,
+    settings, site_preferences, storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 44] = [
+pub const MODULES: [&Entries; 45] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &console::ENTRIES,
@@ -45,6 +45,7 @@ pub const MODULES: [&Entries; 44] = [
     &usage::ENTRIES,
     &versions::ENTRIES,
     &politeness::ENTRIES,
+    &site_preferences::ENTRIES,
     &block::ENTRIES,
     &foxhound::ENTRIES,
     &foxhound::crawl::ENTRIES,
@@ -95,7 +96,7 @@ mod tests {
     use crate::catalog::Product;
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 82] = [
+    const COLLIE: [&str; 84] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -108,6 +109,8 @@ mod tests {
         "needs_you.list",
         "needs_you.dismiss",
         "needs_you.allow_consent_domain",
+        "needs_you.remove_refetch_domain",
+        "needs_you.deny_wall_domain",
         "run.new_page",
         "run.new_session",
         "session.new_page",

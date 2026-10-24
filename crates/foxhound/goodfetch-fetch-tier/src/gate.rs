@@ -280,6 +280,17 @@ impl Gate {
     }
 }
 
+/// Whether the robots.txt `fetched` disallows `url` to a crawl whose
+/// `site_preferences.robots_txt_user_agent` is `operator_token`, and by
+/// which rule (ADRs 0086 and 0090): the groups for `goodfetch-foxhound` and
+/// for the token apply, merged, else `*`'s; one that is unreachable, with
+/// no earlier copy, disallows everything. A token that is no product token
+/// names no group.
+pub fn disallowing(fetched: &Fetched, operator_token: Option<&str>, url: &Url) -> Option<String> {
+    let operator = operator_token.and_then(|token| ProductToken::new(token).ok());
+    applying(fetched, operator.as_ref(), url).disallowed
+}
+
 /// What applies of `fetched` to `url` for a crawl whose operator token is
 /// `operator` (ADRs 0086 and 0090).
 fn applying(fetched: &Fetched, operator: Option<&ProductToken>, url: &Url) -> Applying {

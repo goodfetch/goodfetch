@@ -207,6 +207,13 @@ max = 30000
 [settings.politeness.retry_after]
 max = 30000
 
+[settings.site_preferences]
+purpose = "search"
+respect_use_signals = true
+robots_txt_user_agent = "example"
+respect_robots_txt = true
+max_crawl_delay = 30000
+
 [settings.crawl]
 sample_pages = 4
 handle_statuses = [4]
@@ -257,6 +264,3 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [settings.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
-
-[settings.site_preferences]
-robots_txt_user_agent = "example"

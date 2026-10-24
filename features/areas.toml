@@ -665,6 +665,28 @@ number = 5
 kind = "setting"
 prefix = "site_preferences.robots_txt_user_agent"
 
+# A crawl's robots.txt switch and Crawl-delay bound, and every run's
+# Purpose and AI-use signal switch (spec #581, #883; ADR 0086).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "site_preferences.respect_robots_txt"
+
+[[area]]
+number = 6
+kind = "setting"
+prefix = "site_preferences.max_crawl_delay"
+
+[[area]]
+number = 6
+kind = "setting"
+prefix = "site_preferences.respect_use_signals"
+
+[[area]]
+number = 6
+kind = "setting"
+prefix = "site_preferences.purpose"
+
 # The HTTP tier's hedged requests and coalescing (RT-20, #238).
 [[area]]
 number = 3

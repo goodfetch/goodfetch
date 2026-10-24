@@ -1,0 +1,97 @@
+//! A Session's proxy reading its answers: which responses the proxy can
+//! have forwarded itself, by the URL's scheme, the proxy's kind and
+//! `proxy.bypass`, so a site's own `Proxy-Status` over a tunnel or a SOCKS
+//! proxy stays the site's.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
+use goodfetch_protocol::page::proxy::ProxyServer;
+use rstest::rstest;
+
+use super::{Answer, Party, SessionProxy, party};
+
+/// A Session's proxy at `server`, with `bypass`, and no relay or limits.
+fn proxy(server: &str, bypass: Option<&str>) -> SessionProxy {
+    SessionProxy {
+        server: ProxyServer::parse(server).unwrap(),
+        bypass: bypass.map(str::to_owned),
+        username: None,
+        password: None,
+        relay: None,
+        provided: None,
+        limits: None,
+    }
+}
+
+/// The proxy's own refusal, as a forward proxy writes it.
+const ITS_OWN: &str = "squid; error=http_request_denied";
+
+/// Covers: story:5-88, story:5-90, error:proxy_unavailable
+#[rstest]
+#[case::a_plain_url_it_forwarded(
+    "http://fwd:3128",
+    None,
+    "http://shop.example/",
+    Party::Proxy,
+    true
+)]
+#[case::a_plain_url_through_an_https_proxy(
+    "https://fwd:3128",
+    None,
+    "http://shop.example/",
+    Party::Proxy,
+    true
+)]
+#[case::a_tunnelled_url("http://fwd:3128", None, "https://shop.example/", Party::Site, false)]
+#[case::a_url_through_socks("socks5://fwd:1080", None, "http://shop.example/", Party::Site, false)]
+#[case::a_bypassed_url(
+    "http://fwd:3128",
+    Some(".example"),
+    "http://shop.example/",
+    Party::Site,
+    false
+)]
+fn only_a_response_the_proxy_forwarded_can_be_its_own(
+    #[case] server: &str,
+    #[case] bypass: Option<&str>,
+    #[case] url: &str,
+    #[case] expected: Party,
+    #[case] refused: bool,
+) {
+    let proxy = proxy(server, bypass);
+    let answer = proxy.response(url, Some(ITS_OWN));
+
+    assert_eq!(
+        (party(answer), proxy.refusal(answer, Some(429))),
+        (expected, refused)
+    );
+}
+
+/// Covers: story:5-90, setting:proxy.bypass
+#[test]
+fn a_bypassed_host_goes_around_the_proxy() {
+    let proxy = proxy("http://fwd:3128", Some("intranet.example"));
+
+    assert_eq!(
+        (
+            proxy.bypasses("https://intranet.example/"),
+            proxy.bypasses("https://shop.example/")
+        ),
+        (true, false)
+    );
+}
+
+/// Covers: story:5-90
+#[test]
+fn a_tunnel_refused_is_a_refusal_of_a_proxy_without_a_relay() {
+    let proxy = proxy("http://fwd:3128", None);
+
+    assert!(proxy.refusal(
+        Answer::Failure {
+            error: "net::ERR_TUNNEL_CONNECTION_FAILED"
+        },
+        None
+    ));
+}

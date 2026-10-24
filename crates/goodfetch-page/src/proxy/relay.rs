@@ -10,8 +10,12 @@
 //!   relay opens to it; it is never in the browser's arguments.
 //! - **As it is.** An HTTP or credential-free SOCKS5 proxy's connections
 //!   pass byte for byte; one the proxy does not accept is answered, for an
-//!   HTTP proxy, with the relay's own `502` whose `Proxy-Status` names
-//!   `connection_refused` (RFC 9209), so it stays the proxy's failure.
+//!   HTTP proxy, with the relay's own `502` whose `Proxy-Status` member is
+//!   the relay's and names `connection_refused` (RFC 9209), so it stays the
+//!   proxy's failure. The relay records whether its latest connection to
+//!   the proxy failed to open, so neither that `502` nor a tunnel it could
+//!   not open counts as the proxy refusing a request: a proxy that is down
+//!   teaches its limits nothing.
 //!
 //! A Session whose proxy a Proxy provider gave relays every connection, so
 //! every byte on its connections to the proxy, the handshakes included, is
@@ -37,13 +41,11 @@ use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
+use super::party::relay_unreachable;
 use crate::proxy_provider::ProxyUsage;
 
 /// The most bytes relayed at once, in each direction.
 const CHUNK: usize = 16 * 1024;
-
-/// The relay's answer to the browser when an HTTP proxy cannot be reached.
-const UNREACHABLE: &[u8] = b"HTTP/1.1 502 Bad Gateway\r\nProxy-Status: goodfetch-relay; error=connection_refused\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
 
 /// SOCKS's version 5.
 const VERSION: u8 = 5;
@@ -86,9 +88,22 @@ struct Upstream {
     /// Whether the proxy refused the credentials, which a failed request
     /// then raises as `proxy_auth_failed`.
     refused: AtomicBool,
+    /// Whether the relay's latest connection to the proxy failed to open:
+    /// a proxy that is down, whose failures refuse nothing.
+    unreachable: AtomicBool,
     /// What the bytes on the connections to the proxy are charged to, for
     /// a Proxy provider's proxy.
     usage: Option<Arc<ProxyUsage>>,
+}
+
+impl Upstream {
+    /// A connection to the proxy, recording whether it opened.
+    async fn connect(&self) -> Option<TcpStream> {
+        let connected = TcpStream::connect(self.address).await.ok();
+        self.unreachable
+            .store(connected.is_none(), Ordering::Relaxed);
+        connected
+    }
 }
 
 /// An open relay: its loopback address, closed when dropped.
@@ -118,6 +133,7 @@ impl Relay {
             address: proxy,
             mode,
             refused: AtomicBool::new(false),
+            unreachable: AtomicBool::new(false),
             usage,
         });
         let stop = CancellationToken::new();
@@ -142,6 +158,11 @@ impl Relay {
     /// Whether the proxy refused the Session's credentials.
     pub(crate) fn refused_credentials(&self) -> bool {
         self.upstream.refused.load(Ordering::Relaxed)
+    }
+
+    /// Whether the relay's latest connection to the proxy failed to open.
+    pub(crate) fn unreachable(&self) -> bool {
+        self.upstream.unreachable.load(Ordering::Relaxed)
     }
 }
 
@@ -186,9 +207,9 @@ async fn relay(browser: TcpStream, upstream: &Upstream) {
 /// Relays a connection byte for byte; one the proxy does not accept is
 /// answered with the relay's `502` when the proxy is an HTTP one.
 async fn as_it_is(mut browser: TcpStream, upstream: &Upstream, http: bool) {
-    let Ok(proxy) = TcpStream::connect(upstream.address).await else {
+    let Some(proxy) = upstream.connect().await else {
         if http {
-            let _ = browser.write_all(UNREACHABLE).await;
+            let _ = browser.write_all(relay_unreachable().as_bytes()).await;
         }
         return;
     };
@@ -214,7 +235,7 @@ async fn socks5(
         let _ = browser.write_all(&reply(COMMAND_NOT_SUPPORTED)).await;
         return;
     }
-    let Ok(proxy) = TcpStream::connect(upstream.address).await else {
+    let Some(proxy) = upstream.connect().await else {
         let _ = browser.write_all(&reply(GENERAL_FAILURE)).await;
         return;
     };

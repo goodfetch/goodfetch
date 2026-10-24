@@ -15,6 +15,7 @@
 //! behind a loopback relay that charges every byte to its Run under the
 //! proxy's kind; `proxy.server` and `proxy.provider` together are refused.
 
+mod bypass;
 mod limits;
 mod party;
 mod relay;
@@ -515,6 +516,34 @@ impl SessionProxy {
         })
     }
 
+    /// Whether a request to `url` goes around the proxy, as its
+    /// `proxy.bypass` says.
+    pub(crate) fn bypasses(&self, url: &str) -> bool {
+        bypass::bypassed(self.bypass.as_deref(), url)
+    }
+
+    /// A response to `url` through the proxy, carrying the `Proxy-Status`
+    /// field `proxy_status`: one the proxy forwarded itself only for an
+    /// `http:` URL sent to an HTTP or HTTPS proxy and not around it, the
+    /// one case where the proxy's own member can be in the field.
+    pub(crate) fn response<'a>(&self, url: &str, proxy_status: Option<&'a str>) -> Answer<'a> {
+        let plain = url::Url::parse(url).is_ok_and(|url| url.scheme() == "http");
+        Answer::Response {
+            proxy_status,
+            forwarded: plain && !self.server.scheme.is_socks() && !self.bypasses(url),
+        }
+    }
+
+    /// Whether `answer`, with `status` for a response, is the proxy
+    /// refusing a request its plan does not admit, which lowers its learned
+    /// ceiling: never a failure while the relay cannot reach the proxy,
+    /// which is a proxy that is down.
+    pub(crate) fn refusal(&self, answer: Answer<'_>, status: Option<u16>) -> bool {
+        let down = matches!(answer, Answer::Failure { .. })
+            && self.relay.as_ref().is_some_and(Relay::unreachable);
+        !down && refusal(answer, status)
+    }
+
     /// Whether the proxy refused the Session's credentials on a connection
     /// the relay opened.
     pub(crate) fn refused_credentials(&self) -> bool {
@@ -568,3 +597,6 @@ fn unavailable(server: &ProxyServer, url: &str, error: &str) -> CallError {
         },
     )
 }
+
+#[cfg(test)]
+mod tests;

@@ -75,7 +75,7 @@ use crate::errors::{
 };
 use crate::launch::launch;
 use crate::page_value::{self, PageValue};
-use crate::proxy::{Answer, PROXY_STATUS, Party, ProxyPermit, SessionProxy, party, proxy_error};
+use crate::proxy::{PROXY_STATUS, Party, ProxyPermit, SessionProxy, party, proxy_error};
 use crate::trace::CommandLog;
 use identity::Identity;
 
@@ -1276,7 +1276,7 @@ impl PageDriver {
     fn answered_by_proxy(&self, url: &str, response: &PageResponse) -> Option<CallError> {
         let proxy = self.proxy.as_deref()?;
         let proxy_status = response.headers.get(PROXY_STATUS).map(String::as_str);
-        if party(Answer::Response { proxy_status }) != Party::Proxy {
+        if party(proxy.response(&response.url, proxy_status)) != Party::Proxy {
             return None;
         }
         let error = proxy_status.and_then(proxy_error).unwrap_or_default();

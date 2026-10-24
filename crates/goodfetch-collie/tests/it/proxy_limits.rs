@@ -3,7 +3,12 @@
 //! proxies and the per-user Politeness file the engine shares them in
 //! (ADRs 0053, 0088 and 0098): a site's 429 met on a program's Session
 //! through a proxy is the site's, writing nothing to Politeness's domain
-//! limits and lowering no proxy ceiling, while the proxy's own 429 does.
+//! limits and lowering no proxy ceiling, while the proxy's own 429 does; a
+//! Proxy provider's proxy that is down lowers none either.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::collections::BTreeSet;
 
@@ -155,6 +160,63 @@ fn a_sites_429_through_a_proxy_writes_no_domain_limit_and_no_proxy_ceiling_where
                 (format!("proxy {limited} own"), Some(1)),
                 (format!("proxy {open} site"), None),
             ]),
+        )
+    );
+}
+
+/// A Proxy provider's proxy that is down: the Session's relay cannot reach
+/// it, so a plain URL meets the relay's own 502 and a tunnelled one a tunnel
+/// the relay could not open. Both raise `proxy_unavailable`, and neither is
+/// the proxy refusing a request, so its learned ceiling stays unset.
+///
+/// Covers: story:5-90, setting:proxy.provider, setting:proxy.providers, error:proxy_unavailable
+#[cfg(unix)]
+#[test]
+fn a_provider_proxy_that_is_down_raises_proxy_unavailable_and_lowers_no_ceiling() {
+    let env = TestEnv::new();
+    let file = env.home().join("politeness.sqlite");
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let down = proving_ground.description().fixtures.proxies["down"].clone();
+    env.user_configuration(&format!(
+        "[settings.proxy.providers.list]\nservers = [{{ server = \"http://{down}\", kind = \"datacenter\" }}]\n"
+    ));
+    let mut settings = Map::new();
+    settings.insert("proxy".to_owned(), json!({ "provider": "list" }));
+    let mut engine =
+        crate::page::started_with(&env, &cache, &proving_ground, "down", &settings, |_| {});
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "down" }),
+    ));
+
+    let plain = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": "http://scope.test/quiet?mark=plain" }),
+    );
+    let tunnelled = call(
+        &mut engine,
+        4,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": "https://scope.test/quiet?mark=tunnelled" }),
+    );
+    let _ = call(&mut engine, 5, "run.finish", &json!({ "run_id": "down" }));
+    let _ = engine.finish();
+
+    assert_eq!(
+        (
+            plain["error"]["data"]["code"].clone(),
+            tunnelled["error"]["data"]["code"].clone(),
+            ceilings(&file),
+        ),
+        (
+            json!("proxy_unavailable"),
+            json!("proxy_unavailable"),
+            BTreeSet::from([(format!("proxy http://{down} "), None)]),
         )
     );
 }

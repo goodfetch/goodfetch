@@ -23,6 +23,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, major_name};
 use goodfetch_engine::log::{ClockTime, LogEvents};
+use goodfetch_engine::mask::{MaskWriter, Masks, Scope};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::trace::EntropyIds;
 use goodfetch_protocol::catalog::Product;
@@ -35,6 +36,7 @@ use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::{WithExportConfig as _, WithHttpConfig as _};
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use tracing_subscriber::Layer as _;
+use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
@@ -193,6 +195,30 @@ pub(super) fn file_of(
         })
 }
 
+/// A subscriber's writer whose every writer passes its lines through the
+/// engine's masks as a kept output (spec #564): no value a Run resolved
+/// reaches a log, unless its Run's `security.redaction` is off.
+pub(super) struct Masked<M> {
+    masks: Masks,
+    inner: M,
+}
+
+impl<M> Masked<M> {
+    /// `inner`'s writers, each masking with `masks`.
+    pub(super) fn new(masks: Masks, inner: M) -> Self {
+        Self { masks, inner }
+    }
+}
+
+impl<'a, M: MakeWriter<'a>> MakeWriter<'a> for Masked<M> {
+    type Writer = MaskWriter<M::Writer>;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        self.masks
+            .writer(self.inner.make_writer(), Scope::KeptOutput)
+    }
+}
+
 /// What the subscriber is built from.
 pub(super) struct Logs<'a> {
     /// `log.level`'s filter.
@@ -205,6 +231,8 @@ pub(super) struct Logs<'a> {
     pub(super) settings: Option<&'a Resolved>,
     /// The log events the engine's Connections receive.
     pub(super) events: &'a LogEvents,
+    /// Every live Run's resolved values, which each writer masks.
+    pub(super) masks: &'a Masks,
     /// The Product whose spans an export names.
     pub(super) product: Product,
     /// Where its time and its trace and span IDs come from.
@@ -283,7 +311,7 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
                     .json()
                     .with_timer(timer)
                     .with_span_events(FmtSpan::CLOSE)
-                    .with_writer(writer)
+                    .with_writer(Masked::new(logs.masks.clone(), writer))
                     .with_filter(filter()),
             ),
         )
@@ -292,7 +320,7 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
             Some(
                 tracing_subscriber::fmt::layer()
                     .with_timer(timer)
-                    .with_writer(writer)
+                    .with_writer(Masked::new(logs.masks.clone(), writer))
                     .with_ansi(false)
                     .with_filter(filter()),
             ),
@@ -305,7 +333,7 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
             .json()
             .with_timer(timer)
             .with_span_events(FmtSpan::CLOSE)
-            .with_writer(file)
+            .with_writer(Masked::new(logs.masks.clone(), file))
             .with_filter(filter())
     });
     let endpoint = logs.settings.and_then(|settings| {

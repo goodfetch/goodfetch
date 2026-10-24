@@ -1,9 +1,14 @@
 use std::fmt::Write as _;
+use std::sync::{Arc, Mutex};
 
 use goodfetch_cli::output::ColourChoice;
+use goodfetch_engine::mask::{Masks, Reach, Redaction};
 use goodfetch_protocol::catalog::Product;
 use rstest::rstest;
+use secrecy::SecretString;
+use tracing_subscriber::layer::SubscriberExt as _;
 
+use super::logs::Masked;
 use super::{COLOR, command, command_line};
 
 /// Every command path below `command`, each group before its commands,
@@ -166,4 +171,66 @@ fn no_flag_switches_certificate_verification_off(
         "the enumeration reaches the executable's flags"
     );
     assert_eq!(switches, Vec::<String>::new());
+}
+
+/// What a log writer was given, shared with the test.
+#[derive(Clone, Default)]
+struct Written(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for Written {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Every log line a writer of the process's subscriber writes passes
+/// through the engine's masks as a kept output (spec #564): the value a
+/// Run resolved is written as `%name%`, raw and encoded, and a Run whose
+/// `security.redaction` is off keeps its values in the logs.
+/// Covers: story:4-56, story:4-76
+#[rstest]
+#[case::redaction_on(Redaction::On, "the page said %proxy.password% and %proxy.password%")]
+#[case::redaction_off(
+    Redaction::Off,
+    "the page said pa ss\"w/rd>?9~ and 706120737322772f72643e3f397e"
+)]
+fn a_log_line_holds_a_resolved_value_only_when_its_runs_redaction_is_off(
+    #[case] redaction: Redaction,
+    #[case] logged: &str,
+) {
+    let masks = Masks::new();
+    let mask = masks.for_run(redaction);
+    mask.join(
+        "proxy.password",
+        &SecretString::from("pa ss\"w/rd>?9~"),
+        Reach::Value,
+    );
+    let written = Written::default();
+    let writer = written.clone();
+    let subscriber = tracing_subscriber::registry().with(
+        tracing_subscriber::fmt::layer()
+            .without_time()
+            .with_ansi(false)
+            .with_target(false)
+            .with_level(false)
+            .with_writer(Masked::new(masks, move || writer.clone())),
+    );
+
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info!(
+            "the page said {} and {}",
+            "pa ss\"w/rd>?9~",
+            "706120737322772f72643e3f397e"
+        );
+    });
+
+    assert_eq!(
+        String::from_utf8(written.0.lock().unwrap().clone()).unwrap(),
+        format!("{logged}\n")
+    );
 }

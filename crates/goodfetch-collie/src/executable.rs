@@ -57,6 +57,7 @@ use goodfetch_engine::entropy::{Entropy, NoSeed};
 use goodfetch_engine::governor::System;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::log::LogEvents;
+use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::settings::{check_environment, deployment_variable};
 use goodfetch_engine::tasks::BlockingPolicy;
@@ -476,9 +477,17 @@ pub fn main(start: &Start) -> ExitCode {
     let home = home(&environment);
     let clock = Clock::system();
     let log_events = LogEvents::new();
+    let masks = Masks::new();
     let launched = logs::Process::of(&parsed) == logs::Process::DaemonLaunched;
-    let (logs, entropy) = match observe(start, &binary, home.as_ref(), &parsed, clock, &log_events)
-    {
+    let (logs, entropy) = match observe(
+        start,
+        &binary,
+        home.as_ref(),
+        &parsed,
+        clock,
+        &log_events,
+        &masks,
+    ) {
         Ok(installed) => installed,
         Err(exit) => return exit,
     };
@@ -505,7 +514,7 @@ pub fn main(start: &Start) -> ExitCode {
         channel: Channel::CratesIo,
     };
     let engine = match Engine::new(identity, &(start.composition)()) {
-        Ok(engine) => instrumented(engine, log_events, logs.audit_events()),
+        Ok(engine) => instrumented(engine, log_events, logs.audit_events()).with_masks(masks),
         Err(error) => {
             tracing::error!(%error, "the composition cannot start an engine");
             return ExitCode::FAILURE;
@@ -562,7 +571,7 @@ fn instrumented(
 }
 
 /// Installs the `tracing` subscriber of `parsed`'s process, with
-/// `log_events`, and its crash reports, and answers it with the process's
+/// `log_events` and every writer masking with `masks`, and its crash reports, and answers it with the process's
 /// `Entropy` from the OS, a fork of which draws its export's trace and span
 /// IDs; fails once it has logged why the logs cannot go where the `log.*`
 /// settings say, with the Error code (ADR 0122).
@@ -573,6 +582,7 @@ fn observe(
     parsed: &Parsed,
     clock: Clock,
     log_events: &LogEvents,
+    masks: &Masks,
 ) -> Result<(logs::Installed, Result<Entropy, NoSeed>), ExitCode> {
     let mut entropy = Entropy::from_os();
     let handles = logs::Handles {
@@ -595,6 +605,7 @@ fn observe(
         to: process.to(),
         settings: settings.as_ref(),
         events: log_events,
+        masks,
         product: start.product,
         handles,
     });

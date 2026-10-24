@@ -255,6 +255,9 @@ pub enum Unready {
     /// Its Resource governor is at its last resort: memory stayed critical
     /// at the floor past `governor.last_resort_after` (ADR 0040).
     GovernorLastResort,
+    /// The filesystem holding its run state is at the `critical` storage
+    /// level, where a new Run's start is refused (ADR 0122).
+    StorageCritical,
 }
 
 /// What `daemon.health` answers: what the ops listener's `/livez` and

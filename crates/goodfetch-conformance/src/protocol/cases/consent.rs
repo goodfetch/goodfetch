@@ -33,9 +33,6 @@ pub(super) const FRAME_HOST: &str = "consent-frame.test";
 /// How long a case waits for a page to report an answer.
 const ANSWER_WAIT: Duration = Duration::from_secs(20);
 
-/// How long a case waits to see that nothing answers a prompt.
-const QUIET_WAIT: Duration = Duration::from_secs(6);
-
 /// The vendors whose prompts the pages model, each with the answer their
 /// refusal reports: Cookiebot's is its own API's `withdraw()`.
 const VENDORS: [(&str, &str); 10] = [
@@ -107,7 +104,7 @@ impl Case {
             Self::Notice => notice(connection, home, site, checks),
             Self::Overrides => overrides(connection, site, checks),
             Self::Worlds => worlds(connection, home, site, checks),
-            Self::Off => off(connection, site, checks),
+            Self::Off => off(connection, home, site, checks),
         }
     }
 }
@@ -486,12 +483,20 @@ fn worlds(
     Ok(())
 }
 
-/// With `consent.handling: false`, nothing answers OneTrust's prompt.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the synchronous harness waits on its own thread, outside any async worker"
-)]
-fn off(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
+/// With `consent.handling: false`, the runner never starts on the page, so
+/// nothing answers OneTrust's prompt: the Run trace records no
+/// `Runtime.addBinding`, which the engine sends only to start the runner
+/// in a document, and no answer came before the Run finished, which ends
+/// its pages. Both are read once the Run finished, a state the engine
+/// names, never after a fixed wait. When the wall test (A05-24), which
+/// runs with the handling off, lands in the page, this case needs the
+/// answering's own sign instead of the binding.
+fn off(
+    connection: &mut Connection,
+    home: Option<&str>,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
     let run_id = "conformance-consent-off";
     let settings = json!({ "consent": { "handling": false } });
     let Some(page) = open(connection, site, run_id, &settings, checks)? else {
@@ -499,10 +504,16 @@ fn off(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<
     };
     let before = count(site, "/consent/answered", &[("vendor", "onetrust")]);
     visit(connection, site, &page, "/vendor/onetrust", checks)?;
-    std::thread::sleep(QUIET_WAIT);
+    finish(connection, run_id)?;
     checks.check(
-        "with `consent.handling` off, nothing answers the prompt",
+        "with `consent.handling` off, the runner never started on the page (no `Runtime.addBinding`)",
+        !trace(home, run_id, "cdp-commands.jsonl")
+            .iter()
+            .any(|line| line["method"] == json!("Runtime.addBinding")),
+    );
+    checks.check(
+        "with `consent.handling` off, nothing answered the prompt",
         count(site, "/consent/answered", &[("vendor", "onetrust")]) == before,
     );
-    finish(connection, run_id)
+    Ok(())
 }

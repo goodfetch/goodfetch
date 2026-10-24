@@ -594,3 +594,32 @@ fn a_case_id_the_harness_does_not_run_is_refused() {
         "the case `engine-info-is-fast` names no exchange the harness runs"
     );
 }
+
+#[test]
+fn a_suite_narrowed_to_some_capabilities_keeps_them_in_its_own_order() {
+    let narrowed = ProtocolSuite::embedded()
+        .with_capabilities(&["cancellation", "engine.info"])
+        .unwrap();
+
+    assert_eq!(
+        narrowed
+            .case_list()
+            .capabilities
+            .iter()
+            .map(|capability| capability.name.as_str())
+            .collect::<Vec<_>>(),
+        ["engine.info", "cancellation"]
+    );
+}
+
+#[test]
+fn a_capability_the_suite_does_not_declare_is_refused() {
+    let refused = ProtocolSuite::embedded()
+        .with_capabilities(&["engine.info", "engine.speed"])
+        .unwrap_err();
+
+    assert_eq!(
+        refused.to_string(),
+        "the suite `protocol` declares no capability `engine.speed`"
+    );
+}

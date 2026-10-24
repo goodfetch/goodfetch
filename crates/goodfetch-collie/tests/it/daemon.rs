@@ -574,18 +574,8 @@ pub(crate) fn scripted_daemon(env: &TestEnv, script: &str) -> Process {
 }
 
 fn stderr_snapshot(env: &TestEnv, name: &str, stderr: &str) {
-    let mut settings = snapshot_settings(&SnapshotValues::of(env));
-    settings.add_filter(&regex_escape(COLLIE), "[COLLIE]");
-    settings.bind(|| insta::assert_snapshot!(name, stderr.trim()));
-}
-
-pub(crate) fn regex_escape(text: &str) -> String {
-    text.chars()
-        .flat_map(|character| {
-            let escaped = "\\.+*?()|[]{}^$".contains(character);
-            escaped.then_some('\\').into_iter().chain([character])
-        })
-        .collect()
+    let values = SnapshotValues::of(env).with_path(COLLIE, "[COLLIE]");
+    snapshot_settings(&values).bind(|| insta::assert_snapshot!(name, stderr.trim()));
 }
 
 /// A Daemon that refuses this Client's version, while it cannot hand over,

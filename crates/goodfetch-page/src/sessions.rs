@@ -48,6 +48,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_cdp::Command as _;
+use goodfetch_cdp::generated::target;
 use goodfetch_engine::browser_cache::{PinnedArtifact, Pins};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
@@ -246,6 +248,18 @@ fn unavailable(run: &Run, error: &impl std::fmt::Display, context: &CallContext)
         },
         context.identity(),
     )
+}
+
+/// Refuses to open a page whose value's lease ended, before any command
+/// leaves for it, the one that opens its target included (ADR 0087): the
+/// lease check's own error.
+fn lease_holds(value: &PageValue) -> Result<(), CallError> {
+    match value.lease() {
+        Some(lease) => lease
+            .check()
+            .map_err(|ended| lease.withheld(ended, target::CreateTargetParams::METHOD)),
+        None => Ok(()),
+    }
 }
 
 /// A page of a Session that the engine drives itself
@@ -462,9 +476,11 @@ impl Sessions {
             proxy.warn_if_outlived(&run, session).await;
         }
         let (navigation_timeout, _) = timeouts(&run);
+        let value = self.hooks.value(run.id(), session);
+        lease_holds(&value)?;
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
         let (driver, in_browser) = open.seat.new_page(navigation_timeout).await?;
-        let driver = driver.with_value(self.hooks.value(run.id(), session), run.clock());
+        let driver = driver.with_value(value, run.clock());
         let open_session = Arc::clone(&open);
         let page = self
             .adopt(tabs::Adopting {
@@ -637,6 +653,7 @@ impl Sessions {
             .cloned()
             .ok_or_else(|| session_closed(session))?;
         open.life.call().await?;
+        lease_holds(value)?;
         let (navigation_timeout, _) = timeouts(&open.run);
         let (driver, in_browser) = open.seat.new_page(navigation_timeout).await?;
         Ok(EnginePage {

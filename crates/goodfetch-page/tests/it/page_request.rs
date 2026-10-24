@@ -1,7 +1,9 @@
 //! `page.request` on an in-process engine's page (ADRs 0020 and 0121): the
 //! engine's own page that sends it, in the page's Session, closes with the
-//! call, whether it answered or was cancelled.
+//! call, whether it answered or was cancelled, and none opens once the
+//! page's lease ended.
 
+use goodfetch_engine::lease::LeaseEnded;
 use goodfetch_recording_gate::RecordingGate;
 use serde_json::{Map, json};
 
@@ -19,6 +21,40 @@ fn closed_targets(program: &Program) -> usize {
         .iter()
         .filter(|method| *method == "Target.closeTarget")
         .count()
+}
+
+/// How many targets the engine opened so far, by the Run trace's command
+/// log.
+fn opened_targets(program: &Program) -> usize {
+    program
+        .cdp_commands()
+        .iter()
+        .filter(|method| *method == "Target.createTarget")
+        .count()
+}
+
+/// Once its page's lease ended, a `page.request` raises the lease check's
+/// error before the engine opens a page for it: nothing leaves for it, not
+/// even the command that would open its page.
+/// Covers: operation:page.request
+#[test]
+fn a_page_request_after_the_lease_ended_opens_no_page() {
+    let gate = RecordingGate::new();
+    with_handler_page(&gate, Map::new(), async |program| {
+        gate.end_lease(LeaseEnded::Lost);
+        let before = opened_targets(program);
+        let url = program.proving_ground.url(SLOW, "/catalog/1");
+        let refused = program.on_page("page.request", json!({ "url": url })).await;
+
+        assert_eq!(
+            (
+                refused["error"]["data"]["code"].clone(),
+                opened_targets(program) - before,
+                program.requested(SLOW, "/catalog/1"),
+            ),
+            (json!("call_cancelled"), 0, false)
+        );
+    });
 }
 
 /// A `page.request` cancelled while its response is on its way closes the

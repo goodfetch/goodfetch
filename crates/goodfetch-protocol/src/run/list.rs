@@ -1,10 +1,10 @@
 //! Listing the Run index (ADRs 0031, 0036 and 0117): `run.list` answers the
 //! rows of every Run of the user and major, of either Product, filtered and
 //! sorted by the engine, so every Client, the Console among them, sees the
-//! same view of the same filter. A Schedule's run carries the scheduler's
-//! reserved tags, `goodfetch.<key>:<value>`, from which the list reads its
-//! Schedule, occurrence, trigger and role; a Watch run, role `watch`, is left
-//! out unless the filter asks for Watch runs.
+//! same view of the same filter. A Run started by a Recipe or a Schedule
+//! carries reserved tags, `goodfetch.<key>:<value>`, from which the list
+//! reads its Recipe, Schedule, occurrence, trigger and role; a Watch run,
+//! role `watch`, is left out unless the filter asks for Watch runs.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -17,9 +17,12 @@ use super::{Completeness, Lifecycle, PointInTime, RunIndexRow, Tag, Tags, Verdic
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
-/// What begins each tag only the scheduler sets (ADR 0036; spec #589):
-/// `goodfetch.<key>:<value>`.
+/// What begins each tag only Goodfetch's own starters set, the scheduler
+/// and a Recipe's (ADR 0036; spec #589): `goodfetch.<key>:<value>`.
 pub const RESERVED_TAG_PREFIX: &str = "goodfetch.";
+
+/// The reserved tag naming the Recipe a Run ran, by its name (ADR 0031).
+pub const RECIPE_TAG: &str = "recipe";
 
 /// The reserved tag naming the Schedule that started a Run.
 pub const SCHEDULE_TAG: &str = "schedule";
@@ -146,7 +149,8 @@ pub struct RunListParams {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub tags: Vec<Tag>,
-    /// The Recipe the Runs ran, by its name.
+    /// The Recipe the Runs ran, by its name, as their reserved
+    /// `goodfetch.recipe` tag names it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub recipe: Option<String>,
@@ -186,8 +190,8 @@ pub struct RunListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub ended: Option<TimeRange>,
-    /// Text found, ignoring case, in their Run ID, one of their tags or
-    /// their Recipe's name.
+    /// Text found, ignoring case, in their Run ID or one of their tags,
+    /// their Recipe's among them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub text: Option<String>,
@@ -219,7 +223,7 @@ pub struct RunList {
 /// `run.list`.
 pub const RUN_LIST: Operation = Operation {
     name: "run.list",
-    description: "Lists the Runs of the Run index of the user and major, of either Product (ADRs 0031 and 0098): each row with its tags, Recipe, Lifecycle, Verdict, Completeness, start and end, the engine that owns it while it is live, and its presence, a Run whose state is gone `missing` and one discarded on purpose `erased`, never left out. The engine filters by tags, Recipe, the Schedule, occurrence and trigger its reserved `goodfetch.` tags name, Product, each axis, start and end time, and a text found in its Run ID, tags or Recipe, and sorts by the key given; Watch runs are left out unless `watch_runs` asks for them (ADR 0036).",
+    description: "Lists the Runs of the Run index of the user and major, of either Product (ADRs 0031 and 0098): each row with its tags, Lifecycle, Verdict, Completeness, start and end, the engine that owns it while it is live, and its presence, a Run whose state is gone `missing` and one discarded on purpose `erased`, never left out. The engine filters by tags, the Recipe, Schedule, occurrence and trigger its reserved `goodfetch.` tags name, Product, each axis, start and end time, and a text found in its Run ID or tags, and sorts by the key given; Watch runs are left out unless `watch_runs` asks for them (ADR 0036).",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,

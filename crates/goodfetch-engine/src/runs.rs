@@ -3823,7 +3823,6 @@ impl Registry {
             kind: live.kind,
             needs: live.needs,
             tags: live.tags.clone(),
-            recipe: None,
             lifecycle,
             verdict: report.map(|report| report.verdict),
             completeness: report.map(|report| report.completeness),

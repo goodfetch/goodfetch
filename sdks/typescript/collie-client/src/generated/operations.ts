@@ -569,7 +569,7 @@ export class CollieOperations {
   }
 
   /**
-   * Lists the Runs of the Run index of the user and major, of either Product (ADRs 0031 and 0098): each row with its tags, Recipe, Lifecycle, Verdict, Completeness, start and end, the engine that owns it while it is live, and its presence, a Run whose state is gone `missing` and one discarded on purpose `erased`, never left out. The engine filters by tags, Recipe, the Schedule, occurrence and trigger its reserved `goodfetch.` tags name, Product, each axis, start and end time, and a text found in its Run ID, tags or Recipe, and sorts by the key given; Watch runs are left out unless `watch_runs` asks for them (ADR 0036).
+   * Lists the Runs of the Run index of the user and major, of either Product (ADRs 0031 and 0098): each row with its tags, Lifecycle, Verdict, Completeness, start and end, the engine that owns it while it is live, and its presence, a Run whose state is gone `missing` and one discarded on purpose `erased`, never left out. The engine filters by tags, the Recipe, Schedule, occurrence and trigger its reserved `goodfetch.` tags name, Product, each axis, start and end time, and a text found in its Run ID or tags, and sorts by the key given; Watch runs are left out unless `watch_runs` asks for them (ADR 0036).
    *
    * @experimental
    */

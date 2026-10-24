@@ -1,6 +1,6 @@
 //! Which rows of the Run index `run.list` answers, and in which order (ADRs
 //! 0031, 0036 and 0117): the engine filters and sorts, so every Client sees
-//! the same view of the same filter. A Schedule's Schedule, occurrence,
+//! the same view of the same filter. A Run's Recipe, Schedule, occurrence,
 //! trigger and role are its reserved `goodfetch.` tags; a Watch run is left
 //! out unless the filter asks for Watch runs. A row's presence never
 //! removes it: missing and erased rows are listed as such.
@@ -8,8 +8,9 @@
 use std::cmp::Ordering;
 
 use goodfetch_protocol::run::{
-    Completeness, Lifecycle, OCCURRENCE_TAG, PointInTime, ROLE_TAG, RunIndexRow, RunListParams,
-    RunSortKey, RunTrigger, SCHEDULE_TAG, SortOrder, TRIGGER_TAG, TimeRange, Verdict, WATCH_ROLE,
+    Completeness, Lifecycle, OCCURRENCE_TAG, PointInTime, RECIPE_TAG, ROLE_TAG, RunIndexRow,
+    RunListParams, RunSortKey, RunTrigger, SCHEDULE_TAG, SortOrder, TRIGGER_TAG, TimeRange,
+    Verdict, WATCH_ROLE,
 };
 use jiff::Timestamp;
 
@@ -45,7 +46,7 @@ fn matches(row: &RunIndexRow, params: &RunListParams, text: Option<&str>) -> boo
             .tags
             .iter()
             .all(|wanted| row.tags.iter().any(|tag| tag == wanted))
-        && equal(params.recipe.as_deref(), row.recipe.as_deref())
+        && equal(params.recipe.as_deref(), reserved(RECIPE_TAG))
         && equal(params.schedule.as_deref(), reserved(SCHEDULE_TAG))
         && equal(params.occurrence.as_deref(), reserved(OCCURRENCE_TAG))
         && equal(params.trigger, trigger(row))
@@ -87,13 +88,11 @@ fn within(range: Option<&TimeRange>, point: Option<&PointInTime>) -> bool {
     after_from && before_until
 }
 
-/// Whether `text`, in lowercase, is in the row's Run ID, a tag or its
-/// Recipe's name, ignoring case.
+/// Whether `text`, in lowercase, is in the row's Run ID or a tag, its
+/// Recipe's among them, ignoring case.
 fn holds_text(row: &RunIndexRow, text: &str) -> bool {
     let holds = |field: &str| field.to_lowercase().contains(text);
-    holds(row.run_id.as_str())
-        || row.tags.iter().any(|tag| holds(tag.as_str()))
-        || row.recipe.as_deref().is_some_and(holds)
+    holds(row.run_id.as_str()) || row.tags.iter().any(|tag| holds(tag.as_str()))
 }
 
 /// Compares two values a row may lack, a lacking one after every other.
@@ -151,7 +150,10 @@ fn compare(key: RunSortKey, left: &RunIndexRow, right: &RunIndexRow) -> Ordering
             right.ended_at.as_ref().and_then(instant),
         ),
         RunSortKey::RunId => left.run_id.cmp(&right.run_id),
-        RunSortKey::Recipe => present_first(left.recipe.as_deref(), right.recipe.as_deref()),
+        RunSortKey::Recipe => present_first(
+            left.tags.reserved(RECIPE_TAG),
+            right.tags.reserved(RECIPE_TAG),
+        ),
         RunSortKey::Schedule => present_first(
             left.tags.reserved(SCHEDULE_TAG),
             right.tags.reserved(SCHEDULE_TAG),

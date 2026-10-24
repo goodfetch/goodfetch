@@ -57,7 +57,7 @@ const FINISHED = row("finished-run", {
   completeness: "complete",
   started_at: "2026-10-02T08:00:00Z",
   ended_at: "2026-10-02T09:00:00Z",
-  recipe: "shop-prices",
+  tags: ["goodfetch.recipe:shop-prices"],
 });
 const MISSING = row("missing-run", {
   lifecycle: "stopped",

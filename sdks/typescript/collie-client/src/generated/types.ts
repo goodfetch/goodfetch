@@ -4015,11 +4015,6 @@ export interface RunIndexRow {
    */
   progress_message?: string | null;
   /**
-   * The Recipe it ran, by its name, when a Recipe started it (ADR
-   * 0031).
-   */
-  recipe?: string | null;
-  /**
    * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
@@ -4079,7 +4074,8 @@ export interface RunListParams {
    */
   product?: Product | null;
   /**
-   * The Recipe the Runs ran, by its name.
+   * The Recipe the Runs ran, by its name, as their reserved
+   * `goodfetch.recipe` tag names it.
    */
   recipe?: string | null;
   /**
@@ -4100,8 +4096,8 @@ export interface RunListParams {
    */
   tags?: Tag[];
   /**
-   * Text found, ignoring case, in their Run ID, one of their tags or
-   * their Recipe's name.
+   * Text found, ignoring case, in their Run ID or one of their tags,
+   * their Recipe's among them.
    */
   text?: string | null;
   /**

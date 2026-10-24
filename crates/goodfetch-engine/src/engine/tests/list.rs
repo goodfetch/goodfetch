@@ -34,7 +34,6 @@ fn running(run_id: &str, started: &str) -> RunIndexRow {
         kind: RunKind::Collie,
         needs: Product::Collie,
         tags: Tags::default(),
-        recipe: None,
         lifecycle: Lifecycle::Running,
         verdict: None,
         completeness: None,
@@ -69,8 +68,7 @@ fn ended(
 fn rows() -> Vec<RunIndexRow> {
     vec![
         RunIndexRow {
-            tags: tags(&["team:shop"]),
-            recipe: Some("shop-prices".to_owned()),
+            tags: tags(&["team:shop", "goodfetch.recipe:shop-prices"]),
             ..running("a-live", "2026-10-01T08:00:00Z")
         },
         RunIndexRow {
@@ -79,8 +77,8 @@ fn rows() -> Vec<RunIndexRow> {
                 "goodfetch.occurrence:nightly.20261002t080000z",
                 "goodfetch.trigger:time",
                 "goodfetch.role:target",
+                "goodfetch.recipe:shop-prices",
             ]),
-            recipe: Some("shop-prices".to_owned()),
             ..ended(
                 running("b-target", "2026-10-02T08:00:00Z"),
                 Lifecycle::Finished,
@@ -107,8 +105,7 @@ fn rows() -> Vec<RunIndexRow> {
         RunIndexRow {
             kind: RunKind::Crawl,
             needs: Product::Foxhound,
-            tags: tags(&["team:data"]),
-            recipe: Some("catalog-crawl".to_owned()),
+            tags: tags(&["team:data", "goodfetch.recipe:catalog-crawl"]),
             ..ended(
                 running("d-crawl", "2026-10-03T08:00:00Z"),
                 Lifecycle::Failed,

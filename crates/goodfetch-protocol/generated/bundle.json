@@ -8268,13 +8268,6 @@
             "null"
           ]
         },
-        "recipe": {
-          "description": "The Recipe it ran, by its name, when a Recipe started it (ADR\n0031).",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "description": "The Run's ID."
@@ -8421,7 +8414,7 @@
         },
         "recipe": {
           "arrived_in": "0.1",
-          "description": "The Recipe the Runs ran, by its name.",
+          "description": "The Recipe the Runs ran, by its name, as their reserved\n`goodfetch.recipe` tag names it.",
           "type": [
             "string",
             "null"
@@ -8469,7 +8462,7 @@
         },
         "text": {
           "arrived_in": "0.1",
-          "description": "Text found, ignoring case, in their Run ID, one of their tags or\ntheir Recipe's name.",
+          "description": "Text found, ignoring case, in their Run ID or one of their tags,\ntheir Recipe's among them.",
           "type": [
             "string",
             "null"

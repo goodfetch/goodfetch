@@ -64,7 +64,7 @@ export interface RunsViewProps {
   readonly onFilter: (filter: RunListParams) => void;
 }
 
-/** What begins each tag only the scheduler sets (ADR 0036). */
+/** What begins each tag only Goodfetch's own starters set, a Recipe's and the scheduler (ADR 0036). */
 const RESERVED = "goodfetch.";
 
 /** The value of the reserved tag `goodfetch.<key>:<value>` of `row`. */
@@ -509,7 +509,7 @@ function RunRow({ row }: { readonly row: RunIndexRow }): ReactNode {
         {PRODUCT_NAMES[row.needs]}
       </td>
       <td className="py-2 pr-4" translate="no">
-        {row.recipe}
+        {reserved(row, "recipe")}
       </td>
       <td className="py-2 pr-4" translate="no">
         {reserved(row, "schedule")}

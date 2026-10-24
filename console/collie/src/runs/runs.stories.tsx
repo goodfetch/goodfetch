@@ -32,8 +32,8 @@ const everyState: RunIndexRow[] = [
       "goodfetch.occurrence:nightly.20261004t080000z",
       "goodfetch.trigger:time",
       "goodfetch.role:target",
+      "goodfetch.recipe:shop-prices",
     ],
-    recipe: "shop-prices",
     lifecycle: "finished",
     verdict: "verified",
     completeness: "complete",
@@ -56,7 +56,7 @@ const everyState: RunIndexRow[] = [
   row("catalog-crawl", {
     kind: "crawl",
     needs: "foxhound",
-    recipe: "catalog-crawl",
+    tags: ["goodfetch.recipe:catalog-crawl"],
     lifecycle: "failed",
     verdict: "needs_review",
     completeness: "unverified",

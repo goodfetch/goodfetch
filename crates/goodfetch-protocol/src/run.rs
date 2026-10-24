@@ -33,8 +33,9 @@ mod report;
 pub mod warning;
 
 pub use self::list::{
-    CREATOR_TAG, OCCURRENCE_TAG, RESERVED_TAG_PREFIX, ROLE_TAG, RUN_LIST, RunList, RunListParams,
-    RunSortKey, RunTrigger, SCHEDULE_TAG, SortOrder, TRIGGER_TAG, TimeRange, WATCH_ROLE,
+    CREATOR_TAG, OCCURRENCE_TAG, RECIPE_TAG, RESERVED_TAG_PREFIX, ROLE_TAG, RUN_LIST, RunList,
+    RunListParams, RunSortKey, RunTrigger, SCHEDULE_TAG, SortOrder, TRIGGER_TAG, TimeRange,
+    WATCH_ROLE,
 };
 pub use self::progress::{
     EngineStep, HumanPause, PauseOrigin, RUN_INTERRUPTED, RUN_PROGRESS, RUN_PROGRESS_READ,
@@ -1192,9 +1193,6 @@ pub struct RunIndexRow {
     pub needs: Product,
     /// Its tags (ADR 0036).
     pub tags: Tags,
-    /// The Recipe it ran, by its name, when a Recipe started it (ADR
-    /// 0031).
-    pub recipe: Option<String>,
     /// Where it is.
     pub lifecycle: Lifecycle,
     /// Its Verdict, once it ended.

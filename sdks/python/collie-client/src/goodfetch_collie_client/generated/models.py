@@ -3781,11 +3781,6 @@ class RunIndexRow(BaseModel):
     """Whether its state is at its location."""
     progress_message: str | None = None
     """The program's own status line, once it set one (RT-15)."""
-    recipe: str | None = None
-    """
-    The Recipe it ran, by its name, when a Recipe started it (ADR
-    0031).
-    """
     run_id: RunId
     """The Run's ID."""
     started_at: PointInTime
@@ -3831,7 +3826,10 @@ class RunListParams(BaseModel):
     product: Product | None = None
     """The Product the Runs need (ADR 0098)."""
     recipe: str | None = None
-    """The Recipe the Runs ran, by its name."""
+    """
+    The Recipe the Runs ran, by its name, as their reserved
+    `goodfetch.recipe` tag names it.
+    """
     schedule: str | None = None
     """The Schedule that started the Runs, by its ID."""
     sort: RunSortKey | None = None
@@ -3845,8 +3843,8 @@ class RunListParams(BaseModel):
     """Tags each row carries, every one of them."""
     text: str | None = None
     """
-    Text found, ignoring case, in their Run ID, one of their tags or
-    their Recipe's name.
+    Text found, ignoring case, in their Run ID or one of their tags,
+    their Recipe's among them.
     """
     trigger: RunTrigger | None = None
     """What fired the occurrence that started the Runs."""

@@ -5807,13 +5807,6 @@
             "null"
           ]
         },
-        "recipe": {
-          "description": "The Recipe it ran, by its name, when a Recipe started it (ADR\n0031).",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "description": "The Run's ID."
@@ -5960,7 +5953,7 @@
         },
         "recipe": {
           "arrived_in": "0.1",
-          "description": "The Recipe the Runs ran, by its name.",
+          "description": "The Recipe the Runs ran, by its name, as their reserved\n`goodfetch.recipe` tag names it.",
           "type": [
             "string",
             "null"
@@ -6008,7 +6001,7 @@
         },
         "text": {
           "arrived_in": "0.1",
-          "description": "Text found, ignoring case, in their Run ID, one of their tags or\ntheir Recipe's name.",
+          "description": "Text found, ignoring case, in their Run ID or one of their tags,\ntheir Recipe's among them.",
           "type": [
             "string",
             "null"
@@ -11901,7 +11894,7 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
-      "description": "Lists the Runs of the Run index of the user and major, of either Product (ADRs 0031 and 0098): each row with its tags, Recipe, Lifecycle, Verdict, Completeness, start and end, the engine that owns it while it is live, and its presence, a Run whose state is gone `missing` and one discarded on purpose `erased`, never left out. The engine filters by tags, Recipe, the Schedule, occurrence and trigger its reserved `goodfetch.` tags name, Product, each axis, start and end time, and a text found in its Run ID, tags or Recipe, and sorts by the key given; Watch runs are left out unless `watch_runs` asks for them (ADR 0036).",
+      "description": "Lists the Runs of the Run index of the user and major, of either Product (ADRs 0031 and 0098): each row with its tags, Lifecycle, Verdict, Completeness, start and end, the engine that owns it while it is live, and its presence, a Run whose state is gone `missing` and one discarded on purpose `erased`, never left out. The engine filters by tags, the Recipe, Schedule, occurrence and trigger its reserved `goodfetch.` tags name, Product, each axis, start and end time, and a text found in its Run ID or tags, and sorts by the key given; Watch runs are left out unless `watch_runs` asks for them (ADR 0036).",
       "events": [],
       "kind": "round_trip",
       "name": "run.list",

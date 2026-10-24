@@ -16,6 +16,7 @@
 //! interfaces: a Run's driver, the tables a contribution keeps in every
 //! run file, and reads of them.
 
+mod completeness;
 mod delivery;
 mod enqueue;
 mod lease;

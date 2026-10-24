@@ -45,7 +45,9 @@ use std::fmt::Write as _;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_protocol::foxhound::frontier::NotAddedReason;
-use goodfetch_protocol::foxhound::report::{EquivalentForm, LearnedRule, LearnedRuleKind};
+use goodfetch_protocol::foxhound::report::{
+    EquivalentForm, LearnedRule, LearnedRuleKind, OFFSET_PAGINATION, TRAP_PATH as TRAP_PATH_REASON,
+};
 use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::{Connection, OptionalExtension as _};
 use url::Url;
@@ -173,12 +175,6 @@ const NO_EFFECT_PARAMETER: &str = "no_effect_parameter";
 const TRAP_PATH: &str = "trap_path";
 const CURSOR_PAGINATION: &str = "cursor_pagination";
 const EQUIVALENT_FORM: &str = "equivalent_form";
-
-/// The Completeness reason of the URLs learned traps refused.
-const TRAP_REASON: &str = "trap_path";
-
-/// The Completeness reason of listings paged only by an offset.
-const OFFSET_REASON: &str = "offset_pagination";
 
 /// What a page or a redirect changed of the rules that merge URLs: a
 /// parameter or a form learned, or one a contradicting pair stopped.
@@ -1162,8 +1158,9 @@ pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<Com
             "Learned traps"
         };
         reasons.push(unverified(
-            TRAP_REASON,
+            TRAP_PATH_REASON,
             format!("{traps} refused {refused} {urls} the crawl would otherwise have admitted."),
+            refused,
         ));
     }
     if offset_only > 0 {
@@ -1173,21 +1170,23 @@ pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<Com
             ("listings were", "them")
         };
         reasons.push(unverified(
-            OFFSET_REASON,
+            OFFSET_PAGINATION,
             format!(
                 "{offset_only} {listings} paged only by an offset parameter, so a row that moved while the crawl paged {it} may be missed."
             ),
+            offset_only,
         ));
     }
     Ok(reasons)
 }
 
-fn unverified(code: &str, message: String) -> CompletenessReason {
+fn unverified(code: &str, message: String, count: i64) -> CompletenessReason {
     CompletenessReason {
         completeness: Completeness::Unverified,
         reason: AxisReason {
             code: code.to_owned(),
             message,
+            count: Some(u64::try_from(count).unwrap_or(0)),
             call_id: None,
         },
     }

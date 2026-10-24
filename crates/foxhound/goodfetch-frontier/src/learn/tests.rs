@@ -393,6 +393,7 @@ fn a_trap_closes_after_a_hundred_pages_that_bring_nothing_new() {
                     message:
                         "A learned trap refused 1 URL the crawl would otherwise have admitted."
                             .to_owned(),
+                    count: Some(1),
                     call_id: None,
                 },
             }],
@@ -481,6 +482,7 @@ fn offset_reason() -> Vec<CompletenessReason> {
             message: "1 listing was paged only by an offset parameter, so a row that moved \
                       while the crawl paged it may be missed."
                 .to_owned(),
+            count: Some(1),
             call_id: None,
         },
     }]

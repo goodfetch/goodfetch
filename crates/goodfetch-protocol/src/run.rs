@@ -27,6 +27,7 @@ use crate::catalog::{
 use crate::connection::{DaemonEndpoint, PrivateEndpoint, StoppedBy};
 use crate::settings::{ProjectSettings, SettingLimit};
 
+pub mod completeness;
 mod list;
 mod progress;
 mod report;
@@ -45,7 +46,7 @@ pub use self::progress::{
 pub use self::report::{
     AppliedLimit, AxisReason, EndingError, KindUsage, LimitSetter, ModelUsage, NothingDone,
     PlanReport, PlanStatus, PluginRun, ProxyKindBytes, RecordingReport, RunReport, RunUsage,
-    RunWarning, UncertainEffect, UsageAmount,
+    RunWarning, SeedsKept, UncertainEffect, UsageAmount,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };

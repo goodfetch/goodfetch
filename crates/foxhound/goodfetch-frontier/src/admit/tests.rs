@@ -50,6 +50,7 @@ impl Frontier {
             .iter()
             .chain(scope::TABLES.statements)
             .chain(bounds::TABLES.statements)
+            .chain(crate::rules::TABLES.statements)
         {
             connection.execute(statement, []).unwrap();
         }
@@ -89,6 +90,7 @@ impl Frontier {
         self.admit(Candidate::Enqueue {
             url,
             base: &base,
+            from: &base,
             declared: get(),
             narrowing: Narrowing::none(),
             depth,
@@ -167,6 +169,7 @@ fn an_enqueue_resolves_against_its_documents_base_and_is_answered_as_a_seed_is()
             frontier.admit(Candidate::Enqueue {
                 url,
                 base: &base,
+                from: &base,
                 declared: get(),
                 narrowing: Narrowing::none(),
                 depth: 1,
@@ -335,6 +338,7 @@ fn an_enqueue_outside_every_seeds_scope_is_out_of_scope() {
         frontier.admit(Candidate::Enqueue {
             url,
             base: &base,
+            from: &base,
             declared: get(),
             narrowing: Narrowing::none(),
             depth: 1,

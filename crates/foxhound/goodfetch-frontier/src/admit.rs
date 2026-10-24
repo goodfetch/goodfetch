@@ -19,7 +19,13 @@
 //! admit is then measured against its bounds, `crawl.max_depth` (seeds at depth 0) and
 //! `crawl.max_requests`, and the caps on a URL's shape, each refusal
 //! counted by its setting. The learned rules join behind this one
-//! interface.
+//! interface: a candidate that differs from an admitted request only by
+//! parameters learned to have no effect is a `duplicate` merged by them,
+//! one under a closed trap is not added with `trap_path`, and an offset
+//! URL of a listing that prefers its cursor is a `duplicate`; each such
+//! URL is recorded with its rule. What an admitted candidate shows, its
+//! integer parameters and the page that linked it, teaches the rules in
+//! turn.
 
 use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, NotAddedReason};
@@ -27,7 +33,8 @@ use rusqlite::Connection;
 use url::Url;
 
 use crate::bounds::{Bounds, count_admitted, count_refused};
-use crate::identity::{Declared, identity, visit, visitor};
+use crate::identity::{Declared, Seen, identities, keyed, seen, visit_all};
+use crate::rules;
 use crate::scope::{Narrowing, Scope};
 use crate::url::parse;
 
@@ -47,6 +54,9 @@ pub enum Candidate<'a> {
         url: &'a str,
         /// The base URL of the document the handler read.
         base: &'a Url,
+        /// The URL of the crawl request whose attempt enqueued it, whose
+        /// page gave the link.
+        from: &'a Url,
         /// How it is sent and identified.
         declared: Declared<'a>,
         /// The call's own patterns, which narrow the crawl's scope, as an
@@ -73,15 +83,23 @@ pub fn admit(
     candidate: Candidate<'_>,
     add: impl FnOnce(&Url) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<Enqueued> {
-    let (given, base, declared, narrowing, depth) = match candidate {
-        Candidate::Seed { url, declared } => (url, None, declared, None, 0),
+    let (given, base, from, declared, narrowing, depth) = match candidate {
+        Candidate::Seed { url, declared } => (url, None, None, declared, None, 0),
         Candidate::Enqueue {
             url,
             base,
+            from,
             declared,
             narrowing,
             depth,
-        } => (url, Some(base), declared, Some(narrowing), depth),
+        } => (
+            url,
+            Some(base),
+            Some(from),
+            declared,
+            Some(narrowing),
+            depth,
+        ),
     };
     let not_added = |reason: NotAddedReason| Enqueued::NotAdded {
         reason,
@@ -103,9 +121,21 @@ pub fn admit(
     if let Judgment::Refused(_) = judge(&request, policy) {
         return Ok(not_added(NotAddedReason::DomainPolicy));
     }
-    let identity = identity(&url, declared);
-    if visitor(connection, &identity)?.is_some() {
-        return Ok(not_added(NotAddedReason::Duplicate));
+    let identities = identities(connection, &url, declared)?;
+    match seen(connection, &identities)? {
+        Seen::New => {}
+        Seen::Visited(_) => return Ok(not_added(NotAddedReason::Duplicate)),
+        Seen::Merged { rules, .. } => {
+            for rule in rules {
+                rules::merged(connection, rule, &url)?;
+            }
+            return Ok(not_added(NotAddedReason::Duplicate));
+        }
+    }
+    let key = keyed(&url);
+    if let Some((reason, rule)) = rules::refuses(connection, &key)? {
+        rules::merged(connection, rule, &url)?;
+        return Ok(not_added(reason));
     }
     if let Some(reason) = Bounds::read(connection)?.refuses(connection, &url, depth.into())? {
         count_refused(connection, reason)?;
@@ -113,7 +143,8 @@ pub fn admit(
     }
     let id = add(&url)?;
     count_admitted(connection)?;
-    visit(connection, &identity, &id)?;
+    visit_all(connection, &identities, &id)?;
+    rules::admitted(connection, &key, from.map(keyed).as_ref())?;
     if narrowing.is_none() {
         Scope::widen(connection, &url)?;
     }

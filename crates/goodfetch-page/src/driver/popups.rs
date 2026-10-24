@@ -17,7 +17,6 @@
 use std::collections::BTreeMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
 
 use goodfetch_cdp::SessionId as TargetSession;
 use goodfetch_cdp::generated::{browser, runtime, target};
@@ -57,8 +56,8 @@ impl PageDriver {
 
     /// The driver of a popup of the browser context `context`, which the
     /// browser attached on `session` and whose target is `popup`, prepared
-    /// as every page is; its Session's proxy and navigations' deadline are
-    /// the ones [`Self::for_session`] gives it.
+    /// as every page is; its Session's proxy is the one
+    /// [`Self::for_session`] gives it.
     async fn popup(
         browser: Browser,
         session: TargetSession,
@@ -72,7 +71,6 @@ impl PageDriver {
             proxy: None,
             context,
             frame: popup,
-            navigation_timeout: Duration::ZERO,
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             turn: Arc::new(tokio::sync::Mutex::new(None)),
@@ -82,18 +80,9 @@ impl PageDriver {
         })
     }
 
-    /// This driver with its Session's `proxy`, whose challenges it answers,
-    /// and its navigations' deadline, `navigation_timeout`.
-    pub(crate) fn for_session(
-        self,
-        proxy: Option<Arc<crate::proxy::SessionProxy>>,
-        navigation_timeout: Duration,
-    ) -> Self {
-        Self {
-            proxy,
-            navigation_timeout,
-            ..self
-        }
+    /// This driver with its Session's `proxy`, whose challenges it answers.
+    pub(crate) fn for_session(self, proxy: Option<Arc<crate::proxy::SessionProxy>>) -> Self {
+        Self { proxy, ..self }
     }
 }
 

@@ -2,11 +2,14 @@
 //! navigation answers its document's `Response`, a 404 or a 500 included;
 //! going back or forward loads the document again, since the back/forward
 //! cache is off, also across sites, whose renderers the browser swaps; an
-//! unreachable site fails with the browser's network error; and a
-//! navigation superseded before it committed is interrupted.
+//! unreachable site fails with the browser's network error; a navigation
+//! superseded before it committed is interrupted; and one whose document
+//! does not load within `timeout.navigation` ends with `deadline_exceeded`
+//! naming the setting (ADR 0080).
 
 use std::time::Duration;
 
+use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NAVIGATION_INTERRUPTED, Navigated, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO,
     PAGE_RELOAD, PageResponse,
@@ -360,6 +363,73 @@ pub(super) fn superseded(
     );
     checks.check("it names the superseded URL", data["url"] == json!(held));
     answered(&second, "the superseding `page.goto`", next, 200, checks);
+    finish_run(connection, run_id)
+}
+
+/// The navigation deadline of the case whose document loads past it: well
+/// below the about two seconds the Proving ground holds its answer.
+const SHORT_NAVIGATION_TIMEOUT: u64 = 500;
+
+/// A navigation whose document does not load within `timeout.navigation`
+/// ends with `deadline_exceeded`, retryable, whose `limit` names the
+/// setting, its value and the layer that set it, and whose `waited_for`
+/// names the state the call waited for (ADR 0080). The Proving ground
+/// holds the document's answer past the deadline.
+pub(super) fn past_its_deadline(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-navigation-deadline";
+    let held = site.start_url("pacing/1").map(ToOwned::to_owned);
+    checks.check("the Proving ground serves the case's pages", held.is_some());
+    let Some(held) = held else {
+        return Ok(());
+    };
+    start_run(
+        connection,
+        site,
+        run_id,
+        &json!({ "timeout": { "navigation": SHORT_NAVIGATION_TIMEOUT } }),
+        checks,
+    )?;
+    let Some(page) = new_page(connection, run_id, checks)? else {
+        return finish_run(connection, run_id);
+    };
+    let slowed = site.proving_ground.set_time_step(SLOWEST_STEP).is_ok();
+    checks.check("the Proving ground holds its pacing pages' answers", slowed);
+    let answer = call(
+        connection,
+        PAGE_GOTO.name,
+        &json!(page.page_id),
+        &json!({ "url": held, "wait_until": "load" }),
+    );
+    let restored = site.proving_ground.set_time_step(0).is_ok();
+    checks.check("the Proving ground's time step is set back", restored);
+    let data = &answer?["error"]["data"];
+    checks.check(
+        format!(
+            "`page.goto` past `timeout.navigation` fails with `{}`",
+            DEADLINE_EXCEEDED.name
+        ),
+        data["code"] == json!(DEADLINE_EXCEEDED.name),
+    );
+    checks.check("a retry may succeed", data["retryable"] == json!(true));
+    checks.check(
+        "its limit names `timeout.navigation`, its value and the Run's layer",
+        data["limit"]
+            == json!({ "key": "timeout.navigation", "value": SHORT_NAVIGATION_TIMEOUT, "layer": "run" }),
+    );
+    checks.check(
+        "it waited for the `load` the call named",
+        data["waited_for"] == json!("load"),
+    );
+    checks.check(
+        "it waited at least as long as its limit",
+        data["elapsed"]
+            .as_u64()
+            .is_some_and(|elapsed| elapsed >= SHORT_NAVIGATION_TIMEOUT),
+    );
     finish_run(connection, run_id)
 }
 

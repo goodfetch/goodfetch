@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "26"
+version = "27"
 
 [[capability]]
 name = "sessions.default"
@@ -147,6 +147,10 @@ covers = ["story:5-26", "operation:page.goto", "error:navigation_failed"]
 [[capability.case]]
 id = "a-navigation-superseded-before-it-committed-is-interrupted"
 covers = ["operation:page.goto", "error:navigation_interrupted"]
+
+[[capability.case]]
+id = "a-navigation-whose-document-does-not-load-in-time-raises-deadline-exceeded"
+covers = ["story:3-52", "operation:page.goto", "setting:timeout.navigation", "error:deadline_exceeded"]
 
 [[capability]]
 name = "navigation.redirects"

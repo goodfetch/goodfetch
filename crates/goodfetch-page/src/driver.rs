@@ -48,6 +48,7 @@ use goodfetch_cdp::{
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::Pins;
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::runs::Run;
@@ -113,6 +114,9 @@ pub(crate) struct Browser {
     /// each command it sends; none on the browser's own connection and on
     /// a page whose value has none (ADR 0087).
     lease: Option<Arc<dyn LeaseCheck>>,
+    /// Its Run's `timeout.navigation`, each of its pages' navigations'
+    /// deadline.
+    navigation: Arc<Deadline>,
 }
 
 impl Browser {
@@ -284,6 +288,7 @@ impl Connect for BorrowedBrowser {
                     service_workers: Arc::default(),
                     popups: Arc::default(),
                     lease: None,
+                    navigation: Arc::new(Deadline::of_run(&self.run, &TIMEOUT_NAVIGATION)),
                 };
                 // The first answer says a browser speaks CDP there.
                 browser
@@ -386,6 +391,7 @@ impl Connect for LocalBrowser {
                     service_workers: Arc::default(),
                     popups: Arc::default(),
                     lease: None,
+                    navigation: Arc::new(Deadline::of_run(&self.run, &TIMEOUT_NAVIGATION)),
                 };
                 // The first answer says the browser is up.
                 let version = browser
@@ -512,12 +518,9 @@ impl<B: Connect> SessionDriver<B> {
         }
     }
 
-    /// Opens a page in the Session, `navigation_timeout` its navigations'
-    /// deadline.
-    pub(crate) async fn new_page(
-        &self,
-        navigation_timeout: Duration,
-    ) -> Result<PageDriver, CallError> {
+    /// Opens a page in the Session, its navigations' deadline its Run's
+    /// `timeout.navigation`.
+    pub(crate) async fn new_page(&self) -> Result<PageDriver, CallError> {
         let browser = self.browser.connect().await?;
         let opening = browser.opening();
         let context = self.context_in(&browser).await?;
@@ -567,7 +570,6 @@ impl<B: Connect> SessionDriver<B> {
             proxy: self.proxy.clone(),
             context,
             frame,
-            navigation_timeout,
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             turn: Arc::new(Mutex::new(None)),
@@ -645,7 +647,6 @@ pub(crate) struct PageDriver {
     context: browser::BrowserContextID,
     /// The page's main frame.
     frame: page::FrameId,
-    navigation_timeout: Duration,
     /// How many navigations the engine started on the page, by which one
     /// the browser cancelled is known to be superseded.
     started: Arc<watch::Sender<u64>>,
@@ -849,11 +850,6 @@ impl PageDriver {
         self.proxy.as_deref()
     }
 
-    /// Its navigations' deadline, the Run's `timeout.navigation`.
-    pub(crate) fn navigation_timeout(&self) -> Duration {
-        self.navigation_timeout
-    }
-
     /// The page carrying `value`, its Run reading time from `clock`: its
     /// commands from now on ask its lease check first, and its navigations'
     /// deadlines leave out its waits for its gate's permits and for its
@@ -914,13 +910,27 @@ impl PageDriver {
         *self.navigating.borrow() > 0
     }
 
-    /// Runs `future` within `limit`, the page's waits for its gate's
-    /// permits not counted; none once `limit` passed.
-    pub(crate) async fn within<F: Future>(&self, limit: Duration, future: F) -> Option<F::Output> {
-        match &self.waits {
+    /// Runs `future` within the page's navigation deadline, its Run's
+    /// `timeout.navigation`, the page's waits for its gate's and its
+    /// proxy's permits not counted.
+    ///
+    /// # Errors
+    ///
+    /// `deadline_exceeded` naming `timeout.navigation` and `waited_for`
+    /// once the deadline passed first; it counts as elapsed the time the
+    /// deadline counted, its permit waits left out (ADRs 0080 and 0093).
+    pub(crate) async fn within_navigation_deadline<F: Future>(
+        &self,
+        waited_for: &str,
+        future: F,
+    ) -> Result<F::Output, CallError> {
+        let deadline = &self.browser.navigation;
+        let limit = deadline.duration();
+        let done = match &self.waits {
             Some(waits) => waits.within(limit, future).await.ok(),
             None => tokio::time::timeout(limit, future).await.ok(),
-        }
+        };
+        done.ok_or_else(|| deadline.exceeded(waited_for, limit))
     }
 
     /// Closes the page's target, as the engine closes a page of its own
@@ -1215,43 +1225,39 @@ impl PageDriver {
         };
         let waiting = NavigationCall::start(&self.navigating);
         let followed = self
-            .within(
-                self.navigation_timeout,
+            .within_navigation_deadline(
+                waited_for(wait_until),
                 // Boxed: the deadline that leaves out permit waits keeps it
                 // in its own state across its sleeps.
                 Box::pin(self.follow(command, &mut events, &call, wait_until, superseded)),
             )
             .await;
         drop(waiting);
-        match followed {
-            Some(Ok(Ok(Arrived::Document(Some(response)))))
+        match followed? {
+            Ok(Ok(Arrived::Document(Some(response))))
                 if let Some(failed) = self.answered_by_proxy(&url, &response) =>
             {
                 Err(failed)
             }
-            Some(Ok(Ok(Arrived::Document(Some(response))))) if wait_until != WaitUntil::Commit => {
+            Ok(Ok(Arrived::Document(Some(response)))) if wait_until != WaitUntil::Commit => {
                 Ok(Arrived::Document(Some(PageResponse {
                     encoding: self.document_encoding(&call).await?,
                     ..response
                 })))
             }
-            Some(Ok(Ok(arrived))) => Ok(arrived),
-            Some(Ok(Err(Ended::Failed(error)))) => Err(self
+            Ok(Ok(arrived)) => Ok(arrived),
+            Ok(Err(Ended::Failed(error))) => Err(self
                 .proxy
                 .as_ref()
                 .and_then(|proxy| proxy.failure(&url, &error))
                 .unwrap_or_else(|| network_error(&url, &error))),
-            Some(Ok(Err(Ended::Interrupted))) => Err(interrupted(&url)),
-            Some(Ok(Err(Ended::TooManyRedirects(chain)))) => Err(too_many_redirects(&url, chain)),
-            Some(Ok(Err(Ended::Truncated { received, expected }))) => {
+            Ok(Err(Ended::Interrupted)) => Err(interrupted(&url)),
+            Ok(Err(Ended::TooManyRedirects(chain))) => Err(too_many_redirects(&url, chain)),
+            Ok(Err(Ended::Truncated { received, expected })) => {
                 Err(truncated(&url, received, expected))
             }
-            Some(Ok(Err(Ended::Crashed))) => Err(renderer_crashed()),
-            Some(Err(failed)) => Err(failed),
-            None => Err(network_error(
-                &url,
-                &format!("no load event within `{}`", TIMEOUT_NAVIGATION.name),
-            )),
+            Ok(Err(Ended::Crashed)) => Err(renderer_crashed()),
+            Err(failed) => Err(failed),
         }
     }
 
@@ -1488,3 +1494,13 @@ fn is_javascript(url: &str) -> bool {
 
 /// The scheme of a URL that runs a script, with its colon.
 const JAVASCRIPT: &str = "javascript:";
+
+/// What a navigation that answers at `wait_until` waits for, as its
+/// `deadline_exceeded` names it: the state, as the call spells it.
+fn waited_for(wait_until: WaitUntil) -> &'static str {
+    match wait_until {
+        WaitUntil::Commit => "commit",
+        WaitUntil::DomContentLoaded => "domcontentloaded",
+        WaitUntil::Load => "load",
+    }
+}

@@ -95,9 +95,9 @@ impl PageDriver {
             }
         };
         if self
-            .within(self.navigation_timeout, Box::pin(settled))
+            .within_navigation_deadline("navigation", Box::pin(settled))
             .await
-            .is_none()
+            .is_err()
         {
             tracing::debug!(
                 url.origin = goodfetch_engine::log::origin(&url),

@@ -636,13 +636,9 @@ impl Seat {
         self.shared.seated(&mut place).await.map(drop)
     }
 
-    /// Opens a page of the Session, `navigation_timeout` its navigations'
-    /// deadline, in its browser unless that one is recycled, in which case
-    /// the Session moves first.
-    pub(crate) async fn new_page(
-        &self,
-        navigation_timeout: Duration,
-    ) -> Result<(PageDriver, InBrowser), CallError> {
+    /// Opens a page of the Session in its browser unless that one is
+    /// recycled, in which case the Session moves first.
+    pub(crate) async fn new_page(&self) -> Result<(PageDriver, InBrowser), CallError> {
         let mut place = self.shared.place.lock().await;
         let (number, driver, opening) = loop {
             let (number, driver, opening) = self.shared.seated(&mut place).await?;
@@ -654,7 +650,7 @@ impl Seat {
         };
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
         drop(opening);
-        let page = driver.new_page(navigation_timeout).await?;
+        let page = driver.new_page().await?;
         let events = page.events().await;
         self.shared
             .pool

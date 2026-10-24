@@ -109,21 +109,27 @@ impl Deadline {
             biased;
             answer = work => Ok(answer),
             () = clock.sleep_until(started + self.duration) => {
-                let elapsed = u64::try_from((clock.now() - started).as_millis()).unwrap_or(u64::MAX);
-                Err(CallError::new(
-                    &DEADLINE_EXCEEDED,
-                    format!(
-                        "`{}` ({} ms) passed before the {waited_for} came; raise it, or wait for the right thing.",
-                        self.limit.key, self.limit.value,
-                    ),
-                    &DeadlineExceededDetails {
-                        limit: self.limit.clone(),
-                        elapsed,
-                        waited_for: waited_for.to_owned(),
-                    },
-                ))
+                Err(self.exceeded(waited_for, clock.now() - started))
             }
         }
+    }
+
+    /// The `deadline_exceeded` of a call that waited `elapsed` under this
+    /// deadline for `waited_for`, which did not come, for a caller that
+    /// counts its own time, such as one that leaves some waits out of it.
+    pub fn exceeded(&self, waited_for: &str, elapsed: Duration) -> CallError {
+        CallError::new(
+            &DEADLINE_EXCEEDED,
+            format!(
+                "`{}` ({} ms) passed before the {waited_for} came; raise it, or wait for the right thing.",
+                self.limit.key, self.limit.value,
+            ),
+            &DeadlineExceededDetails {
+                limit: self.limit.clone(),
+                elapsed: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
+                waited_for: waited_for.to_owned(),
+            },
+        )
     }
 }
 

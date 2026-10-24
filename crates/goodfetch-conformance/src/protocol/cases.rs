@@ -78,6 +78,7 @@ pub(crate) enum Case {
     BackLoadsTheDocumentAgain,
     UnresolvedNameFailsTheNavigation,
     SupersededNavigationIsInterrupted,
+    NavigationPastItsDeadline,
     /// A fetch edge or response decoding case, Collie's lines.
     FetchEdge(fetch_edge::Case),
     MarkdownMatchesTheOracle,
@@ -302,6 +303,9 @@ impl Case {
             "a-navigation-superseded-before-it-committed-is-interrupted" => {
                 Self::SupersededNavigationIsInterrupted
             }
+            "a-navigation-whose-document-does-not-load-in-time-raises-deadline-exceeded" => {
+                Self::NavigationPastItsDeadline
+            }
             "markdown-matches-the-oracle-on-the-markdown-pages" => Self::MarkdownMatchesTheOracle,
             "a-format-the-request-does-not-name-is-left-out" => Self::FormatNotNamedIsLeftOut,
             "a-page-with-no-main-content-answers-empty-markdown-and-none" => {
@@ -387,6 +391,9 @@ impl Case {
             }
             Self::SupersededNavigationIsInterrupted => {
                 navigation::superseded(connection, site, checks)
+            }
+            Self::NavigationPastItsDeadline => {
+                navigation::past_its_deadline(connection, site, checks)
             }
             Self::FetchEdge(case) => case.run(connection, site, checks),
             Self::PageRequest(case) => case.run(connection, site, checks),

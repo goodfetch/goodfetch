@@ -27,7 +27,6 @@ use goodfetch_engine::CallError;
 use goodfetch_protocol::page::{
     PageResponse, RedirectLimit, TOO_MANY_REDIRECTS, TooManyRedirectsDetails,
 };
-use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use secrecy::ExposeSecret as _;
 
 use crate::driver::PageDriver;
@@ -86,7 +85,8 @@ pub(crate) enum Body {
 /// stops; `too_many_redirects` past the request's count; the Session's
 /// proxy's codes; `navigation_failed` with the browser's network error for
 /// a request that got no response, or whose content coding failed to
-/// decode; and the page's codes when the browser fails a command.
+/// decode; `deadline_exceeded` naming `timeout.navigation` for one with no
+/// response by then; and the page's codes when the browser fails a command.
 pub(crate) async fn send(
     driver: &PageDriver,
     sender: &EngineRequests,
@@ -113,18 +113,12 @@ pub(crate) async fn send(
         })
         .await?;
     // A wait for the navigation gate's permits counts against no timeout.
-    let followed = driver
-        .within(
-            driver.navigation_timeout(),
+    driver
+        .within_navigation_deadline(
+            "response",
             Load::new(driver, sender, request).follow(events),
         )
-        .await;
-    followed.unwrap_or_else(|| {
-        Err(network_error(
-            request.url,
-            &format!("no response within `{}`", TIMEOUT_NAVIGATION.name),
-        ))
-    })
+        .await?
 }
 
 /// The document load that carries one request, as it goes.

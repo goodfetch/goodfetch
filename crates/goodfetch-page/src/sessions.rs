@@ -68,7 +68,7 @@ use goodfetch_protocol::run::{Lifecycle, RUN_ENDED, RUN_NOT_FOUND, RunDetails, R
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SESSION_PAGE_CHECK,
-    SESSION_SOURCE, SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_NAVIGATION, TIMEOUT_WAIT,
+    SESSION_SOURCE, SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_WAIT,
 };
 use goodfetch_protocol::usage::PROXY_BYTES;
 use serde_json::{Map, Value, json};
@@ -411,9 +411,8 @@ impl Sessions {
         if let Some(proxy) = &open.proxy {
             proxy.warn_if_outlived(&run, session).await;
         }
-        let (navigation_timeout, _) = timeouts(&run);
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
-        let (driver, in_browser) = open.seat.new_page(navigation_timeout).await?;
+        let (driver, in_browser) = open.seat.new_page().await?;
         let driver = driver.with_value(self.hooks.value(run.id(), session), run.clock());
         let open_session = Arc::clone(&open);
         let page = self
@@ -586,8 +585,7 @@ impl Sessions {
             .cloned()
             .ok_or_else(|| session_closed(session))?;
         open.life.call().await?;
-        let (navigation_timeout, _) = timeouts(&open.run);
-        let (driver, in_browser) = open.seat.new_page(navigation_timeout).await?;
+        let (driver, in_browser) = open.seat.new_page().await?;
         Ok((
             driver.with_value(value.clone(), open.run.clock()),
             in_browser,
@@ -1129,10 +1127,8 @@ fn wait_deadline(run: &Run) -> Deadline {
     Deadline::of_run(run, &TIMEOUT_WAIT)
 }
 
-/// The Run's `timeout.navigation`, and its `timeout.action` with where it
-/// was set.
-fn timeouts(run: &Run) -> (Duration, (SettingLimit, Duration)) {
-    let navigation = Deadline::of_run(run, &TIMEOUT_NAVIGATION).duration();
+/// The Run's `timeout.action`, with where it was set.
+fn action_timeout(run: &Run) -> (SettingLimit, Duration) {
     let action = Deadline::of_run(run, &TIMEOUT_ACTION);
-    (navigation, (action.limit().clone(), action.duration()))
+    (action.limit().clone(), action.duration())
 }

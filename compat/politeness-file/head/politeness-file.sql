@@ -22,8 +22,16 @@ CREATE TABLE permits (
         taken_at INTEGER NOT NULL
     ) STRICT;
 INSERT INTO "permits" VALUES(1,'hold.test','holding',1,'0.0/runs/holding','28bd8653e56a5d40',1767603605299);
+CREATE TABLE proxy_limits (
+            key TEXT NOT NULL PRIMARY KEY,
+            ceiling INTEGER,
+            ceiling_changed_at INTEGER,
+            last_start INTEGER
+        ) STRICT;
+INSERT INTO "proxy_limits" VALUES('proxy http://proxy.test:3128 corpus',1,1767603610300,1767603610000);
 CREATE TABLE returns (key TEXT NOT NULL PRIMARY KEY, generation INTEGER NOT NULL) STRICT;
 INSERT INTO "returns" VALUES('shop.test',2);
+INSERT INTO "returns" VALUES('proxy http://proxy.test:3128 corpus',1);
 CREATE TABLE waiters (
         key TEXT NOT NULL,
         run_id TEXT NOT NULL,

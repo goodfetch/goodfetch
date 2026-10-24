@@ -42,8 +42,8 @@ people_operations = ["composition", "people"]
 log = ["clock"]
 ledger = []
 metrics = []
-needs_you = ["clock", "events", "governor", "ledger", "run_index", "run_state", "tasks"]
-needs_you_operations = ["composition", "needs_you"]
+needs_you = ["clock", "events", "governor", "ledger", "run_index", "run_state", "settings", "tasks"]
+needs_you_operations = ["audit", "composition", "needs_you", "run", "runs", "settings"]
 lowest_minor = []
 ops = ["rpc", "runs", "tasks", "transport"]
 otlp = ["clock", "egress", "happy_eyeballs", "http_client", "settings", "tls"]
@@ -104,6 +104,7 @@ system = ["storage"]
 
 # Which of `needs_you`'s own modules may import which.
 [submodules.needs_you]
+consent = []
 limits = []
 storage = []
 

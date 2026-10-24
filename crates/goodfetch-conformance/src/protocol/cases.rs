@@ -3,7 +3,7 @@
 //! failures, its Error codes and its operations' types. A crawl's delivery
 //! cases are `delivery`'s, a page's formats cases `formats`'s, its route
 //! cases `routes`'s, a Run's Session cases `sessions`', their proxy cases
-//! `proxies`', its events and bodies cases `events`'s, its `page.request`
+//! `proxies`' and `proxy_limits`', its events and bodies cases `events`'s, its `page.request`
 //! cases `page_request`'s, its dialog cases `dialogs`', its popup cases
 //! `popups`', its page function cases `page_functions`', its Page check
 //! cases `page_check`'s, its hostile-input cases `hostile_input`'s and the
@@ -28,6 +28,7 @@ mod page_functions;
 mod page_request;
 mod popups;
 mod proxies;
+mod proxy_limits;
 mod reset;
 mod routes;
 mod service_workers;

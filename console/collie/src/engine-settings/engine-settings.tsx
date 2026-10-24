@@ -17,6 +17,7 @@ import {
   type ReactNode,
 } from "react";
 import type { ConsoleClient } from "#client/client.ts";
+import { ErrorMessage } from "#errors/error-message.tsx";
 import { Usage } from "#usage/usage-section.tsx";
 import { EffectiveSettings } from "./effective-settings.tsx";
 import {
@@ -30,8 +31,8 @@ import {
 export type Explained =
   | { readonly kind: "reading" }
   | { readonly kind: "explained"; readonly explanation: SettingsExplanation }
-  /** The engine refused; its English message, which the code's catalog message replaces once #912 maps it (ADR 0079). */
-  | { readonly kind: "failed"; readonly message: string };
+  /** The engine refused, with this error. */
+  | { readonly kind: "failed"; readonly error: unknown };
 
 /** What a person asks to explain with. */
 export interface ExplainRequest {
@@ -73,13 +74,13 @@ function Explanation({ explained }: { readonly explained: Explained }): ReactNod
     return <EffectiveSettings settings={explained.explanation.settings} />;
   }
   if (explained.kind === "failed") {
-    const message = explained.message;
     return (
-      <p role="alert">
-        <Trans>
-          The engine could not explain the settings: <span translate="no">{message}</span>
-        </Trans>
-      </p>
+      <div role="alert">
+        <p>
+          <Trans>The engine could not explain the settings:</Trans>
+        </p>
+        <ErrorMessage error={explained.error} />
+      </div>
     );
   }
   return (
@@ -173,11 +174,6 @@ export function EngineSettingsView({
   );
 }
 
-/** A refused call's message. */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** Engine & settings over `client`, explaining again at each request. */
 export function EngineSettings({ client }: { readonly client: ConsoleClient }): ReactNode {
   const state = useSyncExternalStore(
@@ -199,7 +195,7 @@ export function EngineSettings({ client }: { readonly client: ConsoleClient }): 
       try {
         next = { kind: "explained", explanation: await client.call("config.explain", params) };
       } catch (error) {
-        next = { kind: "failed", message: messageOf(error) };
+        next = { kind: "failed", error };
       }
       if (current) {
         setExplained(next);

@@ -7,7 +7,9 @@
 //! the backoff ended, its second page meeting a 503 that backs it off again
 //! (the backoff's last wait kept); then a crawl of `hold.test` with one request in flight
 //! at a time leaves its first request unanswered, so its second waits for a
-//! wake. A copy of the file taken then, its Run folder and wake endpoint
+//! wake. A Collie Run's navigation through a proxy then meets the proxy's
+//! own 429, which halves that proxy's learned ceiling under its key. A
+//! copy of the file taken then, its Run folder and wake endpoint
 //! written relative to the home, goes as SQL text into the folder given as
 //! the only argument: `politeness-file.sql`. `xtask compat write` runs it.
 #![expect(
@@ -21,13 +23,16 @@ use std::time::{Duration, UNIX_EPOCH};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
-use goodfetch_engine::politeness::PolitenessOptions;
+use goodfetch_engine::politeness::{Ending, Holder, Politeness, PolitenessOptions, Taken};
 use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::settings::{Layers, resolve};
 use goodfetch_engine::tasks::BlockingPolicy;
+use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::page::proxy::ProxyServer;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWrite, AsyncWriteExt as _, BufReader, Lines};
 
@@ -112,6 +117,56 @@ async fn exchange(
             return Ok(());
         }
     }
+}
+
+/// A Collie Run's navigation through the proxy `proxy.test` meets the
+/// proxy's own 429, through the page crate's rule on the Politeness file of
+/// `home`, as a second engine of the user: the proxy's key learns its
+/// ceiling.
+async fn proxy_refusal(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let file = Politeness::open(
+        home.join("politeness.sqlite"),
+        &PolitenessOptions::default(),
+        vec![goodfetch_page::PROXY_LIMITS_TABLES],
+        |_, _| false,
+        "collie-engine".to_owned(),
+        &owner,
+    )
+    .await?;
+    let rule: std::sync::Arc<dyn goodfetch_engine::politeness::PermitRule> =
+        std::sync::Arc::new(goodfetch_page::ProxyRule::of(&resolve(
+            &Layers::default(),
+            Product::Collie,
+            Product::Collie,
+        )?));
+    let key = goodfetch_page::proxy_limits_key(
+        &ProxyServer::parse("http://proxy.test:3128")?,
+        Some("corpus"),
+    );
+    let holder = Holder {
+        run_id: "navigating".to_owned(),
+        epoch: 1,
+        run_folder: home.join("0.0/runs/navigating"),
+    };
+    // 2026-01-05T09:00:10Z.
+    let now = UNIX_EPOCH + Duration::from_hours(491_001) + Duration::from_secs(10);
+    let Taken::Granted(permit) = file
+        .take(&key, &holder, std::sync::Arc::clone(&rule), now)
+        .await?
+    else {
+        return Err("the proxy's key admitted no navigation".into());
+    };
+    file.give_back(
+        permit,
+        rule,
+        Ending::TooManyRequests(None),
+        now + Duration::from_millis(300),
+    )
+    .await?;
+    drop(file);
+    owner.cancel();
+    Ok(())
 }
 
 /// Copies the Politeness file of `home` into `copy`, its Run folders and
@@ -204,6 +259,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await?;
             tokio::time::sleep(Duration::from_secs(1)).await;
+            proxy_refusal(home.path()).await?;
             copy_of(home.path(), &copy)?;
             exchange(
                 &mut writer,

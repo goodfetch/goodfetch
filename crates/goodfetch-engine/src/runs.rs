@@ -993,6 +993,9 @@ pub struct Runs {
     clean_up: Option<Arc<CleanUpRules>>,
     /// The engine's "Needs you".
     needs_you: NeedsYou,
+    /// The engine's Product version, whose major's Run index its Runs
+    /// write.
+    version: ProductVersion,
 }
 
 /// The composition's Clean-up rules, and the engine's Product version, the
@@ -1065,6 +1068,9 @@ struct Shared {
     progress: Progress,
     /// The Resource governor's last sample.
     system_info: watch::Receiver<Option<SystemInfo>>,
+    /// The Politeness its own code shares outside admission, once it asked
+    /// for it.
+    politeness: tokio::sync::OnceCell<Politeness>,
 }
 
 impl std::fmt::Debug for Run {
@@ -1160,6 +1166,29 @@ impl Run {
     /// beginning and its end each give a new value.
     pub fn human_pause(&self, pause: HumanPause) -> PauseHeld {
         self.shared.progress.pause(pause)
+    }
+
+    /// Records in the Run index that the Run met a consent wall on the
+    /// registrable domain `domain` and left it, so "Needs you" offers the
+    /// domain for `consent.domains` (ADR 0048).
+    ///
+    /// # Errors
+    ///
+    /// When the Run index cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the write began still records it.
+    pub async fn record_consent_wall(&self, domain: String) -> Result<(), RunStateError> {
+        let path = self.runs.home().run_index(&self.runs.version);
+        let version = self.runs.version.clone();
+        let run_id = self.id.clone();
+        let at = self.point_in_time();
+        self.owner
+            .blocking(move || {
+                run_index::record_consent_wall(&path, &version, &domain, &run_id, &at)
+            })
+            .await
     }
 
     /// Sets the part `name` its kind of Run adds to its progress, such as a
@@ -1402,6 +1431,55 @@ impl Run {
         Ok(Some(
             admission.sharing(politeness, holder, self.clock, settings),
         ))
+    }
+
+    /// The Politeness its own code shares for keys outside admission, such
+    /// as a proxy's (ADRs 0053 and 0088), and the holder its Permits name:
+    /// the per-user Politeness file, or, when `settings` set
+    /// `politeness.sharing` to `run`, one of its own in memory. Each ask
+    /// answers the one its first opened.
+    ///
+    /// # Errors
+    ///
+    /// When the Politeness file cannot be opened.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn politeness(
+        &self,
+        settings: &Resolved,
+    ) -> Result<(Politeness, Holder), PolitenessError> {
+        let own = settings.value(POLITENESS_SHARING.name).as_str() == Some("run");
+        let politeness = self
+            .shared
+            .politeness
+            .get_or_try_init(|| async {
+                if own {
+                    // The engine's owner, not the Run's: the Run keeps this
+                    // handle while it ends, and its owner waits for its
+                    // tasks, the file's actor among them.
+                    return Politeness::in_memory(
+                        self.admitting.politeness.tables.clone(),
+                        &self.admitting.politeness.owner,
+                    )
+                    .await;
+                }
+                let file = self.admitting.politeness.file().await?;
+                self.stop_on_failures(
+                    file.storage_failures(),
+                    self.admitting.politeness.path.parent(),
+                );
+                Ok(file)
+            })
+            .await?
+            .clone();
+        let holder = Holder {
+            run_id: self.id.to_string(),
+            epoch: self.state.epoch(),
+            run_folder: self.folder.clone(),
+        };
+        Ok((politeness, holder))
     }
 
     /// Stops the Run at its next safe point, as at `critical`, once
@@ -1868,6 +1946,7 @@ impl Runs {
             drivers: Arc::new(setup.drivers.clone()),
             clean_up: CleanUpRules::of(&setup),
             needs_you: setup.needs_you.clone(),
+            version: setup.version.clone(),
         };
         let politeness = SharedPoliteness {
             file: Arc::new(tokio::sync::OnceCell::new()),
@@ -4049,6 +4128,7 @@ impl Registry {
                 storage: self.setup.governor.storage(),
                 progress,
                 system_info: self.setup.governor.system_info(),
+                politeness: tokio::sync::OnceCell::new(),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),
@@ -4083,6 +4163,7 @@ impl Registry {
             drivers: Arc::clone(&self.drivers),
             clean_up: CleanUpRules::of(&self.setup),
             needs_you: self.setup.needs_you.clone(),
+            version: self.setup.version.clone(),
         }
     }
 

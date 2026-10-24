@@ -56,6 +56,7 @@ mod page_events;
 mod parent_death;
 mod private_endpoint;
 mod proxy;
+mod proxy_limits;
 mod run;
 mod secrets;
 mod service_manager;

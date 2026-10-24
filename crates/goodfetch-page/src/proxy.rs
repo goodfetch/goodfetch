@@ -6,13 +6,16 @@
 //! request never has one of its own. An HTTP or HTTPS proxy's credentials
 //! answer the browser's `Fetch.authRequired`; a SOCKS5 proxy's, which
 //! Chromium cannot give, go through the loopback [`relay`] the Session
-//! opens. [`party`] tells the proxy's own failures from the site's.
+//! opens. [`party`] tells the proxy's own failures from the site's, and
+//! [`limits`] holds each navigation through the proxy to its limits, shared
+//! by every run of the user (ADRs 0053 and 0088).
 //!
 //! A Session whose `proxy.provider` names a Proxy provider gets its one
 //! proxy from the provider's driver ([`crate::proxy_provider`]) instead,
 //! behind a loopback relay that charges every byte to its Run under the
 //! proxy's kind; `proxy.server` and `proxy.provider` together are refused.
 
+mod limits;
 mod party;
 mod relay;
 
@@ -39,7 +42,10 @@ use goodfetch_protocol::page::proxy::{
 use goodfetch_protocol::settings::{NETWORK_RESOLVE, SETTING_INVALID, SettingInvalidDetails};
 use secrecy::SecretString;
 
-pub(crate) use self::party::{Answer, Party, party, proxy_error};
+use self::limits::ProxyLimits;
+pub(crate) use self::limits::{ProxyPermit, TABLES};
+pub use self::limits::{ProxyRule, TABLES as LIMITS_TABLES, key as limits_key};
+pub(crate) use self::party::{Answer, PROXY_STATUS, Party, party, proxy_error, refusal};
 use self::relay::{Mode, Relay};
 use crate::proxy_provider::{Chosen, ProxyDriver, ProxyUsage, Refusal, Wanted, list, priced};
 
@@ -58,6 +64,9 @@ pub(crate) struct SessionProxy {
     relay: Option<Relay>,
     /// What a Proxy provider gave, if one did.
     provided: Option<Provided>,
+    /// Its limits, shared by every run of the user, unless the Politeness
+    /// file failed to open.
+    limits: Option<Arc<ProxyLimits>>,
 }
 
 /// The proxy a Proxy provider gave a Session, for its life.
@@ -257,6 +266,7 @@ impl SessionProxy {
             }
             _ => None,
         };
+        let limits = ProxyLimits::open(settings, run, &server, username.as_deref()).await;
         Ok(Some(Self {
             server,
             bypass: text(PROXY_BYPASS.name),
@@ -264,6 +274,7 @@ impl SessionProxy {
             password,
             relay,
             provided: None,
+            limits,
         }))
     }
 
@@ -347,7 +358,10 @@ impl SessionProxy {
         let relay = Relay::open(run, address, mode, Some(Arc::clone(&usage)))
             .await
             .map_err(|error| unavailable(&chosen.server, "", &error.to_string()))?;
+        let limits =
+            ProxyLimits::open(settings, run, &chosen.server, chosen.username.as_deref()).await;
         Ok(Self {
+            limits,
             server: chosen.server.clone(),
             bypass: settings
                 .value(PROXY_BYPASS.name)
@@ -384,6 +398,12 @@ impl SessionProxy {
         if let Err(error) = run.warn(warning).await {
             tracing::warn!(%error, "the warning that a Session's proxy exit may change was not kept");
         }
+    }
+
+    /// A Permit for one navigation hop through the proxy, once its limits
+    /// admit it; none when it has no limits, and goes unlimited.
+    pub(crate) async fn permit(&self) -> Option<ProxyPermit> {
+        self.limits.as_ref()?.take().await
     }
 
     /// The `proxyServer` the browser context takes: the relay's address for

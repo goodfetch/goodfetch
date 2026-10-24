@@ -138,7 +138,8 @@ export type Enqueued =
         | "invalid_url"
         | "max_url_length"
         | "max_path_segments"
-        | "max_segment_repeats";
+        | "max_segment_repeats"
+        | "trap_path";
       /**
        * Its URL as it was given.
        */
@@ -151,6 +152,13 @@ export type Enqueued =
  * via the `definition` "HttpMethod".
  */
 export type HttpMethod = string;
+/**
+ * What a learned URL rule learned (ADRs 0005 and 0120).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "LearnedRuleKind".
+ */
+export type LearnedRuleKind = "no_effect_parameter" | "trap_path" | "cursor_pagination";
 /**
  * Why the Frontier did not add a request (ADRs 0093 and 0120).
  *
@@ -167,7 +175,8 @@ export type NotAddedReason =
   | "invalid_url"
   | "max_url_length"
   | "max_path_segments"
-  | "max_segment_repeats";
+  | "max_segment_repeats"
+  | "trap_path";
 /**
  * The word `now`: from the next commit on.
  *
@@ -575,24 +584,43 @@ export interface CrawlRunReport {
   [k: string]: unknown;
 }
 /**
- * A URL rule the Frontier learned (ADR 0005).
+ * A URL rule the Frontier learned from the pages it fetched (ADRs 0005
+ * and 0120), on one host and so never across a registrable domain, with
+ * its evidence and every URL it merged, so each merge can be audited.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "LearnedRule".
  */
 export interface LearnedRule {
   /**
-   * Its evidence.
+   * What it was learned from, naming the URLs.
    */
   evidence: string;
   /**
-   * How many URLs it merged.
+   * The host it holds on.
    */
-  merged: number;
+  host: string;
   /**
-   * The rule.
+   * What it learned.
    */
-  rule: string;
+  kind: "no_effect_parameter" | "trap_path" | "cursor_pagination";
+  /**
+   * Each URL it merged with another or refused, in the order the crawl
+   * met them.
+   */
+  merged: string[];
+  /**
+   * The query parameter it is about: one that has no effect, or the
+   * offset parameter a cursor replaced; absent for a trap.
+   */
+  parameter?: string | null;
+  /**
+   * The path it holds on: a trap's path pattern, its numeric,
+   * date-like and hexadecimal segments written `{number}`, `{date}` and
+   * `{hex}`, or the path of a listing whose cursor replaced its offset;
+   * absent for a rule of the whole host.
+   */
+  path?: string | null;
 }
 /**
  * How a crawl's requests ended (ADR 0079).

@@ -16,6 +16,7 @@ dom_query.workspace = true
 flate2.workspace = true
 http-body-util.workspace = true
 goodfetch-engine.workspace = true
+goodfetch-extractor.workspace = true
 goodfetch-frontier.workspace = true
 goodfetch-page.workspace = true
 goodfetch-protocol.workspace = true

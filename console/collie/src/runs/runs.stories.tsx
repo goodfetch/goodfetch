@@ -2,7 +2,10 @@
 // every Lifecycle, Verdict and Completeness with a missing and an erased
 // row, a Schedule's run and its Watch run shown, a filter that matches
 // nothing, the engine's refusal, and the page with no Connection.
-import type { RunIndexRow } from "@goodfetch/collie-client/generated";
+import {
+  FormatVersionUnsupportedError,
+  type RunIndexRow,
+} from "@goodfetch/collie-client/generated";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { RunsView } from "./runs.tsx";
 
@@ -123,7 +126,10 @@ export const Failed: Story = {
   args: {
     listed: {
       kind: "failed",
-      message: "The Run index is run-index 2.0, which this engine cannot read",
+      error: new FormatVersionUnsupportedError(
+        "The Run index is run-index 2.0, which this engine cannot read",
+        { fix: "upgrade Collie", details: { operation: "run.list", format: "run-index 2.0" } },
+      ),
     },
   },
 };

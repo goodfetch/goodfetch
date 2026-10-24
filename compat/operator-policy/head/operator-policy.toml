@@ -176,6 +176,10 @@ age_notice = true
 [settings.politeness]
 sharing = "shared"
 
+[settings.politeness.proxy]
+concurrency = 4
+rate = 4
+
 [settings.politeness.domain]
 concurrency = 4
 delay = 30000
@@ -398,6 +402,10 @@ age_notice = true
 [lock.politeness]
 sharing = "shared"
 
+[lock.politeness.proxy]
+concurrency = 4
+rate = 4
+
 [lock.politeness.domain]
 concurrency = 4
 delay = 30000
@@ -522,6 +530,21 @@ echo_repeats = 4
 [cap.admission]
 max_requests_per_minute = 4
 
+[cap.politeness.proxy]
+concurrency = 4
+rate = 4
+
+[cap.politeness.domain]
+concurrency = 4
+delay = 30000
+
+[cap.politeness.backoff]
+initial = 30000
+max = 30000
+
+[cap.politeness.retry_after]
+max = 30000
+
 [cap.crawl]
 sample_pages = 4
 max_depth = 4
@@ -541,17 +564,6 @@ max_size = 4
 max_uses = 4
 max_age = 30000
 max_error_score = 4
-
-[cap.politeness.domain]
-concurrency = 4
-delay = 30000
-
-[cap.politeness.backoff]
-initial = 30000
-max = 30000
-
-[cap.politeness.retry_after]
-max = 30000
 
 [managed]
 install_limits = [{ usage_kind = "paid_solves", currency = "USD", period = { every = "month", time_zone = "UTC" }, amount = 20000000 }]

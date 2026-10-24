@@ -176,6 +176,10 @@ age_notice = true
 [settings.politeness]
 sharing = "shared"
 
+[settings.politeness.proxy]
+concurrency = 4
+rate = 4
+
 [settings.politeness.domain]
 concurrency = 4
 delay = 30000

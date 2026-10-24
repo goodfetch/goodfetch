@@ -5,7 +5,13 @@
 //! the browser turned it into a download; or why it ended without one. A
 //! navigation whose document another supersedes before it committed is
 //! interrupted; once it committed, the call waits for the state of
-//! whichever document the main frame holds then, as Playwright's does.
+//! whichever document the main frame holds then, as Playwright's does. A
+//! navigation the browser failed before its document committed ends once
+//! the browser's error page for it, which commits under its loader, has
+//! reached that state too, or once the main frame stopped loading without
+//! one: until then the browser still replaces the main frame's document,
+//! and discards the DOM's node IDs at its `DOMContentLoaded`, under the
+//! next call.
 //!
 //! The pinned Chromium's signals (ADR 0118's choice per browser): a
 //! network error after the document's response arrived is a body that
@@ -46,6 +52,9 @@ pub(super) enum Expected {
     /// The first the main frame starts once the call's command is sent,
     /// which `Page.reload` and `Page.navigateToHistoryEntry` do not name.
     FirstStarted,
+    /// The one `Page.navigate` named, which the browser failed with this
+    /// network error before its document committed.
+    Failed(LoaderId, String),
 }
 
 /// Where a navigation arrived.
@@ -98,11 +107,16 @@ pub(super) struct Navigation {
     /// The bytes of each document's body that arrived, decoded.
     received: BTreeMap<LoaderId, u64>,
     failed: BTreeMap<LoaderId, String>,
+    /// The documents whose navigation failed once they had committed, such
+    /// as a body that broke off: the browser shows no error page for them.
+    failed_committed: BTreeSet<LoaderId>,
     committed: Vec<LoaderId>,
     content_loaded: BTreeSet<LoaderId>,
     loaded: BTreeSet<LoaderId>,
     /// The download the main frame began, its URL and suggested name.
     download: Option<(String, String)>,
+    /// Whether the main frame stopped loading.
+    stopped: bool,
     crashed: bool,
 }
 
@@ -119,10 +133,12 @@ impl Navigation {
             responses: BTreeMap::new(),
             received: BTreeMap::new(),
             failed: BTreeMap::new(),
+            failed_committed: BTreeSet::new(),
             committed: Vec::new(),
             content_loaded: BTreeSet::new(),
             loaded: BTreeSet::new(),
             download: None,
+            stopped: false,
             crashed: false,
         }
     }
@@ -167,11 +183,18 @@ impl Navigation {
             }
         } else if let Some(failed) = event.read::<network::LoadingFailedEvent>() {
             if let Some(loader) = self.requests.get(&failed.request_id) {
+                if self.committed.contains(loader) {
+                    self.failed_committed.insert(loader.clone());
+                }
                 self.failed.insert(loader.clone(), failed.error_text);
             }
         } else if let Some(navigated) = event.read::<page::FrameNavigatedEvent>() {
             if navigated.frame.id == self.frame && navigated.frame.parent_id.is_none() {
                 self.committed.push(navigated.frame.loader_id);
+            }
+        } else if let Some(stopped) = event.read::<page::FrameStoppedLoadingEvent>() {
+            if stopped.frame_id == self.frame {
+                self.stopped = true;
             }
         } else if let Some(within) = event.read::<page::NavigatedWithinDocumentEvent>() {
             if within.frame_id == self.frame {
@@ -209,7 +232,7 @@ impl Navigation {
         if self.crashed {
             return Some(Err(Ended::Crashed));
         }
-        let (place, loader) = match expected {
+        let (place, loader, refused) = match expected {
             Expected::Download => {
                 return self.download.clone().map(|(url, suggested_filename)| {
                     Ok(Arrived::Download {
@@ -218,20 +241,37 @@ impl Navigation {
                     })
                 });
             }
-            Expected::Loader(loader) => (
-                self.started
-                    .iter()
-                    .position(|(started, _)| started == loader),
-                loader,
-            ),
+            Expected::Loader(loader) => (self.place(loader), loader, None),
+            Expected::Failed(loader, error) => (self.place(loader), loader, Some(error)),
             Expected::FirstStarted => {
                 let (loader, within) = self.started.first()?;
                 if *within {
                     return self.within_document.then_some(Ok(Arrived::Document(None)));
                 }
-                (Some(0), loader)
+                (Some(0), loader, None)
             }
         };
+        let later: Vec<&LoaderId> = place.map_or_else(Vec::new, |place| {
+            self.started[place + 1..]
+                .iter()
+                .map(|(started, _)| started)
+                .collect()
+        });
+        let superseded = superseded || !later.is_empty();
+        // A failure before its document committed: the browser's error page
+        // for it commits under its loader, unless it was cancelled.
+        let before_commit = refused.or_else(|| {
+            self.failed
+                .get(loader)
+                .filter(|_| !self.failed_committed.contains(loader))
+        });
+        if let Some(error) = before_commit {
+            let error_page = error != ABORTED && !superseded;
+            if error_page && !self.stopped && !self.reached(loader, wait_until) {
+                return None;
+            }
+            return Some(Err(self.ended(loader, error, superseded)));
+        }
         let response = self.responses.get(loader);
         if wait_until == WaitUntil::Commit
             && self.committed.contains(loader)
@@ -239,18 +279,8 @@ impl Navigation {
         {
             return Some(Ok(Arrived::Document(Some(response.clone()))));
         }
-        let later: Vec<&LoaderId> = place.map_or_else(Vec::new, |place| {
-            self.started[place + 1..]
-                .iter()
-                .map(|(started, _)| started)
-                .collect()
-        });
         if let Some(error) = self.failed.get(loader) {
-            return Some(Err(self.ended(
-                loader,
-                error,
-                superseded || !later.is_empty(),
-            )));
+            return Some(Err(self.ended(loader, error, superseded)));
         }
         if !self.committed.contains(loader) {
             let overtaken = self
@@ -260,12 +290,27 @@ impl Navigation {
             return overtaken.then_some(Err(Ended::Interrupted));
         }
         let current = self.committed.last()?;
-        let reached = match wait_until {
-            WaitUntil::Commit => true,
-            WaitUntil::DomContentLoaded => self.content_loaded.contains(current),
-            WaitUntil::Load => self.loaded.contains(current),
-        };
-        reached.then(|| Ok(Arrived::Document(response.cloned())))
+        self.reached(current, wait_until)
+            .then(|| Ok(Arrived::Document(response.cloned())))
+    }
+
+    /// Where the navigation of `loader` is among those the main frame
+    /// started.
+    fn place(&self, loader: &LoaderId) -> Option<usize> {
+        self.started
+            .iter()
+            .position(|(started, _)| started == loader)
+    }
+
+    /// Whether the document of `loader` committed and reached the state
+    /// `wait_until` names.
+    fn reached(&self, loader: &LoaderId, wait_until: WaitUntil) -> bool {
+        self.committed.contains(loader)
+            && match wait_until {
+                WaitUntil::Commit => true,
+                WaitUntil::DomContentLoaded => self.content_loaded.contains(loader),
+                WaitUntil::Load => self.loaded.contains(loader),
+            }
     }
 
     /// Why the navigation of `loader` failed with the network `error`;
@@ -291,10 +336,11 @@ impl Navigation {
 }
 
 /// What a navigation `Page.navigate` refused with `error` is waited for
-/// as: a download, or a redirect loop, whose chain its events hold; or how
-/// it ended: `net::ERR_ABORTED` is an interruption when the engine started
-/// another navigation of the page after it, any other error the browser's
-/// failure of it.
+/// as: a download; a redirect loop, whose chain its events hold; or any
+/// other failure but a cancel of a navigation it gave a loader, whose
+/// error page then loads. Else how it ended: `net::ERR_ABORTED` is an
+/// interruption when the engine started another navigation of the page
+/// after it, any other error the browser's failure of it.
 pub(super) fn refused(
     error: &str,
     loader: Option<LoaderId>,
@@ -307,6 +353,7 @@ pub(super) fn refused(
     match loader {
         Some(loader) if error == TOO_MANY_REDIRECTS => Ok(Expected::Loader(loader)),
         _ if error == ABORTED && superseded => Err(Ended::Interrupted),
+        Some(loader) if error != ABORTED => Ok(Expected::Failed(loader, error.to_owned())),
         _ => Err(Ended::Failed(error.to_owned())),
     }
 }

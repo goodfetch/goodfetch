@@ -87,6 +87,11 @@ fn finish(engine: &mut Attached, run_id: &str) -> Value {
 #[test]
 fn two_engines_crawling_one_site_never_have_more_in_flight_on_it_than_its_cap() {
     let env = TestEnv::new();
+    // The first crawl's second request waits for the site from its first's
+    // admission only if the governor admits both at once: a governor above
+    // normal admits no HTTP fetch past its floor (ADR 0040), so on a loaded
+    // host the second crawl would wait for the site first.
+    env.user_configuration("governor.http.floor = 2\ngovernor.http.ceiling = 2\n");
     let mut first = Attached::start(&env);
     let mut second = Attached::start(&env);
 

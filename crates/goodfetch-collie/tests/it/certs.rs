@@ -456,3 +456,32 @@ fn certs_forget_is_refused_under_json_and_without_a_terminal(
         "{refused}"
     );
 }
+
+/// Stories 4-36 and 4-37: with stdin no terminal, `certs accept` and
+/// `certs forget` are refused before any engine call, so the refusal never
+/// depends on the store: of a host without a pin, too, it is
+/// `person_required` and exit 4, never the engine's answer about the pin.
+/// Covers: story:4-36, story:4-37, command:certs.accept, command:certs.forget, exit:refused
+#[rstest::rstest]
+#[case::accept("accept")]
+#[case::forget("forget")]
+fn a_person_only_certs_command_from_a_pipe_is_refused_before_reading_the_store(
+    #[case] command: &str,
+) {
+    let env = TestEnv::new();
+
+    let refused = cli(&env, COLLIE)
+        .args(["certs", command, HOST])
+        .stdin("y\n")
+        .run()
+        .unwrap();
+
+    assert_eq!(
+        (
+            refused.exit,
+            refused.stderr.contains("code: person_required")
+        ),
+        (Some(4), true),
+        "{refused}"
+    );
+}

@@ -184,19 +184,30 @@ impl Human {
         write_stdout(format!("{name} {value}\n").as_bytes());
     }
 
+    /// Whether a person can be asked: stdin is a terminal. A person-only
+    /// command checks it before any engine call, so it is refused at once
+    /// under a script, an agent or CI (ADRs 0041 and 0069).
+    pub fn can_ask(&self) -> bool {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a person-only prompt asks whether stdin is a terminal before it asks"
+        )]
+        std::io::stdin().is_terminal()
+    }
+
     /// Asks a person `question` on stderr and reads their answer, a line of
     /// stdin, without its ends' white space; none when stdin is not a
     /// terminal, where no person answers: a person-only prompt is then
     /// refused (ADRs 0041 and 0069). An ended stdin answers nothing.
     pub fn ask(&self, question: &str) -> Option<String> {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "a person-only prompt asks whether stdin is a terminal before it asks"
-        )]
-        let stdin = std::io::stdin();
-        if !stdin.is_terminal() {
+        if !self.can_ask() {
             return None;
         }
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a person-only prompt reads the person's answer from stdin"
+        )]
+        let stdin = std::io::stdin();
         let question = styled(self.colour_stderr, Style::Strong, question);
         write_stderr(format!("{question} ").as_bytes());
         let mut answer = String::new();

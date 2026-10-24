@@ -45,6 +45,18 @@ pub struct Task {
     pub description: String,
     /// Its digest, which ignores the port.
     pub digest: String,
+    /// The account it logs in with, when it has one.
+    #[serde(default)]
+    pub account: Option<TaskAccount>,
+}
+
+/// The account a task logs in with.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct TaskAccount {
+    /// Its username.
+    pub username: String,
+    /// Its password.
+    pub password: String,
 }
 
 /// The network fixtures a local copy serves beside its pages, as far as the

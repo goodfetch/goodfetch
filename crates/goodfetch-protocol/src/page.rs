@@ -316,6 +316,42 @@ pub struct NavigationInterruptedDetails {
     pub url: String,
 }
 
+/// What judged a page: the Session's own Page check, or the built-in
+/// detector of a Session that declares none (ADR 0006).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum JudgedBy {
+    /// The Session's `session.page_check`.
+    PageCheck,
+    /// The built-in detector, whose pages are weakly checked.
+    BuiltIn,
+}
+
+/// What `page_check_failed` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PageCheckFailedDetails {
+    /// The URL of the document the navigation reached.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// Its HTTP status.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: u16,
+}
+
+/// What `logged_out` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LoggedOutDetails {
+    /// The URL of the login page the navigation reached.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// Its HTTP status.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: u16,
+    /// What judged it a login page.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub judged_by: JudgedBy,
+}
+
 /// The count of redirects a fetch follows at most, and what set it (ADR
 /// 0118).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -481,6 +517,28 @@ pub const NAVIGATION_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
 pub const NAVIGATION_INTERRUPTED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "navigation_interrupted",
     description: "Another navigation of the page started before this one committed, so this one reached no document: the page went where the other took it.",
+    group: ErrorGroup::Page,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A page that is neither its Session's expected page nor its login page
+/// (ADRs 0006 and 0079).
+pub const PAGE_CHECK_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "page_check_failed",
+    description: "The document the navigation reached is neither the expected page nor the login page of its Session's Page check, `session.page_check`, whatever its HTTP status: a page the program did not mean to reach, such as an error page or a layout the site changed. The page stays on that document. The details name its URL and status.",
+    group: ErrorGroup::Page,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A page judged a login page: the Session's login is lost (ADRs 0006 and
+/// 0092).
+pub const LOGGED_OUT: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "logged_out",
+    description: "The document the navigation reached is a login page, even one answered with a 200: the Session's login is lost, judged by its Page check's `login_page`, or by the built-in detector when it declares none. The page stays on the login page, the Session open with its cookies. The details name the URL, the status and what judged it.",
     group: ErrorGroup::Page,
     retryable: false,
     exit_code: None,
@@ -1168,6 +1226,8 @@ pub const ENTRIES: Entries = Entries {
         BODY_UNAVAILABLE,
         NAVIGATION_FAILED,
         NAVIGATION_INTERRUPTED,
+        PAGE_CHECK_FAILED,
+        LOGGED_OUT,
         TOO_MANY_REDIRECTS,
         RESPONSE_TRUNCATED,
         SITE_PREFERENCES_REFUSED,

@@ -406,9 +406,9 @@ fn traced_counts(env: &TestEnv) -> BTreeMap<String, usize> {
 /// A click on a target with no animation or transition running checks and
 /// arms in one round trip into the guard's world, sends its three pointer
 /// events and disarms: no stability wait, no second check (ADR 0019's
-/// speed target). Live hiding and the Consent prompt runner are off, so
-/// that the Run trace holds the guard's commands alone: their reads of
-/// each document are no action's.
+/// speed target). Live hiding and the Consent prompt runner are off, and
+/// the Page check matches by URL alone, so that the Run trace holds the
+/// guard's commands alone: their reads of each document are no action's.
 /// Covers: story:5-2, operation:locator.click
 #[test]
 fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
@@ -418,6 +418,10 @@ fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
     let mut settings = Map::new();
     settings.insert("live_view".to_owned(), json!({ "hiding": "off" }));
     settings.insert("consent".to_owned(), json!({ "handling": false }));
+    settings.insert(
+        "session".to_owned(),
+        json!({ "page_check": { "login_page": { "kind": "glob", "pattern": "**/login" } } }),
+    );
     let mut page = OnTask::open_with(
         &env,
         &cache,

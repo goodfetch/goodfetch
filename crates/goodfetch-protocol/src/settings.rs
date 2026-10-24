@@ -20,6 +20,7 @@ use crate::catalog::{
     Product, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
 
+pub mod page_check;
 pub mod session_source;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -757,6 +758,18 @@ pub const SESSION_SOURCE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `session.page_check` (ADRs 0006 and 0092).
+pub const SESSION_PAGE_CHECK: Setting = Setting {
+    name: "session.page_check",
+    description: "The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`.",
+    kind: ValueKind::Shape(&page_check::PAGE_CHECK_SHAPE),
+    default: null,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `secrets.by_reference` (ADR 0028).
 pub const SECRETS_BY_REFERENCE: Setting = Setting {
     name: "secrets.by_reference",
@@ -898,6 +911,7 @@ pub const ENTRIES: Entries = Entries {
         CLEAN_UP_CHANNEL,
         CLEAN_UP_LISTS,
         SESSION_SOURCE,
+        SESSION_PAGE_CHECK,
         SECRETS_BY_REFERENCE,
         WEBHOOK_SIGNING,
         TIMEOUT_RUN,

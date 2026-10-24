@@ -19,7 +19,7 @@ const BACKGROUND_FLAGS: [&str; 3] = [
 
 fn launch(headless: bool, shared_memory: Option<u64>) -> Launch<'static> {
     Launch {
-        profile: Path::new("/runs/r/browser-profiles/1"),
+        data_folder: Path::new("/runs/r/browser-data/1"),
         headless,
         resolve: &[],
         shared_memory,
@@ -63,7 +63,7 @@ fn the_browser_runs_over_its_pipe_on_the_runs_profile_and_opens_a_blank_page_las
                 .arguments
                 .iter()
                 .any(|argument| argument.starts_with("--remote-debugging-port")),
-            has(&built, "--user-data-dir=/runs/r/browser-profiles/1"),
+            has(&built, "--user-data-dir=/runs/r/browser-data/1"),
             built.arguments.last().map(String::as_str),
         ),
         (true, false, true, Some("about:blank"))

@@ -2,10 +2,10 @@
 //! 0115): its build prepared in the Browser cache from the call that
 //! launches it, so a missing build raises its code there and nowhere
 //! earlier, held under a shared lock until the process exits; the process
-//! started over its debugging pipe, never a debugging port, on a profile of
-//! its own in the Run's folder; and its end: when the Run stops, or the
+//! started over its debugging pipe, never a debugging port, on a Browser
+//! data folder of its own in the Run's folder; and its end: when the Run stops, or the
 //! browser pool closes it, the browser is asked to close, then killed if it
-//! does not, its profile removed and its build released.
+//! does not, its data folder removed and its build released.
 
 mod arguments;
 #[cfg(unix)]
@@ -43,9 +43,9 @@ use tokio::process::{Child, Command};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-/// The folder of the Run's browser profiles, in its folder: one per
+/// The folder of the Run's Browser data folders, in its folder: one per
 /// browser, by its number in the Run's browser pool.
-const PROFILES: &str = "browser-profiles";
+const DATA_FOLDERS: &str = "browser-data";
 
 /// The folder of a Chromium profile's default user, in its data directory.
 const DEFAULT_PROFILE: &str = "Default";
@@ -64,8 +64,8 @@ pub(crate) struct Launched {
     pub(crate) headless: bool,
     /// Its process's ID, by which its memory is read.
     pub(crate) process: Option<u32>,
-    /// Cancelled once its process exited and its profile is gone, so
-    /// another launch may take the profile.
+    /// Cancelled once its process exited and its data folder is gone, so
+    /// another launch may take the folder.
     pub(crate) released: CancellationToken,
 }
 
@@ -192,7 +192,7 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 }
 
 /// Launches a browser of the Run from the Browser cache of `home`, under
-/// the Run's settings, on the profile numbered `number` in the Run's
+/// the Run's settings, on the Browser data folder numbered `number` in the Run's
 /// folder; its tasks are the Run's, and `stopping`, cancelled when the Run
 /// stops, closes it.
 ///
@@ -214,8 +214,8 @@ pub(crate) async fn launch(
     stopping: CancellationToken,
 ) -> Result<Launched, CallError> {
     let (executable, held, kind) = executable(run, home, pins).await?;
-    let profile = run.folder().join(PROFILES).join(number.to_string());
-    let created = profile.join(DEFAULT_PROFILE);
+    let data_folder = run.folder().join(DATA_FOLDERS).join(number.to_string());
+    let created = data_folder.join(DEFAULT_PROFILE);
     run.owner()
         .blocking(
             #[expect(
@@ -243,7 +243,7 @@ pub(crate) async fn launch(
         .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
         .unwrap_or_default();
     let built = arguments::arguments(&arguments::Launch {
-        profile: &profile,
+        data_folder: &data_folder,
         headless,
         resolve: &resolve,
         shared_memory: shared_memory(run).await,
@@ -270,7 +270,7 @@ pub(crate) async fn launch(
         driver,
         exits,
         held,
-        profile,
+        data_folder,
         running: run.metrics().browser_running(kind),
         released: released.clone(),
     }));
@@ -365,17 +365,17 @@ struct Supervised {
     exits: watch::Sender<Option<BrowserExit>>,
     /// The build it runs, held until it exits.
     held: Option<HeldArtifact>,
-    /// Its profile, removed once it exited.
-    profile: PathBuf,
+    /// Its Browser data folder, removed once it exited.
+    data_folder: PathBuf,
     /// Its count among the running browsers.
     running: Counted,
-    /// Cancelled once it exited and its profile is gone.
+    /// Cancelled once it exited and its data folder is gone.
     released: CancellationToken,
 }
 
 /// Runs the browser's connection, waits for its process to exit or for
 /// `stopping`, closes it then, within the Run's `timeout.close`, after
-/// which it is killed, and releases its build and profile.
+/// which it is killed, and releases its build and data folder.
 async fn supervise(supervised: Supervised) {
     let Supervised {
         run,
@@ -385,7 +385,7 @@ async fn supervise(supervised: Supervised) {
         driver,
         exits,
         held,
-        profile,
+        data_folder,
         running,
         released,
     } = supervised;
@@ -439,7 +439,7 @@ async fn supervise(supervised: Supervised) {
                 clippy::disallowed_methods,
                 reason = "it runs on the tasks module's blocking policy"
             )]
-            let _ = std::fs::remove_dir_all(profile);
+            let _ = std::fs::remove_dir_all(data_folder);
         })
         .await;
     released.cancel();

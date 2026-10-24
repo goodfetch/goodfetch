@@ -401,8 +401,8 @@ pub(crate) struct LocalBrowser {
     stopping: CancellationToken,
     launched: OnceCell<Browser>,
     /// Cancelled once the browser the last launch started is gone, its
-    /// profile with it: a launch whose browser did not come up waits for
-    /// it before it takes the same profile.
+    /// Browser data folder with it: a launch whose browser did not come up
+    /// waits for it before it takes the same folder.
     released: Mutex<Option<CancellationToken>>,
 }
 
@@ -455,7 +455,7 @@ impl Attempt {
 impl Connect for LocalBrowser {
     /// Launches the browser on the first call, then answers its connection.
     /// A launch whose browser does not come up closes it before it answers,
-    /// and the next launch takes the profile once that browser is gone.
+    /// and the next launch takes its data folder once that browser is gone.
     async fn connect(&self) -> Result<Browser, CallError> {
         self.launched
             .get_or_try_init(|| async {

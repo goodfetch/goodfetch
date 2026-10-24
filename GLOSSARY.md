@@ -426,6 +426,10 @@ _Avoid_: proxy level, proxy class
 A Session's identity, cookies and storage, kept under a name so that later runs can reuse them.
 _Avoid_: profile, context, login
 
+**Browser data folder**:
+The folder a browser the engine launched for a Run keeps its data in while it runs, in the Run's folder, one per browser of the Run's browser pool: Chrome's data directory (`--user-data-dir`), fresh for each launch and removed once the browser exited, never a person's Profile directory.
+_Avoid_: profile (alone), user data dir
+
 **Profile directory**:
 A browser's own folder of a person's browsing data, on which the engine can launch that browser in place; for the Chromium family, the data directory (Chrome's `--user-data-dir`), not the profile folder inside it that Chrome's `--profile-directory` names.
 _Avoid_: user data dir, profile (alone)

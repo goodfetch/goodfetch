@@ -445,7 +445,7 @@ fn a_browser_launching_for_a_session_is_not_idle_before_its_page_opens() {
 
 /// A browser that does not come up within the call's deadline is closed
 /// before the call answers its failure, so no launch the call gave up on
-/// stays running beside the next one on the same profile: with
+/// stays running beside the next one on the same data folder: with
 /// `timeout.navigation` far shorter than any browser takes to answer, each
 /// `run.new_page` raises `deadline_exceeded`, and no browser is left.
 /// Covers: operation:run.new_page, error:deadline_exceeded, setting:timeout.navigation

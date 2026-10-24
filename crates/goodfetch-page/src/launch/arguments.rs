@@ -1,7 +1,7 @@
 //! The launch-argument builder (spec #577, ticket #696): the command line
 //! of every Chromium the engine launches, from what the launch decided.
 //! The browser runs over its debugging pipe, never a port (ADR 0017), on a
-//! profile of the Run's own, its background traffic off by the table
+//! Browser data folder of the Run's own, its background traffic off by the table
 //! `pinned_download` owns (ADR 0043); headless only when `browser.headless`
 //! says so, the site seeing one identity either way (the driver's user agent, ADR
 //! 0092); every page keeps its timers behind another tab or window (ADR
@@ -39,8 +39,8 @@ const INVALID_NAMES: &str = "MAP *.invalid ~NOTFOUND";
 
 /// What a launch decided.
 pub(crate) struct Launch<'a> {
-    /// The profile folder, the Run's own.
-    pub(crate) profile: &'a Path,
+    /// The Browser data folder, the Run's own.
+    pub(crate) data_folder: &'a Path,
     /// `browser.headless`.
     pub(crate) headless: bool,
     /// `network.resolve`: host names, each with its addresses.
@@ -80,7 +80,7 @@ impl fmt::Display for Warning {
 pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
     let mut arguments = vec![
         "--remote-debugging-pipe".to_owned(),
-        format!("--user-data-dir={}", launch.profile.display()),
+        format!("--user-data-dir={}", launch.data_folder.display()),
     ];
     if launch.headless {
         arguments.push("--headless".to_owned());

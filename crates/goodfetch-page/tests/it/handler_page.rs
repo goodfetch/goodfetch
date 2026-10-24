@@ -197,6 +197,33 @@ impl Program {
             .collect()
     }
 
+    /// Reads until the engine sent a request `method`, such as
+    /// `route.handle`, and answers the first one: the whole message.
+    pub(crate) async fn until_request(&mut self, method: &str) -> Value {
+        let until = Instant::now() + SETTLE_DEADLINE;
+        loop {
+            let asked = self
+                .events
+                .iter()
+                .find(|message| message["method"] == json!(method) && message.get("id").is_some());
+            if let Some(asked) = asked {
+                return asked.clone();
+            }
+            let read = self.read(until).await;
+            assert!(
+                read.is_some(),
+                "no `{method}` request within {SETTLE_DEADLINE:?}"
+            );
+        }
+    }
+
+    /// Replies `result` to the engine's request `request`, as a handler
+    /// that ended.
+    pub(crate) async fn reply(&mut self, request: &Value, result: Value) {
+        self.write(&json!({ "jsonrpc": "2.0", "id": request["id"], "result": result }))
+            .await;
+    }
+
     /// Reads until an event `name` whose data `holds` arrived.
     pub(crate) async fn until_event(&mut self, name: &str, holds: impl Fn(&Value) -> bool) {
         let until = Instant::now() + SETTLE_DEADLINE;

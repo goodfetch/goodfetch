@@ -629,6 +629,84 @@ fn a_service_workers_navigation_waits_and_is_refused_as_its_pages() {
     });
 }
 
+/// The gate judges the document a service worker's request carrying a
+/// page's navigation brought back, as it judges a page's own: its refusal
+/// raises from the page's `page.reload`.
+/// Covers: operation:page.reload, error:site_preferences_refused
+#[test]
+fn a_document_a_service_worker_brought_is_judged_when_it_arrives() {
+    let gate = RecordingGate::new();
+    with_handler_page(&gate, Map::new(), async |program| {
+        let page = "/service-worker/?navigations=pass";
+        program.goto("access.localhost", page).await;
+        settled_or(
+            || program.reported(page, "controlled").as_deref() == Some("true"),
+            || format!("{:?}", program.reported(page, "register")),
+        )
+        .await;
+        gate.refuse_documents("navigations=pass", SitePreference::UseSignals);
+        let refused = program.on_page("page.reload", json!({})).await;
+
+        assert_eq!(
+            refusal(&refused),
+            (
+                json!("site_preferences_refused"),
+                json!("use_signals"),
+                Some("/service-worker/".to_owned())
+            )
+        );
+    });
+}
+
+/// The gate judges a main-frame document a route fetched before the route
+/// gets it: `route.fetch` and the navigation raise its refusal, and the
+/// page is left on a blank document.
+/// Covers: operation:page.goto, operation:route.fetch, error:site_preferences_refused
+#[test]
+fn a_document_a_route_fetched_is_judged_before_the_route_gets_it() {
+    let gate = RecordingGate::new();
+    gate.refuse_documents("/target", SitePreference::UseSignals);
+    with_handler_page(&gate, Map::new(), async |program| {
+        let page = program.page.clone();
+        program
+            .request(
+                "page.route",
+                &json!({ "page_id": page, "url": { "kind": "glob", "pattern": "**/target" } }),
+            )
+            .await;
+        let url = program.proving_ground.url(FETCH_EDGE, "/target");
+        let navigating = program
+            .request("page.goto", &json!({ "page_id": page, "url": url }))
+            .await;
+        let handle = program.until_request("route.handle").await;
+        let fetched = program
+            .call(
+                "route.fetch",
+                &json!({ "route_id": handle["params"]["route_id"] }),
+            )
+            .await;
+        program.reply(&handle, json!({})).await;
+        let navigated = program.answer(navigating).await;
+        let left = program
+            .on_page("page.formats", json!({ "formats": { "markdown": true } }))
+            .await;
+        let refused = (
+            json!("site_preferences_refused"),
+            json!("use_signals"),
+            Some("/target".to_owned()),
+        );
+
+        assert_eq!(
+            (
+                refusal(&fetched),
+                refusal(&navigated),
+                left["result"]["markdown"].as_str().map(str::trim),
+            ),
+            (refused.clone(), refused, Some("")),
+        );
+    });
+}
+
 /// A popup a handler's page opens takes the page's value (A05-26): its
 /// first navigation is admitted by the opener's gate before it leaves, and
 /// once the lease ended a call on the popup raises its lease check's error and

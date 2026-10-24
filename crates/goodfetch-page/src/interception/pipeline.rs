@@ -14,7 +14,7 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 use data_encoding::BASE64;
 use goodfetch_cdp::Subscription;
@@ -87,6 +87,10 @@ pub(super) struct PageContext {
     /// paused, by the interception's ID, each with its network ID: a
     /// request that fails first, or a target that goes, drops its waiter.
     responses: Mutex<BTreeMap<fetch::RequestId, Fetching>>,
+    /// A service worker's requests that carry a page's navigation, sent on
+    /// with their response paused for the gate to judge, by the
+    /// interception's ID: the page each carries a navigation of.
+    carried: Mutex<BTreeMap<fetch::RequestId, Weak<PageState>>>,
     /// The URL of the main frame's document last sent on: the source the
     /// Filter lists judge a request without a `Referer` by.
     document: Mutex<String>,
@@ -168,6 +172,7 @@ impl PageContext {
             refusals,
             run,
             responses: Mutex::new(BTreeMap::new()),
+            carried: Mutex::new(BTreeMap::new()),
             document: Mutex::new(String::new()),
             authenticated: Mutex::new(Authenticated::default()),
             permit: Mutex::new(None),
@@ -529,6 +534,18 @@ impl PageContext {
                 lock(&self.responses).remove(&id);
                 match paused {
                     Some(paused) => {
+                        // The gate judges a main-frame document before the
+                        // route gets it.
+                        let status = paused
+                            .response_status_code
+                            .and_then(|status| u16::try_from(status).ok())
+                            .unwrap_or_default();
+                        if held.navigation
+                            && let Some(refused) =
+                                self.refused_document(&paused, status, None).await
+                        {
+                            return (Err(refused), Some(Routed::Ended));
+                        }
                         *stage = Stage::Fetched;
                         (self.fetched(&paused).await, None)
                     }
@@ -692,12 +709,24 @@ impl PageContext {
                 // Step 6: the page's navigation gate; its lease check is
                 // asked before the command that sends the request on.
                 let admitted = if held.navigation {
-                    self.admit(held).await.map_err(|refusal| (refusal, None))
+                    self.admit(held)
+                        .await
+                        .map(|()| None)
+                        .map_err(|refusal| (refusal, None))
                 } else {
                     self.admit_for_worker(held).await
                 };
-                if let Err((refusal, carried)) = admitted {
-                    return Err(self.gate_refused(held, &refusal, carried.as_deref()).await);
+                let mut command = command;
+                match admitted {
+                    Err((refusal, carried)) => {
+                        return Err(self.gate_refused(held, &refusal, carried.as_deref()).await);
+                    }
+                    // The document it brings back is judged when it arrives.
+                    Ok(Some(carried)) => {
+                        lock(&self.carried).insert(id.clone(), Arc::downgrade(&carried));
+                        command.intercept_response = Some(true);
+                    }
+                    Ok(None) => {}
                 }
                 self.trace_service_worker(held, None);
                 command
@@ -899,19 +928,23 @@ impl PageContext {
     /// other. Its permit is the navigation's, held until the page's `load`,
     /// and the navigation stays its page's: the page's gate admits it, the
     /// wait counting against none of the page's deadlines. Any other
-    /// request is admitted at once.
+    /// request is admitted at once. Answers the page whose navigation it
+    /// carries, whose gate judges the document it brings back.
     ///
     /// # Errors
     ///
     /// The gate's refusal, with the page whose navigation it carries.
-    async fn admit_for_worker(&self, held: &Held) -> Result<(), (Refusal, Option<Arc<PageState>>)> {
+    async fn admit_for_worker(
+        &self,
+        held: &Held,
+    ) -> Result<Option<Arc<PageState>>, (Refusal, Option<Arc<PageState>>)> {
         if !matches!(self.sender, Sender::ServiceWorker { .. })
             || self.driver.value().gate().is_none()
         {
-            return Ok(());
+            return Ok(None);
         }
         let Some((page, carried)) = self.state.pending.take(held.url()) else {
-            return Ok(());
+            return Ok(None);
         };
         let carried = carried.upgrade();
         let driver = carried
@@ -928,7 +961,7 @@ impl PageContext {
             Ok(None) => {}
             Err(refusal) => return Err((refusal, carried)),
         }
-        Ok(())
+        Ok(carried)
     }
 
     /// Aborts `held`, which the page's navigation gate refused, and answers
@@ -1020,7 +1053,8 @@ impl PageContext {
 
     /// Acts on the response paused at `paused`, which no `fetch` waits for:
     /// a redirect to a scheme no request may use is refused; a main-frame
-    /// document's goes on once the page's navigation gate
+    /// document's, or the one a service worker's request carrying a page's
+    /// navigation brought back, goes on once the page's navigation gate
     /// judged it, and on its refusal the page is left on a blank document,
     /// the navigation call waiting on it raising the refusal; any other
     /// response goes on as it came.
@@ -1028,6 +1062,9 @@ impl PageContext {
         let document = self.sender.page_id().is_some()
             && paused.resource_type == network::ResourceType::Document
             && &paused.frame_id == self.driver.main_frame();
+        let carried = lock(&self.carried)
+            .remove(&paused.request_id)
+            .and_then(|page| page.upgrade());
         let status = paused
             .response_status_code
             .and_then(|status| u16::try_from(status).ok())
@@ -1044,15 +1081,36 @@ impl PageContext {
             self.refuse_redirect(paused, &refused).await;
             return;
         }
+        if (document || carried.is_some())
+            && self
+                .refused_document(paused, status, carried.as_deref())
+                .await
+                .is_some()
+        {
+            return;
+        }
+        self.continue_response(&paused.request_id).await;
+    }
+
+    /// Judges the main-frame document whose response is paused at `paused`
+    /// with `status` by the page's navigation gate, before anything renders
+    /// it or a route gets it: `carried` is the page whose navigation a
+    /// service worker's request carried, none for this pipeline's own page.
+    /// On a refusal the request is answered with a blank document, and the
+    /// refusal raises from the page's navigation call, or else from the
+    /// waiters armed for it; the refusal is answered. A redirect, and a page
+    /// with no gate, are never judged.
+    async fn refused_document(
+        &self,
+        paused: &fetch::RequestPausedEvent,
+        status: u16,
+        carried: Option<&PageState>,
+    ) -> Option<CallError> {
         let gate = self
             .driver
             .value()
             .gate()
-            .filter(|_| document && !(300..400).contains(&status));
-        let Some(gate) = gate else {
-            self.continue_response(&paused.request_id).await;
-            return;
-        };
+            .filter(|_| !(300..400).contains(&status))?;
         let body = self.body(&paused.request_id).await;
         let headers: Vec<(String, String)> = paused
             .response_headers
@@ -1066,16 +1124,18 @@ impl PageContext {
             headers: &headers,
             body: &body,
         };
-        let Err(refusal) = gate.judge_document(&response) else {
-            self.continue_response(&paused.request_id).await;
-            return;
-        };
+        let refusal = gate.judge_document(&response).err()?;
         let error = site_preferences_refused(&paused.request.url, &refusal);
-        if self.driver.navigation_waits() {
-            self.state.leave(error);
+        let page = carried.and_then(|state| state.navigating.as_ref().map(|page| (state, page)));
+        let (state, driver, refusals) = match page {
+            Some((state, page)) => (state, &page.driver, &page.refusals),
+            None => (&*self.state, &self.driver, &self.refusals),
+        };
+        if driver.navigation_waits() {
+            state.leave(error.clone());
         } else {
             tracing::info!(%error, "the navigation gate refused a document no call waited on: the page is left blank");
-            self.refusals.refuse_navigation(&paused.request.url, error);
+            refusals.refuse_navigation(&paused.request.url, error.clone());
         }
         self.fulfill(
             &paused.request_id,
@@ -1086,6 +1146,7 @@ impl PageContext {
             },
         )
         .await;
+        Some(error)
     }
 
     /// The body of the response paused at `id`, after any content coding;

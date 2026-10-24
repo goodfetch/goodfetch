@@ -218,17 +218,7 @@ async fn run_on(
     (function, argument): (&str, Value),
     call: &Call,
 ) -> Result<Value, CallError> {
-    let attached = browser
-        .send(
-            None,
-            &target::AttachToTargetParams {
-                target_id: page_target.clone(),
-                flatten: Some(true),
-            },
-            call,
-        )
-        .await?;
-    let session = TargetSession(attached.session_id);
+    let session = browser.attach_own(page_target, call).await?;
     let mut events = browser.connection.subscribe(Some(&session)).await;
     browser
         .send(

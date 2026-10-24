@@ -12,6 +12,8 @@
 //! A popup waits for the governor's admission of one more browser page, as
 //! a page the program opens does, paused in the browser meanwhile.
 
+use std::collections::BTreeSet;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use goodfetch_cdp::generated::target;
@@ -29,7 +31,7 @@ use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use super::life::{Ending, PageLife, session_closed};
 use super::lifecycle::PageEffect;
 use super::{OpenPage, Session, Sessions, timeouts, wait_deadline};
-use crate::driver::{OnPopup, PageDriver};
+use crate::driver::{OnPopup, PageDriver, PopupHandler};
 use crate::hiding::Sheets;
 use crate::page_events::{PageEvents, Refusals};
 use crate::page_value::ResponseObserver;
@@ -66,6 +68,43 @@ impl PageListeners {
     /// Whether any call listens.
     fn any(&self) -> bool {
         self.0.load(std::sync::atomic::Ordering::Relaxed) > 0
+    }
+}
+
+/// On a Borrowed browser, the main frames of every page a Session held:
+/// only their popups are the Session's, since the person's own tabs share
+/// its browser context (ADR 0056).
+#[derive(Clone, Default)]
+pub(super) struct HeldFrames(Arc<tokio::sync::Mutex<BTreeSet<target::TargetID>>>);
+
+/// What a Session does with the page targets its browser context's pages
+/// open: in a browser context of its own, each is its popup; on a Borrowed
+/// browser, only one a page it held opened.
+struct SessionPopups {
+    sessions: Sessions,
+    session: SessionId,
+    /// On a Borrowed browser, the frames it held.
+    held: Option<HeldFrames>,
+}
+
+impl PopupHandler for SessionPopups {
+    fn holds(&self, opener: target::TargetID) -> Pin<Box<dyn Future<Output = bool> + Send>> {
+        let held = self.held.clone();
+        Box::pin(async move {
+            match held {
+                Some(held) => held.0.lock().await.contains(&opener),
+                None => true,
+            }
+        })
+    }
+
+    fn take_in(
+        &self,
+        driver: PageDriver,
+        opener: target::TargetID,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send>> {
+        let (sessions, session) = (self.sessions.clone(), self.session.clone());
+        Box::pin(async move { sessions.popup(&session, driver, &opener).await })
     }
 }
 
@@ -170,7 +209,7 @@ impl Sessions {
             return Err(session_closed(session));
         }
         let browser = in_browser.browser();
-        driver.follow_popups(self.popups_of(session));
+        self.follow_popups(session, &open, &driver).await;
         let opened = OpenPage {
             clock: run.clock(),
             run,
@@ -201,21 +240,31 @@ impl Sessions {
         Ok(page)
     }
 
-    /// What the Session `session` does with a popup one of its pages
-    /// opened.
-    fn popups_of(&self, session: &SessionId) -> OnPopup {
-        let (sessions, session) = (self.clone(), session.clone());
-        Arc::new(move |driver, opener| {
-            let (sessions, session) = (sessions.clone(), session.clone());
-            Box::pin(async move { sessions.popup(&session, driver, &opener).await })
-        })
+    /// Hands the page targets the pages of `driver`'s browser context open
+    /// to the Session `session`, `open`, which on a Borrowed browser now
+    /// holds `driver`'s main frame too.
+    async fn follow_popups(&self, session: &SessionId, open: &Session, driver: &PageDriver) {
+        if let Some(held) = &open.held_frames {
+            held.0.lock().await.insert(driver.main_frame().clone());
+        }
+        let popups: OnPopup = Arc::new(SessionPopups {
+            sessions: self.clone(),
+            session: session.clone(),
+            held: open.held_frames.clone(),
+        });
+        driver.follow_popups(popups);
     }
 
     /// Takes in `driver`'s popup, which the page whose target is `opener`
     /// opened in the Session `session`, as a page of the Session, and
-    /// announces it on its opener; a popup of a page the engine no longer
-    /// holds is left alone.
-    async fn popup(&self, session: &SessionId, driver: PageDriver, opener: &target::TargetID) {
+    /// announces it on its opener: whether it did. A popup of a page the
+    /// engine no longer holds, or of a Session gone, is not taken in.
+    async fn popup(
+        &self,
+        session: &SessionId,
+        driver: PageDriver,
+        opener: &target::TargetID,
+    ) -> bool {
         let found = {
             let state = self.state.lock().await;
             let open = state.sessions.get(session).cloned();
@@ -227,10 +276,10 @@ impl Sessions {
             open.zip(opener)
         };
         let Some((open, (opener_id, opener))) = found else {
-            return;
+            return false;
         };
         let Ok(opener_events) = self.events.get(&opener_id) else {
-            return;
+            return false;
         };
         let run = open.run.clone();
         let (navigation_timeout, _) = timeouts(&run);
@@ -267,8 +316,12 @@ impl Sessions {
                         },
                     )
                     .await;
+                true
             }
-            Err(error) => tracing::debug!(%error, "a popup was not taken in"),
+            Err(error) => {
+                tracing::warn!(%error, "a popup was not taken in");
+                false
+            }
         }
     }
 

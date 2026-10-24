@@ -179,6 +179,10 @@ struct Session {
     /// On a Borrowed browser, set once its Provenance records that it is
     /// held to the policy by interception alone; none elsewhere.
     interception_only: Option<OnceCell<()>>,
+    /// On a Borrowed browser, the main frames of every page it held, whose
+    /// popups alone are its own; none elsewhere, where its browser context
+    /// holds only its pages.
+    held_frames: Option<tabs::HeldFrames>,
 }
 
 /// A fresh Session a program opened, in a browser the engine launched.
@@ -318,6 +322,7 @@ impl Sessions {
             proxy,
             page_listeners: tabs::PageListeners::default(),
             interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
+            held_frames: borrowed.as_ref().map(|_| tabs::HeldFrames::default()),
         });
         self.state
             .lock()
@@ -397,6 +402,7 @@ impl Sessions {
                             proxy,
                             page_listeners: tabs::PageListeners::default(),
                             interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
+                            held_frames: borrowed.as_ref().map(|_| tabs::HeldFrames::default()),
                         }),
                     );
                     self.open_in_interception(&session, &run, borrowed.is_some());
@@ -725,6 +731,7 @@ impl Sessions {
                             proxy,
                             page_listeners: tabs::PageListeners::default(),
                             interception_only: None,
+                            held_frames: None,
                         }),
                     );
                 }

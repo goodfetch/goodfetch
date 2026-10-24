@@ -274,13 +274,22 @@ pub(super) fn committed(
     }))
 }
 
-/// Fills `progress` with each of `parts`, read on `connection`; a part
-/// that fails is left out and logged.
+/// Fills `progress` with each of `parts`, read on `connection` in one read
+/// transaction, so every part reads the same committed state, not one
+/// that a commit changed between two of their reads; a part that fails is
+/// left out and logged.
 pub(super) fn fill(
     parts: &[Arc<dyn ProgressPart>],
     connection: &Connection,
     progress: &mut RunProgress,
 ) {
+    // Dropped at the end, which ends the read transaction.
+    let _snapshot = connection
+        .unchecked_transaction()
+        .inspect_err(|error| {
+            tracing::warn!(%error, run_id = %progress.run_id, "the Run's committed state could not be read as one snapshot");
+        })
+        .ok();
     for part in parts {
         if let Err(error) = part.fill(connection, progress) {
             tracing::warn!(%error, run_id = %progress.run_id, "a part of the Run's progress could not be read");

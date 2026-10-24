@@ -83,11 +83,6 @@ impl Framer {
             }
         }
     }
-
-    /// Whether bytes of an unfinished message are left.
-    pub fn has_partial(&self) -> bool {
-        !self.buffer.is_empty()
-    }
 }
 
 /// `message` as the pipe carries it: its JSON, then a NUL.

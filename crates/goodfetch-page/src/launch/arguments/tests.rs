@@ -3,7 +3,9 @@ use std::path::Path;
 
 use goodfetch_engine::pinned_download::{CHROMIUM_BACKGROUND_TRAFFIC_OFF, ChromiumSwitch};
 
-use super::{Arguments, Launch, Warning, arguments, shared_memory_of};
+#[cfg(target_os = "linux")]
+use super::shared_memory_of;
+use super::{Arguments, Launch, Warning, arguments};
 
 const MEBIBYTE: u64 = 1024 * 1024;
 
@@ -149,6 +151,7 @@ fn a_large_or_unmeasured_dev_shm_keeps_chromiums_shared_memory_there() {
     );
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn the_dev_shm_size_is_read_from_its_mount_options() {
     let docker = "overlay / overlay rw,relatime 0 0\n\

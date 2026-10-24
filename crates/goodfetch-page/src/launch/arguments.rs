@@ -128,10 +128,7 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
 /// The size of `/dev/shm` in bytes, read from its `size=` option in
 /// `mounts`, a mount table as `/proc/self/mounts` lists it; `None` when it
 /// is not mounted on its own or names no size.
-#[cfg_attr(
-    all(not(target_os = "linux"), not(test)),
-    expect(dead_code, reason = "only Linux mounts a `/dev/shm` to measure")
-)]
+#[cfg(target_os = "linux")]
 pub(crate) fn shared_memory_of(mounts: &str) -> Option<u64> {
     let options = mounts.lines().find_map(|line| {
         let mut fields = line.split_whitespace();

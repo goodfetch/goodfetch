@@ -13,18 +13,22 @@ fn messages_split_across_reads_and_joined_in_one_read_come_out_whole() {
     );
     assert_eq!(framer.next_frame(), Ok(None));
     framer.push(b":2}\0{\"id\":3}\0");
+    let joined = (
+        framer.next_frame(),
+        framer.next_frame(),
+        framer.next_frame(),
+    );
+    // No byte of them is left: the next message comes out alone.
+    framer.push(b"{\"id\":4}\0");
     assert_eq!(
+        (joined, framer.next_frame()),
         (
-            framer.next_frame(),
-            framer.next_frame(),
-            framer.next_frame(),
-            framer.has_partial()
-        ),
-        (
-            Ok(Some(Bytes::from_static(b"{\"id\":2}"))),
-            Ok(Some(Bytes::from_static(b"{\"id\":3}"))),
-            Ok(None),
-            false
+            (
+                Ok(Some(Bytes::from_static(b"{\"id\":2}"))),
+                Ok(Some(Bytes::from_static(b"{\"id\":3}"))),
+                Ok(None),
+            ),
+            Ok(Some(Bytes::from_static(b"{\"id\":4}")))
         )
     );
 }

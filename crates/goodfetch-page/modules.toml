@@ -89,7 +89,8 @@ target = []
 
 # Which of `pages`'s own modules may import which.
 [submodules.pages]
-blocking_off = []
+arrival = []
+blocking_off = ["arrival"]
 clean_up = []
 waits = []
 

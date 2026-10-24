@@ -42,7 +42,6 @@ use std::sync::Arc;
 use goodfetch_engine::browser_cache::PinnedArtifact;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::{self, Navigator};
-use goodfetch_engine::events::Events;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -74,28 +73,27 @@ use goodfetch_protocol::page::tabs::{
 };
 use goodfetch_protocol::page::{
     Acted, ClickParams, FillParams, FormatsParams, GotoParams, LOCATOR_CLICK, LOCATOR_FILL,
-    LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_DOWNLOAD, PAGE_FORMATS, PAGE_GO_BACK,
-    PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageDownload, PageFormats, PageId, PageParams,
-    PageResponse, PressParams, RUN_NEW_PAGE, WaitUntil,
+    LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_FORMATS, PAGE_GO_BACK, PAGE_GO_FORWARD,
+    PAGE_GOTO, PAGE_RELOAD, PageFormats, PageId, PageParams, PageResponse, PressParams,
+    RUN_NEW_PAGE, WaitUntil,
 };
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
 
 use crate::blocks::{BlockClassifier, NoBlocks};
 use crate::browser_fetch;
 use crate::dialogs::{self, Dialogs};
-use crate::driver::{Arrived, Destination, SerializedDocument};
+use crate::driver::{Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
-use crate::interception::{
-    self, Answer, Fulfillment, Interception, Lists, Overrides, Reply, Scope,
-};
+use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Injections, Pending, Registered};
 use crate::page_value::{HandlerPages, ProgramPages};
-use crate::recovery::{self, Judging};
+use crate::recovery;
 use crate::sessions::{self, OpenPage, PageEvent, Sessions};
 use crate::trace;
 use crate::url_pattern::UrlPattern;
 
+mod arrival;
 mod blocking_off;
 mod clean_up;
 mod waits;
@@ -653,33 +651,6 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
         ))
 }
 
-/// A document loaded with blocking on that blocking may have broken.
-struct Failed<'a> {
-    response: &'a PageResponse,
-    reason: blocking_off::Reason,
-}
-
-/// The Page check's judgement of the document `page`'s navigation to
-/// `destination` reached.
-fn judging<'a>(
-    page: &'a OpenPage,
-    page_id: &'a PageId,
-    destination: Destination<'a>,
-) -> Judging<'a> {
-    Judging {
-        run: &page.run,
-        session: &page.session,
-        page_id,
-        driver: &page.driver,
-        declared: page.page_check.as_deref(),
-        requested: match destination {
-            Destination::Url(url) => Some(url),
-            Destination::Reload | Destination::Back | Destination::Forward => None,
-        },
-        operation: destination.operation(),
-    }
-}
-
 /// The engine's pages, which every call of every Connection shares.
 #[derive(Clone)]
 struct Pages {
@@ -762,147 +733,22 @@ impl Pages {
         if let Some(failure) = self.left_failure(page_id) {
             return Err(failure);
         }
-        let Some(response) = self.arrived(page_id, navigated?, events).await else {
+        let Some(response) = arrival::arrived(page_id, navigated?, events).await else {
             return Ok(Navigated { response: None });
         };
         // Every document a Session's navigation reached is judged by its
         // Page check (ADRs 0006 and 0092).
-        let judged = recovery::judge(&judging(&page, page_id, destination), &response).await;
-        match self.interception.lists_for(page_id, &response.url) {
-            Lists::On => {
-                let touched = self.interception.lists_blocked(page_id) > blocked_before;
-                let reason = blocking_off::reason(
-                    &page.driver,
-                    self.blocks.as_ref(),
-                    &response,
-                    &judged,
-                    touched,
-                )
-                .await;
-                if let Some(reason) = reason {
-                    let failed = Failed {
-                        response: &response,
-                        reason,
-                    };
-                    return self
-                        .again_without_lists(
-                            &page,
-                            page_id,
-                            destination,
-                            wait_until,
-                            failed,
-                            events,
-                        )
-                        .await;
-                }
-            }
-            Lists::LearnedOff => {
-                let domain = interception::domain_key(&response.url);
-                let loaded = blocking_off::Loaded {
-                    page_id,
-                    session: &page.session,
-                    url: &response.url,
-                    domain: domain.as_deref(),
-                };
-                trace::provenance(&page.run, &loaded.learned()).await;
-            }
-            Lists::Off => {}
-        }
-        judged?;
-        Ok(Navigated {
-            response: Some(response),
-        })
-    }
-
-    /// Loads the page `page_id` once more with its Filter lists off, after
-    /// `failed` (ADR 0047): to the URL `destination` names, or else its
-    /// document again. Blocking is learned off for the first document's
-    /// domain only when this load passes; Provenance records it, and its
-    /// outcome answers the call.
-    async fn again_without_lists(
-        &self,
-        page: &OpenPage,
-        page_id: &PageId,
-        destination: Destination<'_>,
-        wait_until: WaitUntil,
-        failed: Failed<'_>,
-        events: &Events,
-    ) -> Result<Navigated, CallError> {
-        let again = match destination {
-            Destination::Url(url) => Destination::Url(url),
-            Destination::Reload | Destination::Back | Destination::Forward => Destination::Reload,
+        let judged =
+            recovery::judge(&arrival::judging(&page, page_id, destination), &response).await;
+        let first = blocking_off::FirstLoad {
+            destination,
+            wait_until,
+            response,
+            judged,
+            blocked_before,
         };
-        let lists_off = self.interception.lists_off(page_id);
-        let navigated = page
-            .life
-            .call(PageEvent::Goto, page.driver.navigate(again, wait_until))
-            .await;
-        if let Some(failure) = self.left_failure(page_id) {
-            return Err(failure);
-        }
-        let response = self.arrived(page_id, navigated?, events).await;
-        let (judged, passed) = match &response {
-            Some(response) => {
-                let judged = recovery::judge(&judging(page, page_id, again), response).await;
-                let passed = blocking_off::passed(
-                    failed.reason,
-                    &page.driver,
-                    self.blocks.as_ref(),
-                    response,
-                    &judged,
-                )
-                .await;
-                (judged, passed)
-            }
-            None => (Ok(()), false),
-        };
-        drop(lists_off);
-        let url = &failed.response.url;
-        let domain = if passed {
-            self.interception.learn_off(page_id, url)
-        } else {
-            interception::domain_key(url)
-        };
-        let loaded = blocking_off::Loaded {
-            page_id,
-            session: &page.session,
-            url,
-            domain: domain.as_deref(),
-        };
-        trace::provenance(&page.run, &loaded.retried(failed.reason, passed)).await;
-        judged?;
-        Ok(Navigated { response })
-    }
-
-    /// The document's response a navigation of the page `page_id` arrived
-    /// at; none for a document without one, and for a download, which is
-    /// published on `events`.
-    async fn arrived(
-        &self,
-        page_id: &PageId,
-        arrived: Arrived,
-        events: &Events,
-    ) -> Option<PageResponse> {
-        match arrived {
-            Arrived::Document(response) => response,
-            Arrived::Download {
-                url,
-                suggested_filename,
-            } => {
-                events
-                    .publish(
-                        &PAGE_DOWNLOAD,
-                        Some(&page_id.0),
-                        &PageDownload {
-                            page_id: page_id.clone(),
-                            url,
-                            suggested_filename,
-                        },
-                    )
-                    .await;
-                None
-            }
-        }
+        self.unless_blocking_broke_it(page_id, &page, first, events)
+            .await
     }
 
     /// Performs `action` on the element `locator` matches, through the

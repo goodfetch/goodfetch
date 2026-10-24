@@ -105,14 +105,13 @@ pub(super) struct UrlWaiter {
 #[derive(Default)]
 pub(super) struct InFlight(BTreeMap<String, LoaderId>);
 
-/// The name of `state`, as Playwright spells it and `deadline_exceeded`
-/// names it.
-fn name(state: LoadState) -> &'static str {
-    match state {
-        LoadState::DomContentLoaded => "domcontentloaded",
-        LoadState::Load => "load",
-        LoadState::NetworkIdle => "networkidle",
-    }
+/// The name of `state` on the wire, as Playwright spells it and
+/// `deadline_exceeded` names it.
+fn name(state: LoadState) -> String {
+    serde_json::to_value(state)
+        .ok()
+        .and_then(|name| name.as_str().map(str::to_owned))
+        .expect("invariant: a load state serializes as its name")
 }
 
 /// Whether `networkidle` counts the request `sent` while it is in flight.
@@ -361,7 +360,7 @@ impl PageEvents {
             let reached = until_gone(&mut gone_now, async {
                 document.wait_for(|now| now.reached(state)).await.is_ok()
             });
-            if deadline.within(name(state), reached).await? {
+            if deadline.within(&name(state), reached).await? {
                 Ok(Reached {})
             } else {
                 Err(gone())

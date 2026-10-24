@@ -21,7 +21,7 @@ use goodfetch_protocol::page::waits::{
 use goodfetch_protocol::page::{Locator, PageId};
 
 use super::{Pages, pattern_of};
-use crate::guard::{self, Awaited, Wait, Window};
+use crate::guard::{self, Awaited, Wait, Waited, Window};
 use crate::page_events::WaitDeadline;
 use crate::page_functions::{self, Injection};
 use crate::sessions::PageEvent;
@@ -149,7 +149,7 @@ fn with_checking_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                         .events
                         .get(&params.locator.page_id)?
                         .wait_deadline(params.timeout)?;
-                    let counted = pages
+                    let waited = pages
                         .wait_on_locator(
                             LOCATOR_WAIT_FOR_COUNT.name,
                             params.locator,
@@ -157,9 +157,13 @@ fn with_checking_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                             &context,
                         )
                         .await?;
-                    Ok::<Counted, CallError>(Counted {
-                        count: counted.unwrap_or_default(),
-                    })
+                    match waited {
+                        Waited::Count(count) => Ok::<Counted, CallError>(Counted { count }),
+                        Waited::State => Err(CallError::protocol(
+                            ProtocolFailure::InternalError,
+                            "a count wait reached a state, not a count",
+                        )),
+                    }
                 }
             },
         ))
@@ -254,7 +258,7 @@ impl Pages {
 
     /// Waits until the matches of `locator` are as `awaited` says, through
     /// the guard's check, until `deadline` passes, if the wait has one;
-    /// answers how many matched for a count.
+    /// answers what it reached.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %locator.page_id.0, operation = operation, run_id = tracing::field::Empty))]
     async fn wait_on_locator(
         &self,
@@ -262,7 +266,7 @@ impl Pages {
         locator: Locator,
         (awaited, deadline): (Awaited, WaitDeadline),
         context: &CallContext,
-    ) -> Result<Option<u64>, CallError> {
+    ) -> Result<Waited, CallError> {
         let page = self.open(&locator.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let wait = Wait {

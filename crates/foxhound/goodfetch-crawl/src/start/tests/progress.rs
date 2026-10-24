@@ -262,7 +262,7 @@ fn a_domain_within_its_delay_holds_its_next_request_under_domain_delay_until_it_
 #[rstest::rstest]
 #[case::a_backoff(json!({ "status": 503 }), "politeness.backoff.max", 60_000)]
 #[case::a_retry_after_past_any_backoff(
-    json!({ "status": 503, "retryAfter": "2026-01-05T09:10:00Z" }),
+    json!({ "status": 503, "retry_after": "2026-01-05T09:10:00Z" }),
     "politeness.retry_after.max",
     900_000
 )]

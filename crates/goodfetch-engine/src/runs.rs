@@ -111,6 +111,7 @@ use crate::body;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
 use crate::client::Client;
 use crate::clock::Clock;
+use crate::controls::Controls;
 use crate::entropy::Entropy;
 use crate::events::Events;
 use crate::governor::{
@@ -223,6 +224,9 @@ pub(crate) struct RunsSetup {
     pub(crate) console: Option<String>,
     /// The engine's "Needs you", which `needs_you.*` reach through the Runs.
     pub(crate) needs_you: NeedsYou,
+    /// The switchable controls the composition registered, which each new
+    /// Run reports when its settings switch one off.
+    pub(crate) controls: Controls,
 }
 
 /// What drives a kind of Run, such as Foxhound's crawl's delivery, given
@@ -1001,6 +1005,8 @@ pub struct Runs {
     clean_up: Option<Arc<CleanUpRules>>,
     /// The engine's "Needs you".
     needs_you: NeedsYou,
+    /// The switchable controls each new Run reports.
+    controls: Arc<Controls>,
     /// The engine's Product version, whose major's Run index its Runs
     /// write.
     version: ProductVersion,
@@ -1982,6 +1988,7 @@ impl Runs {
             drivers: Arc::new(setup.drivers.clone()),
             clean_up: CleanUpRules::of(&setup),
             needs_you: setup.needs_you.clone(),
+            controls: Arc::new(setup.controls.clone()),
             version: setup.version.clone(),
         };
         let politeness = SharedPoliteness {
@@ -2135,8 +2142,53 @@ impl Runs {
         }
     }
 
-    /// [`Runs::start`] once its Clean-up rules are chosen.
+    /// [`Runs::start`] once its Clean-up rules are chosen: a new Run whose
+    /// settings switch a control off reports each switch once (ADR 0016),
+    /// and with `security.audit_chain` off its entries, from its key's use
+    /// on, are written unchained; a start that answers an existing Run, or
+    /// fails, reports nothing.
     async fn start_chosen(&self, start: Start) -> Result<Started, StartError> {
+        let switched = start
+            .settings
+            .as_ref()
+            .map(|settings| self.controls.switched_off(settings.resolved()))
+            .unwrap_or_default();
+        let audit = self.audit().clone();
+        let chosen = start.run_id.clone().filter(|_| switched.unchains());
+        let newly_unchained = chosen.clone().is_some_and(|run_id| audit.unchain(run_id));
+        let started = self.start_reported(start).await;
+        match &started {
+            Ok(Started::New(run)) => {
+                if switched.unchains() {
+                    audit.unchain(run.id().clone());
+                }
+                let run_id = run.id().clone();
+                let now = jiff::Timestamp::try_from(self.limits.clock.wall())
+                    .unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+                let reported = self
+                    .limits
+                    .owner
+                    .blocking(move || switched.report(&audit, &run_id, now))
+                    .await;
+                if let Err(error) = reported {
+                    tracing::error!(
+                        run_id = %run.id(),
+                        %error,
+                        "a security control the Run switched off could not be recorded in the Audit log"
+                    );
+                }
+            }
+            _ => {
+                if let Some(run_id) = chosen.filter(|_| newly_unchained) {
+                    audit.rechain(&run_id);
+                }
+            }
+        }
+        started
+    }
+
+    /// [`Runs::start_chosen`] before its switched-off controls are reported.
+    async fn start_reported(&self, start: Start) -> Result<Started, StartError> {
         let secrets = self
             .secrets
             .for_run(secret_timeout(start.settings.as_ref()));
@@ -4202,6 +4254,7 @@ impl Registry {
             drivers: Arc::clone(&self.drivers),
             clean_up: CleanUpRules::of(&self.setup),
             needs_you: self.setup.needs_you.clone(),
+            controls: Arc::new(self.setup.controls.clone()),
             version: self.setup.version.clone(),
         }
     }

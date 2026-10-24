@@ -379,6 +379,53 @@ fn a_value_outside_a_recipes_bounds_names_the_bounds_as_its_limit() {
     );
 }
 
+/// A Recipe that declares a security control on, or exposes it held to
+/// on, keeps its runs from switching it off; one that exposes it unbounded
+/// lets the run switch it off, which then weakens the run (positive
+/// control).
+/// Covers: story:4-75, setting:security.audit_chain, error:setting_locked
+#[rstest]
+#[case::declared_on(recipe(json!({ "security": { "audit_chain": true } }), &[]), Err("setting_locked"))]
+#[case::exposed_held_on(
+    recipe(
+        json!({}),
+        &[("security.audit_chain", Exposure { one_of: vec![json!(true)], ..Exposure::default() })],
+    ),
+    Err("setting_locked")
+)]
+#[case::exposed_unbounded(
+    recipe(json!({}), &[("security.audit_chain", Exposure::default())]),
+    Ok(vec!["security.audit_chain".to_owned()])
+)]
+fn a_recipe_caps_a_security_control_its_runs_would_switch_off(
+    #[case] recipe: Recipe,
+    #[case] expected: Result<Vec<String>, &str>,
+) {
+    let layers = Layers {
+        recipe: Some(recipe),
+        run: values(
+            SettingsLayer::Run,
+            json!({ "security": { "audit_chain": false } }),
+        ),
+        ..Layers::default()
+    };
+
+    let outcome = resolve(&layers, Product::Foxhound, Product::Foxhound);
+
+    assert_eq!(
+        outcome
+            .map(|resolved| {
+                resolved
+                    .weakened()
+                    .into_iter()
+                    .map(|weakened| weakened.key)
+                    .collect()
+            })
+            .map_err(|refused| refused.code()),
+        expected
+    );
+}
+
 /// The keys a Recipe and the run only narrow, or never set (spec #213's
 /// story 90): each refused when it widens or sets what is reserved.
 /// Covers: story:3-90, story:5-101, setting:paid_fetch.domains, setting:paid_fetch.max_price_per_page, setting:consent.domains, setting:wall.domains, setting:wall.refetch_domains, setting:wall.denied_domains, setting:tls.trusted_cas, setting:tls.accept_invalid_certs, setting:paid_fetch.exchange_rates, setting:paid_fetch.chain_rpc_endpoints

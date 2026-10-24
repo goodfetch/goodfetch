@@ -322,7 +322,8 @@ fn a_log_of_another_major_is_refused() {
 }
 
 /// The `head/` set the corpus writer wrote, read by today's engine (ADR
-/// 0066): it verifies intact, and an entry appended to it chains on.
+/// 0066): it verifies intact, and an entry appended to it chains on, past
+/// the unchained entry it ends with.
 /// Covers: format:audit-log
 #[test]
 fn the_head_sets_log_verifies_and_takes_another_entry() {
@@ -346,7 +347,7 @@ fn the_head_sets_log_verifies_and_takes_another_entry() {
         log.verify(),
         Ok(AuditVerified {
             intact: true,
-            entries: 4,
+            entries: 6,
             first_broken: None,
         })
     );

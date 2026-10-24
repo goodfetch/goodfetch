@@ -7,8 +7,8 @@
 //! content coding and sets no timeout of its own: the driver does each.
 //!
 //! **Connections (ADR 0118):** it keeps a pool of idle connections for
-//! [`Connection::Pooled`] hops and opens a new one, kept for nothing, for
-//! each [`Connection::New`] hop, a resend's. It tells a reused connection
+//! [`Reuse::Allowed`] hops and opens a new one, kept for nothing, for
+//! each [`Reuse::Never`] hop, a resend's. It tells a reused connection
 //! from a new one by a mark its connector sets on the hop's task when the
 //! hop opens one. An origin that answered `HTTP_1_1_REQUIRED` is sent
 //! HTTP/1.1 alone from then on.
@@ -44,7 +44,7 @@ use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 use goodfetch_engine::tls::Trust;
 use url::Url;
 
-use crate::driver::{Body, Connection, Hop, Sending, Sent, Transport, TransportFailure};
+use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
 
 /// What a reqwest transport reaches and trusts.
 #[derive(Clone, Debug)]
@@ -160,16 +160,16 @@ impl Reqwest {
         })
     }
 
-    /// The client `hop` goes out on, over `connection`.
-    fn client(&self, hop: &Hop, connection: Connection) -> &reqwest::Client {
+    /// The client `hop` goes out on, as `reuse` allows.
+    fn client(&self, hop: &Hop, reuse: Reuse) -> &reqwest::Client {
         let clients = if self.http1_origins.contains(&hop.url) {
             &self.http1
         } else {
             &self.any
         };
-        match connection {
-            Connection::Pooled => &clients.pooled,
-            Connection::New => &clients.new,
+        match reuse {
+            Reuse::Allowed => &clients.pooled,
+            Reuse::Never => &clients.new,
         }
     }
 }
@@ -183,7 +183,7 @@ fn build(builder: reqwest::ClientBuilder) -> reqwest::Result<reqwest::Client> {
 }
 
 impl Transport for Reqwest {
-    fn send<'a>(&'a self, hop: &'a Hop, connection: Connection) -> Sending<'a, Sent> {
+    fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             let request = egress::Request {
                 url: hop.url.as_str(),
@@ -193,7 +193,7 @@ impl Transport for Reqwest {
                 return Err(TransportFailure::Egress(refused));
             }
             let mut request = self
-                .client(hop, connection)
+                .client(hop, reuse)
                 .request(hop.method.clone(), hop.url.clone());
             for (name, value) in &hop.headers {
                 request = request.header(name, value);
@@ -207,7 +207,7 @@ impl Transport for Reqwest {
                     (response, CONNECTED.with(Cell::get))
                 })
                 .await;
-            let reused = connection == Connection::Pooled && !connected;
+            let reused = reuse == Reuse::Allowed && !connected;
             let response = response.map_err(|error| match failure_of(&error, &hop.url) {
                 TransportFailure::ConnectionClosed | TransportFailure::ConnectionReset
                     if reused =>

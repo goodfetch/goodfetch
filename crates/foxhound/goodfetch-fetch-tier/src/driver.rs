@@ -116,24 +116,25 @@ impl std::fmt::Debug for Sent {
     }
 }
 
-/// The connection a hop goes out on.
+/// Whether a hop may go out on a network connection an earlier hop left.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Connection {
-    /// Any of the transport's: an idle one an earlier hop left, or a new
-    /// one.
-    Pooled,
-    /// A new one, never one an earlier hop used: a resend's (ADR 0118).
-    New,
+pub enum Reuse {
+    /// On any of the transport's connections: an idle one an earlier hop
+    /// left, or a new one.
+    Allowed,
+    /// On a new connection, never one an earlier hop used: a resend's (ADR
+    /// 0118).
+    Never,
 }
 
 /// The primitive a tier that sends HTTP itself fills (ADR 0129): it sends
-/// `hop` once, on `connection`, and answers its head. It follows no
-/// redirect, resends nothing, decodes no content coding and sets no
-/// timeout of its own: the driver does each. An origin that answered
+/// `hop` once, on a connection `reuse` allows, and answers its head. It
+/// follows no redirect, resends nothing, decodes no content coding and sets
+/// no timeout of its own: the driver does each. An origin that answered
 /// [`TransportFailure::Http11Required`] is sent HTTP/1.1 from then on.
 pub trait Transport: Send + Sync {
-    /// Sends `hop` on `connection` and answers its head.
-    fn send<'a>(&'a self, hop: &'a Hop, connection: Connection) -> Sending<'a, Sent>;
+    /// Sends `hop` on a connection `reuse` allows and answers its head.
+    fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent>;
 }
 
 /// Why a hop got no whole answer: each transport's library, TLS and HTTP
@@ -255,12 +256,12 @@ impl TransportFailure {
 /// [`TransportFailure::unprocessed`] names, a 421, or a 408 a reused
 /// connection gave a read. The resend's answer or failure is the hop's.
 async fn answer(transport: &dyn Transport, hop: &Hop) -> Result<Sent, TransportFailure> {
-    match transport.send(hop, Connection::Pooled).await {
+    match transport.send(hop, Reuse::Allowed).await {
         Err(failure) if !failure.unprocessed(hop) => Err(failure),
         Ok(sent) if sent.status != 421 && !(sent.status == 408 && sent.reused && hop.read) => {
             Ok(sent)
         }
-        Err(_) | Ok(_) => transport.send(hop, Connection::New).await,
+        Err(_) | Ok(_) => transport.send(hop, Reuse::Never).await,
     }
 }
 

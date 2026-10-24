@@ -20,7 +20,7 @@ use crate::daemon::{
     StopsTheDaemon, json_of, regex_escape, runtime_file, scripted_daemon, short_idle,
 };
 #[cfg(unix)]
-use crate::daemon_run::{Foreground, free_address, token};
+use crate::daemon_run::{ANY_PORT, Foreground, token};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -263,14 +263,13 @@ fn a_token_flag_is_a_usage_error() {
 #[test]
 fn goodfetch_url_and_goodfetch_token_reach_a_remote_daemon() {
     let env = TestEnv::new();
-    let address = free_address();
     // A Daemon of the major started by mistake stops soon, and with the test.
     env.user_configuration(&format!(
-        "daemon.address = \"{address}\"\ndaemon.idle_timeout = 60000\n"
+        "daemon.address = \"{ANY_PORT}\"\ndaemon.idle_timeout = 60000\n"
     ));
     let _stops = StopsTheDaemon::of(&env, COLLIE);
     let mut remote = Foreground::start(&env, COLLIE, &[]);
-    remote.serving();
+    let address = remote.serving();
 
     let output = cli(&env, COLLIE)
         .args(["run", "start", "--run-id", "first"])
@@ -297,14 +296,13 @@ fn goodfetch_url_and_goodfetch_token_reach_a_remote_daemon() {
 fn goodfetch_tokens_value_appears_in_no_output_log_or_error() {
     const WRONG: &str = "c0ffee-a-token-the-daemon-never-issued";
     let env = TestEnv::new();
-    let address = free_address();
     // A Daemon of the major started by mistake stops soon, and with the test.
     env.user_configuration(&format!(
-        "daemon.address = \"{address}\"\ndaemon.idle_timeout = 60000\n"
+        "daemon.address = \"{ANY_PORT}\"\ndaemon.idle_timeout = 60000\n"
     ));
     let _stops = StopsTheDaemon::of(&env, COLLIE);
     let mut remote = Foreground::start(&env, COLLIE, &[]);
-    remote.serving();
+    let address = remote.serving();
 
     let output = cli(&env, COLLIE)
         .args(["engine", "info"])

@@ -795,7 +795,7 @@ pub fn learned_rules(connection: &Connection) -> rusqlite::Result<Vec<LearnedRul
             TRAP_PATH => LearnedRuleKind::TrapPath,
             _ => LearnedRuleKind::CursorPagination,
         };
-        let merged = merges
+        let urls = merges
             .query_map([id], |row| row.get(0))?
             .collect::<rusqlite::Result<Vec<String>>>()?;
         learned.push(LearnedRule {
@@ -804,7 +804,7 @@ pub fn learned_rules(connection: &Connection) -> rusqlite::Result<Vec<LearnedRul
             path: (!path.is_empty()).then_some(path),
             parameter: (!parameter.is_empty()).then_some(parameter),
             evidence,
-            merged,
+            merged: urls,
         });
     }
     Ok(learned)

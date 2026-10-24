@@ -3,11 +3,6 @@
 //! `admit`, each page fetched through `learn` with its page signature, and
 //! what the Frontier then answers, reports and says of the Run's
 //! Completeness, in a run file in memory; no owned code is mocked.
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
-
 mod model;
 
 use std::collections::BTreeMap;

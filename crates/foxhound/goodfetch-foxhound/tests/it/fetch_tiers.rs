@@ -1,8 +1,9 @@
 //! Crawl conformance cases, the tier lines (spec #579's `tiers`; ADRs
 //! 0020, 0023 and 0093), on Foxhound's executable against the Proving
 //! ground and Chrome for Testing: one handler runs unchanged on every tier.
-//! Under `fetch.tier: auto` a declared Label's request is served over HTTP
-//! from its document, and a call that tier cannot serve exactly, a wait
+//! Under a `fetch.tier: auto` the Run sets, a request is served over HTTP
+//! from its document (the built-in default still hands a handler its
+//! request alone until the tier choice, #768, is built), and a call that tier cannot serve exactly, a wait
 //! for content a script-rendered page's document lacks, escalates the
 //! request to the browser, where the same handler runs again, neither a
 //! retry nor a failure; under a forced `http` tier the same call fails with
@@ -199,7 +200,7 @@ fn one_handler_serves_a_static_page_over_http_and_escalates_a_scripted_one_under
             json!({ "url": feed, "label": "page" }),
         ],
         &json!({ "page": {} }),
-        &settings(&proving_ground, &json!({})),
+        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
         &mut handler(&mut seen),
     );
     let ended = outcomes(&mut engine, "tiers-auto");
@@ -347,7 +348,7 @@ fn fetch_tier_on_a_label_forces_that_label_only_and_provenance_records_it_forced
             "list": { "settings": { "fetch": { "tier": "http" } } },
             "page": {},
         }),
-        &settings(&proving_ground, &json!({})),
+        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
         &mut handler(&mut seen),
     );
     let ended = outcomes(&mut engine, "tiers-label");
@@ -408,7 +409,7 @@ fn page_request_on_a_document_tier_goes_through_the_gate_and_never_escalates() {
         "tiers-request",
         &[json!({ "url": seed, "label": "page" })],
         &json!({ "page": {} }),
-        &settings(&proving_ground, &json!({})),
+        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
         &mut |inside, handle| {
             tiers_seen.push(handle["tier"].clone());
             let page_id = handle["page_id"].clone();

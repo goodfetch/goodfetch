@@ -230,6 +230,9 @@ strategy = "same_hostname"
 include = ["example"]
 exclude = ["example"]
 
+[settings.crawl.payload]
+max_size = 4
+
 [settings.fetch]
 tier = "auto"
 coalesce = true

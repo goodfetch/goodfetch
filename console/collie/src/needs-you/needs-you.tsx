@@ -12,8 +12,15 @@
 // that showed a consent wall is offered for `consent.domains`, alone or as
 // `*`, each offer beside the plain warning of what the person takes on and
 // answered in one click (`needs_you.allow_consent_domain`, a person's
-// answer), with no confirmation asked. Items leave the list as they are
-// resolved, here, elsewhere or by their run.
+// answer), with no confirmation asked. A domain on which a run's refetch
+// without the site's stored data stopped (story 27, ADR 0052) is shown with
+// the layer of `wall.refetch_domains` that lists it and its file: the person
+// removes it there, replaces `*` with a list when only `*` covers it, or
+// denies it in `wall.denied_domains` with a reason; a domain project
+// configuration lists is changed in that file, never here. A certificate
+// whose key changed (story 28, ADR 0042) shows both keys, answered by
+// `certs.accept` or `certs.forget`, which act in the caller's own pins.
+// Items leave the list as they are resolved, here, elsewhere or by their run.
 import type {
   LimitScope,
   NeedsYouItem,
@@ -21,6 +28,7 @@ import type {
   PointInTime,
   Product,
   ReachedLimit,
+  SettingsLayer,
   UsageRaiseParams,
 } from "@goodfetch/collie-client/generated";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -29,6 +37,7 @@ import type { ConsoleClient } from "#client/client.ts";
 import { formatAmount, formatInstant, parseAmount } from "#format.ts";
 import { ErrorMessage } from "#errors/error-message.tsx";
 import { resumeCommand } from "#runs/run-page.tsx";
+import { isSettingsLayer, LAYERS } from "#settings-layers.ts";
 import { PeriodOf, Scope, UsageKind } from "#usage/limits.tsx";
 import type { NeedsYouState } from "./needs-you-store.ts";
 
@@ -72,6 +81,16 @@ export interface NeedsYouViewProps {
   readonly copied?: Copied | undefined;
   /** Adds `domain`, or `*`, to `consent.domains` for the next runs. */
   readonly onAllowConsentDomain?: ((domain: string) => void) | undefined;
+  /** Removes `domain` from the layer of `wall.refetch_domains` that lists it, or replaces `*` there with `insteadOfStar`. */
+  readonly onRemoveRefetchDomain?:
+    | ((domain: string, insteadOfStar: readonly string[] | undefined) => void)
+    | undefined;
+  /** Adds `domain` to `wall.denied_domains` with `reason`. */
+  readonly onDenyWallDomain?: ((domain: string, reason: string) => void) | undefined;
+  /** Pins `key`, the changed key `host` presented, in place of its pin. */
+  readonly onAcceptCertificate?: ((host: string, key: string) => void) | undefined;
+  /** Forgets the pin of `host`. */
+  readonly onForgetCertificate?: ((host: string) => void) | undefined;
 }
 
 /** The storage level a `storage_level` item names, and its folder. */
@@ -112,6 +131,44 @@ function storageLevelOf(item: NeedsYouItem): StorageLevelDetails | undefined {
 function stoppedOf(item: NeedsYouItem): StoppedDetails | undefined {
   const { folder } = item.details ?? {};
   return typeof folder === "string" ? { folder } : undefined;
+}
+
+/** What a `wall_refetch_stopped` item names: the domain, what stopped the refetch, and the layer of `wall.refetch_domains` that lists it, with its file. */
+interface RefetchStoppedDetails {
+  readonly domain: string;
+  readonly cause: string;
+  readonly layer: SettingsLayer;
+  readonly file: string;
+  readonly onlyStar: boolean;
+}
+
+/** The details of a `wall_refetch_stopped` item, if they hold all of its fields. */
+function refetchStoppedOf(item: NeedsYouItem): RefetchStoppedDetails | undefined {
+  const { domain, cause, layer, file, only_star: onlyStar } = item.details ?? {};
+  return typeof domain === "string" &&
+    typeof cause === "string" &&
+    typeof layer === "string" &&
+    isSettingsLayer(layer) &&
+    typeof file === "string" &&
+    typeof onlyStar === "boolean"
+    ? { domain, cause, layer, file, onlyStar }
+    : undefined;
+}
+
+/** What a `certificate_changed` item names: the host, and its pinned and presented keys. */
+interface ChangedCertificateDetails {
+  readonly host: string;
+  readonly pinned: string | undefined;
+  readonly presented: string;
+}
+
+/** The details of a `certificate_changed` item, if they hold its host and keys. */
+function changedCertificateOf(item: NeedsYouItem): ChangedCertificateDetails | undefined {
+  const { host, pinned_spki_sha256: pinned, presented_spki_sha256: presented } = item.details ?? {};
+  const pin = optionalString(pinned);
+  return typeof host === "string" && typeof presented === "string" && pin !== false
+    ? { host, pinned: pin, presented }
+    : undefined;
 }
 
 /** The details of a `consent_wall` item, if they hold a domain. */
@@ -441,18 +498,267 @@ function ConsentWall({
   );
 }
 
+/** The domains a person types, separated by commas or spaces. */
+function domainsTyped(typed: string): string[] {
+  return typed
+    .split(/[\s,]+/u)
+    .map((domain) => domain.trim())
+    .filter((domain) => domain !== "");
+}
+
+/** A domain on which a run's refetch without the site's stored data stopped, with the layer that lists it and the answers it offers. */
+function RefetchStopped({
+  details,
+  removable,
+  readOnly,
+  onRemove,
+  onDeny,
+}: {
+  readonly details: RefetchStoppedDetails;
+  readonly removable: boolean;
+  readonly readOnly: boolean;
+  readonly onRemove: NeedsYouViewProps["onRemoveRefetchDomain"];
+  readonly onDeny: NeedsYouViewProps["onDenyWallDomain"];
+}): ReactNode {
+  const id = useId();
+  const { i18n } = useLingui();
+  const { domain, cause, layer, file } = details;
+  const layerName = i18n._(LAYERS[layer]);
+  const replace = (event: SubmitEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const typed = new FormData(event.currentTarget).get("domains");
+    onRemove?.(domain, domainsTyped(typeof typed === "string" ? typed : ""));
+  };
+  const deny = (event: SubmitEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const typed = new FormData(event.currentTarget).get("reason");
+    onDeny?.(domain, typeof typed === "string" ? typed : "");
+  };
+  return (
+    <>
+      <h2 className="font-semibold">
+        <Trans>
+          <span translate="no">{domain}</span> refused a page fetched again without its stored data
+        </Trans>
+      </h2>
+      <p>
+        <Trans>
+          A run fetched a page of <span translate="no">{domain}</span> again without the site's
+          stored cookies and storage, and the site answered with <code translate="no">{cause}</code>
+          . No page of the site was fetched that way again for the rest of that run.
+        </Trans>
+      </p>
+      {layer === "project_configuration" ? (
+        <p>
+          <Trans>
+            Project configuration lists <span translate="no">{domain}</span> in{" "}
+            <code translate="no">wall.refetch_domains</code>, in <code translate="no">{file}</code>:
+            remove it from that file to stop the next runs of that project from fetching its pages
+            again.
+          </Trans>
+        </p>
+      ) : details.onlyStar ? (
+        <>
+          <p>
+            <Trans>
+              <code translate="no">*</code> in <code translate="no">wall.refetch_domains</code>{" "}
+              covers <span translate="no">{domain}</span>, in {layerName}:{" "}
+              <code translate="no">{file}</code>. Give the domains that replace{" "}
+              <code translate="no">*</code> there, leaving <span translate="no">{domain}</span> out.
+            </Trans>
+          </p>
+          {removable ? (
+            <form onSubmit={replace} className="flex flex-wrap items-end gap-3">
+              <div className="flex flex-col gap-1">
+                <label htmlFor={`${id}-domains`} className="text-sm font-medium">
+                  <Trans>Domains that replace *</Trans>
+                </label>
+                <input
+                  id={`${id}-domains`}
+                  name="domains"
+                  type="text"
+                  autoComplete="off"
+                  required
+                  className="rounded-md border px-2 py-1.5 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+                />
+              </div>
+              <button type="submit" disabled={readOnly} className={buttonClassName}>
+                <Trans>Replace * with this list</Trans>
+              </button>
+            </form>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <p>
+            <Trans>
+              {layerName} lists <span translate="no">{domain}</span> in{" "}
+              <code translate="no">wall.refetch_domains</code>, in{" "}
+              <code translate="no">{file}</code>.
+            </Trans>
+          </p>
+          {removable ? (
+            <button
+              type="button"
+              disabled={readOnly}
+              onClick={() => onRemove?.(domain, undefined)}
+              className={buttonClassName}
+            >
+              <Trans>Remove {domain} from wall.refetch_domains</Trans>
+            </button>
+          ) : null}
+        </>
+      )}
+      <p className="text-sm">
+        <Trans>
+          Denying <span translate="no">{domain}</span> adds it to{" "}
+          <code translate="no">wall.denied_domains</code> in the Operator policy: no run reads past
+          its Walls or fetches its pages again without its stored data, whatever another layer
+          allows. The Audit log records your reason.
+        </Trans>
+      </p>
+      <form onSubmit={deny} className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-1">
+          <label htmlFor={`${id}-reason`} className="text-sm font-medium">
+            <Trans>Reason for the denial</Trans>
+          </label>
+          <input
+            id={`${id}-reason`}
+            name="reason"
+            type="text"
+            autoComplete="off"
+            required
+            className="rounded-md border px-2 py-1.5 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+          />
+        </div>
+        <button type="submit" disabled={readOnly} className={buttonClassName}>
+          <Trans>Deny {domain}</Trans>
+        </button>
+      </form>
+    </>
+  );
+}
+
+/** A pinned host whose certificate's key changed, with the answers of the person whose store holds the pin. */
+function ChangedCertificate({
+  details,
+  readOnly,
+  onAccept,
+  onForget,
+}: {
+  readonly details: ChangedCertificateDetails;
+  readonly readOnly: boolean;
+  readonly onAccept: NeedsYouViewProps["onAcceptCertificate"];
+  readonly onForget: NeedsYouViewProps["onForgetCertificate"];
+}): ReactNode {
+  const { host, pinned, presented } = details;
+  return (
+    <>
+      <h2 className="font-semibold">
+        <Trans>
+          The certificate of <span translate="no">{host}</span> changed its key
+        </Trans>
+      </h2>
+      <p>
+        <Trans>
+          <span translate="no">{host}</span> presented a certificate whose public key is not the one
+          you pinned, so nothing is sent to it. Accept the new key only if you know why it changed;
+          forgetting the pin lets its next connection pin again.
+        </Trans>
+      </p>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 text-sm">
+        <dt>
+          <Trans>Pinned key</Trans>
+        </dt>
+        <dd>
+          {pinned === undefined ? (
+            <Trans>The pin cannot be read.</Trans>
+          ) : (
+            <code translate="no" className="break-all">
+              {pinned}
+            </code>
+          )}
+        </dd>
+        <dt>
+          <Trans>Presented key</Trans>
+        </dt>
+        <dd>
+          <code translate="no" className="break-all">
+            {presented}
+          </code>
+        </dd>
+      </dl>
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          disabled={readOnly}
+          onClick={() => onAccept?.(host, presented)}
+          className={buttonClassName}
+        >
+          <Trans>Accept the new key</Trans>
+        </button>
+        <button
+          type="button"
+          disabled={readOnly}
+          onClick={() => onForget?.(host)}
+          className={buttonClassName}
+        >
+          <Trans>Forget the pin</Trans>
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** The answers an item may need, as the view takes them. */
+type Answers = Pick<
+  NeedsYouViewProps,
+  | "onRaise"
+  | "onAllowConsentDomain"
+  | "onRemoveRefetchDomain"
+  | "onDenyWallDomain"
+  | "onAcceptCertificate"
+  | "onForgetCertificate"
+>;
+
 /** What an item says, by its kind's renderer, or by the engine's summary for a kind this build has none for. */
 function Content({
   item,
   readOnly,
-  onRaise,
-  onAllowConsentDomain,
+  answers,
 }: {
   readonly item: NeedsYouItem;
   readonly readOnly: boolean;
-  readonly onRaise: NeedsYouViewProps["onRaise"];
-  readonly onAllowConsentDomain: NeedsYouViewProps["onAllowConsentDomain"];
+  readonly answers: Answers;
 }): ReactNode {
+  const { onRaise, onAllowConsentDomain } = answers;
+  if (item.kind === "wall_refetch_stopped" && item.actions.includes("needs_you.deny_wall_domain")) {
+    const details = refetchStoppedOf(item);
+    if (details !== undefined) {
+      return (
+        <RefetchStopped
+          details={details}
+          removable={item.actions.includes("needs_you.remove_refetch_domain")}
+          readOnly={readOnly}
+          onRemove={answers.onRemoveRefetchDomain}
+          onDeny={answers.onDenyWallDomain}
+        />
+      );
+    }
+  }
+  if (item.kind === "certificate_changed" && item.actions.includes("certs.accept")) {
+    const details = changedCertificateOf(item);
+    if (details !== undefined) {
+      return (
+        <ChangedCertificate
+          details={details}
+          readOnly={readOnly}
+          onAccept={answers.onAcceptCertificate}
+          onForget={answers.onForgetCertificate}
+        />
+      );
+    }
+  }
   if (item.kind === "consent_wall" && item.actions.includes("needs_you.allow_consent_domain")) {
     const details = consentWallOf(item);
     if (details !== undefined) {
@@ -491,24 +797,17 @@ function Item({
   item,
   readOnly,
   onDismiss,
-  onRaise,
-  onAllowConsentDomain,
+  answers,
 }: {
   readonly item: NeedsYouItem;
   readonly readOnly: boolean;
   readonly onDismiss: (id: string) => void;
-  readonly onRaise: NeedsYouViewProps["onRaise"];
-  readonly onAllowConsentDomain: NeedsYouViewProps["onAllowConsentDomain"];
+  readonly answers: Answers;
 }): ReactNode {
   const since = formatInstant(item.since);
   return (
     <li className="flex flex-col gap-2 rounded-lg border p-4">
-      <Content
-        item={item}
-        readOnly={readOnly}
-        onRaise={onRaise}
-        onAllowConsentDomain={onAllowConsentDomain}
-      />
+      <Content item={item} readOnly={readOnly} answers={answers} />
       <p className="text-muted-foreground text-sm">
         <Trans>
           Waiting since{" "}
@@ -609,8 +908,20 @@ export function NeedsYouView({
   onCopy,
   copied,
   onAllowConsentDomain,
+  onRemoveRefetchDomain,
+  onDenyWallDomain,
+  onAcceptCertificate,
+  onForgetCertificate,
 }: NeedsYouViewProps): ReactNode {
   const { t } = useLingui();
+  const answers: Answers = {
+    onRaise,
+    onAllowConsentDomain,
+    onRemoveRefetchDomain,
+    onDenyWallDomain,
+    onAcceptCertificate,
+    onForgetCertificate,
+  };
   return (
     <div className="flex flex-col gap-6">
       <h1 className="font-heading text-3xl font-semibold tracking-tight">
@@ -643,8 +954,7 @@ export function NeedsYouView({
               item={item}
               readOnly={readOnly}
               onDismiss={onDismiss}
-              onRaise={onRaise}
-              onAllowConsentDomain={onAllowConsentDomain}
+              answers={answers}
             />
           ))}
         </ul>
@@ -667,7 +977,14 @@ function FailedList({ error }: { readonly error: unknown }): ReactNode {
 
 /** What the engine refused, and its error. */
 type Failure = {
-  readonly kind: "dismiss" | "raise" | "allow_consent_domain";
+  readonly kind:
+    | "dismiss"
+    | "raise"
+    | "allow_consent_domain"
+    | "remove_refetch_domain"
+    | "deny_wall_domain"
+    | "accept_certificate"
+    | "forget_certificate";
   readonly error: unknown;
 };
 
@@ -726,6 +1043,34 @@ export function NeedsYou({
       setFailure({ kind: "allow_consent_domain", error });
     });
   };
+  /** Sends one answer, saying the engine's refusal as `kind`. */
+  const answer = (kind: Failure["kind"], sent: Promise<unknown>): void => {
+    setFailure(undefined);
+    sent.catch((error: unknown) => {
+      setFailure({ kind, error });
+    });
+  };
+  const onRemoveRefetchDomain = (
+    domain: string,
+    insteadOfStar: readonly string[] | undefined,
+  ): void => {
+    answer(
+      "remove_refetch_domain",
+      client.call(
+        "needs_you.remove_refetch_domain",
+        insteadOfStar === undefined ? { domain } : { domain, instead_of_star: [...insteadOfStar] },
+      ),
+    );
+  };
+  const onDenyWallDomain = (domain: string, reason: string): void => {
+    answer("deny_wall_domain", client.call("needs_you.deny_wall_domain", { domain, reason }));
+  };
+  const onAcceptCertificate = (host: string, key: string): void => {
+    answer("accept_certificate", client.call("certs.accept", { host, spki_sha256: key }));
+  };
+  const onForgetCertificate = (host: string): void => {
+    answer("forget_certificate", client.call("certs.forget", { host }));
+  };
   const onCopy = (command: string): void => {
     navigator.clipboard.writeText(command).then(
       () => setCopied("copied"),
@@ -743,6 +1088,10 @@ export function NeedsYou({
         onCopy={onCopy}
         copied={copied}
         onAllowConsentDomain={onAllowConsentDomain}
+        onRemoveRefetchDomain={onRemoveRefetchDomain}
+        onDenyWallDomain={onDenyWallDomain}
+        onAcceptCertificate={onAcceptCertificate}
+        onForgetCertificate={onForgetCertificate}
       />
       {failure === undefined ? null : (
         <div role="alert" className="text-destructive">
@@ -769,6 +1118,23 @@ function FailureText({ failure }: { readonly failure: Failure }): ReactNode {
           The engine could not add the domain to <code translate="no">consent.domains</code>:
         </Trans>
       );
+    case "remove_refetch_domain":
+      return (
+        <Trans>
+          The engine could not remove the domain from{" "}
+          <code translate="no">wall.refetch_domains</code>:
+        </Trans>
+      );
+    case "deny_wall_domain":
+      return (
+        <Trans>
+          The engine could not add the domain to <code translate="no">wall.denied_domains</code>:
+        </Trans>
+      );
+    case "accept_certificate":
+      return <Trans>The engine did not accept the new key:</Trans>;
+    case "forget_certificate":
+      return <Trans>The engine did not forget the pin:</Trans>;
     default:
       return failure.kind satisfies never;
   }

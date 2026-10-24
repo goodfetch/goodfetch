@@ -898,8 +898,6 @@ pub enum StartInput {
     Caller,
     /// A crawl's seeds.
     Seeds,
-    /// The Labels a crawl declares, with their settings.
-    Labels,
 }
 
 /// What `run_conflict` details.

@@ -4,12 +4,12 @@
 //! `fetch.tier` forces a tier for the Run, or for one Label, whose own
 //! value wins for its requests. Under `auto` the engine chooses: until the
 //! sample comparison (#768) and the tier learned per Label (#926) choose
-//! it, a request of a Label the crawl declares starts on `http`, the
-//! cheapest tier built, and one of a Label it does not declare is handed to
-//! its handler alone, as before any tier was built. A call the request's
-//! tier cannot serve exactly escalates the request to the browser under
-//! `auto`, and fails with `browser_required` under a forced tier, which
-//! nothing escalates.
+//! it, a request whose `auto` was set, for its Label or its Run, starts on
+//! `http`, the cheapest tier built, while one left at the built-in default
+//! is handed to its handler alone, as before any tier was built. A call the
+//! request's tier cannot serve exactly escalates the request to the browser
+//! under `auto`, and fails with `browser_required` under a forced tier,
+//! which nothing escalates.
 
 use std::collections::BTreeMap;
 
@@ -26,14 +26,16 @@ use serde_json::{Map, Value, json};
 
 /// The Labels a crawl declares, each with its own `fetch.tier`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct LabelTiers(BTreeMap<String, LabelTier>);
+pub struct LabelTiers(BTreeMap<String, SetTier>);
 
-/// A declared Label's own `fetch.tier`.
+/// The Run's `fetch.tier`, or a declared Label's own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum LabelTier {
-    /// It sets none: the Run's applies.
-    Run,
-    /// `auto`, whatever the Run's.
+pub enum SetTier {
+    /// None is set: for a Label, the Run's applies; for the Run, the
+    /// built-in `auto`, which hands each handler its request alone until
+    /// the engine's tier choice is built.
+    Unset,
+    /// `auto`, set.
     Auto,
     /// A tier it forces.
     Forced(FetchTier),
@@ -52,7 +54,7 @@ impl LabelTiers {
         for (name, declaration) in labels {
             let mut keys = Vec::new();
             flatten("", &declaration.settings, &mut keys);
-            let mut tier = LabelTier::Run;
+            let mut tier = SetTier::Unset;
             for (key, value) in keys {
                 if key != FETCH_TIER.name {
                     return Err(CallError::new(
@@ -69,8 +71,8 @@ impl LabelTiers {
                 }
                 let text = value.as_str();
                 tier = match (text, text.and_then(FetchTier::named)) {
-                    (Some("auto"), _) => LabelTier::Auto,
-                    (_, Some(forced)) => LabelTier::Forced(forced),
+                    (Some("auto"), _) => SetTier::Auto,
+                    (_, Some(forced)) => SetTier::Forced(forced),
                     _ => {
                         return Err(CallError::new(
                             &SETTING_INVALID,
@@ -95,36 +97,36 @@ impl LabelTiers {
     /// Each declared Label that forces a tier, with it.
     pub fn forced(&self) -> impl Iterator<Item = (&str, FetchTier)> {
         self.0.iter().filter_map(|(name, tier)| match tier {
-            LabelTier::Forced(tier) => Some((name.as_str(), *tier)),
-            LabelTier::Run | LabelTier::Auto => None,
+            SetTier::Forced(tier) => Some((name.as_str(), *tier)),
+            SetTier::Unset | SetTier::Auto => None,
         })
     }
 
-    /// Whether the crawl declares any Label.
+    /// Whether a declared Label sets `fetch.tier`.
     pub fn any(&self) -> bool {
-        !self.0.is_empty()
+        self.0.values().any(|tier| *tier != SetTier::Unset)
     }
 
-    /// The tier a request of `label` takes, the Run's `fetch.tier` forcing
-    /// `run_forced`; `None` hands its handler the request alone.
-    pub fn choose(&self, label: &str, run_forced: Option<FetchTier>) -> Option<TierChoice> {
+    /// The tier a request of `label` takes, the Run's own `fetch.tier`
+    /// being `run`; `None` hands its handler the request alone.
+    pub fn choose(&self, label: &str, run: SetTier) -> Option<TierChoice> {
         let auto = TierChoice {
             tier: FetchTier::Http,
             forced: None,
         };
-        match (self.0.get(label), run_forced) {
-            (Some(LabelTier::Forced(tier)), _) => Some(TierChoice {
-                tier: *tier,
+        match (self.0.get(label).copied().unwrap_or(SetTier::Unset), run) {
+            (SetTier::Forced(tier), _) => Some(TierChoice {
+                tier,
                 forced: Some(Forced {
                     label: Some(label.to_owned()),
                 }),
             }),
-            (Some(LabelTier::Auto), _) | (Some(LabelTier::Run), None) => Some(auto),
-            (_, Some(tier)) => Some(TierChoice {
+            (SetTier::Auto, _) | (SetTier::Unset, SetTier::Auto) => Some(auto),
+            (SetTier::Unset, SetTier::Forced(tier)) => Some(TierChoice {
                 tier,
                 forced: Some(Forced { label: None }),
             }),
-            (None, None) => None,
+            (SetTier::Unset, SetTier::Unset) => None,
         }
     }
 }

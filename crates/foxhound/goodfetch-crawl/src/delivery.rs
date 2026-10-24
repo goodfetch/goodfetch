@@ -65,13 +65,12 @@ use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
-use goodfetch_fetch_tier::{FetchTiers, HttpTier, LabelTiers, RobotsTxtFetch};
+use goodfetch_fetch_tier::{FetchTiers, HttpTier, LabelTiers, RobotsTxtFetch, SetTier};
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
     WORK_ITEM_RETRIED,
 };
-use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::run::{
@@ -157,13 +156,13 @@ pub(crate) async fn drive(
         in_flight: 0,
         gone: false,
     }];
-    let run_forced = FetchTiers::run_forced(settings.resolved());
+    let run_tier = FetchTiers::run_tier(settings.resolved());
     // One HTTP tier for the Run, so its hops share connections (#763); the
     // navigation gate fetches robots.txt on it too.
     let http = match FetchTiers::built(&run, settings.resolved()) {
         Ok(http) => Some(http),
         // A request may take the `http` tier: the Run cannot go on.
-        Err(error) if labels.any() || run_forced == Some(FetchTier::Http) => {
+        Err(error) if labels.any() || run_tier != SetTier::Unset => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's HTTP tier could not be built");
             run.end(failed(&run, &error)).await;
             crawls.close(run.id()).await;
@@ -179,7 +178,7 @@ pub(crate) async fn drive(
         http: http.as_ref(),
         robots: http.as_ref().map(HttpTier::robots_txt_fetch),
         labels: &labels,
-        run_forced,
+        run_tier,
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
     };
     deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
@@ -364,10 +363,12 @@ pub(crate) async fn resume(
     let policy = CrawlPolicy::of(&settings.at_admission().await);
     let retry_max = policy.retry_max;
     let bounds = Bounds::of_settings(settings.resolved());
+    let resolved = settings.resolved().clone();
     let left = run
         .state()
         .write(move |connection| {
             bounds.record(connection)?;
+            goodfetch_frontier::payload::record_max_size(connection, &resolved)?;
             work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)?;
             Ok((work_items::left(connection)?, labels::read(connection)?))
         })
@@ -407,7 +408,7 @@ struct Fetching<'a> {
     /// The Labels the crawl declares.
     labels: &'a LabelTiers,
     /// The tier the Run's own `fetch.tier` forces.
-    run_forced: Option<FetchTier>,
+    run_tier: SetTier,
     /// How the navigation gate fetches robots.txt.
     robots: Option<RobotsTxtFetch>,
     /// The requests in flight, as the Run's progress shows them.
@@ -430,7 +431,7 @@ impl Fetching<'_> {
         Tiering::of(
             self.tiers,
             self.http,
-            self.labels.choose(label, self.run_forced),
+            self.labels.choose(label, self.run_tier),
             second_copies,
         )
     }

@@ -41,7 +41,7 @@ use goodfetch_protocol::settings::{
 use url::Url;
 
 use crate::canonical::canonical;
-use crate::choice::{LabelTiers, TierChoice, Unserved, unserved};
+use crate::choice::{LabelTiers, SetTier, TierChoice, Unserved, unserved};
 use crate::driver::{Deadlines, Hop, fetch};
 use crate::gate::{Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::redundant::{Redundant, Requester};
@@ -206,9 +206,16 @@ impl FetchTiers {
         Ok(())
     }
 
-    /// The tier the Run's own `fetch.tier` forces, if it forces one.
-    pub fn run_forced(settings: &Resolved) -> Option<FetchTier> {
-        forced(settings).map(|(tier, _)| tier)
+    /// The Run's own `fetch.tier`: the tier it forces, `auto` set by any
+    /// layer above the built-in default, or the default.
+    pub fn run_tier(settings: &Resolved) -> SetTier {
+        if let Some((tier, _)) = forced(settings) {
+            return SetTier::Forced(tier);
+        }
+        match settings.get(FETCH_TIER.name) {
+            Some(effective) if effective.layer != SettingsLayer::Default => SetTier::Auto,
+            _ => SetTier::Unset,
+        }
     }
 
     /// An HTTP tier for `run` under its settings, one per Run so its hops

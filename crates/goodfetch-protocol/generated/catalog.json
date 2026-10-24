@@ -532,6 +532,26 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A crawl request's Payload was refused when it was enqueued, as a seed, an added seed or a handler's enqueue: it does not fit its Label's JSON Schema, each issue named by its path, or its JSON is longer than `crawl.payload.max_size`, which `limit` names. Nothing was added. Large content goes to the Key-value store, and the Payload carries its key.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "payload_invalid",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawl now declares a Label's Payload JSON Schema that the Run did not begin with, and Payloads of that Label's pending requests fail it, so the Run was not resumed and did no work. The details name the Label, how many pending Payloads fail out of how many, and the first failure. Give the new field a default in the schema, or start a new Run: a Payload is never migrated silently.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "payload_schema_changed",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.",
       "exit_code": null,
       "group": "refused",
@@ -2331,6 +2351,27 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
+      "description": "Adds a registrable domain, with its required reason, to `wall.denied_domains` in the Operator policy, creating the file when there is none, so no run reads past its Walls or refetches its pages whatever another layer allows (ADR 0052), and records the denial and its reason in the Audit log; answers whether it added it. One call, no confirmation asked. A managed Operator policy refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `wall_refetch_stopped` item of the domain leaves the list with `needs_you.changed`.",
+      "events": [
+        "needs_you.changed"
+      ],
+      "kind": "round_trip",
+      "name": "needs_you.deny_wall_domain",
+      "params": {
+        "$ref": "#/$defs/NeedsYouDenyWallDomainParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/WallDomainDenied"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
       "description": "Hides an item of \"Needs you\" whose source lets a person dismiss it, for every Client, and answers whether it did; an item the list no longer holds, or one only resolving it removes, stays as it is. The item leaves the list with `needs_you.changed`.",
       "events": [
         "needs_you.changed"
@@ -2363,6 +2404,27 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/NeedsYouList"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Removes a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that lists it, user configuration or else the Operator policy, every other entry and byte of the file kept, and records the answer in the Audit log; answers whether it removed it. When only `*` covers the domain there, `instead_of_star` gives the registrable domains that replace `*`, and without it the call is refused with `invalid_params`. A domain only project configuration lists is changed in that file, never here. A managed Operator policy, or one that locks the key against user configuration, refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `wall_refetch_stopped` item leaves the list with `needs_you.changed`.",
+      "events": [
+        "needs_you.changed"
+      ],
+      "kind": "round_trip",
+      "name": "needs_you.remove_refetch_domain",
+      "params": {
+        "$ref": "#/$defs/NeedsYouRemoveRefetchDomainParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/RefetchDomainRemoved"
       },
       "stability": "experimental"
     },
@@ -4124,6 +4186,23 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": 65536,
+      "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+      "name": "crawl.payload.max_size",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": false,
       "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
       "name": "crawl.retry.handler_failed",
@@ -4446,7 +4525,7 @@
       "authority": "every",
       "clearable": false,
       "default": "auto",
-      "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose, and today fetches a declared Label's request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while an undeclared Label's handler is given its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+      "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it today fetches the request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
       "name": "fetch.tier",
       "product": "foxhound",
       "products": [
@@ -7042,8 +7121,22 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A pinned host whose certificate presented another public key, stopped with `certificate_changed` (ADR 0042); `details` give the `host`, the `person` whose known-certificates store holds the pin, and both keys' SHA-256 as `pinned_spki_sha256` and `presented_spki_sha256`; `run` is the Run that met it. Its actions offer `certs.accept` and `certs.forget`, which that person alone answers. It leaves the list once they answer.",
+      "name": "certificate_changed",
+      "product": "collie",
+      "type": "needs_you_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The certificate exceptions a run used, once per run, by host and kind (ADR 0042).",
       "name": "certificate_exceptions_used",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person removed their pin of a host, and any change waiting for it, so its next connection under trust on first use pins again (ADR 0042).",
+      "name": "certificate_pin_forgotten",
       "product": "collie",
       "type": "audit_kind"
     },
@@ -7420,6 +7513,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A person removed a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that listed it, or replaced `*` there with a list (ADR 0052); `details` give the `domain` and the layer's `domains` after.",
+      "name": "refetch_domain_removed",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Requests a run sent: a crawl's Crawl requests, and a page's navigations.",
       "name": "requests",
       "product": "collie",
@@ -7550,6 +7650,20 @@
       "name": "trap_path",
       "product": "foxhound",
       "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person added a domain to `wall.denied_domains` in the Operator policy, so no run reads past its Walls or refetches its pages (ADR 0052); `details` give the `domain` and the `reason`.",
+      "name": "wall_domain_denied",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A domain on which a Run's refetch without the site's stored data stopped, at a Block cause, a 401 or 403 status or a login page (ADR 0052); `details` give the `domain`, the `cause`, and the `layer` of `wall.refetch_domains` that lists it with its `file`, and whether `only_star` covers it there; `run` is the last Run whose refetch stopped there. Its actions offer `needs_you.remove_refetch_domain`, except for a domain project configuration lists, which is changed in its file, and `needs_you.deny_wall_domain`. It leaves the list once no layer lists the domain, once `wall.denied_domains` denies it, or when a person dismisses it.",
+      "name": "wall_refetch_stopped",
+      "product": "collie",
+      "type": "needs_you_kind"
     }
   ]
 }

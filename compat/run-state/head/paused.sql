@@ -79,6 +79,19 @@ CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default IN
 INSERT INTO "page_sessions" VALUES(1,1,0,'{}',6178731391398722387,NULL);
 INSERT INTO "page_sessions" VALUES(2,0,1,'{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}',-2937466112876520115,NULL);
 INSERT INTO "page_sessions" VALUES(3,0,1,'{}',4417291851073961183,'{"url":"ws://127.0.0.1:9222/devtools/browser/lent","layer":"run","acting_for_model":false}');
+CREATE TABLE payload_cap (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            max_size INTEGER NOT NULL
+        ) STRICT;
+CREATE TABLE payload_labels (
+            label TEXT NOT NULL PRIMARY KEY,
+            schema TEXT,
+            hash TEXT
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE payloads (
+            request TEXT NOT NULL PRIMARY KEY,
+            payload TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE pool_sessions (
             position INTEGER NOT NULL PRIMARY KEY,
             proxy_tier TEXT NOT NULL,
@@ -255,7 +268,6 @@ CREATE TABLE work_items (
             body BLOB,
             label TEXT NOT NULL,
             depth INTEGER NOT NULL,
-            payload TEXT,
             status TEXT NOT NULL,
             attempts INTEGER NOT NULL,
             lease_epoch INTEGER NOT NULL,

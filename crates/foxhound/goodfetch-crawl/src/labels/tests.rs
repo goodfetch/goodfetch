@@ -20,6 +20,7 @@ fn the_declared_labels_read_back_as_the_start_recorded_them() {
         (
             "list".to_owned(),
             LabelDeclaration {
+                payload: Some(json!({ "type": "object" })),
                 settings: json!({ "fetch": { "tier": "http" } })
                     .as_object()
                     .cloned()

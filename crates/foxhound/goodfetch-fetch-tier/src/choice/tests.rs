@@ -6,7 +6,7 @@ use goodfetch_protocol::foxhound::crawl::LabelDeclaration;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use serde_json::{Value, json};
 
-use super::{Forced, LabelTiers, TierChoice, Unserved, unserved};
+use super::{Forced, LabelTiers, SetTier, TierChoice, Unserved, unserved};
 
 /// The Labels named in `labels`, each declared with its nested settings.
 fn declared(labels: &[(&str, Value)]) -> BTreeMap<String, LabelDeclaration> {
@@ -16,6 +16,7 @@ fn declared(labels: &[(&str, Value)]) -> BTreeMap<String, LabelDeclaration> {
             (
                 (*name).to_owned(),
                 LabelDeclaration {
+                    payload: None,
                     settings: settings.as_object().cloned().unwrap_or_default(),
                 },
             )
@@ -33,30 +34,37 @@ fn forced(tier: FetchTier, label: Option<&str>) -> TierChoice {
 }
 
 /// A Label's own `fetch.tier` forces its requests only, over the Run's;
-/// under `auto` a declared Label starts on `http` and an undeclared one is
-/// handed its request alone.
+/// an `auto` set for a Label or the Run starts on `http`, while the
+/// built-in default hands the handler its request alone.
 #[rstest::rstest]
 #[case::label_forces_its_own(
     "list",
-    Some(FetchTier::Browser),
+    SetTier::Forced(FetchTier::Browser),
     Some(forced(FetchTier::Http, Some("list")))
 )]
 #[case::another_label_takes_the_runs(
     "page",
-    Some(FetchTier::Browser),
+    SetTier::Forced(FetchTier::Browser),
     Some(forced(FetchTier::Browser, None))
 )]
-#[case::run_forces_the_rest("page", None, Some(TierChoice { tier: FetchTier::Http, forced: None }))]
-#[case::auto_label_under_a_forced_run("auto", Some(FetchTier::Browser), Some(TierChoice { tier: FetchTier::Http, forced: None }))]
-#[case::undeclared_is_handed_alone("other", None, None)]
+#[case::an_auto_the_run_set("page", SetTier::Auto, Some(engine()))]
+#[case::an_auto_the_label_set_under_a_forced_run(
+    "auto",
+    SetTier::Forced(FetchTier::Browser),
+    Some(engine())
+)]
+#[case::an_auto_the_label_set_under_the_default("auto", SetTier::Unset, Some(engine()))]
+#[case::the_default_is_handed_alone("page", SetTier::Unset, None)]
+#[case::undeclared_under_the_default("other", SetTier::Unset, None)]
 #[case::undeclared_under_a_forced_run(
     "other",
-    Some(FetchTier::Http),
+    SetTier::Forced(FetchTier::Http),
     Some(forced(FetchTier::Http, None))
 )]
+#[case::undeclared_under_an_auto_the_run_set("other", SetTier::Auto, Some(engine()))]
 fn a_labels_tier_forces_its_own_requests_over_the_runs(
     #[case] label: &str,
-    #[case] run_forced: Option<FetchTier>,
+    #[case] run: SetTier,
     #[case] expected: Option<TierChoice>,
 ) {
     let tiers = LabelTiers::of(&declared(&[
@@ -66,7 +74,15 @@ fn a_labels_tier_forces_its_own_requests_over_the_runs(
     ]))
     .unwrap();
 
-    assert_eq!(tiers.choose(label, run_forced), expected);
+    assert_eq!(tiers.choose(label, run), expected);
+}
+
+/// The engine's choice under `auto`: `http`, forced by no one.
+fn engine() -> TierChoice {
+    TierChoice {
+        tier: FetchTier::Http,
+        forced: None,
+    }
 }
 
 /// A Label key other than `fetch.tier` is refused with

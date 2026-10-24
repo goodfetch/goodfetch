@@ -2607,7 +2607,7 @@
             "$ref": "#/$defs/LabelDeclaration"
           },
           "arrived_in": "0.1",
-          "description": "The Labels the crawl declares, by name, each with its own settings\n(ADR 0093): a scope between the Run and its requests.",
+          "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone, and its own settings (ADRs 0082 and 0093): a scope between the\nRun and its requests. A Payload of a declared schema is checked\nagainst it at every enqueue; a Label the crawl does not declare\ntakes any Payload.",
           "type": "object"
         },
         "project": {
@@ -5165,8 +5165,12 @@
     },
     "LabelDeclaration": {
       "additionalProperties": false,
-      "description": "One Label a crawl declares (ADR 0093): the settings its requests take\nover the Run's.",
+      "description": "One Label a crawl declares (ADRs 0082 and 0093): its Payload's schema\nand the settings its requests take over the Run's.",
       "properties": {
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema its requests' Payloads are checked against, the\nside the program's schema parses from; none takes any Payload."
+        },
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
@@ -5979,6 +5983,31 @@
         }
       ]
     },
+    "NeedsYouDenyWallDomainParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.deny_wall_domain` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The registrable domain to deny.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why, such as the site's objection; required.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "reason"
+      ],
+      "type": "object"
+    },
     "NeedsYouDismissParams": {
       "additionalProperties": false,
       "description": "What `needs_you.dismiss` takes.",
@@ -6026,7 +6055,7 @@
         "details": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,\n`limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for\n`consent_wall`, `domain`.",
+          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,\n`limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for\n`consent_wall`, `domain`; for `wall_refetch_stopped`, `domain`,\n`cause`, the `layer` and `file` that list it and `only_star`; for\n`certificate_changed`, `host`, `person`, `pinned_spki_sha256` and\n`presented_spki_sha256`.",
           "type": "object"
         },
         "id": {
@@ -6148,6 +6177,36 @@
           "type": "string"
         }
       ]
+    },
+    "NeedsYouRemoveRefetchDomainParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.remove_refetch_domain` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The registrable domain, as a `wall_refetch_stopped` item names it.",
+          "type": "string"
+        },
+        "instead_of_star": {
+          "arrived_in": "0.1",
+          "description": "When only `*` covers the domain in its layer, the registrable\ndomains that replace `*` there, the domain itself not among them.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
     },
     "NewPageParams": {
       "additionalProperties": false,
@@ -7860,6 +7919,47 @@
         "mode",
         "file",
         "responses_used"
+      ],
+      "type": "object"
+    },
+    "RefetchDomainRemoved": {
+      "description": "What `needs_you.remove_refetch_domain` answers.",
+      "properties": {
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain.",
+          "type": "string"
+        },
+        "domains": {
+          "arrived_in": "0.1",
+          "description": "That layer's `wall.refetch_domains` now.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "layer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsLayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The layer that listed it, and now does not; none when no layer was\nchanged."
+        },
+        "removed": {
+          "arrived_in": "0.1",
+          "description": "Whether its layer changed: false when neither user configuration\nnor the Operator policy lists it, which then changed nothing and\nrecorded nothing.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "domain",
+        "removed",
+        "domains"
       ],
       "type": "object"
     },
@@ -12741,6 +12841,32 @@
         }
       ]
     },
+    "WallDomainDenied": {
+      "description": "What `needs_you.deny_wall_domain` answers.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "Whether it was added: false when the Operator policy denied it\nalready, which then changed nothing and recorded nothing.",
+          "type": "boolean"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain, as `wall.denied_domains` now lists it.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "The reason, as the Audit log records it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "added",
+        "reason"
+      ],
+      "type": "object"
+    },
     "WeakenedSetting": {
       "description": "A setting that weakened a safeguard for a Run (ADR 0028): its key, its\nvalue, the layer that set it and, for the run layer, where the value came\nfrom.",
       "properties": {
@@ -13263,6 +13389,17 @@
                       }
                     ],
                     "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
+                  },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   },
                   "retry": {
                     "additionalProperties": false,
@@ -14081,6 +14218,17 @@
                     },
                     "type": "array"
                   },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
@@ -14218,7 +14366,7 @@
                     "type": "object"
                   },
                   "tier": {
-                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose, and today fetches a declared Label's request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while an undeclared Label's handler is given its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it today fetches the request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
                     "enum": [
                       "auto",
                       "http",
@@ -16188,6 +16336,17 @@
                     },
                     "type": "array"
                   },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
@@ -16325,7 +16484,7 @@
                     "type": "object"
                   },
                   "tier": {
-                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose, and today fetches a declared Label's request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while an undeclared Label's handler is given its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it today fetches the request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
                     "enum": [
                       "auto",
                       "http",
@@ -18311,6 +18470,17 @@
                     },
                     "type": "array"
                   },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
@@ -18448,7 +18618,7 @@
                     "type": "object"
                   },
                   "tier": {
-                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose, and today fetches a declared Label's request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while an undeclared Label's handler is given its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it today fetches the request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
                     "enum": [
                       "auto",
                       "http",

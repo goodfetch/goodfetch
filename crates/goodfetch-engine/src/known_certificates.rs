@@ -136,6 +136,22 @@ pub struct Accepted {
     pub pin: CertificatePin,
 }
 
+/// A change of a pinned host's key waiting for its person, as
+/// [`KnownCertificates::waiting`] lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Waiting {
+    /// The host.
+    pub host: String,
+    /// What the store holds for it: its pin, or a row it cannot read.
+    pub pinned: Found,
+    /// The key it presented instead.
+    pub presented: KeyHash,
+    /// When it presented it.
+    pub seen_at: PointInTime,
+    /// The Run that met it.
+    pub run_id: Option<RunId>,
+}
+
 /// Why the store could not be read or written.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -495,6 +511,56 @@ impl KnownCertificates {
             });
         }
         Ok(pins)
+    }
+
+    /// The changes waiting for `person`, by host: each pinned host that
+    /// presented another key, with its pin. A change whose key this engine
+    /// cannot read waits for nothing a person could accept, and is left
+    /// out. A store never written lists none, and is not created.
+    ///
+    /// # Errors
+    ///
+    /// When the store cannot be read, or is of another major.
+    pub fn waiting(&self, person: &str) -> Result<Vec<Waiting>, KnownCertificatesError> {
+        if !self.path.exists() {
+            return Ok(Vec::new());
+        }
+        let failed = |error: &dyn std::fmt::Display| self.failed(error);
+        let connection = self.open()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT host, spki_sha256, seen_at, run_id FROM changes WHERE person = ?1 ORDER BY host",
+            )
+            .map_err(|error| failed(&error))?;
+        let rows = statement
+            .query_map([person], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Vec<u8>>(1).ok(),
+                    row.get::<_, String>(2).ok(),
+                    row.get::<_, Option<String>>(3).ok().flatten(),
+                ))
+            })
+            .map_err(|error| failed(&error))?;
+        let mut waiting = Vec::new();
+        for row in rows {
+            let (host, key, seen_at, run_id) = row.map_err(|error| failed(&error))?;
+            let (Some(presented), Some(seen_at)) = (
+                key.as_deref().and_then(KeyHash::from_stored),
+                seen_at.and_then(|seen_at| seen_at.parse::<Timestamp>().ok()),
+            ) else {
+                continue;
+            };
+            let pinned = find_in(&connection, person, &host).map_err(|error| failed(&error))?;
+            waiting.push(Waiting {
+                pinned,
+                presented,
+                seen_at: PointInTime::from_rfc3339(seen_at.to_string()),
+                run_id: run_id.and_then(|run_id| RunId::parse(&run_id).ok()),
+                host,
+            });
+        }
+        Ok(waiting)
     }
 
     /// Opens the store, creating it and its tables when it does not exist,

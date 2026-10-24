@@ -47,6 +47,7 @@ fn crawl_of(count: usize) -> Connection {
         .chain(goodfetch_frontier::SCOPE_TABLES.statements)
         .chain(goodfetch_frontier::BOUNDS_TABLES.statements)
         .chain(goodfetch_frontier::RULES_TABLES.statements)
+        .chain(goodfetch_frontier::payload::TABLES.statements)
     {
         connection.execute_batch(statement).unwrap();
     }

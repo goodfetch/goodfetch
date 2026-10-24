@@ -26,7 +26,7 @@ mod redundant;
 mod tiers;
 mod transports;
 
-pub use choice::{Forced, LabelTiers, TierChoice};
+pub use choice::{Forced, LabelTiers, SetTier, TierChoice};
 pub use driver::{
     Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
 };

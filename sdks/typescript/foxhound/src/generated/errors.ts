@@ -58,6 +58,24 @@ export class LeaseLostError extends UnavailableError {
 }
 
 /**
+ * A crawl request's Payload was refused when it was enqueued, as a seed, an added seed or a handler's enqueue: it does not fit its Label's JSON Schema, each issue named by its path, or its JSON is longer than `crawl.payload.max_size`, which `limit` names. Nothing was added. Large content goes to the Key-value store, and the Payload carries its key.
+ */
+export class PayloadInvalidError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "payload_invalid", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The crawl now declares a Label's Payload JSON Schema that the Run did not begin with, and Payloads of that Label's pending requests fail it, so the Run was not resumed and did no work. The details name the Label, how many pending Payloads fail out of how many, and the first failure. Give the new field a default in the schema, or start a new Run: a Payload is never migrated silently.
+ */
+export class PayloadSchemaChangedError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "payload_schema_changed", group: "program", retryable: false });
+  }
+}
+
+/**
  * The site is failing for now: its 5xx or 408 response stayed after the retries ran out, or its `Retry-After` asked for a time further away than `politeness.retry_after.max`, so nothing is sent to its domain before then and nothing waits for it. The details name the response's `status` (`null` for a request held unsent), the time the site asked for as `retry_after` when it asked, and a `fix`. `run.retry_failed` re-admits the request once the site is back.
  */
 export class ResponseUnavailableError extends PageError {
@@ -83,6 +101,8 @@ export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   handler_failed: HandlerFailedError,
   handler_lost: HandlerLostError,
   lease_lost: LeaseLostError,
+  payload_invalid: PayloadInvalidError,
+  payload_schema_changed: PayloadSchemaChangedError,
   response_unavailable: ResponseUnavailableError,
   sample_crawl_refused: SampleCrawlRefusedError,
 };

@@ -380,9 +380,11 @@ pub struct BlockedDetails {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RedirectLimit {
     /// The browser's own count, 20 requests in a navigation's chain, its
-    /// first included, which a navigation cannot change.
+    /// first included, which a navigation cannot change: it follows 19
+    /// redirects (ADR 0118).
     Browser {
-        /// The count.
+        /// The requests the chain may hold, its first included: 20, one
+        /// more than the redirects followed, which `hops` lists.
         #[schemars(extend("arrived_in" = "0.1"))]
         count: u32,
     },
@@ -391,7 +393,7 @@ pub enum RedirectLimit {
         /// The setting's key.
         #[schemars(extend("arrived_in" = "0.1"))]
         name: String,
-        /// The count.
+        /// The redirects it allows, the chain's first request left out.
         #[schemars(extend("arrived_in" = "0.1"))]
         count: u32,
     },
@@ -400,7 +402,7 @@ pub enum RedirectLimit {
         /// The option's name.
         #[schemars(extend("arrived_in" = "0.1"))]
         name: String,
-        /// The count.
+        /// The redirects it allows, the chain's first request left out.
         #[schemars(extend("arrived_in" = "0.1"))]
         count: u32,
     },

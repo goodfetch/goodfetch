@@ -19,6 +19,7 @@ use goodfetch_protocol::page::proxy::PROXY_UNAVAILABLE;
 use goodfetch_protocol::page::{BLOCKED, PAGE_GOTO, PageOpened};
 use serde_json::{Value, json};
 
+use super::proxies::server;
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
 
@@ -68,17 +69,6 @@ impl Case {
             Self::SitesRefusal => sites_refusal(connection, site, &limited, checks),
         }
     }
-}
-
-/// `proxy.server` for the Proving ground's proxy `name`, checked to be one
-/// it serves.
-fn server(site: &Site, name: &str, checks: &mut Checks) -> Option<String> {
-    let address = site.proxy(name);
-    checks.check(
-        format!("the Proving ground serves its `{name}` proxy"),
-        address.is_some(),
-    );
-    address.map(|address| format!("http://{address}"))
 }
 
 /// A Run's settings: the proxy `server` used as `username`, and `more`.

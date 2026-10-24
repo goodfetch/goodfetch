@@ -65,7 +65,7 @@ fn call(connection: &mut Connection, method: &str, params: &Value) -> Result<Val
 
 /// `proxy.server` for the Proving ground's proxy `name`, checked to be one
 /// it serves.
-fn server(site: &Site, name: &str, checks: &mut Checks) -> Option<String> {
+pub(super) fn server(site: &Site, name: &str, checks: &mut Checks) -> Option<String> {
     let address = site.proxy(name);
     checks.check(
         format!("the Proving ground serves its `{name}` proxy"),

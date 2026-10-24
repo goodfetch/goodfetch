@@ -79,6 +79,35 @@
       "description": "What a locator action answers once its input landed on its target:\nnothing, since no operation returns a handle on an element (ADR 0085).",
       "type": "object"
     },
+    "AddInitScriptParams": {
+      "additionalProperties": false,
+      "description": "What `page.add_init_script` takes: the page, and the script's source and\nargument.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "arg": {
+          "arrived_in": "0.1",
+          "description": "The function's one argument, JSON; absent for none."
+        },
+        "function": {
+          "arrived_in": "0.1",
+          "description": "The script's JavaScript source: a function, called with `arg`, or a\nscript run as it is, which takes none.",
+          "type": "string"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id",
+        "function"
+      ],
+      "type": "object"
+    },
     "AllowanceSource": {
       "description": "What set the Memory allowance: the tightest of them (ADR 0040).",
       "oneOf": [
@@ -1398,6 +1427,57 @@
       ],
       "type": "object"
     },
+    "EvaluateParams": {
+      "additionalProperties": false,
+      "description": "What `page.evaluate` takes: the page, the function's source, its\nargument and its world.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "arg": {
+          "arrived_in": "0.1",
+          "description": "Its one argument, JSON; absent for none."
+        },
+        "function": {
+          "arrived_in": "0.1",
+          "description": "The page function's JavaScript source: a function, called with\n`arg`, or an expression, which takes none.",
+          "type": "string"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "world": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/World"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where it runs; the main world when absent."
+        }
+      },
+      "required": [
+        "page_id",
+        "function"
+      ],
+      "type": "object"
+    },
+    "Evaluated": {
+      "description": "What `page.evaluate` answers: the function's result, awaited when it is\na promise.",
+      "properties": {
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The result as JSON; absent when it was `undefined`."
+        }
+      },
+      "type": "object"
+    },
     "EventsSubscribeParams": {
       "additionalProperties": false,
       "description": "What `events.subscribe` takes.",
@@ -1684,6 +1764,10 @@
         "raised_by",
         "since"
       ],
+      "type": "object"
+    },
+    "InitScriptEnded": {
+      "description": "What an init script's subscription answers when its page closes.",
       "type": "object"
     },
     "KeyValueStoreBytes": {
@@ -6345,6 +6429,21 @@
         "binary"
       ],
       "type": "object"
+    },
+    "World": {
+      "description": "Where a page function runs (ADR 0085).",
+      "oneOf": [
+        {
+          "const": "main",
+          "description": "The page's own world, where its globals are, as Playwright's and\nPuppeteer's default: the Session's Provenance marks the call.",
+          "type": "string"
+        },
+        {
+          "const": "isolated",
+          "description": "A world of the engine's own in the page's document, which shares\nits DOM but neither sees nor is seen by the page's scripts.",
+          "type": "string"
+        }
+      ]
     }
   },
   "error_codes": [
@@ -6700,6 +6799,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A page function threw in the page, or did not parse, or is an expression given an argument, which only a function takes. The details give the error's name, its message and the page's stack. A page function sees only the page and its one argument, never the program's variables, so a `ReferenceError`'s fix names the argument: pass the value in it.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "page_function_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed; a dialog handler's dialog got its default and the handler was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or by the call the dialog blocked, or else by the next call on its page. The details name the handler, the URL of the request or of the dialog's document, and what the failure said.",
       "exit_code": null,
       "group": "program",
@@ -6717,6 +6826,16 @@
       "name": "page_memory_exceeded",
       "product": "collie",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A page function's result, or its argument, holds a value outside JSON, such as a DOM node, `NaN`, `Infinity`, a function, a `Map`, a `BigInt` or a cycle, which Playwright would have turned into `undefined`, silently. The details name the first such value's path from `$`, its kind and the fix: return the JSON the program needs, such as an element's text or attribute instead of the element.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "page_value_invalid",
+      "product": "collie",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",
@@ -8237,6 +8356,25 @@
     {
       "arrived_in": "0.1",
       "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Registers a script, registered when the call arrives, that runs in the main world of every document the page loads afterwards, its frames' included, before the document's own scripts: the call stays in flight, and a navigation sent after it waits until the script is registered. A function is called with its one JSON argument. The Session's Provenance marks the main-world injection. Cancelling the call, as closing its `Subscription` does, removes the script; it answers when the page closes.",
+      "events": [],
+      "kind": "sequence",
+      "name": "page.add_init_script",
+      "params": {
+        "$ref": "#/$defs/AddInitScriptParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/InitScriptEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
       "class": "read",
       "deprecated": null,
       "description": "Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.",
@@ -8269,6 +8407,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageClosed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Runs a page function in the page's main frame with its one JSON argument, in the main world, where the page's globals are, or in an isolated world the page neither sees nor hooks, and answers its result, awaited, as JSON; a result of `undefined` answers no value. A value outside JSON in the result raises `page_value_invalid` naming its path and kind, and an exception thrown in the page `page_function_failed`. It is no gesture: it runs beside the page's actions. A main-world call is marked in the Session's Provenance.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.evaluate",
+      "params": {
+        "$ref": "#/$defs/EvaluateParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/Evaluated"
       },
       "stability": "experimental"
     },

@@ -23,7 +23,9 @@
 //! keeps its response's body for `response.body`. `page.on_dialog` arms a
 //! dialog handler and `dialog.*` answer the dialogs it is asked about
 //! (`dialogs`); a failure a dialog handler left is raised by the action the
-//! dialog blocked, or else by the page's next call.
+//! dialog blocked, or else by the page's next call. `page.evaluate` runs a
+//! page function and `page.add_init_script` registers an init script
+//! (`page_functions`), which the page's navigations wait for.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -41,6 +43,10 @@ use goodfetch_protocol::page::dialog::{
 use goodfetch_protocol::page::events::{
     PAGE_ON, PAGE_WAIT_FOR_REQUEST_FINISHED, PageOnEnded, PageOnParams, RESPONSE_BODY,
     ResponseBodyParams, WaitForRequestFinishedParams,
+};
+use goodfetch_protocol::page::functions::{
+    AddInitScriptParams, EvaluateParams, Evaluated, InitScriptEnded, PAGE_ADD_INIT_SCRIPT,
+    PAGE_EVALUATE, World,
 };
 use goodfetch_protocol::page::request::{MAX_REDIRECTS, PAGE_REQUEST, PageRequestParams};
 use goodfetch_protocol::page::route::UrlMatcher;
@@ -70,6 +76,7 @@ use crate::driver::{Arrived, Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events::{self, Requested};
+use crate::page_functions::{self, InitScripts, Injection, Injections, Pending, Registered};
 use crate::page_value::{HandlerPages, ProgramPages};
 use crate::sessions::{self, OpenPage, PageEvent, Sessions};
 use crate::trace;
@@ -109,6 +116,8 @@ pub fn contribution_with(pins: Vec<PinnedArtifact>, hooks: Arc<dyn HandlerPages>
         events,
         dialogs,
         hooks,
+        init_scripts: InitScripts::default(),
+        injections: Injections::default(),
     };
     let contribution = with_page_handlers(
         Contribution::new("page")
@@ -121,7 +130,31 @@ pub fn contribution_with(pins: Vec<PinnedArtifact>, hooks: Arc<dyn HandlerPages>
     let contribution = with_event_handlers(contribution, &pages.events);
     let contribution = with_route_handlers(contribution, &pages.interception);
     let contribution = with_dialog_handlers(contribution, &pages.dialogs);
+    let contribution = with_function_handlers(contribution, &pages);
     with_request_handler(contribution, &pages)
+}
+
+/// Adds the handlers of `page.evaluate` and of `page.add_init_script`,
+/// whose script is counted on its way in when its call arrives, so that a
+/// navigation sent after it waits for it.
+fn with_function_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
+    let (evaluating, registering) = (pages.clone(), pages.clone());
+    contribution
+        .with_handler(Handler::new(
+            &PAGE_EVALUATE,
+            move |params: EvaluateParams, context: CallContext| {
+                let pages = evaluating.clone();
+                async move { pages.evaluate(params, context.surface()).await }
+            },
+        ))
+        .with_handler(Handler::new(
+            &PAGE_ADD_INIT_SCRIPT,
+            move |params: AddInitScriptParams, _context: CallContext| {
+                let pending = registering.init_scripts.begin(&params.page_id);
+                let pages = registering.clone();
+                async move { pages.add_init_script(params, pending).await }
+            },
+        ))
 }
 
 /// Adds the handler of `page.request`.
@@ -608,6 +641,11 @@ struct Pages {
     /// The Product's hook, which also serves the pages its fetch tiers
     /// opened from a document.
     hooks: Arc<dyn HandlerPages>,
+    /// Each page's init scripts on their way in or out, which its
+    /// navigations wait for.
+    init_scripts: InitScripts,
+    /// The Sessions Provenance marks as injecting in the main world.
+    injections: Injections,
 }
 
 impl Pages {
@@ -632,6 +670,7 @@ impl Pages {
         if let Destination::Url(url) = destination {
             span.record("url.origin", goodfetch_engine::log::origin(url));
         }
+        self.init_scripts.settled(page_id).await;
         let page = self.open(page_id).await?;
         span.record("run_id", page.run.id().as_str());
         let navigator = Navigator {
@@ -779,6 +818,82 @@ impl Pages {
         };
         events.keep_requested(fetched.response.request_id.clone(), kept);
         Ok(fetched.response)
+    }
+
+    /// Runs the page function `params` names on its page, in the world it
+    /// names, and answers its JSON; a main-world call marks the Session in
+    /// Provenance. Its errors are spelled for `surface`.
+    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_EVALUATE.name, run_id = tracing::field::Empty))]
+    async fn evaluate(
+        &self,
+        params: EvaluateParams,
+        surface: Surface,
+    ) -> Result<Evaluated, CallError> {
+        let page = self.open(&params.page_id).await?;
+        tracing::Span::current().record("run_id", page.run.id().as_str());
+        let world = params.world.unwrap_or_default();
+        if world == World::Main {
+            self.injections
+                .mark(
+                    &page.run,
+                    &page.session,
+                    &params.page_id,
+                    Injection::Evaluate,
+                )
+                .await;
+        }
+        let expression = page_functions::expression(&params.function, params.arg.as_ref());
+        let returns = page
+            .life
+            .call(
+                PageEvent::Read,
+                page.driver.evaluate(&expression, world, PAGE_EVALUATE.name),
+            )
+            .await?;
+        page_functions::answered(returns, surface)
+    }
+
+    /// Registers the init script `params` names on its page, `pending`
+    /// until it is, and marks the Session in Provenance; answers once the
+    /// page ended, and removes the script when the call is dropped before.
+    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_ADD_INIT_SCRIPT.name, run_id = tracing::field::Empty))]
+    async fn add_init_script(
+        &self,
+        params: AddInitScriptParams,
+        pending: Pending,
+    ) -> Result<InitScriptEnded, CallError> {
+        let source = page_functions::init_script(&params.function, params.arg.as_ref())?;
+        let page = self.open(&params.page_id).await?;
+        tracing::Span::current().record("run_id", page.run.id().as_str());
+        let identifier = page
+            .life
+            .call(
+                PageEvent::Read,
+                page.driver
+                    .add_init_script(source, PAGE_ADD_INIT_SCRIPT.name),
+            )
+            .await?;
+        let registered = Registered::new(
+            page.driver.clone(),
+            identifier,
+            page.run.clone(),
+            self.init_scripts.clone(),
+            params.page_id.clone(),
+        );
+        self.injections
+            .mark(
+                &page.run,
+                &page.session,
+                &params.page_id,
+                Injection::InitScript,
+            )
+            .await;
+        drop(pending);
+        let life = page.life.clone();
+        drop(page);
+        life.terminal().await;
+        registered.ended();
+        Ok(InitScriptEnded {})
     }
 
     /// The open page `page_id`, or `closed`; a failure a route's or a

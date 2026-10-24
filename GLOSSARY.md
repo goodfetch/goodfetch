@@ -474,6 +474,10 @@ _Avoid_: element handle, query, selector (for the value)
 The engine's check of each locator action: it waits until the target is unique and actionable (visible, enabled, stable and receiving the event, as the action needs), cancels a gesture that lands on another element and replays it, until the action's timeout.
 _Avoid_: actionability check, auto-wait
 
+**Page function**:
+JavaScript source a program runs in a page with one explicit JSON argument, its result crossing back as JSON, in the page's main world by default or in an isolated world; an init script is one run before each document's own scripts.
+_Avoid_: injected code, user script
+
 **Page check**:
 A declaration by a run's code of what an expected page and a login page look like, against which every page fetched in a session is judged.
 _Avoid_: contract, validator, assertion

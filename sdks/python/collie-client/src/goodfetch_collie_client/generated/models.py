@@ -530,6 +530,19 @@ class ErrorData(BaseModel):
     """Whether the same call may succeed when made again."""
 
 
+class Evaluated(BaseModel):
+    """
+    What `page.evaluate` answers: the function's result, awaited when it is
+    a promise.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    value: Any | None = None
+    """The result as JSON; absent when it was `undefined`."""
+
+
 class Form(StrEnum):
     """
     The form a Client's user writes names in (ADR 0099), which the engine
@@ -572,6 +585,14 @@ class HttpBody(RootModel[str]):
 class HttpMethod(RootModel[str]):
     root: Annotated[str, Field(pattern="^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")]
     """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
+
+
+class InitScriptEnded(BaseModel):
+    """What an init script's subscription answers when its page closes."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
 
 
 class KeyValueStoreContent(RootModel[str]):
@@ -2314,6 +2335,41 @@ class WebSocketFrame(BaseModel):
     """The socket."""
 
 
+class World(StrEnum):
+    """Where a page function runs (ADR 0085)."""
+
+    main = "main"
+    """
+    The page's own world, where its globals are, as Playwright's and
+    Puppeteer's default: the Session's Provenance marks the call.
+    """
+    isolated = "isolated"
+    """
+    A world of the engine's own in the page's document, which shares
+    its DOM but neither sees nor is seen by the page's scripts.
+    """
+
+
+class AddInitScriptParams(BaseModel):
+    """
+    What `page.add_init_script` takes: the page, and the script's source and
+    argument.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """The function's one argument, JSON; absent for none."""
+    function: str
+    """
+    The script's JavaScript source: a function, called with `arg`, or a
+    script run as it is, which takes none.
+    """
+    page_id: PageId
+    """The page."""
+
+
 class ArtifactId(BaseModel):
     """Which Pinned artifact: its kind, its name and its build."""
 
@@ -2694,6 +2750,28 @@ class EnqueuedBatch(BaseModel):
     """Each seed's answer."""
     id: RequestId
     """The id of the `run.add_seeds` call."""
+
+
+class EvaluateParams(BaseModel):
+    """
+    What `page.evaluate` takes: the page, the function's source, its
+    argument and its world.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """Its one argument, JSON; absent for none."""
+    function: str
+    """
+    The page function's JavaScript source: a function, called with
+    `arg`, or an expression, which takes none.
+    """
+    page_id: PageId
+    """The page."""
+    world: World | None = None
+    """Where it runs; the main world when absent."""
 
 
 class EventEnvelope(BaseModel):

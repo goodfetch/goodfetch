@@ -27,6 +27,7 @@
 mod carry;
 mod encoding;
 mod ending;
+mod functions;
 mod identity;
 
 mod navigation;
@@ -50,6 +51,7 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::page::functions::World;
 use goodfetch_protocol::page::{
     BrowserExit, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageResponse, WaitUntil,
 };
@@ -60,6 +62,7 @@ use tokio_util::sync::CancellationToken;
 pub(crate) use self::carry::{Carried, Origins};
 use self::encoding::{encoding_of, encoding_read, isolated_world};
 pub(crate) use self::ending::Lost;
+use self::functions::{evaluation, page_function_world};
 pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
 use self::permit_waits::PermitWaits;
@@ -847,6 +850,87 @@ impl PageDriver {
             return Ok(None);
         }
         Ok(called.result.value)
+    }
+
+    /// Evaluates `expression`, a page function's, in the page's main frame:
+    /// in its main world, or in the page functions' isolated world, made or
+    /// found by its name; its promise awaited and its value answered by
+    /// value, outside any gesture's turn (ADR 0085). A document replaced
+    /// under it is tried once more in the next one; a failure raises the
+    /// code of the operation `operation`.
+    pub(crate) async fn evaluate(
+        &self,
+        expression: &str,
+        world: World,
+        operation: &'static str,
+    ) -> Result<runtime::EvaluateReturns, CallError> {
+        let call = &Call::Action { operation };
+        let mut tries = 2;
+        loop {
+            tries -= 1;
+            let context = match world {
+                World::Main => None,
+                World::Isolated => Some(
+                    self.browser
+                        .send(
+                            Some(&self.session),
+                            &page_function_world(self.frame.clone()),
+                            call,
+                        )
+                        .await?
+                        .execution_context_id,
+                ),
+            };
+            match self
+                .browser
+                .try_send(Some(&self.session), &evaluation(expression, context))
+                .await
+            {
+                Ok(returned) => return Ok(returned),
+                Err(Failure::Refused {
+                    refusal: Refusal::ContextGone,
+                    ..
+                }) if tries > 0 => {}
+                Err(failure) => return Err(self.browser.failed(call, &failure).await),
+            }
+        }
+    }
+
+    /// Registers `source` to run in the main world of every document the
+    /// page loads from now on, its frames' included, before their own
+    /// scripts, answering the script's identifier; a failure raises the
+    /// code of the operation `operation`.
+    pub(crate) async fn add_init_script(
+        &self,
+        source: String,
+        operation: &'static str,
+    ) -> Result<page::ScriptIdentifier, CallError> {
+        let call = &Call::Action { operation };
+        Ok(self
+            .browser
+            .send(
+                Some(&self.session),
+                &page::AddScriptToEvaluateOnNewDocumentParams {
+                    source,
+                    world_name: None,
+                    include_command_line_api: None,
+                    run_immediately: None,
+                },
+                call,
+            )
+            .await?
+            .identifier)
+    }
+
+    /// Removes the init script `identifier`; a page gone has none left.
+    pub(crate) async fn remove_init_script(&self, identifier: page::ScriptIdentifier) {
+        let _ = self
+            .browser
+            .try_send(
+                Some(&self.session),
+                &page::RemoveScriptToEvaluateOnNewDocumentParams { identifier },
+            )
+            .await;
     }
 
     /// Waits for the page's turn, in arrival order, for the gesture

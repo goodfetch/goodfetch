@@ -4,7 +4,8 @@
 //! cases are `delivery`'s, a page's formats cases `formats`'s, its route
 //! cases `routes`'s, a Run's Session cases `sessions`', their proxy cases
 //! `proxies`', its events and bodies cases `events`'s, its `page.request`
-//! cases `page_request`'s, its dialog cases `dialogs`', its popup cases `popups`' and the reset
+//! cases `page_request`'s, its dialog cases `dialogs`', its popup cases
+//! `popups`', its page function cases `page_functions`' and the reset
 //! gate's cases `reset`'s.
 
 mod clean_up;
@@ -18,6 +19,7 @@ mod formats;
 mod guard;
 mod launch;
 mod navigation;
+mod page_functions;
 mod page_request;
 mod popups;
 mod proxies;
@@ -105,6 +107,8 @@ pub(crate) enum Case {
     Dialog(dialogs::Case),
     /// A popup case.
     Popup(popups::Case),
+    /// A page function case.
+    PageFunction(page_functions::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -310,7 +314,8 @@ impl Case {
                     .or_else(|| page_request::Case::from_id(id).map(Self::PageRequest))
                     .or_else(|| fetch_tiers::Case::from_id(id).map(Self::FetchTier))
                     .or_else(|| dialogs::Case::from_id(id).map(Self::Dialog))
-                    .or_else(|| popups::Case::from_id(id).map(Self::Popup));
+                    .or_else(|| popups::Case::from_id(id).map(Self::Popup))
+                    .or_else(|| page_functions::Case::from_id(id).map(Self::PageFunction));
             }
         })
     }
@@ -358,6 +363,7 @@ impl Case {
             Self::PageRequest(case) => case.run(connection, site, checks),
             Self::Dialog(case) => case.run(connection, site, checks),
             Self::Popup(case) => case.run(connection, site, checks),
+            Self::PageFunction(case) => case.run(connection, target, site, checks),
             Self::MarkdownMatchesTheOracle => {
                 formats::markdown_matches_the_oracle(connection, site, checks)
             }

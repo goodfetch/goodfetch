@@ -725,6 +725,27 @@ number = 5
 kind = "error"
 prefix = "route_already_handled"
 
+# Page functions and init scripts, and their Error codes (#704).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.evaluate"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.add_init_script"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_function_failed"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_value_invalid"
+
 # A page's events, its listener and its responses' bodies (#703).
 [[area]]
 number = 5

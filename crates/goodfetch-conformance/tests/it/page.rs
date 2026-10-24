@@ -81,7 +81,7 @@ const WAITS: Part = ("waits", &["waits"]);
 const ROBOTS_TXT: Part = ("robots-txt", &["robots_txt"]);
 
 /// Every part.
-const PARTS: [Part; 16] = [
+const PARTS: [Part; 17] = [
     SESSIONS,
     PROXY_LIMITS,
     NAVIGATION,

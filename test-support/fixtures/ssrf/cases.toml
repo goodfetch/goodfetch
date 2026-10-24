@@ -842,6 +842,72 @@ redirect = { kind = "status", status = 302, location = "http://127.0.0.1/" }
 target = "127.0.0.1"
 refusal = { code = "egress_refused", rule = "private_address" }
 
+# An Operator-configured endpoint under an Operator policy that sets
+# `egress.no_private_endpoints` (ADR 0017), as Goodfetch Cloud does: an
+# endpoint that resolves to an address that is not globally reachable is
+# refused before it connects. The engine's HTTP client runs these on its
+# first endpoint, the OTLP collector; Notification webhooks (area 11) and
+# Sink webhooks (Foxhound's area 6) join with their own `kind` when they are
+# built.
+
+[[cases]]
+name = "endpoint_on_loopback"
+family = "operator_endpoint"
+url = "http://127.0.0.1/v1/traces"
+route = { via = "operator_endpoint", kind = "otlp" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "endpoint_on_ipv6_loopback"
+family = "operator_endpoint"
+url = "http://[::1]/v1/traces"
+route = { via = "operator_endpoint", kind = "otlp" }
+target = "::1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "endpoint_at_an_encoded_address"
+family = "operator_endpoint"
+url = "http://0x7f000001/v1/traces"
+route = { via = "operator_endpoint", kind = "otlp" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "endpoint_at_an_ipv4_mapped_address"
+family = "operator_endpoint"
+url = "http://[::ffff:127.0.0.1]/v1/traces"
+route = { via = "operator_endpoint", kind = "otlp" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "endpoint_on_cloud_metadata"
+family = "operator_endpoint"
+url = "http://169.254.169.254/latest/meta-data/"
+route = { via = "operator_endpoint", kind = "otlp" }
+target = "169.254.169.254"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "endpoint_at_a_private_name"
+family = "operator_endpoint"
+url = "http://collector.ssrf.test/v1/traces"
+route = { via = "operator_endpoint", kind = "otlp" }
+lookups = [{ name = "collector.ssrf.test", answers = ["10.0.0.1"] }]
+target = "10.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "endpoint_at_a_name_with_a_loopback_answer"
+family = "operator_endpoint"
+url = "http://webhook.ssrf.test/v1/traces"
+route = { via = "operator_endpoint", kind = "otlp" }
+lookups = [{ name = "webhook.ssrf.test", answers = ["127.0.0.1", "10.0.0.1"] }]
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
 # A Lent page's client: a browser context with its own proxy, or an
 # extension, would leave through no relay; the endpoint refuses both (ADR
 # 0089).

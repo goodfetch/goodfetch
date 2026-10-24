@@ -40,6 +40,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 
+use goodfetch_protocol::egress::ConfiguredKind;
 use goodfetch_protocol::page::RequestFailed;
 use http_body_util::{BodyExt as _, Empty};
 use hyper::body::{Bytes, Incoming};
@@ -50,7 +51,7 @@ use url::Host;
 
 use crate::clock::Clock;
 use crate::dns::{Dns, IpFamily, LookupError, Route, family_of};
-use crate::egress::{self, Judgment, Refused};
+use crate::egress::{self, EndpointPolicy, Judgment, Refused};
 use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
 use crate::run_trace::RequestLog;
 use crate::tls::{
@@ -427,6 +428,104 @@ impl PageTraffic {
     }
 }
 
+/// An Operator-configured endpoint the engine connects to on its own
+/// behalf, the second egress class (ADR 0017): no run's domain policy,
+/// private ranges, certificate exception or client certificate applies to
+/// it. Its kind is a row of `goodfetch-protocol`'s `CONFIGURED_KINDS`.
+pub(crate) struct ConfiguredEndpoint<'a> {
+    /// Its kind.
+    pub(crate) kind: ConfiguredKind,
+    /// What the Operator policy lets it reach.
+    pub(crate) policy: EndpointPolicy,
+    /// The `resolve` setting.
+    pub(crate) resolve: &'a Resolve,
+    /// What its certificate may chain to beside Mozilla's roots: the
+    /// authorities `tls.trusted_cas` lists for its own domain.
+    pub(crate) trust: &'a Trust,
+    /// What the race waits on.
+    pub(crate) clock: Clock,
+    /// The race's delays.
+    pub(crate) delays: Delays,
+}
+
+/// Why an Operator-configured endpoint got no request.
+#[derive(Debug)]
+pub(crate) enum EndpointFailure {
+    /// The egress policy refused it before any connection: its scheme, or
+    /// an address `egress.no_private_endpoints` refuses.
+    Refused(Refused),
+    /// It was sent and got no answer.
+    Failed(Failure),
+}
+
+impl ConfiguredEndpoint<'_> {
+    /// Sends `request`, whose URI is the endpoint's absolute URL, once the
+    /// egress policy allows it, and answers its head; its body arrives
+    /// through [`Response::chunk`]. The URL is judged before any lookup,
+    /// then every address its host stands for before any connection, which
+    /// tries only those; an invalid certificate ends it with
+    /// `certificate_invalid` whatever `tls.accept_invalid_certs` lists.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes any connection it opened.
+    pub(crate) async fn send<B: RequestBody>(
+        &self,
+        mut request: Request<B>,
+    ) -> Result<Response, EndpointFailure> {
+        let url = request.uri().to_string();
+        let url = match egress::judge_endpoint(&url) {
+            Judgment::Allowed(url) => url,
+            Judgment::Refused(refused) => return Err(EndpointFailure::Refused(refused)),
+        };
+        let failed = |failure| EndpointFailure::Failed(failure);
+        let plain = url.scheme() == "http";
+        let host = match url.host() {
+            Some(Host::Ipv6(address)) => address.to_string(),
+            Some(host) => host.to_string(),
+            None => return Err(failed(Failure::ServerName)),
+        };
+        let port = url
+            .port_or_known_default()
+            .ok_or(failed(Failure::ServerName))?;
+        let authority = match url.port() {
+            Some(port) => format!("{}:{port}", url.host_str().unwrap_or_default()),
+            None => url.host_str().unwrap_or_default().to_owned(),
+        };
+        let path = match url.query() {
+            Some(query) => format!("{}?{query}", url.path()),
+            None => url.path().to_owned(),
+        };
+        *request.uri_mut() = path.parse().map_err(|_| failed(Failure::ServerName))?;
+        let authority = hyper::header::HeaderValue::from_str(&authority)
+            .map_err(|_| failed(Failure::ServerName))?;
+        request.headers_mut().insert(hyper::header::HOST, authority);
+        let server = Server {
+            host: &host,
+            port,
+            plain,
+        };
+        let found = addresses(&server, self.resolve).await.map_err(failed)?;
+        egress::judge_endpoint_addresses(url.as_str(), &found, self.policy)
+            .map_err(EndpointFailure::Refused)?;
+        tracing::debug!(
+            kind = self.kind.classed().name,
+            "connecting to an Operator-configured endpoint"
+        );
+        let network = Network {
+            resolve: self.resolve,
+            trust: self.trust,
+            exceptions: None,
+            client_certificates: None,
+            clock: self.clock,
+            delays: self.delays,
+        };
+        send_to(&server, &Via::Direct(&found), request, &[], &network)
+            .await
+            .map_err(failed)
+    }
+}
+
 /// How a request reaches its server.
 enum Via<'a> {
     /// Straight, to one of the server's addresses.
@@ -475,6 +574,21 @@ pub enum Failure {
     /// The Session's upstream proxy carried nothing to the site: its own
     /// failure, never the site's.
     Proxy(ProxyFailure),
+}
+
+/// A request's body: none for a GET, its bytes for an endpoint's POST.
+pub(crate) trait RequestBody:
+    hyper::body::Body<Data = Bytes, Error: Into<Box<dyn std::error::Error + Send + Sync>>>
+    + Send
+    + 'static
+{
+}
+
+impl<B> RequestBody for B where
+    B: hyper::body::Body<Data = Bytes, Error: Into<Box<dyn std::error::Error + Send + Sync>>>
+        + Send
+        + 'static
+{
 }
 
 /// The task that drives one connection, plain or over TLS, until it ends.
@@ -562,9 +676,9 @@ impl Response {
 /// # Cancel safety
 ///
 /// Dropping the future closes any connection it opened.
-pub(crate) async fn send(
+pub(crate) async fn send<B: RequestBody>(
     server: &Server<'_>,
-    request: Request<Empty<Bytes>>,
+    request: Request<B>,
     network: &Network<'_>,
 ) -> Result<Response, Failure> {
     let found = addresses(server, network.resolve).await?;
@@ -601,10 +715,10 @@ fn cookie_header(cookies: &[SessionCookie], host: &str) -> Option<hyper::header:
 /// # Cancel safety
 ///
 /// Dropping the future closes any connection it opened.
-async fn send_to(
+async fn send_to<B: RequestBody>(
     server: &Server<'_>,
     via: &Via<'_>,
-    mut request: Request<Empty<Bytes>>,
+    mut request: Request<B>,
     cookies: &[SessionCookie],
     network: &Network<'_>,
 ) -> Result<Response, Failure> {
@@ -765,7 +879,7 @@ async fn withheld(
 
 /// `request`'s target in absolute form, as a proxy takes a plain HTTP
 /// request: its scheme and its `Host` before its path.
-fn absolute_form(request: &mut Request<Empty<Bytes>>) -> Result<(), Failure> {
+fn absolute_form<B>(request: &mut Request<B>) -> Result<(), Failure> {
     let host = request
         .headers()
         .get(hyper::header::HOST)

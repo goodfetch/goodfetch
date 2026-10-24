@@ -50,6 +50,7 @@ pub mod metrics;
 pub mod needs_you;
 mod needs_you_operations;
 pub mod ops;
+pub mod otlp;
 pub mod people;
 mod people_operations;
 pub mod pinned_download;

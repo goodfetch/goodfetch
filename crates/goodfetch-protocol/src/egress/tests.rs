@@ -1,8 +1,3 @@
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
-
 use rstest::rstest;
 use serde_json::json;
 

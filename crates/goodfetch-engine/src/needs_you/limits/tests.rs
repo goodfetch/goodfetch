@@ -1,8 +1,9 @@
 //! The Runs a Limit stopped, at the source's interface (spec #592's Seam
 //! 3), with a real Run index and Usage ledger in SQLite and
 //! `Clock::paused`: a Run stopped by the install's daily Limit is listed
-//! while that Limit has nothing left, and not once a person raised it, once
-//! its period started again, or when only another Limit has nothing left.
+//! while that Limit still holds it, set again since the stop with nothing
+//! more left included, and not once a person raised it, once its period
+//! started again, or when only another Limit has nothing left.
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock (ADR 0059)"
@@ -112,7 +113,10 @@ fn used_up(ledger: &Ledger, limit: &Limit) {
 #[derive(Clone, Copy)]
 enum Then {
     Nothing,
+    /// A person raised it to 5, half an hour after the stop.
     Raised,
+    /// A person set it again at the 1 it allowed, half an hour after the stop.
+    RaisedToNothingMore,
     OnlyAnotherScope,
 }
 
@@ -124,14 +128,16 @@ fn listed(then: Then, after: Duration) -> Vec<(String, Option<String>)> {
     let version = ProductVersion::parse("1.0.0").unwrap();
     run_index::write(&index, &version, &stopped()).unwrap();
     let ledger = Ledger::at(folder.path().join("usage.sqlite"), None);
+    let half_an_hour_later = STOPPED_AT.parse::<Timestamp>().unwrap() + Duration::from_mins(30);
     match then {
         Then::Nothing => used_up(&ledger, &daily("install", 1, LimitSetter::Client)),
-        Then::Raised => {
+        Then::Raised | Then::RaisedToNothingMore => {
             used_up(&ledger, &daily("install", 1, LimitSetter::Client));
+            let amount = if matches!(then, Then::Raised) { 5 } else { 1 };
             ledger
                 .raise(
-                    &daily("install", 5, LimitSetter::Person),
-                    STOPPED_AT.parse().unwrap(),
+                    &daily("install", amount, LimitSetter::Person),
+                    half_an_hour_later,
                 )
                 .unwrap();
         }
@@ -161,13 +167,18 @@ fn listed(then: Then, after: Duration) -> Vec<(String, Option<String>)> {
 #[rstest]
 #[case::while_its_limit_has_nothing_left(Then::Nothing, Duration::from_hours(1), true)]
 #[case::not_once_a_person_raised_it(Then::Raised, Duration::from_hours(1), false)]
+#[case::while_a_person_set_it_again_with_nothing_more_left(
+    Then::RaisedToNothingMore,
+    Duration::from_hours(1),
+    true
+)]
 #[case::not_once_its_period_started_again(Then::Nothing, Duration::from_hours(15), false)]
-#[case::not_when_only_another_limit_has_nothing_left(
+#[case::not_when_only_another_limit_holds_nothing_left(
     Then::OnlyAnotherScope,
     Duration::from_hours(1),
     false
 )]
-fn a_run_a_limit_stopped_is_listed_while_that_limit_has_nothing_left(
+fn a_run_a_limit_stopped_is_listed_while_that_limit_still_holds_it(
     #[case] then: Then,
     #[case] after: Duration,
     #[case] listed_then: bool,

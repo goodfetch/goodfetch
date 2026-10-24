@@ -1,19 +1,20 @@
 //! The Runs a Limit stopped, in "Needs you" (ADRs 0029, 0031 and 0041),
 //! the engine's own source, which its contribution passes in: each Run the
-//! Run index holds stopped by a Limit that the user's Usage ledger says
-//! still has nothing left in its period. Only a person raises a Limit
-//! (`usage.raise`, which the catalog keeps to the Console and the
-//! interactive CLI prompt), so an agent a Limit stopped cannot lift it. Once
-//! raised, a Recipe's Run is resumed in the Daemon (`run.resume`, which the
-//! item offers beside it), and an SDK script's Run waits for its script,
-//! which resumes it by its Run ID. An item leaves the list once its Limit
-//! has room again, raised or in a new period, once its Run runs again, or
+//! Run index holds stopped by a Limit that still holds it, as the user's
+//! Usage ledger says: the Limit's period has not started again since the
+//! stop, and it was not set again since then with something left. Only a
+//! person raises a Limit (`usage.raise`, which the catalog keeps to the
+//! Console and the interactive CLI prompt), so an agent a Limit stopped
+//! cannot lift it. Once raised, a Recipe's Run is resumed in the Daemon
+//! (`run.resume`, which the item offers beside it), and an SDK script's Run
+//! waits for its script, which resumes it by its Run ID. An item leaves the
+//! list once its Limit no longer holds the Run, once the Run runs again, or
 //! when a person dismisses it. The source reads both again at each storage
 //! sample, as the storage entries do.
 
 use goodfetch_protocol::checkpoint::RUN_RESUME;
 use goodfetch_protocol::needs_you::{NeedsYouItem, RUN_STOPPED_BY_LIMIT};
-use goodfetch_protocol::run::{RECIPE_TAG, ReachedLimit, RunIndexRow, StopReason};
+use goodfetch_protocol::run::{PointInTime, RECIPE_TAG, ReachedLimit, RunIndexRow, StopReason};
 use goodfetch_protocol::usage::USAGE_RAISE;
 use jiff::Timestamp;
 use serde_json::{Map, Value, json};
@@ -22,7 +23,7 @@ use super::{Answering, Changes, NeedsYouSource, Primitives, SourceContext, Sourc
 use crate::ledger::{Ledger, LedgerError, StoredLimit};
 use crate::run_index;
 
-/// Each Run stopped by a Limit that still has nothing left.
+/// Each Run stopped by a Limit that still holds it.
 pub fn runs_stopped() -> NeedsYouSource {
     NeedsYouSource::new(RunsStopped)
 }
@@ -59,8 +60,8 @@ impl Primitives for RunsStopped {
     }
 }
 
-/// The items of the Runs of `rows` whose Limit `ledger` says has nothing
-/// left at `now`. A ledger no engine made yet holds no Limit, and is not
+/// The items of the Runs of `rows` whose Limit `ledger` says still holds
+/// them at `now`. A ledger no engine made yet holds no Limit, and is not
 /// made.
 fn still_stopped(
     rows: &[RunIndexRow],
@@ -76,18 +77,34 @@ fn still_stopped(
         let Some(StopReason::Limit(reached)) = &row.stop_reason else {
             continue;
         };
-        let mut used_up = None;
+        let restarted = timestamp(reached.resets_at.as_ref().map(PointInTime::as_str))
+            .is_some_and(|resets_at| now >= resets_at);
+        if restarted {
+            continue;
+        }
+        let stopped_at = timestamp(Some(
+            row.ended_at.as_ref().unwrap_or(&row.started_at).as_str(),
+        ));
+        let mut holding = None;
         for stored in limits.iter().filter(|stored| names(stored, reached)) {
-            if ledger.left(stored, now)? == 0 {
-                used_up = Some(stored);
+            let set_since = timestamp(Some(&stored.set_at))
+                .zip(stopped_at)
+                .is_some_and(|(set_at, stopped_at)| set_at > stopped_at);
+            if !set_since || ledger.left(stored, now)? == 0 {
+                holding = Some(stored);
                 break;
             }
         }
-        if let Some(stored) = used_up {
+        if let Some(stored) = holding {
             items.push(stopped(row, reached, stored.amount));
         }
     }
     Ok(items)
+}
+
+/// The point in time `text` names, if it names one.
+fn timestamp(text: Option<&str>) -> Option<Timestamp> {
+    text?.parse().ok()
 }
 
 /// Whether `stored` is the Limit `reached` names: its scope, Usage kind,

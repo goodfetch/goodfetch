@@ -17,6 +17,7 @@ use goodfetch_protocol::page::functions::{
     PageFunctionFailedDetails, PageValueInvalidDetails,
 };
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
+use goodfetch_protocol::page::waits::PAGE_WAIT_FOR_FUNCTION;
 use goodfetch_protocol::page::{PAGE_GOTO, PAGE_RELOAD};
 use serde_json::{Value, json};
 
@@ -411,6 +412,7 @@ fn init_script(
         "a document loaded after the call was cancelled runs without the init script",
         answer["result"] == json!({ "value": null }),
     );
+    registered_or_not(connection, &page, checks)?;
     let plain = plain_session(connection, site, run_id, checks)?;
     finish_run(connection, run_id)?;
     let marked = injections(target, run_id);
@@ -424,6 +426,64 @@ fn init_script(
         "a Session whose page had no init script and no main-world call records no injection",
         plain.is_some_and(|plain| marked.iter().all(|(_, session)| *session != plain)),
     );
+    Ok(())
+}
+
+/// An init script whose call is cancelled as soon as it is sent is never
+/// left registered: the next document runs without it; and a page function
+/// sent right after another init script's call, which reloads the page,
+/// meets the script registered.
+fn registered_or_not(
+    connection: &mut Connection,
+    page: &Value,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let script = |mark: &str| {
+        json!({
+            "page_id": page,
+            "function": "(mark) => { window.initScriptMark = mark; }",
+            "arg": mark,
+        })
+    };
+    let cancelled = connection.request(PAGE_ADD_INIT_SCRIPT.name, &script("cancelled at once"))?;
+    connection.notify(CANCEL, &json!({ "id": cancelled }))?;
+    connection.answer(cancelled)?;
+    let id = connection.request(PAGE_RELOAD.name, &json!({ "page_id": page }))?;
+    connection.browser_answer(id)?;
+    let answer = evaluate(
+        connection,
+        page,
+        "() => window.initScriptSeenByPage",
+        None,
+        "main",
+    )?;
+    checks.check(
+        "an init script whose call was cancelled as it was sent is not left registered",
+        answer["result"] == json!({ "value": null }),
+    );
+    let kept = connection.request(PAGE_ADD_INIT_SCRIPT.name, &script("before the reload"))?;
+    let reloaded = evaluate(
+        connection,
+        page,
+        "() => { window.beforeTheReload = true; location.reload(); return true; }",
+        None,
+        "main",
+    )?;
+    let id = connection.request(
+        PAGE_WAIT_FOR_FUNCTION.name,
+        &json!({
+            "page_id": page,
+            "function": "() => window.beforeTheReload === undefined && document.readyState === 'complete' && (window.initScriptSeenByPage ?? 'none')",
+        }),
+    )?;
+    let seen = connection.browser_answer(id)?.message;
+    checks.check(
+        "a page function sent right after an init script's call meets the script registered",
+        reloaded["result"] == json!({ "value": true })
+            && seen["result"] == json!({ "value": "before the reload" }),
+    );
+    connection.notify(CANCEL, &json!({ "id": kept }))?;
+    connection.answer(kept)?;
     Ok(())
 }
 

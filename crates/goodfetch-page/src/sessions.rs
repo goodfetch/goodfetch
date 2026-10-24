@@ -137,6 +137,8 @@ pub(crate) struct Sessions {
     /// What each page carries for the Product that hands pages to
     /// handlers: its value and its response observer (ADR 0087).
     hooks: Arc<dyn HandlerPages>,
+    /// How many calls listen to each Session's `page` event.
+    page_listeners: tabs::PageListeners,
 }
 
 #[derive(Default)]
@@ -175,8 +177,6 @@ struct Session {
     life: SessionLife,
     /// Its one proxy, if it has one.
     proxy: Option<Arc<SessionProxy>>,
-    /// How many calls listen to its `page` event.
-    page_listeners: tabs::PageListeners,
     /// On a Borrowed browser, set once its Provenance records that it is
     /// held to the policy by interception alone; none elsewhere.
     interception_only: Option<OnceCell<()>>,
@@ -275,6 +275,7 @@ impl Sessions {
             events,
             dialogs,
             hooks,
+            page_listeners: tabs::PageListeners::default(),
         }
     }
 
@@ -323,7 +324,6 @@ impl Sessions {
             settings: settings.clone(),
             life: life.clone(),
             proxy,
-            page_listeners: tabs::PageListeners::default(),
             interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
             held_frames: borrowed.as_ref().map(|_| tabs::HeldFrames::default()),
         });
@@ -403,7 +403,6 @@ impl Sessions {
                                 SessionState::Open,
                             ),
                             proxy,
-                            page_listeners: tabs::PageListeners::default(),
                             interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
                             held_frames: borrowed.as_ref().map(|_| tabs::HeldFrames::default()),
                         }),
@@ -732,7 +731,6 @@ impl Sessions {
                             settings,
                             life: SessionLife::new(session, FRESH, SessionState::Open),
                             proxy,
-                            page_listeners: tabs::PageListeners::default(),
                             interception_only: None,
                             held_frames: None,
                         }),

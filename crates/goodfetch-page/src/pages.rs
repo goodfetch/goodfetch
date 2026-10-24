@@ -311,12 +311,15 @@ fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Con
             &SESSION_ON,
             move |params: SessionOnParams, context: CallContext| {
                 let sessions = listening.clone();
+                // Counted when the call arrives, so no page opened meanwhile
+                // is missed.
+                let listener = match params.event {
+                    SessionEventName::Page => sessions.listen_for_pages(&params.session_id),
+                };
                 async move {
-                    match params.event {
-                        SessionEventName::Page => {
-                            sessions.listen_to_pages(&params.session_id, &context).await
-                        }
-                    }
+                    sessions
+                        .listen_to_pages(&params.session_id, listener, &context)
+                        .await
                 }
             },
         ))
@@ -737,7 +740,6 @@ impl Pages {
         if let Destination::Url(url) = destination {
             span.record("url.origin", goodfetch_engine::log::origin(url));
         }
-        self.init_scripts.settled(page_id).await;
         let page = self.open(page_id).await?;
         span.record("run_id", page.run.id().as_str());
         let navigator = Navigator {
@@ -982,25 +984,47 @@ impl Pages {
         pending: Pending,
     ) -> Result<InitScriptEnded, CallError> {
         let source = page_functions::init_script(&params.function, params.arg.as_ref())?;
-        let page = self.open(&params.page_id).await?;
+        let page = self.opened(&params.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
-        let identifier = page
-            .life
-            .call(
-                PageEvent::Read,
-                page.driver
-                    .add_init_script(source.clone(), PAGE_ADD_INIT_SCRIPT.name),
-            )
-            .await?;
-        // The page's out-of-process iframes take it too (M20).
-        let key = page.frame_scripts.add(source).await;
-        let registered = Registered::new(
+        // Registered on a task of the Run's, so a call dropped meanwhile
+        // never leaves the script registered: its registration, answered to
+        // no one, is removed there, counted before `pending` goes.
+        let (answer, answered) = tokio::sync::oneshot::channel::<Result<Registered, CallError>>();
+        let (driver, run, frames) = (
             page.driver.clone(),
-            identifier,
             page.run.clone(),
-            (self.init_scripts.clone(), params.page_id.clone()),
-            (page.frame_scripts.clone(), key),
+            page.frame_scripts.clone(),
         );
+        let counted = (self.init_scripts.clone(), params.page_id.clone());
+        page.run.spawn(async move {
+            let registered = async {
+                let identifier = driver
+                    .add_init_script(source.clone(), PAGE_ADD_INIT_SCRIPT.name)
+                    .await?;
+                // The page's out-of-process iframes take it too.
+                let key = frames.add(source).await;
+                Ok::<_, CallError>(Registered::new(
+                    driver,
+                    identifier,
+                    run,
+                    counted,
+                    (frames, key),
+                ))
+            }
+            .await;
+            drop(answer.send(registered));
+            drop(pending);
+        });
+        let registered = page
+            .life
+            .call(PageEvent::Read, async {
+                match answered.await {
+                    Ok(registered) => registered,
+                    // The Run ended under it: its ending answers.
+                    Err(_) => std::future::pending().await,
+                }
+            })
+            .await?;
         self.injections
             .mark(
                 &page.run,
@@ -1009,7 +1033,6 @@ impl Pages {
                 Injection::InitScript,
             )
             .await;
-        drop(pending);
         let life = page.life.clone();
         drop(page);
         life.terminal().await;
@@ -1017,11 +1040,20 @@ impl Pages {
         Ok(InitScriptEnded {})
     }
 
+    /// The open page `page_id` once no init script of its is on its way in
+    /// or out, so that a call sent after `page.add_init_script`, a gesture
+    /// or a navigation, meets the script registered, and one sent after its
+    /// call was cancelled meets it removed; as [`Self::opened`] says.
+    async fn open(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
+        self.init_scripts.settled(page_id).await;
+        self.opened(page_id).await
+    }
+
     /// The open page `page_id`, or `closed`; a failure a route's or a
     /// dialog handler left on it is raised here, by the page's next call,
     /// and so is the Block cause of a document a navigation no call waited
     /// for reached (ADR 0092).
-    async fn open(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
+    async fn opened(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
         let page = self.sessions.page(page_id).await?;
         if let Some(failure) = self.left_failure(page_id) {
             return Err(failure);

@@ -108,7 +108,8 @@ pub(super) struct Navigation {
     download: Option<(String, String)>,
     /// The URL the main frame was last asked to navigate to in its own tab.
     requested: Option<String>,
-    /// Whether the main frame stopped loading.
+    /// Whether the main frame stopped loading since the last navigation
+    /// it started to another document.
     stopped: bool,
     /// The document the back/forward cache restored in the main frame,
     /// which fires no `load` and has no response: only a Borrowed browser,
@@ -153,6 +154,10 @@ impl Navigation {
                     FrameStartedNavigatingNavigationType::SameDocument
                         | FrameStartedNavigatingNavigationType::HistorySameDocument
                 );
+                // A stop read before belongs to an earlier load.
+                if !within {
+                    self.stopped = false;
+                }
                 self.started.push((started.loader_id, within));
             }
         } else if let Some(requested) = event.read::<page::FrameRequestedNavigationEvent>() {
@@ -449,3 +454,6 @@ pub(crate) fn response_of(request_id: &RequestId, response: &network::Response) 
         from_service_worker: response.from_service_worker == Some(true),
     }
 }
+
+#[cfg(test)]
+mod tests;

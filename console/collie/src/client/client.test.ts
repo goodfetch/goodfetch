@@ -150,6 +150,31 @@ describe("the Console's Client", () => {
     client.close();
   });
 
+  test("a call its signal aborts is cancelled on the engine and rejects with the signal's reason", async () => {
+    const adapter = createProtocolAdapter();
+    adapter.answer("run.progress", () => new Promise(() => {}));
+    const { client } = clientOf(adapter);
+    await reaches(client, "connected");
+    const abort = new AbortController();
+
+    const reading = client.call(
+      "run.progress",
+      { run_id: "nightly", after: 1 },
+      { signal: abort.signal },
+    );
+    await vi.waitFor(() => {
+      expect(adapter.requests.map((request) => request.method)).toContain("run.progress");
+    });
+    abort.abort(new Error("the page left"));
+
+    await expect(reading).rejects.toThrow("the page left");
+    const read = adapter.requests.find((request) => request.method === "run.progress");
+    await vi.waitFor(() => {
+      expect(adapter.requests.at(-1)).toEqual({ method: "$/cancel", params: { id: read?.id } });
+    });
+    client.close();
+  });
+
   test("subscribes from a position, reading only the events after it", async () => {
     const adapter = createProtocolAdapter();
     adapter.push(axes("first", "running"), 1);

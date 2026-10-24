@@ -127,6 +127,21 @@ enum Route {
     Some("text/html; charset=utf-8"),
     "no-cache"
 )]
+#[case::a_route_with_a_parameter(
+    "GET",
+    Route::Path("/runs/nightly-run"),
+    200,
+    Some("text/html; charset=utf-8"),
+    "no-cache"
+)]
+#[case::a_path_longer_than_a_route(
+    "GET",
+    Route::Path("/runs/nightly-run/more"),
+    404,
+    None,
+    "no-store"
+)]
+#[case::a_route_with_an_empty_parameter("GET", Route::Path("/runs/"), 404, None, "no-store")]
 #[case::its_icon(
     "GET",
     Route::Path("/favicon.svg"),

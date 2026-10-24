@@ -39,6 +39,22 @@ export function formatAmount(
   }).format(decimal);
 }
 
+/** The units a size is shown in, each 1,000 times the one before. */
+const BYTE_UNITS = ["byte", "kilobyte", "megabyte", "gigabyte", "terabyte", "petabyte"] as const;
+
+/** `bytes` in the largest unit it holds at least one of, to a tenth. */
+export function formatBytes(bytes: number, locales?: Intl.LocalesArgument): string {
+  let unit = 0;
+  while (unit < BYTE_UNITS.length - 1 && bytes >= 1_000 ** (unit + 1)) {
+    unit += 1;
+  }
+  return new Intl.NumberFormat(locales, {
+    style: "unit",
+    unit: BYTE_UNITS[unit],
+    maximumFractionDigits: 1,
+  }).format(bytes / 1_000 ** unit);
+}
+
 /** The point in time `rfc3339` on the wall clock of `timeZone`, the browser's by default. */
 export function formatInstant(
   rfc3339: string,

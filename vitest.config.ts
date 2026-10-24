@@ -15,6 +15,7 @@ import { browserCommands } from "@goodfetch/test-support/vitest-browser/commands
 import { VITEST_VISUAL_TESTS, visualConfig } from "@goodfetch/test-support/visual-config";
 import { lingui } from "@lingui/vite-plugin";
 import { storybookTest } from "@storybook/addon-vitest/vitest-plugin";
+import tailwindcss from "@tailwindcss/vite";
 import { playwright } from "@vitest/browser-playwright";
 import {
   defineConfig,
@@ -154,14 +155,16 @@ const caseTags = clientCaseTags(readClientCases(caseList));
 const coverageFolder = process.env["GOODFETCH_COVERAGE"];
 
 // The Console's components render their messages through Lingui's macros
-// and its catalog, compiled as the Console's build compiles them (ADR 0073).
+// and its catalog, compiled as the Console's build compiles them (ADR 0073),
+// and a test that imports the design system's style sheet, as a screen's
+// visual test does, gets it through Tailwind's plugin, as the build does.
 // A copy of this config in a folder without the Console, as test support's
 // own runs of it make, takes no plugin.
 const consoleMessages = join(import.meta.dirname, "console", "collie", "lingui.config.ts");
 
 const config: ViteUserConfig = defineConfig({
   plugins: existsSync(consoleMessages)
-    ? [lingui({ macroTransform: true, configPath: consoleMessages })]
+    ? [lingui({ macroTransform: true, configPath: consoleMessages }), tailwindcss()]
     : [],
   test: {
     ...(visual.update === undefined ? {} : { update: visual.update }),

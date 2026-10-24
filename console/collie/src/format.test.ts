@@ -4,7 +4,7 @@
 // zones. Formatted text is asserted here only, on Node's pinned ICU.
 import { locales, timeZones } from "@goodfetch/test-support";
 import { describe, expect, test } from "vitest";
-import { formatAmount, formatCount, formatInstant } from "./format.ts";
+import { formatAmount, formatBytes, formatCount, formatInstant } from "./format.ts";
 
 /** `text` with every kind of space as a plain one: ICU separates with no-break and narrow no-break spaces. */
 function spaced(text: string): string {
@@ -43,6 +43,20 @@ describe("an amount", () => {
       expect(spaced(formatAmount(amount, currency, locale))).toBe(shown);
     },
   );
+});
+
+describe("a size in bytes", () => {
+  test.each([
+    { bytes: 0, locale: "en-US", shown: "0 byte" },
+    { bytes: 999, locale: "en-US", shown: "999 byte" },
+    { bytes: 1_500, locale: "en-US", shown: "1.5 kB" },
+    { bytes: 52_428_800, locale: "en-US", shown: "52.4 MB" },
+    { bytes: 52_428_800, locale: "de-DE", shown: "52,4 MB" },
+    { bytes: 3_000_000_000, locale: "en-US", shown: "3 GB" },
+    { bytes: 2_500_000_000_000_000, locale: "en-US", shown: "2.5 PB" },
+  ])("of $bytes reads $shown in $locale, in powers of 1,000", ({ bytes, locale, shown }) => {
+    expect(spaced(formatBytes(bytes, locale))).toBe(shown);
+  });
 });
 
 describe("a point in time", () => {

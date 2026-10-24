@@ -51,6 +51,7 @@ goodfetch-test-support.workspace = true
 indexmap = { workspace = true, features = ["std"] }
 h2 = { workspace = true }
 hmac.workspace = true
+httpdate.workspace = true
 proptest.workspace = true
 regex.workspace = true
 rstest.workspace = true

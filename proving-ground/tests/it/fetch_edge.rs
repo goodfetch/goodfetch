@@ -395,6 +395,37 @@ fn retry_after_is_sent_in_seconds_and_each_http_date_format_on_429_503_and_302()
     }
 }
 
+/// `/long` after a form asks for an hour once, in seconds or as an
+/// HTTP-date an hour after the response's own `Date`, then serves a page:
+/// a client that did not wait cannot be mistaken for a slow one.
+///
+/// Covers: story:2-40
+#[test]
+fn retry_after_with_long_asks_for_an_hour_once_in_each_form() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    for form in ["seconds", "imf-fixdate", "rfc850", "asctime"] {
+        let path = format!("/retry-after/429/{form}/long");
+        let first = raw_clients::get(&proving_ground, HOST, &path, &[]);
+        let second = raw_clients::get(&proving_ground, HOST, &path, &[]);
+
+        assert_eq!(first.status(), Some(429), "{path}");
+        let retry_after = first.header("retry-after").expect("a Retry-After");
+        let date = httpdate::parse_http_date(&first.header("date").expect("a Date")).unwrap();
+        let asked = if form == "seconds" {
+            date + Duration::from_secs(retry_after.parse().unwrap())
+        } else {
+            httpdate::parse_http_date(&retry_after).unwrap()
+        };
+        assert_eq!(
+            asked.duration_since(date).unwrap(),
+            Duration::from_hours(1),
+            "{path}: {retry_after}"
+        );
+        assert_eq!(second.status(), Some(200), "{path}");
+    }
+}
+
 #[test]
 fn refresh_stubs_name_their_targets() {
     let proving_ground = ProvingGround::start(SEED);

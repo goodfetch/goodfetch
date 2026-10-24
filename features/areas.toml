@@ -537,6 +537,12 @@ number = 4
 kind = "format"
 prefix = "audit-log"
 
+# Area 4's Audit log settings (#613): `audit.retention` and `audit.otlp`.
+[[area]]
+number = 4
+kind = "setting"
+prefix = "audit."
+
 # Area 4's known-certificates store (#628): `certs.list`, Collie's `certs
 # list` and the store's format.
 [[area]]

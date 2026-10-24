@@ -51,15 +51,18 @@ const PINS: &str = include_str!("../../../goodfetch-collie/src/pins.json");
 /// The pinned Chrome for Testing build the Browser cache holds, for this
 /// platform, never downloaded.
 fn pins() -> Vec<PinnedArtifact> {
-    let (platform, name) = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        (BuildPlatform::MacArm64, "mac-arm64")
+    let platform = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        BuildPlatform::MacArm64
     } else if cfg!(target_os = "macos") {
-        (BuildPlatform::MacX64, "mac-x64")
+        BuildPlatform::MacX64
     } else if cfg!(target_os = "windows") {
-        (BuildPlatform::WindowsX64, "win64")
+        BuildPlatform::WindowsX64
     } else {
-        (BuildPlatform::LinuxX64, "linux64")
+        BuildPlatform::LinuxX64
     };
+    let name = platform
+        .chrome_for_testing_name()
+        .expect("invariant: Chrome for Testing builds for this platform");
     let pins: Value = serde_json::from_str(PINS).expect("invariant: Collie's pins are JSON");
     let chrome = &pins["chrome_for_testing"];
     assert_eq!(chrome["build"], json!(CHROME_FOR_TESTING_BUILD));

@@ -72,17 +72,10 @@ pub(crate) struct Launched {
 /// The executable of Chrome for Testing's build for `platform`, in the
 /// folder its archive unpacks to.
 fn executable_in(files: &Path, platform: BuildPlatform) -> Option<PathBuf> {
-    let mac = |folder: &str| {
-        files
-            .join(folder)
-            .join("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
-    };
-    Some(match platform {
-        BuildPlatform::MacArm64 => mac("chrome-mac-arm64"),
-        BuildPlatform::MacX64 => mac("chrome-mac-x64"),
-        BuildPlatform::LinuxX64 => files.join("chrome-linux64").join("chrome"),
-        BuildPlatform::WindowsX64 => files.join("chrome-win64").join("chrome.exe"),
-        BuildPlatform::LinuxArm64 => return None,
+    platform.chrome_for_testing_executable().map(|executable| {
+        executable
+            .split('/')
+            .fold(files.to_path_buf(), |path, part| path.join(part))
     })
 }
 

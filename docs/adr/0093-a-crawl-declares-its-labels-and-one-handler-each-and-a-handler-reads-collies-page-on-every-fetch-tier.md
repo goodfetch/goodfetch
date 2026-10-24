@@ -232,6 +232,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
 > Amended by [ADR 0110](0110-a-crawl-handler-reads-the-responses-its-labels-settings-kept-from-its-own-navigation.md): `responses_not_kept`, a `ProgramError` that is not retryable, joins them.
 
 > Amended by [ADR 0118](0118-every-fetch-tier-follows-redirects-as-the-browser-does-fails-a-cut-body-and-resends-only-what-a-site-never-processed.md): a crawl request also fails with Collie's `too_many_redirects` and `response_truncated`. `response_unavailable`'s details gain `retryAfter`, and its status is `null` when a `Retry-After` held the request unsent.
+> Note (agent decision, pending owner review), 2026-10-24: the wire spells that detail `retry_after` (ADR 0038), as `blocked`'s is spelt, and a crawl's Politeness reads that name from a handler's failure; `retryAfter` is the TypeScript SDK's spelling of the field.
 > Amended by [ADR 0119](0119-every-fetch-tier-decodes-a-crawls-document-as-the-browser-does-a-label-names-the-content-types-its-handler-takes-and-exports-are-utf-8.md): `response_not_document` joins the `ProgramError` codes, not retryable: a call on the document of a page whose accepted response is not an HTML document.
 
 ## Considered Options

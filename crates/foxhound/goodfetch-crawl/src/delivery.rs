@@ -359,10 +359,12 @@ pub(crate) async fn resume(
     let policy = CrawlPolicy::of(&settings.at_admission().await);
     let retry_max = policy.retry_max;
     let bounds = Bounds::of_settings(settings.resolved());
+    let resolved = settings.resolved().clone();
     let left = run
         .state()
         .write(move |connection| {
             bounds.record(connection)?;
+            goodfetch_frontier::payload::record_max_size(connection, &resolved)?;
             work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)?;
             work_items::left(connection)
         })

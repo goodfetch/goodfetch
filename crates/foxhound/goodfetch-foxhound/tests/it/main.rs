@@ -22,6 +22,7 @@ mod limits;
 mod navigation_gate;
 mod outcomes;
 mod path_budgets;
+mod payload;
 mod politeness;
 mod redundant_requests;
 mod robots_txt;

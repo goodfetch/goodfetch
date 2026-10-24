@@ -49,7 +49,7 @@ pub use rules::{
     TABLES as RULES_TABLES, completeness_reasons as learned_completeness_reasons, learned_rules,
 };
 pub use scope::{Narrowing, Patterns, Scope, Strategy as ScopeStrategy, TABLES as SCOPE_TABLES};
-pub use url::document_base;
+pub use url::{document_base, resolve_link};
 
 /// A URL as the WHATWG URL Standard parsed it.
 pub use ::url::Url;

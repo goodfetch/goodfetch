@@ -51,21 +51,26 @@ pub(crate) fn parse_link(
     base: &Url,
     encoding: &'static Encoding,
 ) -> Result<Url, NotAddedReason> {
-    let encoding = encoding.output_encoding();
-    if encoding == encoding_rs::UTF_8 {
-        return parse(href, Some(base));
-    }
-    let encode: &dyn Fn(&str) -> Cow<'_, [u8]> = &|part| Cow::Owned(encoded(part, encoding));
-    let url = Url::options()
-        .base_url(Some(base))
-        .encoding_override(Some(encode))
-        .parse(href)
-        .map_err(|_| NotAddedReason::InvalidUrl)?;
+    let url = resolve_link(href, base, encoding).ok_or(NotAddedReason::InvalidUrl)?;
     if FETCHED.contains(&url.scheme()) {
         Ok(url)
     } else {
         Err(NotAddedReason::UnsupportedScheme)
     }
+}
+
+/// The link `href` of a document whose base URL is `base`, written in
+/// `encoding`, resolved as [`parse_link`] resolves it, whatever its
+/// scheme: the URL a Payload function reads; `None` when it does not
+/// parse.
+pub fn resolve_link(href: &str, base: &Url, encoding: &'static Encoding) -> Option<Url> {
+    let encoding = encoding.output_encoding();
+    let encode: &dyn Fn(&str) -> Cow<'_, [u8]> = &|part| Cow::Owned(encoded(part, encoding));
+    Url::options()
+        .base_url(Some(base))
+        .encoding_override((encoding != encoding_rs::UTF_8).then_some(encode))
+        .parse(href)
+        .ok()
 }
 
 /// `text` written in `encoding`, each character it cannot write as

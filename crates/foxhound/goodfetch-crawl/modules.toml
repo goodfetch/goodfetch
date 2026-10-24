@@ -12,3 +12,6 @@ seeding = ["serving", "work_items"]
 serving = []
 start = ["completeness", "delivery", "enqueue", "outcomes", "policy", "progress", "report", "seeding", "serving", "work_items"]
 work_items = []
+
+[submodules.enqueue]
+links = []

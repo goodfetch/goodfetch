@@ -1878,6 +1878,14 @@
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
         },
+        "labels": {
+          "additionalProperties": {
+            "$ref": "#/$defs/LabelDeclaration"
+          },
+          "arrived_in": "0.1",
+          "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone (ADRs 0082 and 0093). A Payload of a declared schema is checked\nagainst it at every enqueue; a Label the crawl does not declare\ntakes any Payload.",
+          "type": "object"
+        },
         "project": {
           "anyOf": [
             {
@@ -3378,6 +3386,17 @@
         "usage_kind",
         "amount"
       ],
+      "type": "object"
+    },
+    "LabelDeclaration": {
+      "additionalProperties": false,
+      "description": "One Label a crawl declares (ADRs 0082 and 0093).",
+      "properties": {
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema its requests' Payloads are checked against, the\nside the program's schema parses from; none takes any Payload."
+        }
+      },
       "type": "object"
     },
     "LastRead": {
@@ -10294,6 +10313,26 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A crawl request's Payload was refused when it was enqueued, as a seed, an added seed or a handler's enqueue: it does not fit its Label's JSON Schema, each issue named by its path, or its JSON is longer than `crawl.payload.max_size`, which `limit` names. Nothing was added. Large content goes to the Key-value store, and the Payload carries its key.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "payload_invalid",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawl now declares a Label's Payload JSON Schema that the Run did not begin with, and Payloads of that Label's pending requests fail it, so the Run was not resumed and did no work. The details name the Label, how many pending Payloads fail out of how many, and the first failure. Give the new field a default in the schema, or start a new Run: a Payload is never migrated silently.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "payload_schema_changed",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.",
       "exit_code": null,
       "group": "refused",
@@ -13879,6 +13918,23 @@
           "type": "object"
         },
         "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 65536,
+      "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+      "name": "crawl.payload.max_size",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
       },
       "weakens": false
     },

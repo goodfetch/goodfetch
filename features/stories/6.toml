@@ -677,6 +677,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 223
+title = "As a crawl developer, I want a Payload stored in the Frontier apart from the engine's fields, typed by its Label, capped by `crawl.payload.max_size` (64 KiB) with `payload_invalid` naming the setting, so that large content goes to the Key-value store and the Frontier stays small (ADR 0082)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 224
 title = "As a crawl developer, I want `crawl.scope.strategy` (`same_hostname` by default, or `same_domain`, `same_origin` or `all`) measured against every seed and checked on every enqueue, redirect and Hook rewrite, so that a crawl never leaks off-site (CO-05, ADRs 0093, 0104; pitfall U15)."
 milestone = "M1 Core"

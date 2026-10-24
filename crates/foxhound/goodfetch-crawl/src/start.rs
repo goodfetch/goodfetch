@@ -15,16 +15,18 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_error, start_error};
-use goodfetch_engine::runs::{EndedBy, Start, Started};
+use goodfetch_engine::runs::{EndedBy, RunError, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_fetch_tier::FetchTiers;
+use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_frontier::{Bounds, Scope};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::crawl::{CRAWL_SERVE, CRAWL_START, CrawlStartParams, Seed};
+use goodfetch_protocol::foxhound::frontier::PAYLOAD_SCHEMA_CHANGED;
 use goodfetch_protocol::run::{
-    Lifecycle, RUN_NOT_FOUND, RunDetails, RunKind, RunParams, RunReport, RunStarted, StartInput,
-    StartedAs,
+    Lifecycle, RUN_NOT_FOUND, RunDetails, RunId, RunKind, RunParams, RunReport, RunStarted,
+    StartInput, StartedAs,
 };
 use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 
@@ -131,6 +133,16 @@ async fn start(
     let bounds = Bounds::of_settings(settings.resolved());
     bounds.check().map_err(CallError::from)?;
     let egress = domain_policy(settings.resolved())?;
+    let payloads = PayloadRules::of(settings.resolved(), &params.labels)?;
+    let found = match &run_id {
+        Some(run_id) => schema_unchanged(&context, run_id, payloads.clone()).await?,
+        None => false,
+    };
+    if !found {
+        for seed in params.seeds.iter() {
+            payloads.check(&seed.label, seed.payload.as_ref())?;
+        }
+    }
     let seeding = egress.clone();
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
     let inputs = BTreeMap::from([(
@@ -149,6 +161,7 @@ async fn start(
             initialize: Some(Box::new(move |connection| {
                 scope.record(connection)?;
                 bounds.record(connection)?;
+                payloads.record(connection)?;
                 let answers = work_items::admit_seeds(connection, &scope, &seeding, &seeds)?;
                 goodfetch_frontier::seeds::answered(connection, &answers)
             })),
@@ -183,6 +196,47 @@ async fn start(
         }
         Started::Existing(existing) => existing,
     })
+}
+
+/// Whether a Run `run_id` exists, which a start under its ID goes on with
+/// (ADR 0102), its seeds not admitted again, once it may go on under the
+/// crawl's `declared` Labels: refused with `payload_schema_changed`
+/// before any work when a Label's Payload schema changed and a pending
+/// Payload of it fails the new one (ADR 0082).
+async fn schema_unchanged(
+    context: &CallContext,
+    run_id: &RunId,
+    declared: PayloadRules,
+) -> Result<bool, CallError> {
+    let failed = |error: RunError| run_error(error, context.identity());
+    let mut reader = match context.runs().reader(run_id.clone()).await {
+        Ok(reader) => reader,
+        Err(RunError::NotFound(_)) => return Ok(false),
+        Err(error) => return Err(failed(error)),
+    };
+    let changed = match reader
+        .read(move |connection| {
+            declared.schema_changed(connection, |label| {
+                work_items::pending_of(connection, label)
+            })
+        })
+        .await
+    {
+        Ok(changed) => changed,
+        Err(RunError::NotFound(_)) => return Ok(false),
+        Err(error) => return Err(failed(error)),
+    };
+    match changed {
+        None => Ok(true),
+        Some(changed) => Err(CallError::new(
+            &PAYLOAD_SCHEMA_CHANGED,
+            format!(
+                "The Label `{}`'s Payload schema changed since the Run `{run_id}` began, and {} of its {} pending Payloads fail it, the first that of crawl request `{}`, so the Run did no work: give the new field a default in the schema, or start a new Run.",
+                changed.label, changed.failing, changed.pending, changed.crawl_request_id
+            ),
+            &changed,
+        )),
+    }
 }
 
 #[cfg(test)]

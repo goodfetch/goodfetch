@@ -2587,6 +2587,14 @@
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
         },
+        "labels": {
+          "additionalProperties": {
+            "$ref": "#/$defs/LabelDeclaration"
+          },
+          "arrived_in": "0.1",
+          "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone (ADRs 0082 and 0093). A Payload of a declared schema is checked\nagainst it at every enqueue; a Label the crawl does not declare\ntakes any Payload.",
+          "type": "object"
+        },
         "project": {
           "anyOf": [
             {
@@ -5133,6 +5141,17 @@
         "usage_kind",
         "amount"
       ],
+      "type": "object"
+    },
+    "LabelDeclaration": {
+      "additionalProperties": false,
+      "description": "One Label a crawl declares (ADRs 0082 and 0093).",
+      "properties": {
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema its requests' Payloads are checked against, the\nside the program's schema parses from; none takes any Payload."
+        }
+      },
       "type": "object"
     },
     "LastRead": {
@@ -13123,6 +13142,17 @@
                     ],
                     "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
                   },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
@@ -13939,6 +13969,17 @@
                       "type": "object"
                     },
                     "type": "array"
+                  },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   },
                   "retry": {
                     "additionalProperties": false,
@@ -15995,6 +16036,17 @@
                       "type": "object"
                     },
                     "type": "array"
+                  },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   },
                   "retry": {
                     "additionalProperties": false,
@@ -18067,6 +18119,17 @@
                       "type": "object"
                     },
                     "type": "array"
+                  },
+                  "payload": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   },
                   "retry": {
                     "additionalProperties": false,

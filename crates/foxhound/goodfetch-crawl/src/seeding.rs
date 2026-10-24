@@ -19,6 +19,7 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_frontier::Scope;
+use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, Seed};
 use goodfetch_protocol::foxhound::frontier::{
@@ -100,7 +101,7 @@ async fn add_seed(
         .map_err(|error| unwritten(&run_id, &error))?;
     if let Some(answer) = answered {
         seeded.notify_one();
-        return Ok(answer);
+        return answer;
     }
     let attempt = attempt.expect("invariant: only an attempt ends");
     Err(CallError::new(
@@ -114,18 +115,22 @@ async fn add_seed(
 }
 
 /// Admits `seed` under the Run's domain policy `egress`, while `attempt`,
-/// when given, holds its lease; `None` once that attempt ended.
+/// when given, holds its lease, once its Payload fits its Label's schema
+/// and the cap, else `payload_invalid`; `None` once that attempt ended.
 fn admit_within(
     connection: &Connection,
     egress: &Policy,
     seed: &Seed,
     attempt: Option<&SeedAttempt>,
-) -> rusqlite::Result<Option<Enqueued>> {
+) -> rusqlite::Result<Option<Result<Enqueued, CallError>>> {
     if let Some(attempt) = attempt
         && work_items::attempt(connection, &attempt.crawl_request_id, attempt.lease_epoch)?
             .is_none()
     {
         return Ok(None);
+    }
+    if let Err(refused) = refused(connection, std::slice::from_ref(seed))? {
+        return Ok(Some(Err(refused)));
     }
     let mut answers = work_items::admit_seeds(
         connection,
@@ -133,11 +138,18 @@ fn admit_within(
         egress,
         std::slice::from_ref(seed),
     )?;
-    Ok(Some(
-        answers
-            .pop()
-            .expect("invariant: the Frontier answers each seed"),
-    ))
+    Ok(Some(Ok(answers
+        .pop()
+        .expect("invariant: the Frontier answers each seed"))))
+}
+
+/// `payload_invalid` for the first of `seeds` whose Payload does not fit
+/// its Label's schema or the cap the run file `connection` holds.
+fn refused(connection: &Connection, seeds: &[Seed]) -> rusqlite::Result<Result<(), CallError>> {
+    let rules = PayloadRules::read(connection)?;
+    Ok(seeds
+        .iter()
+        .try_for_each(|seed| rules.check(&seed.label, seed.payload.as_ref())))
 }
 
 async fn add_seeds(
@@ -224,7 +236,9 @@ async fn grant(context: &CallContext, credits: u32) -> bool {
 }
 
 /// Admits each of `seeds` under the Run's domain policy `egress` in one
-/// write of `run`'s state, and answers each one's answer in order.
+/// write of `run`'s state, and answers each one's answer in order; none
+/// is admitted, and the call fails with `payload_invalid`, when one's
+/// Payload does not fit its Label's schema or the cap.
 async fn admit_batch(
     run: &Run,
     egress: &Arc<Policy>,
@@ -237,8 +251,11 @@ async fn admit_batch(
     let egress = Arc::clone(egress);
     run.state()
         .write(move |connection| {
-            work_items::admit_seeds(connection, &Scope::read(connection)?, &egress, &seeds)
+            if let Err(refused) = refused(connection, &seeds)? {
+                return Ok(Err(refused));
+            }
+            work_items::admit_seeds(connection, &Scope::read(connection)?, &egress, &seeds).map(Ok)
         })
         .await
-        .map_err(|error| unwritten(run_id, &error))
+        .map_err(|error| unwritten(run_id, &error))?
 }

@@ -3,7 +3,8 @@
 //! both Products' compositions add, over the in-memory network, on the test
 //! `Clock` and a fixed `Entropy` seed, in a home of its own: under an
 //! install Limit, whose Slices its run state journals, a tagged crawl of
-//! six seeds, one with a Payload, one the Frontier answers `duplicate`,
+//! six seeds, one with a Payload of a Label declared with its schema, beside
+//! one declared without, one the Frontier answers `duplicate`,
 //! one sent as a `POST` with a body under a declared key and one
 //! `crawl.max_segment_repeats` refuses, under a scope of every host
 //! narrowed by an `include` and an `exclude` pattern and under a depth and
@@ -92,6 +93,10 @@ fn scenario() -> Vec<Value> {
             json!({
                 "run_id": "crawl",
                 "tags": ["schedule:nightly"],
+                "labels": {
+                    "home": { "payload": { "type": ["object", "null"] } },
+                    "product": {},
+                },
                 "seeds": [
                     { "url": "https://shop.test/", "label": "home", "payload": { "depth": 0 } },
                     { "url": "https://shop.test/broken", "label": "product" },

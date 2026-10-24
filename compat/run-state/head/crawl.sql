@@ -114,6 +114,23 @@ INSERT INTO "outcomes" VALUES(15,'16','failed','listed',1,'{"position":15,"reque
 INSERT INTO "outcomes" VALUES(16,'1','succeeded','home',1,'{"position":16,"request":{"id":"1","url":"https://shop.test/","label":"home","depth":0},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
 INSERT INTO "outcomes" VALUES(17,'17','succeeded','home',1,'{"position":17,"request":{"id":"17","url":"https://outlet.test/sale","label":"home","depth":1},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
 CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source TEXT) STRICT;
+CREATE TABLE payload_cap (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            max_size INTEGER NOT NULL
+        ) STRICT;
+INSERT INTO "payload_cap" VALUES(1,65536);
+CREATE TABLE payload_labels (
+            label TEXT NOT NULL PRIMARY KEY,
+            schema TEXT,
+            hash TEXT
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "payload_labels" VALUES('home','{"type":["object","null"]}','5d4827562aefcfb1c3413607ff8ccbcce66217250c6ee5c6565bd52ef9eebc64');
+INSERT INTO "payload_labels" VALUES('product',NULL,NULL);
+CREATE TABLE payloads (
+            request TEXT NOT NULL PRIMARY KEY,
+            payload TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "payloads" VALUES('1','{"depth":0}');
 CREATE TABLE pool_sessions (
             position INTEGER NOT NULL PRIMARY KEY,
             proxy_tier TEXT NOT NULL,
@@ -397,7 +414,6 @@ CREATE TABLE work_items (
             body BLOB,
             label TEXT NOT NULL,
             depth INTEGER NOT NULL,
-            payload TEXT,
             status TEXT NOT NULL,
             attempts INTEGER NOT NULL,
             lease_epoch INTEGER NOT NULL,
@@ -406,23 +422,23 @@ CREATE TABLE work_items (
             priority INTEGER NOT NULL,
             forefront INTEGER
         ) STRICT;
-INSERT INTO "work_items" VALUES('1',1,'https://shop.test/','GET',NULL,'home',0,'{"depth":0}','succeeded',1,1,NULL,'shop.test',0,NULL);
-INSERT INTO "work_items" VALUES('2',2,'https://shop.test/broken','GET',NULL,'product',0,NULL,'failed',1,1,'deadline_exceeded','shop.test',0,NULL);
-INSERT INTO "work_items" VALUES('3',3,'https://api.test/search','POST',X'7B2270616765223A317D','home',0,NULL,'succeeded',1,1,NULL,'api.test',0,NULL);
-INSERT INTO "work_items" VALUES('4',4,'https://guarded.test/','GET',NULL,'guarded',0,NULL,'blocked',1,1,NULL,'guarded.test',0,NULL);
-INSERT INTO "work_items" VALUES('5',5,'https://list.test/items?n=1','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('6',6,'https://list.test/items?n=1&ref=a','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('7',7,'https://list.test/items?n=2','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('8',8,'https://list.test/items?n=2&ref=b','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('9',9,'https://list.test/items?n=3','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('10',10,'https://list.test/items?n=3&ref=c','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('11',11,'https://list.test/rows?offset=0','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('12',12,'https://list.test/rows?offset=20','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('13',13,'https://list.test/rows?offset=40','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('14',14,'https://shop.test/pages/1','GET',NULL,'home',0,NULL,'succeeded',1,1,NULL,'shop.test',0,NULL);
-INSERT INTO "work_items" VALUES('15',15,'https://list.test/guide','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('16',16,'https://list.test/guide/','GET',NULL,'listed',0,NULL,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('17',17,'https://outlet.test/sale','GET',NULL,'home',1,NULL,'succeeded',1,1,NULL,'outlet.test',0,17);
+INSERT INTO "work_items" VALUES('1',1,'https://shop.test/','GET',NULL,'home',0,'succeeded',1,1,NULL,'shop.test',0,NULL);
+INSERT INTO "work_items" VALUES('2',2,'https://shop.test/broken','GET',NULL,'product',0,'failed',1,1,'deadline_exceeded','shop.test',0,NULL);
+INSERT INTO "work_items" VALUES('3',3,'https://api.test/search','POST',X'7B2270616765223A317D','home',0,'succeeded',1,1,NULL,'api.test',0,NULL);
+INSERT INTO "work_items" VALUES('4',4,'https://guarded.test/','GET',NULL,'guarded',0,'blocked',1,1,NULL,'guarded.test',0,NULL);
+INSERT INTO "work_items" VALUES('5',5,'https://list.test/items?n=1','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('6',6,'https://list.test/items?n=1&ref=a','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('7',7,'https://list.test/items?n=2','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('8',8,'https://list.test/items?n=2&ref=b','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('9',9,'https://list.test/items?n=3','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('10',10,'https://list.test/items?n=3&ref=c','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('11',11,'https://list.test/rows?offset=0','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('12',12,'https://list.test/rows?offset=20','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('13',13,'https://list.test/rows?offset=40','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('14',14,'https://shop.test/pages/1','GET',NULL,'home',0,'succeeded',1,1,NULL,'shop.test',0,NULL);
+INSERT INTO "work_items" VALUES('15',15,'https://list.test/guide','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('16',16,'https://list.test/guide/','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('17',17,'https://outlet.test/sale','GET',NULL,'home',1,'succeeded',1,1,NULL,'outlet.test',0,17);
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (position)
             WHERE retired_because IS NULL;

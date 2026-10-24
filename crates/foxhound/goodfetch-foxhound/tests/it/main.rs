@@ -20,6 +20,7 @@ mod learned_rules;
 mod limits;
 mod outcomes;
 mod path_budgets;
+mod payload;
 mod politeness;
 mod redundant_requests;
 mod robots_txt;

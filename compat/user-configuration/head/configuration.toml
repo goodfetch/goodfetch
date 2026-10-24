@@ -155,6 +155,7 @@ update = "release"
 version = "example"
 channel = "example"
 lists = { "example.test" = "example" }
+fetch_timeout = 30000
 
 [settings.session]
 source = { kind = "saved_identity", name = "example" }
@@ -219,6 +220,9 @@ concurrency = 4
 strategy = "same_hostname"
 include = ["example"]
 exclude = ["example"]
+
+[settings.crawl.payload]
+max_size = 4
 
 [settings.fetch]
 tier = "auto"

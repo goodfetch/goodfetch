@@ -19,6 +19,7 @@ mod domain_key;
 mod forms;
 mod identity;
 mod learn;
+pub mod payload;
 mod politeness;
 mod queues;
 mod robots_txt;
@@ -64,6 +65,7 @@ pub fn contribution() -> Contribution {
         .with_run_state_tables(scope::TABLES)
         .with_run_state_tables(bounds::TABLES)
         .with_run_state_tables(rules::TABLES)
+        .with_run_state_tables(payload::TABLES)
         .with_politeness_tables(politeness::TABLES)
         .with_politeness_tables(robots_txt::TABLES)
         .with_admission_gates(Arc::new(queues::DomainGates))

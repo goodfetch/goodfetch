@@ -10,6 +10,7 @@
 
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::{CallContext, CallError, Handler};
+use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_frontier::{Candidate, Declared, Narrowing, Scope, admit, document_base};
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::frontier::{
@@ -65,7 +66,7 @@ async fn enqueue(
         .write(move |connection| add(connection, &egress, &request, document.as_ref()))
         .await;
     match answered {
-        Ok(Some(enqueued)) => Ok(enqueued),
+        Ok(Some(answered)) => answered,
         Ok(None) => Err(ended()),
         Err(error) => Err(CallError::new(
             &RUN_STATE_UNAVAILABLE,
@@ -83,14 +84,15 @@ async fn enqueue(
 
 /// Adds `params`'s request through the Frontier, under the Run's domain
 /// policy `egress`, while its attempt holds its lease, against
-/// `document`'s base URL, else the attempt's own URL; `None` once the
+/// `document`'s base URL, else the attempt's own URL, once its Payload fits
+/// its Label's schema and the cap, else `payload_invalid`; `None` once the
 /// attempt ended.
 fn add(
     connection: &Connection,
     egress: &Policy,
     params: &CrawlRequestEnqueueParams,
     document: Option<&goodfetch_frontier::Url>,
-) -> rusqlite::Result<Option<Enqueued>> {
+) -> rusqlite::Result<Option<Result<Enqueued, CallError>>> {
     let Some((url, depth)) =
         work_items::attempt(connection, &params.crawl_request_id, params.lease_epoch)?
     else {
@@ -99,6 +101,11 @@ fn add(
     let Some(from) = document_base(&url, None) else {
         return Ok(None);
     };
+    if let Err(refused) =
+        PayloadRules::read(connection)?.check(&params.label, params.payload.as_ref())
+    {
+        return Ok(Some(Err(refused)));
+    }
     let base = document.cloned().unwrap_or_else(|| from.clone());
     let candidate = Candidate::Enqueue {
         url: &params.url,
@@ -133,7 +140,7 @@ fn add(
             )
         },
     )
-    .map(Some)
+    .map(|enqueued| Some(Ok(enqueued)))
 }
 
 #[cfg(test)]

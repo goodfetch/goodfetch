@@ -1160,6 +1160,18 @@ number = 6
 kind = "setting"
 prefix = "crawl.path_budgets"
 
+# Area 6, Collection, Foxhound: a Payload's cap, its check at enqueue and
+# the schema check a resume runs (#860).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.payload."
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "payload_"
+
 # Area 6, Collection (spec #580, Collie's part): a Run's Key-value store
 # (#791).
 [[area]]

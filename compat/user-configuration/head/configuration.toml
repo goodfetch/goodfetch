@@ -129,6 +129,15 @@ wait = 30000
 first_byte = 30000
 handler = 30000
 
+[settings.security]
+field_encryption = true
+secure_delete = true
+resolved_ip_check = true
+raw_cdp_egress_proxy = true
+browser_sandbox = true
+audit_chain = true
+redaction = true
+
 [settings.sample]
 echo_repeats = 4
 

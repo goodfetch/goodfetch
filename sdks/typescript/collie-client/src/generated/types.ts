@@ -1064,6 +1064,14 @@ export interface ExportedAuditEntry {
         kind: "engine";
       };
   /**
+   * Whether its hash chains it to the entry before it: `false` for an
+   * entry of a Run whose `security.audit_chain` was off, whose hash is
+   * `SHA-256` of 32 zero bytes and its own canonical JSON alone, and
+   * which `audit verify` steps over while it verifies the chain around
+   * it; left out when chained.
+   */
+  chained?: boolean;
+  /**
    * What its kind records, such as a Secret reference and the domain it
    * was sent to, never a secret's value.
    */

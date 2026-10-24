@@ -30,6 +30,7 @@ use crate::home::Home;
 
 mod export;
 mod retention;
+mod unchained;
 
 /// ADR 0059's test `Clock` start, when every entry is recorded.
 pub(super) fn now() -> Timestamp {

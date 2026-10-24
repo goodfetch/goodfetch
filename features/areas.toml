@@ -567,6 +567,12 @@ number = 4
 kind = "setting"
 prefix = "audit."
 
+# Area 4's switchable security controls (#614): the `security.*` settings.
+[[area]]
+number = 4
+kind = "setting"
+prefix = "security."
+
 # Area 4's known-certificates store (#628): `certs.list`, Collie's `certs
 # list` and the store's format.
 [[area]]

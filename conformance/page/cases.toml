@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717 and #719;
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719 and #705;
 # spec #580, ticket #783): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "18"
+version = "19"
 
 [[capability]]
 name = "sessions.default"
@@ -335,7 +335,7 @@ name = "page_states.service_workers"
 
 [[capability.case]]
 id = "a-service-workers-own-requests-pass-the-domain-policy-the-filter-lists-and-session-routes-never-a-page-route"
-covers = ["story:5-49", "operation:session.route", "operation:page.route", "event:page.request", "event:page.response", "error:egress_refused"]
+covers = ["story:5-49", "operation:session.route", "operation:page.route", "event:page.request", "event:page.response", "error:egress_refused", "operation:page.wait_for_response", "operation:page.wait_for_load_state"]
 
 [[capability.case]]
 id = "with-service-workers-blocked-register-rejects-natively-and-the-pages-calls-reach-its-route"
@@ -418,3 +418,26 @@ covers = ["story:5-34", "operation:page.evaluate", "error:page_function_failed"]
 [[capability.case]]
 id = "an-init-script-runs-before-the-pages-scripts-on-the-next-navigation-and-in-new-frames-and-provenance-marks-it"
 covers = ["story:5-35", "operation:page.add_init_script", "operation:page.evaluate", "operation:page.reload"]
+
+[[capability]]
+name = "waits"
+
+[[capability.case]]
+id = "a-url-waiter-armed-before-a-push-state-a-replace-state-and-a-hash-change-passes-for-each"
+covers = ["story:5-19", "story:5-20", "story:5-22", "operation:page.wait_for_url", "operation:page.evaluate"]
+
+[[capability.case]]
+id = "network-idle-comes-on-a-polling-page-and-only-once-a-late-request-finished"
+covers = ["story:5-19", "story:5-21", "operation:page.wait_for_load_state"]
+
+[[capability.case]]
+id = "a-response-waiter-sent-before-the-click-catches-the-response-it-triggers"
+covers = ["story:5-19", "story:5-20", "operation:page.wait_for_response", "operation:page.wait_for_request", "operation:page.wait_for_function"]
+
+[[capability.case]]
+id = "locator-and-function-waits-resolve-on-re-rendering-pages"
+covers = ["story:5-19", "operation:locator.wait_for", "operation:locator.wait_for_count", "operation:page.wait_for_function"]
+
+[[capability.case]]
+id = "each-wait-ends-at-timeout-wait-naming-what-it-waited-for"
+covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]

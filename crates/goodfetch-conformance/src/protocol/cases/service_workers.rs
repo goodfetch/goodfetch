@@ -7,7 +7,10 @@
 //! unset, the worker's own requests pass the domain policy, the Filter
 //! lists and a Session route, never a page route, and only the Run trace
 //! records them; both calls arrive in the page's `response` event with
-//! `from_service_worker` true. With `block`, `register()` rejects as the
+//! `from_service_worker` true, the cached one in a `page.wait_for_response`
+//! armed before the navigation too, and the page reaches `networkidle`,
+//! which the worker's own requests, of no page, never hold back (ticket
+//! #705). With `block`, `register()` rejects as the
 //! browser's own refusal does, `register` stays native, no worker controls
 //! the page, and the page's own calls reach its route and the site.
 
@@ -16,6 +19,7 @@ use goodfetch_protocol::events::{CREDIT, EVENTS, EVENTS_SUBSCRIBE};
 use goodfetch_protocol::page::events::PAGE_ON;
 use goodfetch_protocol::page::route::{PAGE_ROUTE, ROUTE_HANDLE, SESSION_ROUTE};
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
+use goodfetch_protocol::page::waits::{PAGE_WAIT_FOR_LOAD_STATE, PAGE_WAIT_FOR_RESPONSE};
 use goodfetch_protocol::page::{PAGE_GOTO, PageOpened};
 use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
@@ -74,15 +78,16 @@ const POLL: std::time::Duration = std::time::Duration::from_millis(250);
 const SERVICE_WORKER_REQUEST: &str = "service_worker.request";
 
 /// The Connection as these cases read it: the events of the case's own
-/// subscription, and every `route.handle` request the engine sent, each
+/// subscription, every `route.handle` request the engine sent, each
 /// answered by the handler ending without an answer, so the request falls
-/// through.
+/// through, and the answers read before their call's was asked for.
 struct Watch<'connection> {
     connection: &'connection mut Connection,
     events: Vec<Value>,
     subscription: Option<i64>,
     /// The params of each `route.handle` request, in arrival order.
     handled: Vec<Value>,
+    answers: Vec<Value>,
 }
 
 impl<'connection> Watch<'connection> {
@@ -92,12 +97,13 @@ impl<'connection> Watch<'connection> {
             events: Vec::new(),
             subscription: None,
             handled: Vec::new(),
+            answers: Vec::new(),
         }
     }
 
-    /// Takes in one message within `deadline`: a route's request or a
-    /// batch's events, or else the message; `None` for those, or when none
-    /// came.
+    /// Takes in one message within `deadline`: a route's request, a
+    /// batch's events or an answer, kept, or else the message; `None` for
+    /// those, or when none came.
     fn read(&mut self, deadline: std::time::Duration) -> Result<Option<Value>, Gone> {
         let message = match self.connection.next_within(deadline) {
             Ok(message) => message,
@@ -123,18 +129,24 @@ impl<'connection> Watch<'connection> {
             }
             return Ok(None);
         }
+        if message.get("method").is_none() {
+            self.answers.push(message);
+            return Ok(None);
+        }
         Ok(Some(message))
     }
 
     /// The answer to the request `id`.
     fn answer(&mut self, id: i64) -> Result<Value, Gone> {
         loop {
-            if let Some(message) = self.read(BROWSER_DEADLINE)?
-                && message.get("method").is_none()
-                && message["id"] == json!(id)
+            if let Some(at) = self
+                .answers
+                .iter()
+                .position(|answer| answer["id"] == json!(id))
             {
-                return Ok(message);
+                return Ok(self.answers.remove(at));
             }
+            self.read(BROWSER_DEADLINE)?;
         }
     }
 
@@ -280,6 +292,10 @@ fn under_the_interception(
         PAGE_ROUTE.name,
         &json!({ "page_id": page.page_id, "url": glob("**/service-worker/**") }),
     )?;
+    let cached_response = watch.connection.request(
+        PAGE_WAIT_FOR_RESPONSE.name,
+        &json!({ "page_id": page.page_id, "url": glob("**/service-worker/cached.json*") }),
+    )?;
     let loaded = watch.call(
         PAGE_GOTO.name,
         &json!({ "page_id": page.page_id, "url": url }),
@@ -352,6 +368,20 @@ fn under_the_interception(
     checks.check(
         "both calls arrive in the page's `response` event with `from_service_worker` true",
         from_worker(&cached) && from_worker(&network),
+    );
+    let waited = watch.answer(cached_response)?;
+    checks.check(
+        "a response waiter armed before the navigation gets the cached call, from the worker",
+        url_of(&waited["result"]["response"]).ends_with(&cached)
+            && waited["result"]["response"]["from_service_worker"] == json!(true),
+    );
+    let idle = watch.call(
+        PAGE_WAIT_FOR_LOAD_STATE.name,
+        &json!({ "page_id": page.page_id, "state": "networkidle" }),
+    )?;
+    checks.check(
+        "the page reaches `networkidle`, which the worker's own requests do not hold back",
+        idle.get("result").is_some(),
     );
     let requests = watch.data("page.request");
     let count = |suffix: &str| {

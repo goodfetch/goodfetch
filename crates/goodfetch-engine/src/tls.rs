@@ -8,13 +8,22 @@
 //! A domain `tls.accept_invalid_certs` lists for trust on first use takes
 //! [`exceptions`]' decision instead, once the handshake shows the key its
 //! host presents: the pin, never the roots, decides from its first pin on.
+//!
+//! A domain `tls.client_certificates` lists presents its certificate when
+//! its host asks for one ([`client_certificates`]). The handshake then goes
+//! on past the server's certificate only when that certificate verifies and
+//! the host has no pin, so the client certificate is never sent to a host
+//! reached through an exception: a pinned host presenting another key is
+//! stopped before it is sent.
 
+mod client_certificates;
 mod exceptions;
 
 use std::collections::BTreeMap;
 use std::io;
 use std::sync::{Arc, OnceLock};
 
+pub use client_certificates::{ClientCertificateFailure, ClientCertificates};
 pub(crate) use exceptions::Presented;
 pub use exceptions::{
     CertificateChanged, CertificateExceptions, ExceptionKind, ExceptionUsed, PinBook,
@@ -29,6 +38,7 @@ use rustls::crypto::CryptoProvider;
 use rustls::pki_types::pem::{self, PemObject as _};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::server::ParsedCertificate;
+use rustls::sign::CertifiedKey;
 use rustls::{CertificateError, DigitallySignedStruct, OtherError, RootCertStore, SignatureScheme};
 use url::Host;
 
@@ -180,7 +190,7 @@ impl Trust {
     /// HTTP/1.1 alone in ALPN; a transport that speaks HTTP/2 offers it
     /// itself (Foxhound's HTTP fetch tier).
     pub fn client_config(&self) -> rustls::ClientConfig {
-        self.config(None)
+        self.connection_config(None, None)
     }
 
     /// Each scope of this trust, for a TLS library that takes one store of
@@ -215,24 +225,31 @@ impl Trust {
         self.domains_of(host).first().copied()
     }
 
-    /// The rustls configuration of a connection to a host listed for trust
-    /// on first use: its handshake goes on whatever its certificate, and
-    /// `seen` keeps the key it presented and how it failed verification,
-    /// for [`CertificateExceptions`] to decide before anything is sent. The
-    /// handshake's signature is still checked against that key.
-    pub(crate) fn client_config_presenting(&self, seen: Arc<Seen>) -> rustls::ClientConfig {
-        self.config(Some(seen))
-    }
-
-    fn config(&self, seen: Option<Arc<Seen>>) -> rustls::ClientConfig {
+    /// The rustls configuration of one connection of the engine's own HTTP
+    /// client. For a host listed for trust on first use, `seen` keeps the
+    /// key it presented and how it failed verification, for
+    /// [`CertificateExceptions`] to decide before anything is sent: the
+    /// handshake goes on whatever its certificate, unless `seen` is to stop
+    /// it before `client` would be sent. The handshake's signature is still
+    /// checked against that key. `client` is the client certificate it
+    /// presents when the server asks for one.
+    pub(crate) fn connection_config(
+        &self,
+        seen: Option<Arc<Seen>>,
+        client: Option<Arc<CertifiedKey>>,
+    ) -> rustls::ClientConfig {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let verifier = Verifier::new(self, &provider, seen);
-        let mut config = rustls::ClientConfig::builder_with_provider(provider)
+        let builder = rustls::ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
             .expect("invariant: ring supports rustls's default protocol versions")
             .dangerous()
-            .with_custom_certificate_verifier(Arc::new(verifier))
-            .with_no_client_auth();
+            .with_custom_certificate_verifier(Arc::new(verifier));
+        let mut config = match client {
+            Some(certified) => builder
+                .with_client_cert_resolver(Arc::new(client_certificates::Presenting(certified))),
+            None => builder.with_no_client_auth(),
+        };
         config.alpn_protocols = vec![b"http/1.1".to_vec()];
         config
     }
@@ -284,19 +301,68 @@ fn covered(host: &str, listed: impl Fn(&str) -> bool) -> bool {
 /// What one connection's handshake showed of a listed host's certificate,
 /// kept by its verifier.
 #[derive(Debug, Default)]
-pub(crate) struct Seen(OnceLock<Presented>);
+pub(crate) struct Seen {
+    presented: OnceLock<Presented>,
+    /// When a client certificate follows the server's: whether the host
+    /// has a pin, or a row the engine cannot read.
+    before_client_certificate: Option<bool>,
+}
 
 impl Seen {
+    /// For a connection that presents a client certificate to a host whose
+    /// pin row `pinned` says it has: the handshake goes on only for a
+    /// certificate that verifies, of a host with no pin.
+    pub(crate) fn before_client_certificate(pinned: bool) -> Self {
+        Self {
+            presented: OnceLock::new(),
+            before_client_certificate: Some(pinned),
+        }
+    }
+
     /// What the handshake showed; none before it reached the certificate.
     pub(crate) fn take(&self) -> Option<Presented> {
-        self.0.get().cloned()
+        self.presented.get().cloned()
     }
 
     /// Keeps what the handshake showed: a connection verifies one
     /// certificate, so a second is never kept.
     fn keep(&self, presented: Presented) {
-        let _ = self.0.set(presented);
+        let _ = self.presented.set(presented);
     }
+
+    /// Whether the handshake stops before the client certificate goes: a
+    /// certificate that `failed` verification, or a pinned host's, passes
+    /// only through an exception.
+    fn withholds(&self, failed: bool) -> bool {
+        self.before_client_certificate
+            .is_some_and(|pinned| pinned || failed)
+    }
+}
+
+/// A handshake stopped before its client certificate was sent, carried
+/// from the verifier through rustls's handshake error.
+#[derive(Debug)]
+struct Withheld;
+
+impl std::fmt::Display for Withheld {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("client_certificate_withheld")
+    }
+}
+
+impl std::error::Error for Withheld {}
+
+/// Whether a handshake that ended with `error` was stopped before its
+/// client certificate was sent, for the exception's decision on the
+/// certificate it was shown.
+pub(crate) fn withheld(error: &io::Error) -> bool {
+    let Some(rustls::Error::InvalidCertificate(CertificateError::Other(OtherError(other)))) = error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<rustls::Error>())
+    else {
+        return false;
+    };
+    other.downcast_ref::<Withheld>().is_some()
 }
 
 /// The per-host decision: a host's certificate is checked against
@@ -495,10 +561,16 @@ impl ServerCertVerifier for Verifier {
             )));
         };
         let parsed = ParsedCertificate::try_from(end_entity)?;
+        let withholds = seen.withholds(failure.is_some());
         seen.keep(Presented {
             key: KeyHash::of_public_key(parsed.subject_public_key_info().as_ref()),
             failure,
         });
+        if withholds {
+            return Err(rustls::Error::InvalidCertificate(CertificateError::Other(
+                OtherError(Arc::new(Withheld)),
+            )));
+        }
         Ok(ServerCertVerified::assertion())
     }
 

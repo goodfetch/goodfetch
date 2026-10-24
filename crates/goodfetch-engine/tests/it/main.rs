@@ -18,6 +18,7 @@
 
 mod certificates;
 mod children;
+mod client_certificates;
 mod dns;
 mod downloads;
 mod egress;

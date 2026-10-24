@@ -31,7 +31,7 @@ use rcgen::{
     Issuer, KeyIdMethod, KeyUsagePurpose, PublicKeyData, SerialNumber, SignatureAlgorithm,
 };
 use rustls::crypto::ring;
-use rustls::pki_types::{CertificateDer, DnsName, PrivateKeyDer, PrivatePkcs8KeyDer};
+use rustls::pki_types::{DnsName, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::server::danger::ClientCertVerifier;
 use rustls::server::{ClientHello, ResolvesServerCert, WebPkiClientVerifier};
 use rustls::sign::{CertifiedKey, SigningKey};
@@ -148,20 +148,10 @@ impl Authority {
             by_name,
         });
         let ClientIdentity {
-            authority: client_authority,
+            verifier: client_verifier,
             certificate_pem: client_certificate_pem,
             key_pem: client_key_pem,
         } = client_identity(seed)?;
-        let mut client_roots = RootCertStore::empty();
-        client_roots
-            .add(client_authority)
-            .context("trusting the client authority")?;
-        let client_verifier = WebPkiClientVerifier::builder_with_provider(
-            Arc::new(client_roots),
-            Arc::new(ring::default_provider()),
-        )
-        .build()
-        .context("building the client certificate verifier")?;
         let config = |alpn: &[&[u8]],
                       clients: Option<Arc<dyn ClientCertVerifier>>|
          -> Result<Arc<ServerConfig>> {
@@ -321,11 +311,11 @@ fn authority(
     Ok((certificate, Issuer::new(params, key)))
 }
 
-/// The seed's client authority and the client certificate it signed, with
-/// its key: what the host names that require mutual TLS trust, and what a
-/// test hands its client.
+/// The verifier of the seed's client authority, which the host names that
+/// require mutual TLS check a client with, and the client certificate it
+/// signed with its key, which a test hands its client.
 struct ClientIdentity {
-    authority: CertificateDer<'static>,
+    verifier: Arc<dyn ClientCertVerifier>,
     certificate_pem: String,
     key_pem: String,
 }
@@ -351,8 +341,18 @@ fn client_identity(seed: u64) -> Result<ClientIdentity> {
     let certificate = params
         .signed_by(&key, &issuer)
         .context("signing the client certificate")?;
+    let mut roots = RootCertStore::empty();
+    roots
+        .add(authority.der().clone())
+        .context("trusting the client authority")?;
+    let verifier = WebPkiClientVerifier::builder_with_provider(
+        Arc::new(roots),
+        Arc::new(ring::default_provider()),
+    )
+    .build()
+    .context("building the client certificate verifier")?;
     Ok(ClientIdentity {
-        authority: authority.der().clone(),
+        verifier,
         certificate_pem: certificate.pem(),
         key_pem: pem("PRIVATE KEY", &key.pkcs8()?),
     })

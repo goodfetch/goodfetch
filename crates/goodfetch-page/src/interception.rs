@@ -800,15 +800,24 @@ impl Interception {
         lock(&state.failure).take()
     }
 
-    /// Takes the pages `pages` and the Session `session` out of the
-    /// interception, as their Run stops: their routes' subscriptions end.
-    pub(crate) fn close(&self, pages: &[PageId], session: &SessionId) {
+    /// Takes the pages `pages` out of the interception, as each ends: their
+    /// own routes' subscriptions end. Their Session's routes stay with its
+    /// other pages.
+    pub(crate) fn close_pages(&self, pages: &[PageId]) {
         let mut tables = lock(&self.shared.tables);
         for page in pages {
             if let Some(state) = tables.pages.remove(page) {
                 state.routes.close();
             }
         }
+    }
+
+    /// Takes the Session `session` and its pages `pages` out of the
+    /// interception, as the Session or its Run ends: every route of theirs
+    /// ends its subscription.
+    pub(crate) fn close_session(&self, session: &SessionId, pages: &[PageId]) {
+        self.close_pages(pages);
+        let mut tables = lock(&self.shared.tables);
         if let Some(table) = tables.sessions.remove(session) {
             table.close();
         }

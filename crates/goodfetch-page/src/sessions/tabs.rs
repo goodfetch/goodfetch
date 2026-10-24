@@ -157,7 +157,7 @@ impl Sessions {
             Err(error) => {
                 self.events.close(pages);
                 self.dialogs.close(pages);
-                self.interception.close(pages, session);
+                self.interception.close_pages(pages);
                 return Err(error);
             }
         };
@@ -166,7 +166,7 @@ impl Sessions {
             drop(state);
             self.events.close(pages);
             self.dialogs.close(pages);
-            self.interception.close(pages, session);
+            self.interception.close_pages(pages);
             return Err(session_closed(session));
         }
         let browser = in_browser.browser();
@@ -341,12 +341,10 @@ impl Sessions {
                 page.driver.close().await;
                 // The close the engine sent is confirmed (P29).
                 let effect = page.life.end(&Ending::Destroyed)?;
-                self.page_ended(page_id, &page.session, &page.run, effect)
-                    .await;
+                self.page_ended(page_id, &page.run, effect).await;
             }
             effect => {
-                self.page_ended(page_id, &page.session, &page.run, effect)
-                    .await;
+                self.page_ended(page_id, &page.run, effect).await;
             }
         }
         Ok(())

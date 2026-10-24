@@ -15,6 +15,7 @@ use goodfetch_protocol::page::route::{
     PAGE_HANDLER_FAILED, PAGE_ROUTE, ROUTE_ABORT, ROUTE_ALREADY_HANDLED, ROUTE_CONTINUE,
     ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL, ROUTE_HANDLE, SESSION_ROUTE,
 };
+use goodfetch_protocol::page::tabs::PAGE_CLOSE;
 use goodfetch_protocol::page::{NAVIGATION_FAILED, PAGE_GOTO, PageOpened};
 use serde_json::{Value, json};
 
@@ -38,6 +39,7 @@ pub(crate) enum Case {
     Fetch,
     StepOrder,
     Cache,
+    SiblingClosed,
 }
 
 impl Case {
@@ -58,6 +60,7 @@ impl Case {
                 Self::StepOrder
             }
             "adding-a-route-leaves-the-browsers-cache-serving-a-cached-response" => Self::Cache,
+            "a-session-route-keeps-serving-its-other-pages-once-one-closes" => Self::SiblingClosed,
             _ => return None,
         })
     }
@@ -78,6 +81,7 @@ impl Case {
             Self::Fetch => fetch_then_fulfill(connection, site, checks),
             Self::StepOrder => order_of_steps(connection, site, checks),
             Self::Cache => cache_kept(connection, site, checks),
+            Self::SiblingClosed => sibling_closed(connection, site, checks),
         }
     }
 }
@@ -932,5 +936,78 @@ fn cache_kept(connection: &mut Connection, site: &Site, checks: &mut Checks) -> 
         received(site, "scope.test", target_of(&with_route)) == 1,
     );
     checks.check("the route saw both loads", routes.handled.len() == 2);
+    finish_run(connection, run_id)
+}
+
+/// A Session route belongs to the Session, not to the page it first
+/// served: once one of the Session's pages closes, the route still answers
+/// the others' requests, its subscription goes on, and another Session
+/// route can still be armed.
+fn sibling_closed(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-route-sibling-closed";
+    let (Some(url), Some(again), Some(closing)) = (
+        site.named_url("scope.test", "/about?route=sibling"),
+        site.named_url("scope.test", "/again?route=sibling"),
+        page(connection, site, run_id, &json!({}), checks)?,
+    ) else {
+        return finish_run(connection, run_id);
+    };
+    let Some(open) = new_page(connection, run_id, checks)? else {
+        return finish_run(connection, run_id);
+    };
+    let session = Routes::route(
+        connection,
+        SESSION_ROUTE.name,
+        &json!({ "session_id": closing.session_id, "url": glob("**/about*") }),
+    )?;
+    let closed = connection.request(PAGE_CLOSE.name, &json!({ "page_id": closing.page_id }))?;
+    let closed = connection.browser_answer(closed)?.message;
+    checks.check(
+        "one page of the Session closes",
+        closed.get("result").is_some(),
+    );
+    let armed_after = Routes::route(
+        connection,
+        SESSION_ROUTE.name,
+        &json!({ "session_id": closing.session_id, "url": glob("**/again*") }),
+    )?;
+    let mut routes = Routes::new(|_| {
+        vec![
+            Act::Call(ROUTE_FULFILL.name, html("<p>session</p>")),
+            Act::End,
+        ]
+    });
+    let answer = goto(&mut routes, connection, &open, &url)?;
+    answered(&answer, "the other page's `goto`", &url, 200, checks);
+    let answer = goto(&mut routes, connection, &open, &again)?;
+    answered(
+        &answer,
+        "the other page's second `goto`",
+        &again,
+        200,
+        checks,
+    );
+    let asked: Vec<Value> = routes
+        .handled
+        .iter()
+        .map(|params| params["id"].clone())
+        .collect();
+    checks.check(
+        "the Session route answers the other page's request, and one armed after the close the next",
+        asked == [json!(session), json!(armed_after)],
+    );
+    checks.check(
+        "neither Session route's subscription ended",
+        !routes.answers.contains_key(&session) && !routes.answers.contains_key(&armed_after),
+    );
+    checks.check(
+        "the fulfilled requests never reached the Proving ground",
+        received(site, "scope.test", target_of(&url)) == 0
+            && received(site, "scope.test", target_of(&again)) == 0,
+    );
     finish_run(connection, run_id)
 }

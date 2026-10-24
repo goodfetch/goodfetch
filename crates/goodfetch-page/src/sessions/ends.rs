@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use goodfetch_engine::runs::Run;
+use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::events::{PAGE_CLOSE, PAGE_CRASH, PageEventName};
-use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::usage::PAGE_CRASHES;
 
 use super::life::Ending;
@@ -18,13 +18,7 @@ impl Sessions {
     /// Acts on what a page's end did (`effect`): a crash emits `crash` and
     /// counts in Usage (ADR 0040); a page that closed emits `close`, then
     /// leaves with its events and routes, so later calls raise `closed`.
-    pub(super) async fn page_ended(
-        &self,
-        page_id: &PageId,
-        session: &SessionId,
-        run: &Run,
-        effect: PageEffect,
-    ) {
+    pub(super) async fn page_ended(&self, page_id: &PageId, run: &Run, effect: PageEffect) {
         let pages = std::slice::from_ref(page_id);
         match effect {
             PageEffect::RendererCrash | PageEffect::BrowserCrash => {
@@ -44,7 +38,7 @@ impl Sessions {
                 self.state.lock().await.pages.remove(page_id);
                 self.events.close(pages);
                 self.dialogs.close(pages);
-                self.interception.close(pages, session);
+                self.interception.close_pages(pages);
             }
             // A crashed page releases what is left, its admission and its
             // place in its browser, and stays `Crashed`: its later calls
@@ -59,7 +53,7 @@ impl Sessions {
                 drop(state);
                 self.events.close(pages);
                 self.dialogs.close(pages);
-                self.interception.close(pages, session);
+                self.interception.close_pages(pages);
             }
             PageEffect::Nothing
             | PageEffect::Serve
@@ -117,7 +111,7 @@ impl Sessions {
                 }
             }
             match life.end(&ending) {
-                Ok(effect) => sessions.page_ended(&page_id, &session, &run, effect).await,
+                Ok(effect) => sessions.page_ended(&page_id, &run, effect).await,
                 Err(error) => tracing::error!(%error, "a page's end was refused"),
             }
             if quit && let Err(error) = sessions.session_ended(&open, &session).await {

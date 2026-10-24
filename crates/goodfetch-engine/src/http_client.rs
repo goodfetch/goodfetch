@@ -20,7 +20,12 @@
 //! address it judges again before connecting, so the connection tries only
 //! addresses the resolved-address check let through: a refusal ends the
 //! call that waited for it with `egress_refused`, or, when no call waits,
-//! is a `page.request_failed` event in the Run trace.
+//! is a `page.request_failed` event in the Run trace. Behind the
+//! Session's upstream proxy the same check runs before anything is sent to
+//! the proxy (ADR 0017): the engine resolves the name itself, the `resolve`
+//! mapping first, and refuses a private answer; the proxy then resolves the
+//! name again itself. [`tunnel`] is the translation point of the proxy's
+//! answer to a tunnel request (ADR 0127).
 //!
 //! ADR 0043 allows only two kinds of caller beside a run's own requests:
 //! `pinned_download`, the one path for every connection nobody configured,
@@ -54,6 +59,10 @@ use crate::tls::{
 
 #[cfg(test)]
 mod tests;
+
+mod tunnel;
+
+pub use tunnel::{ProxyFailure, Unrecognized};
 
 /// The `resolve` setting (ADR 0059): host names mapped to addresses before
 /// any lookup.
@@ -225,6 +234,9 @@ pub struct PageTraffic {
     pub egress: egress::Policy,
     /// The `resolve` setting (ADR 0059).
     pub resolve: Resolve,
+    /// The Session's upstream proxy, which its requests go through when it
+    /// has one.
+    pub proxy: Option<UpstreamProxy>,
     /// What each host's certificate may chain to beside Mozilla's roots:
     /// the certificate authorities `tls.trusted_cas` lists for its domain.
     pub trust: Trust,
@@ -237,6 +249,28 @@ pub struct PageTraffic {
     pub clock: Clock,
     /// `resolver.resolution_delay` and `resolver.attempt_delay`.
     pub delays: Delays,
+}
+
+/// A Session's upstream HTTP proxy, as the engine's HTTP client reaches
+/// it: a plain `http://` request goes to it in absolute form, and an
+/// `https://` one through the tunnel it opens to the site. It resolves the
+/// site's name itself; the engine has judged that name's addresses before.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UpstreamProxy {
+    /// Its host name or IP address, without brackets.
+    pub host: String,
+    /// Its port.
+    pub port: u16,
+}
+
+impl std::fmt::Display for UpstreamProxy {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.host.contains(':') {
+            write!(formatter, "http://[{}]:{}", self.host, self.port)
+        } else {
+            write!(formatter, "http://{}:{}", self.host, self.port)
+        }
+    }
 }
 
 /// One cookie of a Session, sent to its domain and the domain's
@@ -281,7 +315,11 @@ impl PageTraffic {
     /// judges the request before any lookup, then every address its host
     /// stands for (the `resolve` mapping's, its literal address or the
     /// resolver's answers) before any connection, which tries only those
-    /// addresses (ADR 0017's resolved-address check). A refusal opens no
+    /// addresses (ADR 0017's resolved-address check). Behind an upstream
+    /// proxy, the engine still resolves the name itself and judges its
+    /// answers before anything is sent to the proxy, which then resolves
+    /// the name again itself: the check refuses a private answer there, and
+    /// cannot see one the proxy's own resolver gives. A refusal opens no
     /// connection; when nobody waits for the request, it is also recorded
     /// in the Run trace.
     ///
@@ -290,7 +328,8 @@ impl PageTraffic {
     /// [`FetchError::Refused`] when the policy refuses it, whose
     /// [`Refused::error`] is `egress_refused`;
     /// [`FetchError::UnsupportedScheme`] for an allowed scheme other than
-    /// `http` and `https`; [`FetchError::Failed`] when it got no answer.
+    /// `http` and `https`; [`FetchError::Failed`] when it got no answer,
+    /// with [`Failure::Proxy`] when the proxy carried nothing.
     ///
     /// # Cancel safety
     ///
@@ -356,10 +395,44 @@ impl PageTraffic {
             }
             return Err(FetchError::Refused(refused));
         }
-        send_to(&server, &found, request, &self.cookies, &network)
+        let via = match &self.proxy {
+            None => Via::Direct(&found),
+            Some(proxy) => {
+                let proxy_server = Server {
+                    host: &proxy.host,
+                    port: proxy.port,
+                    plain: true,
+                };
+                let at = addresses(&proxy_server, &self.resolve)
+                    .await
+                    .map_err(|_| FetchError::Failed(Failure::Proxy(ProxyFailure::Unreachable)))?;
+                Via::Proxy {
+                    port: proxy_server.port,
+                    host: &proxy.host,
+                    at,
+                }
+            }
+        };
+        send_to(&server, &via, request, &self.cookies, &network)
             .await
             .map_err(FetchError::Failed)
     }
+}
+
+/// How a request reaches its server.
+enum Via<'a> {
+    /// Straight, to one of the server's addresses.
+    Direct(&'a [SocketAddr]),
+    /// Through the Session's upstream proxy, at one of its addresses: in
+    /// absolute form for plain HTTP, else through the tunnel it opens.
+    Proxy {
+        /// The proxy's host.
+        host: &'a str,
+        /// The proxy's port.
+        port: u16,
+        /// The proxy's addresses.
+        at: Vec<SocketAddr>,
+    },
 }
 
 /// Records `refused` as a `page.request_failed` event in the Run trace,
@@ -388,6 +461,9 @@ pub enum Failure {
     /// The host is pinned to another key than it presented, or its pin row
     /// cannot be read, so nothing was sent (ADR 0042).
     CertificateChanged(CertificateChanged),
+    /// The Session's upstream proxy carried nothing to the site: its own
+    /// failure, never the site's.
+    Proxy(ProxyFailure),
 }
 
 /// The task that drives one connection, plain or over TLS, until it ends.
@@ -481,7 +557,7 @@ pub(crate) async fn send(
     network: &Network<'_>,
 ) -> Result<Response, Failure> {
     let found = addresses(server, network.resolve).await?;
-    send_to(server, &found, request, &[], network).await
+    send_to(server, &Via::Direct(&found), request, &[], network).await
 }
 
 /// The `Cookie` header of `cookies` for `host`: those whose domain is the
@@ -506,8 +582,8 @@ fn cookie_header(cookies: &[SessionCookie], host: &str) -> Option<hyper::header:
     hyper::header::HeaderValue::from_str(&line).ok()
 }
 
-/// Sends `request` to `server` at one of `found`, its addresses, over
-/// HTTPS unless the server is plain, and answers its head. A host listed
+/// Sends `request` to `server` `via` one of its addresses or its proxy,
+/// over HTTPS unless the server is plain, and answers its head. A host listed
 /// for trust on first use is let through or stopped by the Session's
 /// exceptions once its handshake is done, before the request is written;
 /// `cookies` go to the host unless it was reached through an exception.
@@ -517,14 +593,17 @@ fn cookie_header(cookies: &[SessionCookie], host: &str) -> Option<hyper::header:
 /// Dropping the future closes any connection it opened.
 async fn send_to(
     server: &Server<'_>,
-    found: &[SocketAddr],
+    via: &Via<'_>,
     mut request: Request<Empty<Bytes>>,
     cookies: &[SessionCookie],
     network: &Network<'_>,
 ) -> Result<Response, Failure> {
     let mut exception = None;
+    if server.plain && matches!(via, Via::Proxy { .. }) {
+        absolute_form(&mut request)?;
+    }
     let (mut sender, mut connection) = if server.plain {
-        let tcp = race_to(server, found, network).await?;
+        let tcp = open(server, via, network).await?;
         let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tcp))
             .await
             .map_err(|_| Failure::Network)?;
@@ -545,7 +624,7 @@ async fn send_to(
             Some(seen) => network.trust.client_config_presenting(Arc::clone(seen)),
             None => network.trust.client_config(),
         };
-        let tcp = race_to(server, found, network).await?;
+        let tcp = open(server, via, network).await?;
         let tls = tokio_rustls::TlsConnector::from(Arc::new(config))
             .connect(server_name, tcp)
             .await
@@ -603,13 +682,62 @@ async fn send_to(
     })
 }
 
-/// Connects to one of `found`, `server`'s addresses, both families
-/// answered at once, raced under RFC 8305: it tries no other address.
-async fn race_to(
+/// `request`'s target in absolute form, as a proxy takes a plain HTTP
+/// request: its scheme and its `Host` before its path.
+fn absolute_form(request: &mut Request<Empty<Bytes>>) -> Result<(), Failure> {
+    let host = request
+        .headers()
+        .get(hyper::header::HOST)
+        .and_then(|host| host.to_str().ok())
+        .ok_or(Failure::ServerName)?;
+    let path = request
+        .uri()
+        .path_and_query()
+        .map_or("/", hyper::http::uri::PathAndQuery::as_str);
+    *request.uri_mut() = format!("http://{host}{path}")
+        .parse()
+        .map_err(|_| Failure::ServerName)?;
+    Ok(())
+}
+
+/// A connection to `server` `via` its addresses, or through its proxy: a
+/// tunnel to it for HTTPS, the proxy's answer read by [`tunnel`].
+async fn open(
     server: &Server<'_>,
-    found: &[SocketAddr],
+    via: &Via<'_>,
     network: &Network<'_>,
 ) -> Result<TcpStream, Failure> {
+    match via {
+        Via::Direct(found) => race_to(server.host, server.port, found, network)
+            .await
+            .map_err(|_| Failure::Network),
+        Via::Proxy { host, port, at } => {
+            let mut tcp = race_to(host, *port, at, network)
+                .await
+                .map_err(|_| Failure::Proxy(ProxyFailure::Unreachable))?;
+            if !server.plain {
+                let authority = match server.host.parse::<IpAddr>() {
+                    Ok(IpAddr::V6(address)) => format!("[{address}]:{}", server.port),
+                    _ => format!("{}:{}", server.host, server.port),
+                };
+                tunnel::open(&mut tcp, &authority)
+                    .await
+                    .map_err(Failure::Proxy)?;
+            }
+            Ok(tcp)
+        }
+    }
+}
+
+/// Connects to one of `found`, the addresses of `name` on `port`, both
+/// families answered at once, raced under RFC 8305: it tries no other
+/// address.
+async fn race_to(
+    name: &str,
+    port: u16,
+    found: &[SocketAddr],
+    network: &Network<'_>,
+) -> Result<TcpStream, RaceError> {
     let of = |family: IpFamily| -> Result<Vec<IpAddr>, LookupError> {
         Ok(found
             .iter()
@@ -623,15 +751,14 @@ async fn race_to(
         families: Families::Both,
     };
     race.connect(
-        server.host,
-        server.port,
+        name,
+        port,
         ready(of(IpFamily::Ipv6)),
         ready(of(IpFamily::Ipv4)),
         |address| attempt(address, None),
     )
     .await
     .map(|won| won.connection)
-    .map_err(|_| Failure::Network)
 }
 
 /// One connection attempt to `address`, bound to `local` when the Session

@@ -12,6 +12,18 @@
 /* eslint-disable unicorn/consistent-function-scoping -- CDP sends the function alone */
 // eslint-disable-next-line no-unused-vars -- the engine's expression calls it
 async function walk(thunk, argument, given) {
+  // What a thrown value says: an error of any realm by its name, message
+  // and stack, any other value as its text.
+  const thrownOf = (error) => {
+    const named = error instanceof Error || (error && typeof error.name === "string");
+    return {
+      thrown: {
+        name: named ? String(error.name) : null,
+        message: named ? String(error.message) : String(error),
+        stack: named && typeof error.stack === "string" ? error.stack : null,
+      },
+    };
+  };
   let value;
   try {
     value = thunk();
@@ -23,14 +35,7 @@ async function walk(thunk, argument, given) {
       value = await value;
     }
   } catch (error) {
-    const thrown = error instanceof Error || (error && typeof error.name === "string");
-    return {
-      thrown: {
-        name: thrown ? String(error.name) : null,
-        message: thrown ? String(error.message) : String(error),
-        stack: thrown && typeof error.stack === "string" ? error.stack : null,
-      },
-    };
+    return thrownOf(error);
   }
   const tag = (found) => Object.prototype.toString.call(found).slice(8, -1);
   const constructorOf = (found) => {
@@ -55,25 +60,43 @@ async function walk(thunk, argument, given) {
     const kinds = { Map: "map", Set: "set", Date: "date", RegExp: "regexp", Error: "error" };
     return kinds[tag(found)] ?? "object";
   };
+  // The walk copies with syntax, never with a built-in the page may have
+  // replaced, such as Prototype.js's `Array.from`; a value's path from `$` is
+  // spelled only for the value that stops the walk.
   const IDENTIFIER = /^[A-Za-z_$][\w$]*$/u;
-  const step = (path, key) =>
-    typeof key === "number"
-      ? `${path}[${key}]`
-      : IDENTIFIER.test(key)
-        ? `${path}.${key}`
-        : `${path}[${JSON.stringify(key)}]`;
+  const pathOf = (at) => {
+    if (at === null) {
+      return "$";
+    }
+    const parent = pathOf(at.parent);
+    return typeof at.key === "number"
+      ? `${parent}[${at.key}]`
+      : IDENTIFIER.test(at.key)
+        ? `${parent}.${at.key}`
+        : `${parent}[${JSON.stringify(at.key)}]`;
+  };
   // The first value outside JSON, after which the walk copies nothing more.
   let invalid = null;
-  const mark = (path, kind, found) => {
+  const mark = (at, kind, found) => {
     invalid = {
-      path,
+      path: pathOf(at),
       kind,
       constructor: typeof found === "object" && found !== null ? constructorOf(found) : null,
     };
     return undefined;
   };
-  const ancestors = new Set();
-  const copy = (found, path) => {
+  // The objects the walk is inside, the outermost first.
+  const ancestors = [];
+  let depth = 0;
+  const inside = (found) => {
+    for (let index = 0; index < depth; index += 1) {
+      if (ancestors[index] === found) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const copy = (found, at) => {
     if (invalid !== null) {
       return undefined;
     }
@@ -83,22 +106,23 @@ async function walk(thunk, argument, given) {
         return found;
       }
       case "number": {
-        if (Number.isNaN(found)) {
-          return mark(path, "not_a_number", found);
+        // `Number.isNaN` may be the page's: only `NaN` is not itself.
+        if (found !== found) {
+          return mark(at, "not_a_number", found);
         }
-        if (!Number.isFinite(found)) {
-          return mark(path, "infinity", found);
+        if (found === Infinity || found === -Infinity) {
+          return mark(at, "infinity", found);
         }
         return found === 0 ? 0 : found;
       }
       case "bigint": {
-        return mark(path, "bigint", found);
+        return mark(at, "bigint", found);
       }
       case "symbol": {
-        return mark(path, "symbol", found);
+        return mark(at, "symbol", found);
       }
       case "function": {
-        return mark(path, "function", found);
+        return mark(at, "function", found);
       }
       case "undefined": {
         return undefined;
@@ -110,47 +134,45 @@ async function walk(thunk, argument, given) {
     if (found === null) {
       return null;
     }
-    if (ancestors.has(found)) {
-      return mark(path, "cycle", found);
+    if (inside(found)) {
+      return mark(at, "cycle", found);
     }
-    if (!Array.isArray(found) && !isPlain(found)) {
-      return mark(path, kindOf(found), found);
+    const array = Array.isArray(found);
+    if (!array && !isPlain(found)) {
+      return mark(at, kindOf(found), found);
     }
-    ancestors.add(found);
+    ancestors[depth] = found;
+    depth += 1;
     let copied;
-    if (Array.isArray(found)) {
-      copied = Array.from({ length: found.length }, (_, index) => {
-        const item = copy(found[index], step(path, index));
-        return item === undefined ? null : item;
-      });
+    if (array) {
+      copied = [];
+      const length = found.length;
+      for (let index = 0; index < length; index += 1) {
+        const item = copy(found[index], { parent: at, key: index });
+        copied[index] = item === undefined ? null : item;
+      }
     } else {
-      const entries = [];
-      for (const key of Object.keys(found)) {
-        const item = copy(found[key], step(path, key));
+      // No prototype, so a `__proto__` key stays a key.
+      copied = { __proto__: null };
+      const keys = Object.keys(found);
+      for (let index = 0; index < keys.length; index += 1) {
+        const key = keys[index];
+        const item = copy(found[key], { parent: at, key });
         if (item !== undefined) {
-          entries.push([key, item]);
+          copied[key] = item;
         }
       }
-      // `fromEntries` defines each key, so `__proto__` stays a key.
-      copied = Object.fromEntries(entries);
     }
-    ancestors.delete(found);
+    depth -= 1;
     return copied;
   };
   try {
-    const copied = copy(value, "$");
+    const copied = copy(value, null);
     if (invalid !== null) {
       return { invalid };
     }
     return copied === undefined ? {} : { value: copied };
   } catch (error) {
-    const thrown = error instanceof Error;
-    return {
-      thrown: {
-        name: thrown ? error.name : null,
-        message: thrown ? error.message : String(error),
-        stack: thrown && typeof error.stack === "string" ? error.stack : null,
-      },
-    };
+    return thrownOf(error);
   }
 }

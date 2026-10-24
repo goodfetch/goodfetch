@@ -55,6 +55,13 @@ const PUBLIC: &str = "93.184.215.14";
 /// The site's public name.
 const SITE: &str = "site.test";
 
+/// The site's page whose button opens a popup of `/popup`.
+const OPENER: &str = "/opener";
+
+/// The site's popup page, whose button opens a popup on `leak.test` and
+/// closes the page itself, so the new popup's opener is gone at once.
+const POPUP: &str = "/popup";
+
 /// What `cdp_url_not_allowed` asks for.
 const FIX: &str = "set the address in Operator policy or in user or project configuration, or give a public address";
 
@@ -157,7 +164,16 @@ fn answer(mut stream: TcpStream, recorded: &Mutex<Vec<String>>) {
         .unwrap_or_default();
     let host = host.rsplit_once(':').map_or(host, |(name, _)| name);
     recorded.lock().unwrap().push(host.to_owned());
-    let body = "<html><body><h1>Borrowed</h1></body></html>";
+    let path = text.split(' ').nth(1).unwrap_or("/");
+    let body = match path {
+        OPENER => {
+            "<html><body><button id=open onclick=\"window.open('/popup')\">Open</button></body></html>"
+        }
+        POPUP => {
+            "<html><body><button id=leak onclick=\"window.open('http://leak.test:' + location.port + '/leak'); window.close()\">Leak</button></body></html>"
+        }
+        _ => "<html><body><h1>Borrowed</h1></body></html>",
+    };
     let _ = write!(
         stream,
         "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -669,5 +685,217 @@ fn going_back_on_a_borrowed_browser_answers_a_page_its_cache_restored() {
         (back.get("result").is_some(), &path["result"]["value"]),
         (true, &json!("/a")),
         "{back}"
+    );
+}
+
+/// The person's own CDP connection to the lent browser, as their own tools
+/// would hold one.
+struct Person {
+    socket: tungstenite::WebSocket<TcpStream>,
+    next_id: u64,
+}
+
+impl Person {
+    fn connect(cdp_url: &str) -> Self {
+        let authority = cdp_url
+            .trim_start_matches("ws://")
+            .split('/')
+            .next()
+            .unwrap()
+            .to_owned();
+        let stream = TcpStream::connect(&authority).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(30)))
+            .unwrap();
+        let socket = tungstenite::client(cdp_url, stream).unwrap().0;
+        Self { socket, next_id: 0 }
+    }
+
+    /// The result of the CDP command `method` with `params`, on the target
+    /// session `session` when one is given.
+    fn send(&mut self, method: &str, params: &Value, session: Option<&str>) -> Value {
+        self.next_id += 1;
+        let mut command = json!({ "id": self.next_id, "method": method, "params": params });
+        if let Some(session) = session {
+            command["sessionId"] = json!(session);
+        }
+        self.socket
+            .send(tungstenite::Message::text(command.to_string()))
+            .unwrap();
+        loop {
+            if let tungstenite::Message::Text(text) = self.socket.read().unwrap() {
+                let reply: Value = serde_json::from_str(&text).unwrap();
+                if reply["id"] == json!(self.next_id) {
+                    assert!(reply.get("error").is_none(), "{method}: {reply}");
+                    return reply["result"].clone();
+                }
+            }
+        }
+    }
+
+    /// The browser's page targets, as `Target.getTargets` describes them.
+    fn pages(&mut self) -> Vec<Value> {
+        self.send("Target.getTargets", &json!({}), None)["targetInfos"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|target| target["type"] == "page")
+            .collect()
+    }
+
+    /// The page targets once `settled` holds of them, or as they are after
+    /// 10 s.
+    fn pages_once(&mut self, settled: impl Fn(&[Value]) -> bool) -> Vec<Value> {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let pages = self.pages();
+            if settled(&pages) || std::time::Instant::now() > deadline {
+                return pages;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+}
+
+/// Whether the page target `target`'s URL ends with `path`.
+fn at(target: &Value, path: &str) -> bool {
+    target["url"]
+        .as_str()
+        .is_some_and(|url| url.ends_with(path))
+}
+
+/// The person's own tabs stay theirs while a Session borrows their browser
+/// (ADR 0056): the tab already open, one they open and one their own tab
+/// opens are each let go of at once, with no engine session left on them,
+/// while the Session's own page keeps the engine's (positive control).
+///
+/// Covers: story:4-14, operation:run.new_session, operation:session.new_page
+#[test]
+fn a_borrowed_browser_lets_go_of_the_persons_own_tabs() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let site = Site::start();
+    let mut program = Program::start(&env, &cache, "sdk_python");
+    program.run("tabs", &[(SITE, &[PUBLIC])]);
+    let session = program.borrow("tabs", &lent.cdp_url)["result"]["session_id"].clone();
+    let page = program.new_page(&session);
+    let went = program.goto(&page, &site.url(SITE, "/session"));
+
+    let mut person = Person::connect(&lent.cdp_url);
+    let mine = person.send(
+        "Target.createTarget",
+        &json!({ "url": site.url(SITE, "/mine") }),
+        None,
+    )["targetId"]
+        .clone();
+    let attached = person.send(
+        "Target.attachToTarget",
+        &json!({ "targetId": mine, "flatten": true }),
+        None,
+    )["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let opened = person.send(
+        "Runtime.evaluate",
+        &json!({
+            "expression": format!("window.open({:?}) !== null", site.url(SITE, "/opened")),
+            "userGesture": true,
+        }),
+        Some(&attached),
+    );
+    let pages = person.pages_once(|pages| {
+        pages.iter().any(|target| at(target, "/opened"))
+            && pages
+                .iter()
+                .filter(|target| !at(target, "/mine") && !at(target, "/session"))
+                .all(|target| target["attached"] == false)
+    });
+    program.finish("tabs");
+    lent.stop();
+
+    let attached_of = |path: &str| {
+        pages
+            .iter()
+            .find(|target| at(target, path))
+            .map(|target| target["attached"].clone())
+    };
+    assert_eq!(
+        (
+            &went["result"]["response"]["status"],
+            &opened["result"]["value"],
+            attached_of("about:blank"),
+            attached_of("/opened"),
+            attached_of("/session"),
+        ),
+        (
+            &json!(200),
+            &json!(true),
+            Some(json!(false)),
+            Some(json!(false)),
+            Some(json!(true)),
+        ),
+        "{pages:#?}"
+    );
+}
+
+/// A popup the Session cannot take in never runs outside its interception
+/// (ADR 0085; pitfall B15): its popup's popup, opened as that popup closes
+/// itself, so its opener is gone at once, is closed before it runs or taken
+/// in, and either way its request to a name the engine resolves to a
+/// private address never reaches the site, where the browser, which
+/// resolves it to loopback, would send it.
+///
+/// Covers: story:4-14, story:5-55, operation:locator.click, operation:session.pages
+#[test]
+fn a_popup_whose_opener_went_never_runs_outside_the_interception() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let site = Site::start();
+    let mut program = Program::start(&env, &cache, "sdk_python");
+    program.run("popups", &[(SITE, &[PUBLIC]), ("leak.test", &["10.0.0.1"])]);
+    let session = program.borrow("popups", &lent.cdp_url)["result"]["session_id"].clone();
+    let page = program.new_page(&session);
+    let went = program.goto(&page, &site.url(SITE, OPENER));
+    let clicked = program.call(
+        "locator.click",
+        &json!({ "locator": { "page_id": page, "selector": "#open" } }),
+    );
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let popup = loop {
+        let pages = program.call("session.pages", &json!({ "session_id": session }));
+        if let Some(popup) = pages["result"]["pages"]
+            .as_array()
+            .and_then(|pages| pages.iter().find(|listed| **listed != json!(page)))
+        {
+            break popup.clone();
+        }
+        assert!(std::time::Instant::now() < deadline, "no popup: {pages}");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let loaded = program.call(
+        "page.wait_for_load_state",
+        &json!({ "page_id": popup, "state": "load" }),
+    );
+    let _ = program.call(
+        "locator.click",
+        &json!({ "locator": { "page_id": popup, "selector": "#leak" } }),
+    );
+    std::thread::sleep(Duration::from_secs(2));
+    let leaked = site.hosts().iter().any(|host| host == "leak.test");
+    program.finish("popups");
+    lent.stop();
+
+    assert_eq!(
+        (
+            &went["result"]["response"]["status"],
+            clicked.get("result").is_some(),
+            loaded.get("result").is_some(),
+            leaked,
+        ),
+        (&json!(200), true, true, false),
     );
 }

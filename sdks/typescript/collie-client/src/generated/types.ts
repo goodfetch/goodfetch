@@ -2910,6 +2910,12 @@ export interface LocatorWaitForParams {
    * The state; `visible` when absent.
    */
   state?: ElementState | null;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
 }
 /**
  * The locator.
@@ -4177,6 +4183,11 @@ export interface RouteRequest {
    */
   method: string;
   /**
+   * Its body, in Base64 (RFC 4648, with padding), when it has one: as
+   * the page sent it, or as a route before replaced it.
+   */
+  post_data?: string | null;
+  /**
    * What the page loads with it, as the browser names it, such as
    * `Document`, `Script` or `XHR`.
    */
@@ -4250,6 +4261,11 @@ export interface RouteRequest1 {
    * Its method, such as `GET`.
    */
   method: string;
+  /**
+   * Its body, in Base64 (RFC 4648, with padding), when it has one: as
+   * the page sent it, or as a route before replaced it.
+   */
+  post_data?: string | null;
   /**
    * What the page loads with it, as the browser names it, such as
    * `Document`, `Script` or `XHR`.
@@ -5709,6 +5725,12 @@ export interface UsageSetParams {
 export interface WaitForCountParams {
   count: Count1;
   locator: Locator5;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
 }
 /**
  * The count.
@@ -5750,6 +5772,12 @@ export interface WaitForExchangeParams {
    */
   page_id: string;
   /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
+  /**
    * The URLs it waits for.
    */
   url?: UrlMatcher | null;
@@ -5783,6 +5811,12 @@ export interface WaitForFunctionParams {
    */
   polling_interval?: number | null;
   /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
+  /**
    * Where it runs; the main world when absent.
    */
   world?: World | null;
@@ -5802,6 +5836,12 @@ export interface WaitForLoadStateParams {
    * The state; `load` when absent.
    */
   state?: LoadState | null;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
 }
 /**
  * What `page.wait_for_request_finished` takes: the page, and the URLs of
@@ -5815,6 +5855,12 @@ export interface WaitForRequestFinishedParams {
    * A page of a Run, named by the engine when it opens it.
    */
   page_id: string;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
   /**
    * The URLs it waits for.
    */
@@ -5832,6 +5878,12 @@ export interface WaitForUrlParams {
    * A page of a Run, named by the engine when it opens it.
    */
   page_id: string;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
   /**
    * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
    * one, or a regular expression in the `regex` crate's syntax. A predicate

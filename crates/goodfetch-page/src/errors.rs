@@ -19,7 +19,6 @@ use goodfetch_engine::deadline::Deadline;
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CallCancelledDetails, ClosedValue, INTERNAL, InternalDetails, StoppedBy,
 };
-use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::governor::{PAGE_MEMORY_EXCEEDED, PageMemoryExceededDetails};
 use goodfetch_protocol::jsonrpc::{ErrorData, ProtocolFailure};
 use goodfetch_protocol::page::{
@@ -74,16 +73,14 @@ const BROWSER_ANSWER: &str = "browser_answer";
 
 /// The Error code `failure` raises from `call`; `exit` says how the browser
 /// ended, when it did, and `deadline` is the call's, which bounded the
-/// command.
+/// command. A command the page's lease check withheld raises the error that
+/// check gives, which its driver asks it for.
 pub(crate) fn call_error(
     call: &Call,
     failure: &Failure,
     exit: Option<BrowserExit>,
     deadline: &Deadline,
 ) -> CallError {
-    if let Failure::Withheld { method } = failure {
-        return lease_ended(method);
-    }
     // The browser left the command unanswered past the call's own deadline,
     // which bounds each command it sends (ADR 0080).
     if let Failure::TimedOut { .. } = failure {
@@ -155,19 +152,6 @@ pub(crate) fn call_error(
             format!("the browser failed `{operation}`'s command: {failure}"),
         ),
     }
-}
-
-/// `attempt_ended` for a call on a page whose work item's lease ended: the
-/// page sent nothing more, `method` withheld (ADRs 0003 and 0087). Only a
-/// crawl handler's page has a lease.
-pub(crate) fn lease_ended(method: &str) -> CallError {
-    CallError::new(
-        &ATTEMPT_ENDED,
-        format!(
-            "the page's attempt ended with its lease, so it sent nothing more (`{method}` withheld)"
-        ),
-        &serde_json::json!({}),
-    )
 }
 
 /// `site_preferences_refused` for the navigation or request to `url` that

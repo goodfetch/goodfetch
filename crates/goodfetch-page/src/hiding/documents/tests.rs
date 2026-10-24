@@ -25,6 +25,7 @@ fn both_parts_of_a_document_share_one_sheet_made_once() {
     let mut documents = Documents::default();
     let main = key("page", "main");
     documents.navigated(&main.0, &main.1, "loader-1");
+    assert_eq!(documents.release(&main, None), None);
     let first = set(
         &mut documents,
         &main,
@@ -79,6 +80,7 @@ fn a_new_document_starts_with_no_sheet_and_the_same_one_keeps_its_own() {
     let mut documents = Documents::default();
     let main = key("page", "main");
     documents.navigated(&main.0, &main.1, "loader-1");
+    documents.release(&main, None);
     set(&mut documents, &main, Part::Hiding, ".ad {}", "s1");
     documents.navigated(&main.0, &main.1, "loader-1");
     let kept = documents.set(&main, Part::Consent, "#cmp {}".to_owned());
@@ -171,5 +173,45 @@ fn a_failed_write_makes_the_sheet_again_and_detached_documents_go() {
             after_frame.map(|write| (write.enable, write.sheet)),
         ),
         (Some(None), Some((true, None)), Some((false, None)))
+    );
+}
+
+/// In a document a navigation named, live hiding's part waits until the
+/// Consent prompt runner's first pass there ends, while the runner's own
+/// part goes in; the release writes the whole text once. A release named by
+/// another load leaves the document waiting, and one by its own load lets
+/// it go.
+#[test]
+fn live_hiding_waits_in_a_new_document_until_the_runners_first_pass_ends() {
+    let mut documents = Documents::default();
+    let main = key("page", "main");
+    documents.navigated(&main.0, &main.1, "loader-1");
+
+    let waiting = documents.set(&main, Part::Hiding, ".ad {}".to_owned());
+    let consent = set(&mut documents, &main, Part::Consent, "#cmp {}", "s1");
+    let released = documents.release(&main, None);
+    let again = documents.release(&main, None);
+    documents.navigated(&main.0, &main.1, "loader-2");
+    documents.set(&main, Part::Hiding, ".ad {}".to_owned());
+    let other_load = documents.release(&main, Some("loader-1"));
+    let own_load = documents.release(&main, Some("loader-2"));
+
+    assert_eq!(
+        (
+            waiting,
+            consent.text,
+            released.map(|write| write.text),
+            again,
+            other_load,
+            own_load.map(|write| write.text),
+        ),
+        (
+            None,
+            "#cmp {}".to_owned(),
+            Some(".ad {}\n#cmp {}".to_owned()),
+            None,
+            None,
+            Some(".ad {}".to_owned()),
+        )
     );
 }

@@ -164,6 +164,7 @@ update = "release"
 version = "example"
 channel = "example"
 lists = { "example.test" = "example" }
+fetch_timeout = 30000
 
 [settings.session]
 source = { kind = "saved_identity", name = "example" }
@@ -410,6 +411,7 @@ update = "release"
 version = "example"
 channel = "example"
 lists = { "example.test" = "example" }
+fetch_timeout = 30000
 
 [lock.session]
 source = { kind = "saved_identity", name = "example" }
@@ -569,6 +571,9 @@ handler = 30000
 
 [cap.sample]
 echo_repeats = 4
+
+[cap.clean_up]
+fetch_timeout = 30000
 
 [cap.admission]
 max_requests_per_minute = 4

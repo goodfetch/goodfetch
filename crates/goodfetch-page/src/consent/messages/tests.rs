@@ -60,6 +60,8 @@ use super::{Action, Message, Outcome, WallReason};
         reason: Some(WallReason::Covers),
     })
 )]
+#[case::a_prompt_detected_in_the_first_pass(r#"{"kind":"detected"}"#, Message::Detected)]
+#[case::the_first_pass_settled(r#"{"kind":"settled"}"#, Message::Settled)]
 fn each_message_reads_as_what_it_asks_or_reports(#[case] payload: &str, #[case] read: Message) {
     assert_eq!(Message::read(payload), Some(read));
 }

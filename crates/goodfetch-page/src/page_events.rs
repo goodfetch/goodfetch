@@ -20,7 +20,13 @@
 //! coding that failed to decode).
 //!
 //! A response `page.request` answered from the page's Session keeps its
-//! body too, whole or as cut, under its request's ID.
+//! body too, whole or as cut, under its request's ID: the latest
+//! `REQUESTED_LIMIT` such bodies, an older one then `body_unavailable`.
+//!
+//! The page's response observer, when its Session registered one (ADRs
+//! 0110 and 0121), receives each response the page's events report whose
+//! URL its patterns match, with its body once it finished, cut at its byte
+//! cap: one a service worker answered too, marked as the browser marks it.
 //!
 //! A request the interception refused carries the refusal's Error code in
 //! its `failure`, and one no call waited on is recorded in the Run trace as
@@ -31,7 +37,7 @@
 //! answered by the next matching request sent, a response waiter by the
 //! next matching response, a redirect's included, and the page's document
 //! (`document`) answers the URL and load state waits. Each waits at most
-//! the Run's `timeout.wait`.
+//! its call's own `timeout`, else the Run's `timeout.wait`.
 //!
 //! Size: one page's event reader and the state its calls read, kept whole
 //! so each event changes that state in one place, under one lock.
@@ -67,33 +73,84 @@ use goodfetch_protocol::page::{
     BodyHandle, PageId, PageResponse, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
 };
 use tokio::sync::{Notify, oneshot, watch};
+use tokio_util::sync::CancellationToken;
 
 mod document;
+mod latest;
 mod runtime_values;
 mod waiters;
 
+pub(crate) use self::document::WaitDeadline;
 use self::document::{Document, InFlight, UrlWaiter};
+use self::latest::Latest;
 use self::runtime_values::{console_message, web_error};
 use self::waiters::{Armed, answer_armed};
-use crate::driver::{PageDriver, response_of};
+use crate::driver::{Child, ChildKind, OnChild, PageDriver, response_of};
+use crate::page_value::{Kept, ObservedResponse, Observer};
 use crate::url_pattern::UrlPattern;
 
 /// The refusals the interception made, by the browser's ID of the request,
 /// which the request's failure then carries: the refusal's Error code, and
 /// whether the Run trace records it, as it does when no call waits on the
 /// request.
+/// It also hands each main-frame navigation the navigation gate refused,
+/// with no navigation call waiting on it, to the waiters armed for it.
 #[derive(Clone, Default)]
-pub(crate) struct Refusals(Arc<Mutex<BTreeMap<String, (ErrorData, bool)>>>);
+pub(crate) struct Refusals(Arc<RefusalsShared>);
+
+#[derive(Default)]
+struct RefusalsShared {
+    requests: Mutex<BTreeMap<String, (ErrorData, bool)>>,
+    /// The latest main-frame navigation refused that no call waited on.
+    navigations: watch::Sender<Option<Arc<RefusedNavigation>>>,
+}
+
+/// A main-frame navigation refused with no navigation call waiting on it:
+/// its URL, and the error it raises from the waiters armed for it.
+pub(crate) struct RefusedNavigation {
+    url: String,
+    error: CallError,
+}
 
 impl Refusals {
     /// Leaves `refusal` for the request `request_id`, before the browser
     /// fails it; `recorded` when no call waits on it.
     pub(crate) fn leave(&self, request_id: &str, refusal: ErrorData, recorded: bool) {
-        lock(&self.0).insert(request_id.to_owned(), (refusal, recorded));
+        lock(&self.0.requests).insert(request_id.to_owned(), (refusal, recorded));
     }
 
     fn take(&self, request_id: &str) -> Option<(ErrorData, bool)> {
-        lock(&self.0).remove(request_id)
+        lock(&self.0.requests).remove(request_id)
+    }
+
+    /// The main-frame navigation to `url` was refused with `error`, and no
+    /// navigation call waits on it: each waiter armed for it raises it.
+    pub(crate) fn refuse_navigation(&self, url: &str, error: CallError) {
+        self.0
+            .navigations
+            .send_replace(Some(Arc::new(RefusedNavigation {
+                url: url.to_owned(),
+                error,
+            })));
+    }
+
+    /// The error of the first main-frame navigation refused from now on
+    /// whose URL `matches`; never, while none is.
+    fn refused<F: Fn(&str) -> bool>(&self, matches: F) -> impl Future<Output = CallError> + use<F> {
+        let mut navigations = self.0.navigations.subscribe();
+        async move {
+            loop {
+                if navigations.changed().await.is_err() {
+                    return std::future::pending().await;
+                }
+                let refused = navigations.borrow_and_update().clone();
+                if let Some(refused) = refused
+                    && matches(&refused.url)
+                {
+                    return refused.error.clone();
+                }
+            }
+        }
     }
 }
 
@@ -162,7 +219,15 @@ struct Shared {
     closed: watch::Sender<bool>,
     /// The main frame's document and the load states it reached.
     document: watch::Sender<Document>,
+    /// The response observer its Session registered, and what it keeps,
+    /// read once when the page opened.
+    observing: Option<(Observer, Kept)>,
 }
+
+/// How many `page.request` bodies a page keeps for `response.body`: the
+/// latest, each a handle to its file in the Run's folder; an older one
+/// answers `body_unavailable`.
+const REQUESTED_LIMIT: usize = 256;
 
 #[derive(Default)]
 struct State {
@@ -174,9 +239,9 @@ struct State {
     requests: BTreeMap<String, Tracked>,
     /// The bodies kept for the responses a waiter answered.
     kept: BTreeMap<String, BodyHandle>,
-    /// The bodies kept for the responses `page.request` answered from the
-    /// page's Session, whole or cut.
-    requested: BTreeMap<String, Requested>,
+    /// The bodies kept for the latest responses `page.request` answered
+    /// from the page's Session, whole or cut.
+    requested: Latest<Requested, REQUESTED_LIMIT>,
     waiters: Vec<Waiter>,
     /// The `page.wait_for_request` waiters.
     request_waiters: Vec<Armed<PageRequest>>,
@@ -277,7 +342,12 @@ impl Listening {
 impl PageEvents {
     /// Starts reading the events of the page `page_id`, which `driver`
     /// drives for `run`, from `subscription`, publishing on `events`; its
-    /// waiters wait at most `wait`.
+    /// waiters wait at most `wait`, and each response `observer` keeps is
+    /// passed to it.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one value per part of the page its events follow, each its own owner's"
+    )]
     pub(crate) fn start(
         page_id: PageId,
         driver: PageDriver,
@@ -286,6 +356,7 @@ impl PageEvents {
         refusals: Refusals,
         subscription: Subscription,
         wait: Deadline,
+        observer: Option<Observer>,
     ) -> Self {
         let shared = Arc::new(Shared {
             page_id,
@@ -304,10 +375,47 @@ impl PageEvents {
             gone: watch::Sender::new(false),
             closed: watch::Sender::new(false),
             document: watch::Sender::new(Document::blank()),
+            observing: observer.map(|observer| {
+                let kept = observer.kept();
+                (observer, kept)
+            }),
         });
         run.spawn(read(subscription, Arc::clone(&shared)));
         run.spawn(document::watch_idle(Arc::clone(&shared)));
         Self { shared }
+    }
+
+    /// What the page's events do with each of its out-of-process frames,
+    /// which `driver::follow_children` hands over: each one's network is
+    /// read from before it runs, so its requests count in the page's
+    /// `networkidle` and reach its waiters and events, and a document
+    /// request the page started ends when the frame finishes it, on the
+    /// frame's own session.
+    pub(crate) fn frames(&self) -> OnChild {
+        let shared = Arc::clone(&self.shared);
+        Arc::new(move |child: &Child| {
+            let shared = Arc::clone(&shared);
+            let (kind, session, gone) = (child.kind, child.session.clone(), child.gone.clone());
+            Box::pin(async move {
+                if kind != ChildKind::Frame {
+                    return true;
+                }
+                let events = shared.driver.events_on(&session);
+                match shared
+                    .driver
+                    .command_on(&session, &network::EnableParams::default())
+                    .await
+                {
+                    Ok(_) => shared
+                        .run
+                        .spawn(read_frame(events, gone, Arc::clone(&shared))),
+                    Err(failure) => {
+                        tracing::debug!(%failure, "an out-of-process frame went before its network was read");
+                    }
+                }
+                true
+            })
+        })
     }
 
     /// Marks the document whose request the browser names `request_id` as
@@ -427,25 +535,26 @@ impl PageEvents {
 
     /// Arms a waiter for the next request whose URL `pattern` matches, any
     /// when none, to finish; it answers the request and its response,
-    /// whose body it kept, unless the Run's `timeout.wait` passes first;
+    /// whose body it kept, unless `deadline` passes first;
     /// its errors are spelled for `surface`.
     pub(crate) fn wait_for_request_finished(
         &self,
         pattern: Option<UrlPattern>,
         surface: Surface,
+        deadline: WaitDeadline,
     ) -> impl Future<Output = Result<PageExchange, CallError>> + use<> {
         let (answer, answered) = oneshot::channel();
-        lock(&self.shared.state).waiters.push(Waiter {
+        let mut state = lock(&self.shared.state);
+        // Those whose call went go now, not at the next finished request.
+        state.waiters.retain(|waiter| !waiter.answer.is_closed());
+        state.waiters.push(Waiter {
             pattern,
             surface,
             answer,
         });
-        let (deadline, clock) = (self.shared.wait.clone(), self.shared.clock);
+        drop(state);
         async move {
-            match deadline
-                .within(&clock, "finished request", answered)
-                .await?
-            {
+            match deadline.within("finished request", answered).await? {
                 Ok(answer) => answer,
                 Err(_) => Err(gone()),
             }
@@ -456,7 +565,7 @@ impl PageEvents {
     /// the page's Session to the request `request_id`, for
     /// [`body`](Self::body).
     pub(crate) fn keep_requested(&self, request_id: String, body: Requested) {
-        lock(&self.shared.state).requested.insert(request_id, body);
+        lock(&self.shared.state).requested.keep(request_id, body);
     }
 
     /// The body of the response to the request `request_id`, once it
@@ -538,18 +647,7 @@ fn declared_length(response: &PageResponse) -> Option<u64> {
 /// and stores it in the Run's folder; none when the browser no longer holds
 /// it.
 async fn read_body(shared: &Shared, request_id: &str) -> Option<BodyHandle> {
-    let read = shared
-        .driver
-        .command(&network::GetResponseBodyParams {
-            request_id: request_id.to_owned(),
-        })
-        .await
-        .ok()?;
-    let bytes = if read.base64_encoded {
-        BASE64.decode(read.body.as_bytes()).ok()?
-    } else {
-        read.body.into_bytes()
-    };
+    let bytes = body_bytes(shared, request_id).await?;
     match shared.run.store_body(bytes).await {
         Ok(handle) => Some(handle),
         Err(error) => {
@@ -557,6 +655,69 @@ async fn read_body(shared: &Shared, request_id: &str) -> Option<BodyHandle> {
             None
         }
     }
+}
+
+/// The body of the finished request `request_id`, after any content
+/// coding, as the browser holds it; none when it no longer does.
+async fn body_bytes(shared: &Shared, request_id: &str) -> Option<Vec<u8>> {
+    let read = shared
+        .driver
+        .command(&network::GetResponseBodyParams {
+            request_id: request_id.to_owned(),
+        })
+        .await
+        .ok()?;
+    if read.base64_encoded {
+        BASE64.decode(read.body.as_bytes()).ok()
+    } else {
+        Some(read.body.into_bytes())
+    }
+}
+
+/// Passes `response` to the page's response observer when it keeps its URL
+/// (ADR 0110): with its body once the request `finished`, read from the
+/// browser and cut at the observer's byte cap, and with none for a
+/// redirect's, which has no body.
+fn observe(shared: &Arc<Shared>, response: &PageResponse, finished: bool) {
+    let Some((_, kept)) = &shared.observing else {
+        return;
+    };
+    if !kept
+        .urls
+        .iter()
+        .any(|pattern| pattern.matches(&response.url))
+    {
+        return;
+    }
+    let (shared, response) = (Arc::clone(shared), response.clone());
+    let run = shared.run.clone();
+    run.spawn(async move {
+        let body = if finished {
+            body_bytes(&shared, &response.request_id)
+                .await
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let Some((observer, kept)) = &shared.observing else {
+            return;
+        };
+        let headers: Vec<(String, String)> = response
+            .headers
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect();
+        let passed = ObservedResponse {
+            page_id: &shared.page_id,
+            url: &response.url,
+            body_length: body.len(),
+            status: response.status,
+            headers: &headers,
+            from_service_worker: response.from_service_worker,
+        };
+        let cut = body.len().min(kept.byte_cap);
+        observer.on_response(&passed, &body[..cut]);
+    });
 }
 
 /// `body_unavailable` for the request `request_id` to `url`, its fix
@@ -641,6 +802,31 @@ async fn read(mut subscription: Subscription, shared: Arc<Shared>) {
     shared.changed.notify_waiters();
 }
 
+/// Reads the network events of one of the page's out-of-process frames
+/// until its target goes (`gone`), as the page's own: a document request
+/// the page started and the frame finished ends there.
+async fn read_frame(mut subscription: Subscription, gone: CancellationToken, shared: Arc<Shared>) {
+    while let Some(event) = gone
+        .run_until_cancelled(subscription.next())
+        .await
+        .flatten()
+    {
+        if !event.method.starts_with(NETWORK) {
+            continue;
+        }
+        let published = take_in(&shared, &event);
+        for (event, data) in published {
+            shared
+                .events
+                .publish(event, Some(&shared.page_id.0), &data)
+                .await;
+        }
+    }
+}
+
+/// The prefix of the `Network` domain's events.
+const NETWORK: &str = "Network.";
+
 /// One event a page's event publishes: its catalog entry and its data.
 type Published = (&'static Event, serde_json::Value);
 
@@ -706,6 +892,7 @@ fn take_in(shared: &Arc<Shared>, event: &goodfetch_cdp::RawEvent) -> Vec<Publish
                 &request,
             );
             if let Some(response) = response {
+                observe(shared, &response, true);
                 answer_waiters(shared, state, request, response);
             }
         }
@@ -725,7 +912,7 @@ fn take_in(shared: &Arc<Shared>, event: &goodfetch_cdp::RawEvent) -> Vec<Publish
 /// A request sent, or its next hop after a redirect: the hop before got the
 /// redirect as its response, and finished.
 fn sent_request(
-    shared: &Shared,
+    shared: &Arc<Shared>,
     state: &mut State,
     out: &mut Vec<Published>,
     sent: network::RequestWillBeSentEvent,
@@ -740,6 +927,7 @@ fn sent_request(
         };
         chain.clone_from(&exchange.request.redirect_chain);
         chain.push(exchange.request.url.clone());
+        observe(shared, &exchange.response, false);
         answer_armed(
             &mut state.response_waiters,
             &exchange.request.url,
@@ -987,7 +1175,7 @@ fn headers(headers: &network::Headers) -> BTreeMap<String, String> {
 }
 
 /// A request's body in Base64, from its entries' bytes or else its text.
-fn post_data(request: &network::Request) -> Option<String> {
+pub(crate) fn post_data(request: &network::Request) -> Option<String> {
     if let Some(entries) = &request.post_data_entries {
         let mut bytes = Vec::new();
         for entry in entries {

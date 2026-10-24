@@ -87,8 +87,7 @@ impl Sessions {
                 // The close the engine sent is confirmed (P29).
                 match page.life.end(&Ending::Destroyed) {
                     Ok(effect) => {
-                        self.page_ended(&page_id, &page.session, &page.run, effect)
-                            .await;
+                        self.page_ended(&page_id, &page.run, effect).await;
                     }
                     Err(error) => tracing::error!(%error, "a page's end was refused"),
                 }

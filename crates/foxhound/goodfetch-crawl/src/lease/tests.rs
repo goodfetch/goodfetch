@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::{LeaseCheck as _, LeaseEnded};
+use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use proptest::prelude::*;
 use tokio::time::Instant;
 
@@ -133,6 +134,25 @@ fn a_released_lease_ends_its_wait_and_lets_nothing_more_leave() {
                 Duration::from_secs(5),
                 Err(LeaseEnded::Released)
             )
+        );
+    });
+}
+
+/// A call whose page withheld a command once the lease ended raises
+/// Foxhound's `attempt_ended`, which the page, Collie's, never names.
+///
+/// Covers: story:3-42
+#[test]
+fn a_command_withheld_after_the_lease_ended_raises_attempt_ended() {
+    on_paused_clock(async |leases, _clock| {
+        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+        lease.release();
+
+        let error = lease.withheld(LeaseEnded::Released, "Page.navigate");
+
+        assert_eq!(
+            (error.code(), error.retryable()),
+            (ATTEMPT_ENDED.name, ATTEMPT_ENDED.retryable)
         );
     });
 }

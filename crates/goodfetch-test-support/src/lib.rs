@@ -164,7 +164,7 @@ pub use script::{
     Call, ENGINE_SCRIPTS, Exit, Expectation, Raw, Reply, Script, ScriptError, Sent, Step,
     engine_script,
 };
-pub use snapshot::{SnapshotValues, snapshot_settings};
+pub use snapshot::{SnapshotValues, redact, snapshot_settings};
 pub use special_purpose::{
     Cidr, Reachability, RegistryError, SpecialPurposeBlock, SpecialPurposeRegistries,
 };

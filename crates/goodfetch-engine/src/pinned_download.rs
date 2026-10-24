@@ -14,7 +14,8 @@ use std::fmt::{self, Write as _};
 use std::path::Path;
 use std::str::FromStr;
 
-use goodfetch_protocol::settings::SettingsLayer;
+use goodfetch_protocol::egress::EGRESS_OFFLINE;
+use goodfetch_protocol::settings::{NETWORK_RESOLVE, SettingsLayer};
 use http_body_util::Empty;
 use hyper::body::Bytes;
 use hyper::{Request, StatusCode, Uri};
@@ -25,6 +26,7 @@ use tokio::io::AsyncWriteExt as _;
 use crate::clock::Clock;
 use crate::happy_eyeballs::Delays;
 use crate::http_client::{self, Resolve, Server};
+use crate::settings::Resolved;
 use crate::tls::Trust;
 
 /// The user agent of every pinned download: the same for every install and
@@ -212,6 +214,26 @@ impl Fetching {
             trusted_certificates: Vec::new(),
             clock,
             delays: Delays::BUILT_IN,
+        }
+    }
+
+    /// What a download may do under a Run's resolved `settings`, on
+    /// `clock`: `egress.offline`, `network.resolve` and the resolver's
+    /// delays, with no extra certificate authority.
+    pub fn of(settings: &Resolved, clock: Clock) -> Self {
+        Self {
+            offline: settings
+                .get(EGRESS_OFFLINE.name)
+                .filter(|offline| offline.value == serde_json::Value::Bool(true))
+                .map(|offline| offline.layer),
+            resolve: settings
+                .hosts(NETWORK_RESOLVE.name)
+                .into_iter()
+                .fold(Resolve::new(), |mapping, (host, addresses)| {
+                    mapping.with(host, addresses)
+                }),
+            delays: Delays::of(settings),
+            ..Self::new(clock)
         }
     }
 }

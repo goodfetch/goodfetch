@@ -109,6 +109,11 @@ pub struct RouteRequest {
     /// Whether it loads the document of the page's main frame.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub is_navigation_request: bool,
+    /// Its body, in Base64 (RFC 4648, with padding), when it has one: as
+    /// the page sent it, or as a route before replaced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub post_data: Option<String>,
 }
 
 /// What `route.handle` gives the handler: the request, named by the ID its

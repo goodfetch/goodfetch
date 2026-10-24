@@ -84,7 +84,9 @@ async fn fetch(
     location: &Url,
     limits: Limits,
 ) -> Answer {
-    let (driver, in_browser) = match sessions.engine_page(session, value).await {
+    // A navigation call cancelled meanwhile closes the engine's page as it
+    // drops.
+    let engine_page = match sessions.engine_page(session, value).await {
         Ok(opened) => opened,
         Err(error) => return Answer::Unreachable(error.message().to_owned()),
     };
@@ -97,9 +99,8 @@ async fn fetch(
         option: "robots.txt",
         limits,
     };
-    let fetched = browser_fetch::send(&driver, steps, &request).await;
-    driver.close().await;
-    drop(in_browser);
+    let fetched = browser_fetch::send(engine_page.driver(), steps, &request).await;
+    engine_page.close().await;
     match fetched {
         Ok(fetched) => match fetched.body {
             Body::Whole(bytes) => Answer::Response {

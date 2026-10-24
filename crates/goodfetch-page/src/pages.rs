@@ -77,7 +77,7 @@ use goodfetch_protocol::page::session::{
     NewSessionParams, RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE, SessionClosed,
     SessionParams,
 };
-use goodfetch_protocol::page::tabs::{
+use goodfetch_protocol::page::session_pages::{
     self, PageCloseParams, PageClosed, SESSION_ON, SESSION_PAGES, SessionEventName, SessionOnParams,
 };
 use goodfetch_protocol::page::{
@@ -95,7 +95,7 @@ use crate::driver::{Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events::{self, Requested};
-use crate::page_functions::{self, InitScripts, Injection, Injections, Pending, Registered};
+use crate::page_functions::{self, InitScripts, Injection, Pending, Registered};
 use crate::page_value::{HandlerPages, ProgramPages};
 use crate::proxy;
 use crate::recovery;
@@ -120,19 +120,20 @@ mod waits;
 /// observer, as a Collie program's pages do, and no document has a Block
 /// cause.
 pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
-    contribution_with(pins, Arc::new(ProgramPages), Arc::new(NoBlocks))
+    contribution_with(pins, ProgramPages, Arc::new(NoBlocks))
 }
 
 /// What the page crate adds to the engine, as [`contribution`], each page
-/// it opens taking its value and its response observer from `hooks` (ADR
-/// 0087): the hook through which Foxhound sets them on the pages it hands
-/// to handlers; `blocks` tells a page's Block cause, from the Product's
-/// rules (ADR 0035).
+/// it opens taking its value and its response observer from
+/// `handler_pages` (ADR 0087): the seam through which Foxhound sets them
+/// on the pages it hands to handlers; `blocks` tells a page's Block cause,
+/// from the Product's rules (ADR 0035).
 pub fn contribution_with(
     pins: Vec<PinnedArtifact>,
-    hooks: Arc<dyn HandlerPages>,
+    handler_pages: impl HandlerPages + 'static,
     blocks: Arc<dyn BlockClassifier>,
 ) -> Contribution {
+    let handler_pages: Arc<dyn HandlerPages> = Arc::new(handler_pages);
     let interception = Interception::default();
     let events = page_events::Table::default();
     let dialogs = Dialogs::default();
@@ -142,15 +143,14 @@ pub fn contribution_with(
             interception.clone(),
             events.clone(),
             dialogs.clone(),
-            Arc::clone(&hooks),
+            Arc::clone(&handler_pages),
         ),
         interception,
         events,
         dialogs,
-        hooks,
+        product: handler_pages,
         blocks,
         init_scripts: InitScripts::default(),
-        injections: Injections::default(),
     };
     let contribution = with_page_handlers(
         Contribution::new("page")
@@ -161,7 +161,7 @@ pub fn contribution_with(
     );
     let contribution = with_session_handlers(contribution, &pages.sessions);
     let contribution = with_locator_handlers(contribution, &pages);
-    let contribution = with_event_handlers(contribution, &pages.events);
+    let contribution = with_event_handlers(contribution, &pages);
     let contribution = with_route_handlers(contribution, &pages.interception);
     let contribution = with_dialog_handlers(contribution, &pages.dialogs);
     let contribution = with_function_handlers(contribution, &pages);
@@ -246,8 +246,10 @@ fn max_redirects_option(surface: Surface) -> &'static str {
 /// Adds the handlers of `page.on`, each listening from when its call
 /// arrives until the call goes, of `page.wait_for_request_finished`, armed
 /// when its call arrives, and of `response.body`.
-fn with_event_handlers(contribution: Contribution, table: &page_events::Table) -> Contribution {
+fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
+    let table = &pages.events;
     let (listening, waiting, reading) = (table.clone(), table.clone(), table.clone());
+    let finishing = pages.clone();
     contribution
         .with_handler(Handler::new(
             &PAGE_ON,
@@ -267,9 +269,11 @@ fn with_event_handlers(contribution: Contribution, table: &page_events::Table) -
             move |params: WaitForRequestFinishedParams, context: CallContext| {
                 let armed = waiting.get(&params.page_id).and_then(|events| {
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
-                    Ok(events.wait_for_request_finished(pattern, context.surface()))
+                    let deadline = events.wait_deadline(params.timeout)?;
+                    Ok(events.wait_for_request_finished(pattern, context.surface(), deadline))
                 });
-                async move { armed?.await }
+                let pages = finishing.clone();
+                async move { pages.waited(&params.page_id, armed?).await }
             },
         ))
         .with_handler(Handler::new(
@@ -307,17 +311,20 @@ fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Con
             &SESSION_ON,
             move |params: SessionOnParams, context: CallContext| {
                 let sessions = listening.clone();
+                // Counted when the call arrives, so no page opened meanwhile
+                // is missed.
+                let listener = match params.event {
+                    SessionEventName::Page => sessions.listen_for_pages(&params.session_id),
+                };
                 async move {
-                    match params.event {
-                        SessionEventName::Page => {
-                            sessions.listen_to_pages(&params.session_id, &context).await
-                        }
-                    }
+                    sessions
+                        .listen_to_pages(&params.session_id, listener, &context)
+                        .await
                 }
             },
         ))
         .with_handler(Handler::new(
-            &tabs::PAGE_CLOSE,
+            &session_pages::PAGE_CLOSE,
             move |params: PageCloseParams, _context: CallContext| {
                 let sessions = closing_page.clone();
                 async move {
@@ -699,16 +706,14 @@ struct Pages {
     events: page_events::Table,
     /// Each open page's dialogs and their handlers.
     dialogs: Dialogs,
-    /// The Product's hook, which also serves the pages its fetch tiers
-    /// opened from a document.
-    hooks: Arc<dyn HandlerPages>,
+    /// The Product's seam that sets what its handlers' pages carry, which
+    /// also serves the pages its fetch tiers opened from a document.
+    product: Arc<dyn HandlerPages>,
     /// The Product's Block classification.
     blocks: Arc<dyn BlockClassifier>,
     /// Each page's init scripts on their way in or out, which its
     /// navigations wait for.
     init_scripts: InitScripts,
-    /// The Sessions Provenance marks as injecting in the main world.
-    injections: Injections,
 }
 
 impl Pages {
@@ -733,7 +738,6 @@ impl Pages {
         if let Destination::Url(url) = destination {
             span.record("url.origin", goodfetch_engine::log::origin(url));
         }
-        self.init_scripts.settled(page_id).await;
         let page = self.open(page_id).await?;
         span.record("run_id", page.run.id().as_str());
         let navigator = Navigator {
@@ -805,7 +809,6 @@ impl Pages {
         {
             return Err(blocked::blocked(block, &response, received));
         }
-        let first_request = response.request_id.clone();
         let judged =
             recovery::judge(&arrival::judging(&page, page_id, destination), &response).await;
         let first = blocking_off::FirstLoad {
@@ -813,29 +816,15 @@ impl Pages {
             wait_until,
             response,
             judged,
-            blocked_before,
+            block,
+            touched,
         };
         let navigated = self
             .unless_blocking_broke_it(page_id, &page, first, events)
             .await?;
-        // A document loaded once more with blocking off is judged for its
-        // Block cause too.
-        if let Some(again) = &navigated.response
-            && again.request_id != first_request
-        {
-            page_events.judged(&again.request_id);
-            let received = page_events
-                .answered_at(&again.request_id)
-                .unwrap_or_else(|| page.clock.wall());
-            if let Some(block) =
-                blocked::block_of(&page.driver, self.blocks.as_ref(), again, operation).await?
-            {
-                return Err(blocked::blocked(block, again, received));
-            }
-        }
-        // A consent wall the runner found before the navigation answered
-        // is the navigation's (ADR 0048).
-        self.consent_wall(page_id)?;
+        // A consent wall the runner found on the navigation's document is
+        // the navigation's, once the runner judged it (ADR 0048).
+        self.consent_verdict(page_id, &page, true).await?;
         Ok(navigated)
     }
 
@@ -907,13 +896,13 @@ impl Pages {
             option: max_redirects_option(surface),
             limits,
         };
-        let (driver, in_browser) = self
+        // A cancelled call closes the engine's page as it drops.
+        let engine_page = self
             .sessions
             .engine_page(&page.session, page.driver.value())
             .await?;
-        let fetched = browser_fetch::send(&driver, &steps, &request).await;
-        driver.close().await;
-        drop(in_browser);
+        let fetched = browser_fetch::send(engine_page.driver(), &steps, &request).await;
+        engine_page.close().await;
         let fetched = fetched?;
         let kept = match fetched.body {
             browser_fetch::Body::Whole(bytes) => {
@@ -948,7 +937,7 @@ impl Pages {
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let world = params.world.unwrap_or_default();
         if world == World::Main {
-            self.injections
+            page.injections
                 .mark(
                     &page.run,
                     &page.session,
@@ -978,24 +967,48 @@ impl Pages {
         pending: Pending,
     ) -> Result<InitScriptEnded, CallError> {
         let source = page_functions::init_script(&params.function, params.arg.as_ref())?;
-        let page = self.open(&params.page_id).await?;
+        let page = self.opened(&params.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
-        let identifier = page
-            .life
-            .call(
-                PageEvent::Read,
-                page.driver
-                    .add_init_script(source, PAGE_ADD_INIT_SCRIPT.name),
-            )
-            .await?;
-        let registered = Registered::new(
+        // Registered on a task of the Run's, so a call dropped meanwhile
+        // never leaves the script registered: its registration, answered to
+        // no one, is removed there, counted before `pending` goes.
+        let (answer, answered) = tokio::sync::oneshot::channel::<Result<Registered, CallError>>();
+        let (driver, run, frames) = (
             page.driver.clone(),
-            identifier,
             page.run.clone(),
-            self.init_scripts.clone(),
-            params.page_id.clone(),
+            page.frame_scripts.clone(),
         );
-        self.injections
+        let counted = (self.init_scripts.clone(), params.page_id.clone());
+        page.run.spawn(async move {
+            let registered = async {
+                let identifier = driver
+                    .add_init_script(source.clone(), PAGE_ADD_INIT_SCRIPT.name)
+                    .await?;
+                // The page's out-of-process iframes take it too.
+                let key = frames.add(source).await;
+                Ok::<_, CallError>(Registered::new(
+                    driver,
+                    identifier,
+                    run,
+                    counted,
+                    (frames, key),
+                ))
+            }
+            .await;
+            drop(answer.send(registered));
+            drop(pending);
+        });
+        let registered = page
+            .life
+            .call(PageEvent::Read, async {
+                match answered.await {
+                    Ok(registered) => registered,
+                    // The Run ended under it: its ending answers.
+                    Err(_) => std::future::pending().await,
+                }
+            })
+            .await?;
+        page.injections
             .mark(
                 &page.run,
                 &page.session,
@@ -1003,7 +1016,6 @@ impl Pages {
                 Injection::InitScript,
             )
             .await;
-        drop(pending);
         let life = page.life.clone();
         drop(page);
         life.terminal().await;
@@ -1011,18 +1023,50 @@ impl Pages {
         Ok(InitScriptEnded {})
     }
 
+    /// The open page `page_id` once no init script of its is on its way in
+    /// or out, so that a call sent after `page.add_init_script`, a gesture
+    /// or a navigation, meets the script registered, and one sent after its
+    /// call was cancelled meets it removed; as [`Self::opened`] says.
+    async fn open(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
+        self.init_scripts.settled(page_id).await;
+        self.opened(page_id).await
+    }
+
     /// The open page `page_id`, or `closed`; a failure a route's or a
     /// dialog handler left on it is raised here, by the page's next call,
     /// and so is the Block cause of a document a navigation no call waited
     /// for reached (ADR 0092).
-    async fn open(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
+    async fn opened(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
         let page = self.sessions.page(page_id).await?;
         if let Some(failure) = self.left_failure(page_id) {
             return Err(failure);
         }
-        self.consent_wall(page_id)?;
+        self.consent_verdict(page_id, &page, false).await?;
         self.judge_unjudged(&page, page_id, None).await?;
         Ok(page)
+    }
+
+    /// Raises the consent wall the Consent prompt runner left in the main
+    /// document of `page`, the page `page_id`, once, after waiting, within
+    /// the page's action deadline, for the verdict on a prompt the runner's
+    /// first pass there found (ADR 0048): a call that `navigated` asks the
+    /// runner first whether it found one, as its report may still be on its
+    /// way.
+    async fn consent_verdict(
+        &self,
+        page_id: &PageId,
+        page: &OpenPage,
+        navigated: bool,
+    ) -> Result<(), CallError> {
+        let walls = self.sessions.consent_walls();
+        if navigated && crate::consent::first_pass_found(&page.driver).await {
+            walls.detected(page_id);
+        }
+        let (_, limit) = &page.action_timeout;
+        if !walls.verdict(page_id, *limit, page.clock).await {
+            tracing::debug!(page_id = %page_id.0, "the Consent prompt runner gave no verdict on a prompt it found within the action deadline");
+        }
+        self.consent_wall(page_id)
     }
 
     /// Raises the consent wall the Consent prompt runner left in the
@@ -1085,7 +1129,7 @@ impl Pages {
     /// cosmetic rules match (ADR 0047), which Provenance records.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_FORMATS.name, run_id = tracing::field::Empty))]
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
-        if let Some(served) = self.hooks.document(&params.page_id) {
+        if let Some(served) = self.product.document(&params.page_id) {
             tracing::Span::current().record("run_id", served.run.id().as_str());
             let document = SerializedDocument {
                 html: served.html,
@@ -1096,7 +1140,7 @@ impl Pages {
             let (formats, _) = served
                 .run
                 .owner()
-                .blocking(move || clean_up::read(&document, request, None))
+                .blocking(move || clean_up::read(&document, request, None, &[]))
                 .await;
             return Ok(formats);
         }
@@ -1108,10 +1152,11 @@ impl Pages {
             .await?;
         let request = params.formats;
         let cosmetic = self.interception.cosmetic(&params.page_id);
+        let hidden = page.sheets.runner_hidden();
         let (formats, removed) = page
             .run
             .owner()
-            .blocking(move || clean_up::read(&document, request, cosmetic.as_ref()))
+            .blocking(move || clean_up::read(&document, request, cosmetic.as_ref(), &hidden))
             .await;
         if let Some(removed) = removed {
             trace::provenance(&page.run, &removed.entry(&params.page_id, &page.session)).await;

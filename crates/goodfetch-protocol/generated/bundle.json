@@ -5548,6 +5548,16 @@
           ],
           "arrived_in": "0.1",
           "description": "The state; `visible` when absent."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -8396,6 +8406,14 @@
           "arrived_in": "0.1",
           "description": "Its method, such as `GET`.",
           "type": "string"
+        },
+        "post_data": {
+          "arrived_in": "0.1",
+          "description": "Its body, in Base64 (RFC 4648, with padding), when it has one: as\nthe page sent it, or as a route before replaced it.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "resource_type": {
           "arrived_in": "0.1",
@@ -12393,6 +12411,16 @@
           "$ref": "#/$defs/Locator",
           "arrived_in": "0.1",
           "description": "The locator."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -12413,6 +12441,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "anyOf": [
@@ -12464,6 +12502,16 @@
             "null"
           ]
         },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "world": {
           "anyOf": [
             {
@@ -12507,6 +12555,16 @@
           ],
           "arrived_in": "0.1",
           "description": "The state; `load` when absent."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -12526,6 +12584,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "anyOf": [
@@ -12557,6 +12625,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "$ref": "#/$defs/UrlMatcher",
@@ -13014,6 +13092,17 @@
                       }
                     ],
                     "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+                  }
+                },
+                "type": "object"
+              },
+              "clean_up": {
+                "additionalProperties": false,
+                "properties": {
+                  "fetch_timeout": {
+                    "description": "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -13714,18 +13803,23 @@
                 "additionalProperties": false,
                 "properties": {
                   "channel": {
-                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "type": "string"
+                  },
+                  "fetch_timeout": {
+                    "description": "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "lists": {
                     "additionalProperties": {
                       "type": "string"
                     },
-                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "type": "object"
                   },
                   "update": {
-                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
                     "enum": [
                       "release",
                       "daily",
@@ -15799,18 +15893,23 @@
                 "additionalProperties": false,
                 "properties": {
                   "channel": {
-                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "type": "string"
+                  },
+                  "fetch_timeout": {
+                    "description": "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "lists": {
                     "additionalProperties": {
                       "type": "string"
                     },
-                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "type": "object"
                   },
                   "update": {
-                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
                     "enum": [
                       "release",
                       "daily",
@@ -17900,18 +17999,23 @@
                 "additionalProperties": false,
                 "properties": {
                   "channel": {
-                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+                    "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "type": "string"
+                  },
+                  "fetch_timeout": {
+                    "description": "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "lists": {
                     "additionalProperties": {
                       "type": "string"
                     },
-                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+                    "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "type": "object"
                   },
                   "update": {
-                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+                    "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
                     "enum": [
                       "release",
                       "daily",

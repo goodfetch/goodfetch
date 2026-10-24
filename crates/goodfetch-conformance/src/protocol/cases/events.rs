@@ -9,6 +9,8 @@
 //! them; a body `page.wait_for_request_finished` kept reads whole, a
 //! dropped one raises `body_unavailable` and a cut one `response_truncated`.
 
+use std::collections::BTreeMap;
+
 use goodfetch_protocol::connection::CANCEL;
 use goodfetch_protocol::events::{CREDIT, EVENTS, EVENTS_SUBSCRIBE};
 use goodfetch_protocol::page::events::{
@@ -75,19 +77,31 @@ impl Case {
 const CREDITS: u32 = 10_000;
 
 /// The Connection as these cases read it: the events the case's own
-/// subscription delivered so far, never another case's, and every
-/// `route.handle` request answered by aborting the request, as a handler
-/// calling `route.abort()` does.
+/// subscription delivered so far, never another case's, the answers read
+/// while waiting for another, as a Client matches each answer to its call
+/// by ID, and every `route.handle` request answered by aborting the
+/// request, as a handler calling `route.abort()` does.
 struct Exchange<'connection> {
     connection: &'connection mut Connection,
     events: Vec<Value>,
+    /// The answers read before their call was waited for, by its ID.
+    answers: BTreeMap<i64, Value>,
     /// The case's subscription's call.
     subscription: Option<i64>,
 }
 
-impl Exchange<'_> {
-    /// Takes in one message: a batch's events, a route's request, or else
-    /// the message.
+impl<'connection> Exchange<'connection> {
+    fn new(connection: &'connection mut Connection) -> Self {
+        Self {
+            connection,
+            events: Vec::new(),
+            answers: BTreeMap::new(),
+            subscription: None,
+        }
+    }
+
+    /// Takes in one message: a batch's events, a route's request, an
+    /// answer, kept for [`answer`](Self::answer), or else the message.
     fn read(&mut self) -> Result<Option<Value>, Gone> {
         let message = self.connection.next_within(BROWSER_DEADLINE)?;
         if message["method"] == json!(ROUTE_HANDLE.name) {
@@ -112,18 +126,22 @@ impl Exchange<'_> {
             );
             return Ok(None);
         }
+        if message.get("method").is_none()
+            && let Some(id) = message["id"].as_i64()
+        {
+            self.answers.insert(id, message);
+            return Ok(None);
+        }
         Ok(Some(message))
     }
 
     /// The answer to the request `id`.
     fn answer(&mut self, id: i64) -> Result<Value, Gone> {
         loop {
-            if let Some(message) = self.read()?
-                && message.get("method").is_none()
-                && message["id"] == json!(id)
-            {
-                return Ok(message);
+            if let Some(answer) = self.answers.remove(&id) {
+                return Ok(answer);
             }
+            self.read()?;
         }
     }
 
@@ -217,11 +235,7 @@ fn network_and_load(
     let Some((page, url)) = opened(connection, site, run_id, &json!({}), checks)? else {
         return Ok(());
     };
-    let mut exchange = Exchange {
-        connection,
-        events: Vec::new(),
-        subscription: None,
-    };
+    let mut exchange = Exchange::new(connection);
     exchange.subscribe(CREDITS)?;
     let mut request_listener = 0;
     for event in [
@@ -357,11 +371,7 @@ fn console_and_page_errors(
     let Some((page, url)) = opened(connection, site, run_id, &json!({}), checks)? else {
         return Ok(());
     };
-    let mut exchange = Exchange {
-        connection,
-        events: Vec::new(),
-        subscription: None,
-    };
+    let mut exchange = Exchange::new(connection);
     exchange.subscribe(CREDITS)?;
     exchange.call(PAGE_GOTO.name, &json!({ "page_id": page, "url": url }))?;
     exchange.listen(&page, "console")?;
@@ -427,11 +437,7 @@ fn failed_requests(
     let Some((page, url)) = opened(connection, site, run_id, &settings, checks)? else {
         return Ok(());
     };
-    let mut exchange = Exchange {
-        connection,
-        events: Vec::new(),
-        subscription: None,
-    };
+    let mut exchange = Exchange::new(connection);
     exchange.subscribe(CREDITS)?;
     exchange.listen(&page, "request_failed")?;
     exchange.connection.request(
@@ -474,11 +480,7 @@ fn credits(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Res
     let Some((page, url)) = opened(connection, site, run_id, &json!({}), checks)? else {
         return Ok(());
     };
-    let mut exchange = Exchange {
-        connection,
-        events: Vec::new(),
-        subscription: None,
-    };
+    let mut exchange = Exchange::new(connection);
     let subscription = exchange.subscribe(0)?;
     exchange.listen(&page, "request")?;
     let went = exchange.call(PAGE_GOTO.name, &json!({ "page_id": page, "url": url }))?;
@@ -535,11 +537,7 @@ fn bodies(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
     let Some((page, url)) = opened(connection, site, run_id, &json!({}), checks)? else {
         return Ok(());
     };
-    let mut exchange = Exchange {
-        connection,
-        events: Vec::new(),
-        subscription: None,
-    };
+    let mut exchange = Exchange::new(connection);
     let waiting = exchange.connection.request(
         PAGE_WAIT_FOR_REQUEST_FINISHED.name,
         &json!({ "page_id": page, "url": { "kind": "glob", "pattern": "**/page-events/data.json" } }),

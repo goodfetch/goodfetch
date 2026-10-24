@@ -219,6 +219,11 @@ impl Navigation {
         }
     }
 
+    /// Whether the page's renderer crashed.
+    pub(super) fn crashed(&self) -> bool {
+        self.crashed
+    }
+
     /// How the `expected` navigation ended, once it did: where it arrived,
     /// once its document reached the state `wait_until` names, or why it
     /// reached no document; `superseded` says the engine started another
@@ -333,6 +338,12 @@ impl Navigation {
             _ => Ended::Failed(error.to_owned()),
         }
     }
+}
+
+/// Whether `error` is the browser abandoning a navigation, as it does for
+/// an answer with no document and for one whose renderer crashed.
+pub(super) fn abandoned(error: &str) -> bool {
+    error == ABORTED
 }
 
 /// What a navigation `Page.navigate` refused with `error` is waited for

@@ -15,6 +15,8 @@
     reason = "the test reads the Run trace and page body files on its own thread, never an async worker"
 )]
 
+use std::collections::BTreeMap;
+
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use serde_json::{Map, Value, json};
 
@@ -27,10 +29,13 @@ const SEED: u64 = 703;
 /// The credits a subscription grants at once, more than these tests' events.
 const CREDITS: u32 = 10_000;
 
-/// An Attached engine and the events its subscription read so far.
+/// An Attached engine, the events its subscription read so far and the
+/// answers read before their call was waited for, by its ID, as a Client
+/// matches each answer to its call.
 pub(crate) struct Exchange<'env> {
     pub(crate) engine: Attached<'env>,
     events: Vec<Value>,
+    answers: BTreeMap<i64, Value>,
     next_id: i64,
 }
 
@@ -39,6 +44,7 @@ impl<'env> Exchange<'env> {
         Self {
             engine,
             events: Vec::new(),
+            answers: BTreeMap::new(),
             next_id: 100,
         }
     }
@@ -57,7 +63,8 @@ impl<'env> Exchange<'env> {
             .send(&json!({ "jsonrpc": "2.0", "method": method, "params": params }));
     }
 
-    /// Takes in one message: the events of a batch, or else the message.
+    /// Takes in one message: the events of a batch, an answer, kept for
+    /// [`answer`](Self::answer), or else the message.
     pub(crate) fn read(&mut self) -> Option<Value> {
         let message = self.engine.next().expect("the engine answered");
         if message["method"] == json!("route.handle") {
@@ -78,18 +85,22 @@ impl<'env> Exchange<'env> {
             );
             return None;
         }
+        if message.get("method").is_none()
+            && let Some(id) = message["id"].as_i64()
+        {
+            self.answers.insert(id, message);
+            return None;
+        }
         Some(message)
     }
 
-    /// The answer to the request `id`.
+    /// The answer to the request `id`, whenever it came.
     pub(crate) fn answer(&mut self, id: i64) -> Value {
         loop {
-            if let Some(message) = self.read()
-                && message.get("method").is_none()
-                && message["id"] == json!(id)
-            {
-                return message;
+            if let Some(answer) = self.answers.remove(&id) {
+                return answer;
             }
+            let _ = self.read();
         }
     }
 

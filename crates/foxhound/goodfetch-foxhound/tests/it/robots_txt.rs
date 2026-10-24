@@ -127,6 +127,284 @@ fn a_crawl_reads_robots_txt_once_a_day_from_the_copy_its_users_runs_share() {
     );
 }
 
+/// The `access-policy` family's second task's host, whose robots.txt
+/// answers `503`.
+const UNREACHABLE_HOST: &str = "2.access-policy.test";
+
+/// The named host whose robots.txt has groups for `Goodfetch-Foxhound`
+/// (`/foxhound/`), the operator token `operator-bot` (`/operator/`), a bare
+/// `Foxhound` (`/bare/`) and `*` (`/star/`).
+const TOKENS_HOST: &str = "tokens.access-policy.test";
+
+/// The named host whose robots.txt has groups for a bare `Foxhound`
+/// (`/bare/`) and `*` (`/star/`) only.
+const STAR_HOST: &str = "star.access-policy.test";
+
+/// What a crawl did: its Run report, the path of each request its handler
+/// was given, and each outcome's path, kind and skip reason, in commit
+/// order.
+struct Crawled {
+    report: Value,
+    handled: Vec<String>,
+    outcomes: Vec<(String, Value, Value)>,
+}
+
+/// The path of `url`.
+fn path_of(url: &Value) -> String {
+    let url = url.as_str().unwrap();
+    let rest = url.split_once("://").unwrap().1;
+    rest[rest.find('/').unwrap()..].to_owned()
+}
+
+/// Crawls `seeds`, each a host and a path, as `run_id` under `fetch.tier:
+/// http` and `more` settings, each host resolved to the Proving ground;
+/// the handler enqueues what `links` gives for each page and commits
+/// nothing.
+fn crawl_seeds(
+    env: &TestEnv,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    seeds: &[(&str, &str)],
+    more: &Value,
+    links: &dyn Fn(&str) -> Vec<String>,
+) -> Crawled {
+    let ip = proving_ground.address().ip().to_string();
+    let mut resolve = serde_json::Map::new();
+    for (host, _) in seeds {
+        resolve.insert((*host).to_owned(), json!([ip]));
+    }
+    let mut settings = json!({
+        "fetch": { "tier": "http" },
+        "network": { "resolve": resolve },
+    });
+    if let (Some(settings), Some(more)) = (settings.as_object_mut(), more.as_object()) {
+        settings.extend(more.clone());
+    }
+    let seeds: Vec<Value> = seeds
+        .iter()
+        .map(|(host, path)| json!({ "url": proving_ground.url(host, path), "label": "page" }))
+        .collect();
+    let mut engine = Attached::start(env);
+    let mut handled = Vec::new();
+    let report = crawl_with(
+        &mut engine,
+        run_id,
+        &seeds,
+        &settings,
+        &mut |inside, handle| {
+            let url = &handle["crawl_request"]["url"];
+            handled.push(path_of(url));
+            for link in links(&path_of(url)) {
+                inside.enqueue(handle, &link, "page", None);
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let read = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": run_id }),
+        &mut |_| None,
+    );
+    assert!(engine.finish());
+    let outcomes = read["result"]["outcomes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{read}"))
+        .iter()
+        .map(|outcome| {
+            (
+                path_of(&outcome["request"]["url"]),
+                outcome["kind"].clone(),
+                outcome["reason"].clone(),
+            )
+        })
+        .collect();
+    Crawled {
+        report,
+        handled,
+        outcomes,
+    }
+}
+
+/// The paths `host` received, robots.txt left out.
+fn pages_received(proving_ground: &ProvingGround, host: &str) -> Vec<String> {
+    let observations = proving_ground.observations().unwrap();
+    observations["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| request["host"] == host && request["target"] != "/robots.txt")
+        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+fn ended(path: &str, kind: &str, reason: Option<&str>) -> (String, Value, Value) {
+    (
+        path.to_owned(),
+        json!(kind),
+        reason.map_or(Value::Null, |reason| json!(reason)),
+    )
+}
+
+/// A start URL and a discovered link that robots.txt disallows to
+/// `goodfetch-foxhound` each end `skipped` with `robots_txt`: neither is
+/// sent, and no handler is run for either.
+///
+/// Covers: story:6-239, setting:site_preferences.respect_robots_txt
+#[test]
+fn a_start_url_and_a_discovered_link_robots_txt_disallows_end_skipped_unsent() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+
+    let crawled = crawl_seeds(
+        &env,
+        &proving_ground,
+        "disallowed",
+        &[(FILE_HOST, "/catalog/1"), (FILE_HOST, "/private/catalog/1")],
+        &json!({}),
+        &|path| {
+            if path == "/catalog/1" {
+                vec!["/private/catalog/2".to_owned()]
+            } else {
+                Vec::new()
+            }
+        },
+    );
+    let mut outcomes = crawled.outcomes;
+    outcomes.sort_by(|a, b| a.0.cmp(&b.0));
+
+    assert_eq!(
+        (
+            &crawled.report["result"]["lifecycle"],
+            crawled.handled,
+            outcomes,
+            pages_received(&proving_ground, FILE_HOST),
+        ),
+        (
+            &json!("finished"),
+            vec!["/catalog/1".to_owned()],
+            vec![
+                ended("/catalog/1", "succeeded", None),
+                ended("/private/catalog/1", "skipped", Some("robots_txt")),
+                ended("/private/catalog/2", "skipped", Some("robots_txt")),
+            ],
+            vec!["/catalog/1".to_owned()],
+        )
+    );
+}
+
+/// A crawl request obeys the robots.txt groups for `goodfetch-foxhound`
+/// and the operator's token merged, and the `*` group only where neither
+/// has one; a bare `Foxhound` group is no group of the crawl's.
+///
+/// Covers: story:6-239, setting:site_preferences.robots_txt_user_agent
+#[test]
+fn a_crawl_request_obeys_foxhounds_group_merged_with_the_operators_before_stars() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+
+    let crawled = crawl_seeds(
+        &env,
+        &proving_ground,
+        "tokens",
+        &[
+            (TOKENS_HOST, "/foxhound/1"),
+            (TOKENS_HOST, "/operator/1"),
+            (TOKENS_HOST, "/bare/1"),
+            (TOKENS_HOST, "/star/1"),
+            (STAR_HOST, "/bare/2"),
+            (STAR_HOST, "/star/2"),
+        ],
+        &json!({ "site_preferences": { "robots_txt_user_agent": "operator-bot" } }),
+        &|_| Vec::new(),
+    );
+    let mut outcomes = crawled.outcomes;
+    outcomes.sort_by(|a, b| a.0.cmp(&b.0));
+
+    assert_eq!(
+        outcomes,
+        vec![
+            ended("/bare/1", "succeeded", None),
+            ended("/bare/2", "succeeded", None),
+            ended("/foxhound/1", "skipped", Some("robots_txt")),
+            ended("/operator/1", "skipped", Some("robots_txt")),
+            ended("/star/1", "succeeded", None),
+            ended("/star/2", "skipped", Some("robots_txt")),
+        ]
+    );
+}
+
+/// A request waiting on a robots.txt that keeps answering `503`, with no
+/// earlier copy, is never sent: each failed robots.txt fetch counts as one
+/// of its attempts, and once its retries ran out it ends `skipped` with
+/// `robots_txt`, so it never waits forever.
+///
+/// Covers: story:6-242, setting:crawl.retry.max
+#[test]
+fn a_request_whose_robots_txt_keeps_failing_ends_skipped_after_its_retries() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+
+    let crawled = crawl_seeds(
+        &env,
+        &proving_ground,
+        "unreachable",
+        &[(UNREACHABLE_HOST, "/catalog/1")],
+        &json!({
+            "crawl": { "retry": { "max": 1 } },
+            "politeness": { "backoff": { "initial": 100, "max": 200 } },
+        }),
+        &|_| Vec::new(),
+    );
+
+    assert_eq!(
+        (
+            &crawled.report["result"]["lifecycle"],
+            crawled.handled.len(),
+            crawled.outcomes,
+            received(&proving_ground, UNREACHABLE_HOST),
+        ),
+        (
+            &json!("finished"),
+            0,
+            vec![ended("/catalog/1", "skipped", Some("robots_txt"))],
+            (2, 0),
+        )
+    );
+}
+
+/// With `site_preferences.respect_robots_txt` off, a request robots.txt
+/// disallows is fetched and handled.
+///
+/// Covers: story:6-239, setting:site_preferences.respect_robots_txt
+#[test]
+fn with_robots_txt_not_respected_a_disallowed_request_is_fetched() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+
+    let crawled = crawl_seeds(
+        &env,
+        &proving_ground,
+        "ignored",
+        &[(FILE_HOST, "/private/catalog/1")],
+        &json!({ "site_preferences": { "respect_robots_txt": false } }),
+        &|_| Vec::new(),
+    );
+
+    assert_eq!(
+        (
+            crawled.handled,
+            crawled.outcomes,
+            pages_received(&proving_ground, FILE_HOST),
+        ),
+        (
+            vec!["/private/catalog/1".to_owned()],
+            vec![ended("/private/catalog/1", "succeeded", None)],
+            vec!["/private/catalog/1".to_owned()],
+        )
+    );
+}
+
 /// The robots.txt fetch is a request of its domain: under a delay between
 /// starts of 2 s, the crawl's first page goes no sooner than 2 s after its
 /// origin's robots.txt.

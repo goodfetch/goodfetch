@@ -448,11 +448,14 @@ pub(super) fn superseded(
 /// below the about two seconds the Proving ground holds its answer.
 const SHORT_NAVIGATION_TIMEOUT: u64 = 500;
 
-/// A navigation whose document does not load within `timeout.navigation`
-/// ends with `deadline_exceeded`, retryable, whose `limit` names the
-/// setting, its value and the layer that set it, and whose `waited_for`
-/// names the state the call waited for (ADR 0080). The Proving ground
-/// holds the document's answer past the deadline.
+/// A navigation whose document does not load within its `timeout`, the
+/// call's own `timeout.navigation`, ends with `deadline_exceeded`,
+/// retryable, whose `limit` names the setting, its value and the run
+/// layer a call's own argument is, and whose `waited_for` names the state
+/// the call waited for (ADR 0080); a `timeout` of 0 is refused. The
+/// Proving ground holds the document's answer past the deadline. The
+/// deadline is the call's alone, so opening the page waits under the
+/// Run's default, as every other case's does, whatever the machine's load.
 pub(super) fn past_its_deadline(
     connection: &mut Connection,
     site: &Site,
@@ -464,23 +467,27 @@ pub(super) fn past_its_deadline(
     let Some(held) = held else {
         return Ok(());
     };
-    start_run(
-        connection,
-        site,
-        run_id,
-        &json!({ "timeout": { "navigation": SHORT_NAVIGATION_TIMEOUT } }),
-        checks,
-    )?;
+    start_run(connection, site, run_id, &json!({}), checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };
+    let refused = call(
+        connection,
+        PAGE_GOTO.name,
+        &json!(page.page_id),
+        &json!({ "url": held, "timeout": 0 }),
+    )?;
+    checks.check(
+        "a `timeout` of 0 is refused with `invalid_params`",
+        refused["error"]["code"] == json!(-32602),
+    );
     let slowed = site.proving_ground.set_time_step(SLOWEST_STEP).is_ok();
     checks.check("the Proving ground holds its pacing pages' answers", slowed);
     let answer = call(
         connection,
         PAGE_GOTO.name,
         &json!(page.page_id),
-        &json!({ "url": held, "wait_until": "load" }),
+        &json!({ "url": held, "wait_until": "load", "timeout": SHORT_NAVIGATION_TIMEOUT }),
     );
     let restored = site.proving_ground.set_time_step(0).is_ok();
     checks.check("the Proving ground's time step is set back", restored);
@@ -494,7 +501,7 @@ pub(super) fn past_its_deadline(
     );
     checks.check("a retry may succeed", data["retryable"] == json!(true));
     checks.check(
-        "its limit names `timeout.navigation`, its value and the Run's layer",
+        "its limit names `timeout.navigation`, the call's value and the run layer",
         data["limit"]
             == json!({ "key": "timeout.navigation", "value": SHORT_NAVIGATION_TIMEOUT, "layer": "run" }),
     );

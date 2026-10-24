@@ -1061,7 +1061,48 @@ impl PageDriver {
         waited_for: &str,
         future: F,
     ) -> Result<F::Output, CallError> {
-        let deadline = &self.browser.deadlines.navigation;
+        Box::pin(self.within(Some(&self.browser.deadlines.navigation), waited_for, future)).await
+    }
+
+    /// The deadline of a navigation whose call's own `timeout` is
+    /// `timeout`: its Run's `timeout.navigation` when absent
+    /// ([`Deadline::of_call`]).
+    ///
+    /// # Errors
+    ///
+    /// `invalid_params` for a `timeout` of 0.
+    #[expect(
+        clippy::option_option,
+        reason = "the param's three states as the protocol carries them (ADR 0080): absent, `null` or a duration"
+    )]
+    pub(crate) fn navigation_deadline(
+        &self,
+        timeout: Option<Option<u64>>,
+    ) -> Result<Option<Deadline>, CallError> {
+        Deadline::of_call(
+            &self.browser.deadlines.navigation,
+            &TIMEOUT_NAVIGATION,
+            timeout,
+        )
+    }
+
+    /// Runs `future` within `deadline`, the page's waits for its gate's and
+    /// its proxy's permits not counted; with no deadline, until it ends.
+    ///
+    /// # Errors
+    ///
+    /// `deadline_exceeded` naming the deadline's setting and `waited_for`
+    /// once the deadline passed first; it counts as elapsed the time the
+    /// deadline counted, its permit waits left out (ADRs 0080 and 0093).
+    async fn within<F: Future>(
+        &self,
+        deadline: Option<&Deadline>,
+        waited_for: &str,
+        future: F,
+    ) -> Result<F::Output, CallError> {
+        let Some(deadline) = deadline else {
+            return Ok(future.await);
+        };
         let limit = deadline.duration();
         let done = match &self.waits {
             Some(waits) => waits.within(limit, future).await.ok(),
@@ -1301,6 +1342,7 @@ impl PageDriver {
         &self,
         destination: Destination<'_>,
         wait_until: WaitUntil,
+        deadline: Option<&Deadline>,
     ) -> Result<Arrived, CallError> {
         let Some((url, step)) = self.step_to(destination).await? else {
             return Ok(Arrived::Document(None));
@@ -1367,7 +1409,8 @@ impl PageDriver {
         };
         let waiting = NavigationCall::start(&self.navigating);
         let followed = self
-            .within_navigation_deadline(
+            .within(
+                deadline,
                 waited_for(wait_until),
                 // Boxed: the deadline that leaves out permit waits keeps it
                 // in its own state across its sleeps.

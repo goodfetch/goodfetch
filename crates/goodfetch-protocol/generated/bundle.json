@@ -4185,6 +4185,16 @@
           "arrived_in": "0.1",
           "description": "The page."
         },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the navigation may take, in milliseconds, at least 1:\nabsent for `timeout.navigation`, `null` for none, though an\nenclosing timeout still applies (ADR 0080). Its waits for permits\ncount against it no more than against the setting.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "url": {
           "arrived_in": "0.1",
           "description": "The URL.",

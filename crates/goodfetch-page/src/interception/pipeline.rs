@@ -785,7 +785,8 @@ impl PageContext {
     /// the main frame's navigation, a program's own included, keeping it
     /// until the hop ends, once the limits admit it (ADRs 0053 and 0088):
     /// the hop before gives its Permit back first. The wait counts against
-    /// no deadline of the page. A page without a proxy goes at once.
+    /// no deadline of the page. A page without a proxy, and a hop
+    /// `proxy.bypass` sends around it, go at once.
     async fn admit_through_proxy(&self, held: &Held) {
         if self.driver.proxy().is_none() {
             return;

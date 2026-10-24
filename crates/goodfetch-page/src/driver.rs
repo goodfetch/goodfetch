@@ -898,10 +898,11 @@ impl PageDriver {
 
     /// A Permit for one hop of a navigation through its Session's proxy,
     /// once the proxy's limits admit it (ADRs 0053 and 0088); none on a
-    /// page without a proxy. The wait counts against no deadline of the
+    /// page without a proxy, and for a hop to `url` that `proxy.bypass`
+    /// sends around the proxy. The wait counts against no deadline of the
     /// page, and its lease check holds the lease through it.
     pub(crate) async fn proxy_permit(&self, url: &str) -> Option<ProxyPermit> {
-        let proxy = self.proxy.as_deref()?;
+        let proxy = self.proxy.as_deref().filter(|proxy| !proxy.bypasses(url))?;
         let waiting = self.waits.as_ref().map(PermitWaits::begin);
         let holding = self.value.lease().map(|lease| lease.permit_wait(url));
         let permit = proxy.permit().await;

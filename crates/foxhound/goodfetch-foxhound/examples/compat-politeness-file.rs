@@ -8,8 +8,10 @@
 //! (the backoff's last wait kept); then a crawl of `hold.test` with one request in flight
 //! at a time leaves its first request unanswered, so its second waits for a
 //! wake. A Collie Run's navigation through a proxy then meets the proxy's
-//! own 429, which halves that proxy's learned ceiling under its key. A
-//! copy of the file taken then, its Run folder and wake endpoint
+//! own 429, which halves that proxy's learned ceiling under its key. The
+//! crawls' shared robots.txt copy then keeps `shop.test`'s file and
+//! `hold.test`'s 404 read as no rules, and a later 500 for `shop.test`
+//! leaves its file in place. A copy of the file taken then, its Run folder and wake endpoint
 //! written relative to the home, goes as SQL text into the folder given as
 //! the only argument: `politeness-file.sql`. `xtask compat write` runs it.
 #![expect(
@@ -24,6 +26,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::politeness::{Ending, Holder, Politeness, PolitenessOptions, Taken};
+use goodfetch_engine::robots_txt::{Answer, Copies as _, Fetch};
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::settings::{Layers, resolve};
 use goodfetch_engine::tasks::BlockingPolicy;
@@ -169,6 +172,50 @@ async fn proxy_refusal(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// The robots.txt copy a crawl's Runs share, in the Politeness file of
+/// `home`, as a second engine of the user: `shop.test` answers a file,
+/// `hold.test` a 404, and a fetch of `shop.test`'s a day later answers a
+/// 500, which keeps the file.
+async fn robots_txt_copies(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let file = Politeness::open(
+        home.join("politeness.sqlite"),
+        &PolitenessOptions::default(),
+        Vec::new(),
+        |_, _| false,
+        "robots-txt-engine".to_owned(),
+        &owner,
+    )
+    .await?;
+    // 2026-01-05T09:00:20Z, and a day later.
+    let at = UNIX_EPOCH + Duration::from_hours(491_001) + Duration::from_secs(20);
+    let copies = goodfetch_frontier::SharedRobotsTxt::new(file.clone(), Clock::paused(at));
+    let a_day_later = goodfetch_frontier::SharedRobotsTxt::new(
+        file,
+        Clock::paused(at + Duration::from_hours(24)),
+    );
+    let answered = |status: u16, body: &[u8]| -> Fetch<'static> {
+        let answer = Answer::Response {
+            status,
+            body: body.to_vec(),
+        };
+        Box::pin(async move { answer })
+    };
+    let shop = goodfetch_frontier::Url::parse("https://shop.test/robots.txt")?;
+    let hold = goodfetch_frontier::Url::parse("https://hold.test/robots.txt")?;
+    copies
+        .copy(
+            &shop,
+            answered(200, b"User-agent: *\nDisallow: /private/\nCrawl-delay: 2\n"),
+        )
+        .await;
+    copies.copy(&hold, answered(404, b"not found")).await;
+    a_day_later.copy(&shop, answered(500, b"")).await;
+    drop((copies, a_day_later));
+    owner.cancel();
+    Ok(())
+}
+
 /// Copies the Politeness file of `home` into `copy`, its Run folders and
 /// wake endpoints written relative to the home, so the corpus never names
 /// a temporary folder.
@@ -260,6 +307,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
             tokio::time::sleep(Duration::from_secs(1)).await;
             proxy_refusal(home.path()).await?;
+            robots_txt_copies(home.path()).await?;
             copy_of(home.path(), &copy)?;
             exchange(
                 &mut writer,

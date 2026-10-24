@@ -713,6 +713,33 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 240
+title = "As a site owner, I want a robots.txt answered with a 4xx other than 429 read as no rules, a 429, 5xx or unreachable one never cached as no rules, the last good copy applying meanwhile and everything disallowed with none, so that an outage never lifts my rules (ADR 0086; pitfall U16)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 241
+title = "As a user, I want each origin's robots.txt kept at most 24 hours per user, shared by my runs, its fetch counted in the domain's Politeness, so that robots.txt is fetched once a day, not once a run (ADR 0086)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 246
+title = "As a user, I want Collie's per-Run robots.txt reading replaced, on a crawl's Run, by the shared copy, so that a crawl fetches robots.txt once per origin for all its pages (ADR 0086; Collie's part)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 250
 title = "As a crawl developer, I want the pool to score each Session on its successes and blocks, rotate requests across Sessions, and retire one past `session.pool.max_error_score`, `session.pool.max_uses` or `session.pool.max_age`, so that a crawl keeps healthy identities (CO-12, ADRs 0006 and 0035; the keys **(shape)**)."
 milestone = "M1 Core"

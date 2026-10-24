@@ -22,6 +22,7 @@ mod outcomes;
 mod path_budgets;
 mod politeness;
 mod redundant_requests;
+mod robots_txt;
 mod scope;
 mod seeds;
 mod service_manager;

@@ -21,7 +21,9 @@ mod driver;
 mod gate;
 mod hedging;
 mod http_profile;
+mod redirects;
 mod redundant;
+mod refresh;
 mod tiers;
 mod transports;
 
@@ -31,5 +33,7 @@ pub use driver::{
 pub use gate::{HandOver, RobotsTxtFetch};
 pub use http_profile::HttpProfile;
 pub use redundant::Requester;
+#[doc(hidden)]
+pub use refresh::fuzz_refresh;
 pub use tiers::{FetchTiers, HandedOver, HttpTier, Signed};
 pub use transports::{Reqwest, TransportConfig, TransportUnavailable, Wreq};

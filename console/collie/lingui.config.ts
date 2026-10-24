@@ -7,7 +7,11 @@ import { formatter } from "@lingui/format-json";
 
 const config: ReturnType<typeof defineConfig> = defineConfig({
   sourceLocale: "en",
-  locales: ["en"],
+  locales: ["en", "en-XA", "ar-XB"],
+  pseudoLocale: [
+    { locale: "en-XA", prepend: "[", append: "]", extend: 0.35 },
+    { locale: "ar-XB", prepend: "", append: "", rightToLeft: true },
+  ],
   catalogs: [
     {
       path: "<rootDir>/src/messages/{locale}",

@@ -6,7 +6,7 @@
 // person's raise left: a run waiting for its script, with its resume
 // command, and one resumed in the Daemon; and a domain that showed a
 // consent wall, with and without a Connection.
-import type { NeedsYouItem } from "@goodfetch/collie-client/generated";
+import { RunStateUnavailableError, type NeedsYouItem } from "@goodfetch/collie-client/generated";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NeedsYouView } from "./needs-you.tsx";
 
@@ -170,5 +170,12 @@ export const ConsentWallReadOnly: Story = {
 
 /** The engine refused the list. */
 export const Failed: Story = {
-  args: { state: { kind: "failed", message: "the Run index cannot be read" } },
+  args: {
+    state: {
+      kind: "failed",
+      error: new RunStateUnavailableError("the Run index cannot be read", {
+        details: { operation: "needs_you.list", path: "/srv/goodfetch/1/run-index.sqlite" },
+      }),
+    },
+  },
 };

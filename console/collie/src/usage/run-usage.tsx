@@ -103,14 +103,14 @@ export function RunUsageView({ usage, recording }: RunUsageViewProps): ReactNode
   }));
   return (
     <div className="flex flex-col gap-4">
-      <table className="w-full border-collapse text-left text-sm">
+      <table className="w-full border-collapse text-start text-sm">
         <caption className="sr-only">
           <Trans>What this run used</Trans>
         </caption>
         <tbody>
           {lines(usage, recording).map((line) => (
             <tr key={line.key} className="border-b">
-              <th scope="row" className="py-2 pr-4 font-normal">
+              <th scope="row" className="py-2 pe-4 font-normal">
                 {line.name}
               </th>
               <td className="py-2 tabular-nums">

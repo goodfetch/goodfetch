@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use goodfetch_protocol::connection::{CALL_CANCELLED, DEADLINE_EXCEEDED};
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
-use goodfetch_protocol::page::tabs::PAGE_CLOSE;
+use goodfetch_protocol::page::session_pages::PAGE_CLOSE;
 use goodfetch_protocol::page::waits::{
     LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_LOAD_STATE,
     PAGE_WAIT_FOR_REQUEST, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL,

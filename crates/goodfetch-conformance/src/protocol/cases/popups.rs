@@ -12,7 +12,7 @@ use std::time::Duration;
 use goodfetch_protocol::connection::CANCEL;
 use goodfetch_protocol::events::{CREDIT, EVENTS_SUBSCRIBE};
 use goodfetch_protocol::page::events::PAGE_ON;
-use goodfetch_protocol::page::tabs::{PAGE_CLOSE, SESSION_ON, SESSION_PAGES};
+use goodfetch_protocol::page::session_pages::{PAGE_CLOSE, SESSION_ON, SESSION_PAGES};
 use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_GOTO};
 use serde_json::{Value, json};
 

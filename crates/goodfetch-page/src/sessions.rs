@@ -42,7 +42,7 @@ mod ends;
 mod life;
 mod lifecycle;
 mod memory;
-mod tabs;
+mod session_pages;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -138,7 +138,7 @@ pub(crate) struct Sessions {
     /// handlers: its value and its response observer (ADR 0087).
     hooks: Arc<dyn HandlerPages>,
     /// How many calls listen to each Session's `page` event.
-    page_listeners: tabs::PageListeners,
+    page_listeners: session_pages::PageListeners,
 }
 
 #[derive(Default)]
@@ -183,7 +183,7 @@ struct Session {
     /// On a Borrowed browser, the main frames of every page it held, whose
     /// popups alone are its own; none elsewhere, where its browser context
     /// holds only its pages.
-    held_frames: Option<tabs::HeldFrames>,
+    held_frames: Option<session_pages::HeldFrames>,
     /// Its marks of main-world injections in Provenance, each once.
     injections: Injections,
 }
@@ -279,7 +279,7 @@ impl Sessions {
             events,
             dialogs,
             hooks,
-            page_listeners: tabs::PageListeners::default(),
+            page_listeners: session_pages::PageListeners::default(),
         }
     }
 
@@ -329,7 +329,9 @@ impl Sessions {
             life: life.clone(),
             proxy,
             interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
-            held_frames: borrowed.as_ref().map(|_| tabs::HeldFrames::default()),
+            held_frames: borrowed
+                .as_ref()
+                .map(|_| session_pages::HeldFrames::default()),
             injections: Injections::default(),
         });
         self.state
@@ -409,7 +411,9 @@ impl Sessions {
                             ),
                             proxy,
                             interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
-                            held_frames: borrowed.as_ref().map(|_| tabs::HeldFrames::default()),
+                            held_frames: borrowed
+                                .as_ref()
+                                .map(|_| session_pages::HeldFrames::default()),
                             injections: Injections::default(),
                         }),
                     );
@@ -442,7 +446,7 @@ impl Sessions {
         let driver = driver.with_value(self.hooks.value(run.id(), session), run.clock());
         let open_session = Arc::clone(&open);
         let page = self
-            .adopt(tabs::Adopting {
+            .adopt(session_pages::Adopting {
                 observer: self.hooks.observer(run.id(), session),
                 open,
                 driver,

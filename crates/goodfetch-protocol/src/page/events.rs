@@ -453,7 +453,7 @@ pub const PAGE_ON: Operation = Operation {
         &PAGE_DOWNLOAD,
         &PAGE_CRASH,
         &PAGE_CLOSE,
-        &super::tabs::PAGE_POPUP,
+        &super::session_pages::PAGE_POPUP,
     ],
     cancellable: true,
     stability: Stability::Experimental,

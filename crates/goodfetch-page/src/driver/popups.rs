@@ -10,8 +10,8 @@
 //! A page target the engine opened itself is let run at once and its extra
 //! session let go, the engine driving it through its own; so is a popup of
 //! a browser context no Session follows, and, on a Borrowed browser, whose
-//! context the person's own tabs share, any tab no page of the Session
-//! opened (ADR 0056).
+//! context the person's own windows share, any page target no page of the
+//! Session opened (ADR 0056).
 #![expect(
     clippy::disallowed_types,
     reason = "each context's handler is set once and read by the browser's one event reader, each lock held for one map operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -180,7 +180,7 @@ impl PageDriver {
 /// page opened is handed to the Session, and runs once taken in, or is
 /// closed before it runs, so no page of the Session's ever runs outside its
 /// interception; any other page target, one the engine opened itself or a
-/// tab of a Borrowed browser's person (ADR 0056), runs at once and is let
+/// window of a Borrowed browser's person (ADR 0056), runs at once and is let
 /// go of.
 pub(super) async fn attach(browser: Browser, attached: target::AttachedToTargetEvent) {
     let session = TargetSession(attached.session_id);

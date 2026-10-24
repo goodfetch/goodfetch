@@ -77,7 +77,7 @@ use goodfetch_protocol::page::session::{
     NewSessionParams, RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE, SessionClosed,
     SessionParams,
 };
-use goodfetch_protocol::page::tabs::{
+use goodfetch_protocol::page::session_pages::{
     self, PageCloseParams, PageClosed, SESSION_ON, SESSION_PAGES, SessionEventName, SessionOnParams,
 };
 use goodfetch_protocol::page::{
@@ -323,7 +323,7 @@ fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Con
             },
         ))
         .with_handler(Handler::new(
-            &tabs::PAGE_CLOSE,
+            &session_pages::PAGE_CLOSE,
             move |params: PageCloseParams, _context: CallContext| {
                 let sessions = closing_page.clone();
                 async move {

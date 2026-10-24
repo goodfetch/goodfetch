@@ -1,4 +1,4 @@
-//! A Session's tabs (ADR 0085; pitfall B15): every page as it opens, one
+//! A Session's pages (ADR 0085; pitfall B15): every page as it opens, one
 //! the program opened or a popup one of the Session's pages opened, taken
 //! in the same way: its events and dialogs are read, the interception,
 //! live hiding and the Consent prompt runner start on it, and the Session's
@@ -23,7 +23,7 @@ use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::connection::ClosedValue;
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::events::PageEventName;
-use goodfetch_protocol::page::tabs::{
+use goodfetch_protocol::page::session_pages::{
     PAGE_CLOSE, PAGE_POPUP, PagePopup, SESSION_PAGE, SessionOnEnded, SessionPages,
 };
 use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
@@ -91,7 +91,7 @@ impl PageListeners {
 }
 
 /// On a Borrowed browser, the main frames of every page a Session held:
-/// only their popups are the Session's, since the person's own tabs share
+/// only their popups are the Session's, since the person's own windows share
 /// its browser context (ADR 0056).
 #[derive(Clone, Default)]
 pub(super) struct HeldFrames(Arc<tokio::sync::Mutex<BTreeSet<target::TargetID>>>);
@@ -418,7 +418,7 @@ impl Sessions {
     /// Closes the page `page_id`, a popup as any other: its calls in flight
     /// end, it emits `close` and leaves; one closed already stays as it is.
     /// With `run_before_unload`, the page is asked to close as a person
-    /// closing its tab does, its `beforeunload` handlers running first, and
+    /// closing its window does, its `beforeunload` handlers running first, and
     /// it leaves once its target is destroyed.
     pub(crate) async fn close_page(
         &self,

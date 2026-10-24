@@ -51,7 +51,7 @@ pub mod proxy;
 pub mod request;
 pub mod route;
 pub mod session;
-pub mod tabs;
+pub mod session_pages;
 pub mod waits;
 
 use self::dialog::{
@@ -71,7 +71,7 @@ use self::route::{
     ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL, ROUTE_HANDLE, SESSION_ROUTE,
 };
 use self::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
-use self::tabs::{PAGE_POPUP, SESSION_ON, SESSION_PAGE, SESSION_PAGES};
+use self::session_pages::{PAGE_POPUP, SESSION_ON, SESSION_PAGE, SESSION_PAGES};
 use self::waits::{
     LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_LOAD_STATE,
     PAGE_WAIT_FOR_REQUEST, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL,
@@ -1236,7 +1236,7 @@ pub const ENTRIES: Entries = Entries {
         DIALOG_DISMISS,
         SESSION_ON,
         SESSION_PAGES,
-        tabs::PAGE_CLOSE,
+        session_pages::PAGE_CLOSE,
         PAGE_EVALUATE,
         PAGE_ADD_INIT_SCRIPT,
         PAGE_WAIT_FOR_URL,

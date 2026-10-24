@@ -14,7 +14,8 @@
 //! `Service-Worker: script` header and the worker it loads.
 //!
 //! Any other worker (a browser extension's, or one of a context no Session
-//! named) is let run untouched.
+//! named) is let run untouched, but for a headless browser's identity,
+//! which every worker takes before it runs, as every page does (`identity`).
 #![expect(
     clippy::disallowed_types,
     reason = "each context's choice is set once and read by the browser's one event reader, each lock held for one map operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -230,10 +231,18 @@ async fn follow(mut events: Subscription, browser: Browser, run: Run) {
     }
 }
 
-/// The worker `attached` waits for the engine: under `allow` its Session's
-/// interception takes it first; then it runs.
+/// The worker `attached` waits for the engine: a headless browser's worker
+/// takes the identity its pages show, under `allow` its Session's
+/// interception takes it; then it runs.
 async fn attach(browser: Browser, attached: target::AttachedToTargetEvent, run: Run) {
     let session = TargetSession(attached.session_id);
+    if let Some(identity) = &browser.identity
+        && let Err(failure) = browser
+            .try_send(Some(&session), &identity.worker_command())
+            .await
+    {
+        tracing::debug!(%failure, "a service worker went before it took its browser's identity");
+    }
     let info = attached.target_info;
     let of_a_site = info.url.starts_with("http://") || info.url.starts_with("https://");
     let choice = browser

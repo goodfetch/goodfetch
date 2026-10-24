@@ -440,6 +440,10 @@ covers = ["story:5-49", "operation:session.route", "operation:page.route", "even
 id = "with-service-workers-blocked-register-rejects-natively-and-the-pages-calls-reach-its-route"
 covers = ["story:5-50", "setting:browser.service_workers", "operation:run.new_session", "operation:page.route"]
 
+[[capability.case]]
+id = "a-headless-service-workers-requests-show-the-site-its-windows-identity"
+covers = ["story:5-56", "setting:browser.headless", "operation:page.goto"]
+
 [[capability]]
 name = "page_request"
 

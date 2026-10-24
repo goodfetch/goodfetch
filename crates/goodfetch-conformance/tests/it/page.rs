@@ -240,7 +240,7 @@ fn the_page_suite_proves_events_against_collies_attached_engine() {
     prove(EVENTS);
 }
 
-/// Covers: operation:run.new_session, operation:page.route, operation:session.route, event:page.request, event:page.response, story:5-49, story:5-50, setting:browser.service_workers, operation:page.wait_for_response, operation:page.wait_for_load_state
+/// Covers: operation:run.new_session, operation:page.route, operation:session.route, event:page.request, event:page.response, story:5-49, story:5-50, setting:browser.service_workers, operation:page.wait_for_response, operation:page.wait_for_load_state, story:5-56, setting:browser.headless, operation:page.goto
 #[test]
 fn the_page_suite_proves_page_states_against_collies_attached_engine() {
     prove(PAGE_STATES);

@@ -1,6 +1,7 @@
-//! The identity a headless Chromium's pages show (spec #577, ticket #696;
-//! ADRs 0021 and 0092): the one the same build shows with a window, so a
-//! site sees one real browser whether a person watched or not. A headless
+//! The identity a headless Chromium's pages and service workers show (spec
+//! #577, ticket #696; ADRs 0021 and 0092): the one the same build shows
+//! with a window, so a site sees one real browser whether a person watched
+//! or not. A headless
 //! build differs from its window only in its user agent's product token,
 //! `HeadlessChrome/` for `Chrome/`; its client hints are the window's. Each
 //! page then gets that user agent with the client hints read from the
@@ -16,7 +17,7 @@
 use std::time::Duration;
 
 use goodfetch_cdp::SessionId as TargetSession;
-use goodfetch_cdp::generated::{emulation, page, runtime, target};
+use goodfetch_cdp::generated::{emulation, network, page, runtime, target};
 use goodfetch_engine::CallError;
 use goodfetch_protocol::page::{BROWSER_LAUNCH_FAILED, BrowserLaunchFailedDetails};
 
@@ -67,6 +68,18 @@ impl Identity {
     /// The command that gives a page this identity.
     pub(super) fn command(&self) -> emulation::SetUserAgentOverrideParams {
         emulation::SetUserAgentOverrideParams {
+            user_agent: self.user_agent.clone(),
+            accept_language: None,
+            platform: None,
+            user_agent_metadata: Some(self.hints.clone()),
+        }
+    }
+
+    /// The command that gives a service worker this identity: a worker's
+    /// target has no `Emulation` domain, and its `Network` override sets
+    /// both what its requests send and what its `navigator` reads.
+    pub(super) fn worker_command(&self) -> network::SetUserAgentOverrideParams {
+        network::SetUserAgentOverrideParams {
             user_agent: self.user_agent.clone(),
             accept_language: None,
             platform: None,

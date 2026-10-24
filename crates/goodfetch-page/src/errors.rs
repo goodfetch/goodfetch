@@ -15,7 +15,6 @@ use goodfetch_engine::CallError;
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CallCancelledDetails, ClosedValue, INTERNAL, InternalDetails, StoppedBy,
 };
-use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::governor::{PAGE_MEMORY_EXCEEDED, PageMemoryExceededDetails};
 use goodfetch_protocol::jsonrpc::{ErrorData, ProtocolFailure};
 use goodfetch_protocol::page::{
@@ -58,11 +57,9 @@ pub(crate) enum Call {
 }
 
 /// The Error code `failure` raises from `call`; `exit` says how the browser
-/// ended, when it did.
+/// ended, when it did. A command the page's lease check withheld raises
+/// the error that check gives, which its driver asks it for.
 pub(crate) fn call_error(call: &Call, failure: &Failure, exit: Option<BrowserExit>) -> CallError {
-    if let Failure::Withheld { method } = failure {
-        return lease_ended(method);
-    }
     let lost = match failure {
         Failure::Disconnected => Some(exit.clone()),
         Failure::Refused {
@@ -117,19 +114,6 @@ pub(crate) fn call_error(call: &Call, failure: &Failure, exit: Option<BrowserExi
             format!("the browser failed `{operation}`'s command: {failure}"),
         ),
     }
-}
-
-/// `attempt_ended` for a call on a page whose work item's lease ended: the
-/// page sent nothing more, `method` withheld (ADRs 0003 and 0087). Only a
-/// crawl handler's page has a lease.
-pub(crate) fn lease_ended(method: &str) -> CallError {
-    CallError::new(
-        &ATTEMPT_ENDED,
-        format!(
-            "the page's attempt ended with its lease, so it sent nothing more (`{method}` withheld)"
-        ),
-        &serde_json::json!({}),
-    )
 }
 
 /// `site_preferences_refused` for the navigation or request to `url` that

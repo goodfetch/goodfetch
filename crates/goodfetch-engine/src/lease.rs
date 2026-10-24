@@ -8,6 +8,8 @@
 
 use std::fmt::Debug;
 
+use crate::CallError;
+
 /// Why a lease lets no more commands leave.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum LeaseEnded {
@@ -27,6 +29,12 @@ pub trait LeaseCheck: Debug + Send + Sync {
     ///
     /// Why it ended, once it did.
     fn check(&self) -> Result<(), LeaseEnded>;
+
+    /// The error a call raises once its page withheld the command `method`
+    /// because the lease ended as `ended`: the Product's own Error code,
+    /// since the page that withholds it is Collie's and names none of
+    /// Foxhound's (ADR 0087).
+    fn withheld(&self, ended: LeaseEnded, method: &str) -> CallError;
 
     /// Holds the lease while its page waits for a navigation gate's permit
     /// for `url`, a wait that counts against no timeout (ADR 0093): the

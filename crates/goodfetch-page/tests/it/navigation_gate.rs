@@ -303,7 +303,8 @@ fn a_refused_navigation_no_call_waits_on_is_aborted_and_the_page_keeps_its_docum
 
 /// The lease check is asked before each command the page sends, a
 /// `page.request`'s included: once the lease ended, a navigation, a
-/// `page.request` and a click each raise `attempt_ended` and nothing
+/// `page.request` and a click each raise the error the lease check gives
+/// (the Recording gate's `call_cancelled`, Foxhound's `attempt_ended`) and nothing
 /// reaches the site.
 /// Covers: operation:page.goto, operation:page.request, operation:locator.click
 #[test]
@@ -354,9 +355,9 @@ fn a_page_whose_lease_ended_sends_nothing_more() {
             (
                 true,
                 true,
-                json!("attempt_ended"),
-                json!("attempt_ended"),
-                json!("attempt_ended"),
+                json!("call_cancelled"),
+                json!("call_cancelled"),
+                json!("call_cancelled"),
                 false,
                 false,
                 true,
@@ -513,7 +514,7 @@ fn a_service_workers_request_carrying_a_navigation_is_admitted_once(#[case] navi
 
 /// A popup a handler's page opens takes the page's value (A05-26): its
 /// first navigation is admitted by the opener's gate before it leaves, and
-/// once the lease ended a call on the popup raises `attempt_ended` and
+/// once the lease ended a call on the popup raises its lease check's error and
 /// nothing more reaches the site.
 /// Covers: event:page.popup, operation:locator.click, operation:page.goto
 #[test]
@@ -557,7 +558,7 @@ fn a_popup_takes_its_openers_gate_and_lease_check() {
             ),
             (
                 vec![("/popup/opened".to_owned(), NavigationKind::Document)],
-                json!("attempt_ended"),
+                json!("call_cancelled"),
                 false,
             )
         );

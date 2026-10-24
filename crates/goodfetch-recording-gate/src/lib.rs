@@ -15,11 +15,13 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use goodfetch_engine::CallError;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_page::page_value::{
     Admission, DocumentResponse, HandlerPages, Kept, Navigation, NavigationGate, ObservedResponse,
     PageValue, Permit, Refusal, ResponseObserver,
 };
+use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
 use goodfetch_protocol::page::{SessionId, SitePreference};
 use goodfetch_protocol::run::RunId;
 
@@ -239,6 +241,20 @@ impl LeaseCheck for RecordingGate {
             Some(ended) => Err(ended),
             None => Ok(()),
         }
+    }
+
+    /// `call_cancelled`, stopped by the program: the Recording gate's stand-in
+    /// for the Product's own code (Foxhound's is `attempt_ended`), which a
+    /// test outside Foxhound's crates does not name.
+    fn withheld(&self, ended: LeaseEnded, method: &str) -> CallError {
+        CallError::new(
+            &CALL_CANCELLED,
+            format!("the Recording gate's lease ended ({ended}): `{method}` withheld"),
+            &CallCancelledDetails {
+                by: StoppedBy::Program,
+                closed: None,
+            },
+        )
     }
 
     fn permit_wait(&self, url: &str) -> PermitWait {

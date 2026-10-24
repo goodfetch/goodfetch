@@ -737,17 +737,6 @@ pub(crate) fn recover_leases(
     Ok(())
 }
 
-/// Whether any work item failed with the Error code `code`, such as
-/// `response_unavailable` for a site that was failing or held its requests
-/// unsent, which leaves a finished crawl `incomplete` (ADR 0118).
-pub(crate) fn any_failed_with(connection: &Connection, code: &str) -> rusqlite::Result<bool> {
-    connection.query_row(
-        "SELECT EXISTS (SELECT 1 FROM work_items WHERE status = ?1 AND error_code = ?2)",
-        (FAILED, code),
-        |row| row.get(0),
-    )
-}
-
 /// Whether any work item is still pending.
 pub(crate) fn any_pending(connection: &Connection) -> rusqlite::Result<bool> {
     Ok(connection

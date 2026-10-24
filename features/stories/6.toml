@@ -803,6 +803,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 309
+title = "As a crawl developer, I want Completeness `incomplete` for a depth, request or path-budget cutoff, a Model allowance skip or a stop, and `unverified` for offset pagination, a learned trap, a URL cap, or pages left at `payment_required` or `consent_required`, each reason named in the report with its count, so that a crawl never reads as complete when it is not (ADRs 0005, 0045, 0048, 0107, 0120; pain 10)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 310
 title = "As a crawl developer, I want the report's `learnedRules` to list each rule with its evidence and the URLs it merged, so that every merge can be audited (ADRs 0005, 0102)."
 milestone = "M1 Core"

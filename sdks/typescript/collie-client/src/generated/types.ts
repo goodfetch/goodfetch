@@ -552,6 +552,12 @@ export type NothingDone =
     }
   | {
       reason: "no_seed_handled";
+      /**
+       * How many seeds each reason kept from a handler: the reason an
+       * enqueue answered, or how the request ended, by its skip reason,
+       * Error code or Block cause, in the order of the reasons.
+       */
+      seeds?: SeedsKept[];
     }
   | {
       reason: "nothing_pending";
@@ -1149,6 +1155,11 @@ export interface AxisReason {
    * not know is kept as it is.
    */
   code: string;
+  /**
+   * How many it counts, when it counts some: the URLs a bound refused,
+   * the pages left at a Block cause, or the requests a stop left.
+   */
+  count?: number | null;
   /**
    * What it says, for people.
    */
@@ -3329,6 +3340,23 @@ export interface LimitScope3 {
    * The scope's kind.
    */
   kind: string;
+}
+/**
+ * How many seeds one reason kept from a handler.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SeedsKept".
+ */
+export interface SeedsKept {
+  /**
+   * How many seeds it kept.
+   */
+  count: number;
+  /**
+   * The reason: an enqueue's not-added reason, a skip reason, an Error
+   * code or a Block cause.
+   */
+  reason: string;
 }
 /**
  * What `page.body` takes: the body to read.

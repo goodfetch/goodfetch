@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use goodfetch_protocol::page::proxy::ProxyKind;
+use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
     NothingDone, PointInTime, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
@@ -140,24 +141,27 @@ fn completeness(
         (Lifecycle::Stopped, Some(reason)) => (
             Completeness::Incomplete,
             vec![AxisReason {
-                code: "stopped".to_owned(),
+                code: STOPPED.to_owned(),
                 message: format!("It stopped early: {}.", stopped_for(reason)),
+                count: None,
                 call_id: None,
             }],
         ),
         (Lifecycle::Stopped, None) => (
             Completeness::Incomplete,
             vec![AxisReason {
-                code: "stopped".to_owned(),
+                code: STOPPED.to_owned(),
                 message: "It stopped early.".to_owned(),
+                count: None,
                 call_id: None,
             }],
         ),
         (Lifecycle::Failed, _) => (
             Completeness::Incomplete,
             vec![AxisReason {
-                code: "failed".to_owned(),
+                code: FAILED.to_owned(),
                 message: "An error ended it before its end.".to_owned(),
+                count: None,
                 call_id: None,
             }],
         ),

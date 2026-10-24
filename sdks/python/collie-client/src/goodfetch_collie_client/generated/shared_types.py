@@ -50,6 +50,16 @@ received (ADR 0079).
 - `rate_limit`: The site refused because too many requests came too fast.
 """
 
+CompletenessReasonCode: TypeAlias = Literal["failed", "stopped"] | str
+"""A `completeness_reason_code`, a type both Products share (ADR 0095).
+
+Collie's values below; a value this package does not know is kept as
+received (ADR 0079).
+
+- `failed`: An error ended it before its end, `incomplete`.
+- `stopped`: It stopped before its end, `incomplete`; a crawl's counts the requests it left.
+"""
+
 LimitScope: TypeAlias = Literal["connection", "daemon", "install", "person", "token"] | str
 """A `limit_scope`, a type both Products share (ADR 0095).
 

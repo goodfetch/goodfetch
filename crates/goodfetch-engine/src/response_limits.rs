@@ -14,8 +14,16 @@
 //! through undecoded, as Chrome does. Every decoded byte is counted as the
 //! decoders give it, so a limit stops the decoding within one decoder's
 //! buffer of where it was passed, and the engine never holds more than the
-//! limit and that buffer. A zstd frame may ask for a window of at most
-//! 8 MiB, as RFC 9659 lets an HTTP decoder require.
+//! limit and that buffer. A zstd frame may ask for a window of 8 MiB, which
+//! RFC 9659 has every HTTP decoder support, or up to `network.max_body_size`
+//! rounded up to a power of two, so the decoder's own window never takes
+//! much more than the body it may decode.
+//!
+//! JSON is judged before anything parses it ([`check_json_depth`]), then
+//! parsed with no recursion limit of the parser's own, which would refuse
+//! the 128th level: the scan bounds the depth instead, to
+//! `network.max_json_depth` and at most [`JSON_DEPTH_CEILING`], where the
+//! parser still fits a thread's stack.
 
 use std::io::{self, Write};
 
@@ -28,9 +36,18 @@ use goodfetch_protocol::response_limits::{
 use crate::composition::CallError;
 use crate::settings::Resolved;
 
-/// The largest window, as a power of two, a zstd frame may ask for: 8 MiB
+/// The window, as a power of two, a zstd frame may always ask for: 8 MiB
 /// (RFC 9659).
-const ZSTD_WINDOW_LOG_MAX: u32 = 23;
+const ZSTD_WINDOW_LOG_FLOOR: u32 = 23;
+
+/// The largest window, as a power of two, zstd's decoder takes on 64-bit
+/// hosts.
+const ZSTD_WINDOW_LOG_CEILING: u32 = 31;
+
+/// The deepest JSON the engine parses, whatever `network.max_json_depth`
+/// says: past it the parser, which recurses, might not fit a thread's
+/// stack.
+pub const JSON_DEPTH_CEILING: u64 = 1024;
 
 /// The bytes a Brotli decoder writes out at once.
 const BROTLI_BUFFER: usize = 32 * 1024;
@@ -111,7 +128,7 @@ impl Limits {
         let limit = match setting {
             LimitSetting::MaxBodySize => self.max_body_size,
             LimitSetting::MaxDecompressionRatio => self.max_decompression_ratio,
-            LimitSetting::MaxJsonDepth => self.max_json_depth,
+            LimitSetting::MaxJsonDepth => self.max_json_depth.min(JSON_DEPTH_CEILING),
         };
         LimitExceeded {
             url: url.to_owned(),
@@ -210,7 +227,7 @@ impl Decoding {
             .unwrap_or_default()
             .into_iter()
             .fold(Box::new(sink) as Box<dyn Stage>, |inner, coding| {
-                coding.stage(inner)
+                coding.stage(inner, &limits)
             });
         Self { stage }
     }
@@ -272,8 +289,8 @@ impl Coding {
         }
     }
 
-    /// The stage that decodes this coding into `inner`.
-    fn stage(self, inner: Box<dyn Stage>) -> Box<dyn Stage> {
+    /// The stage that decodes this coding into `inner`, under `limits`.
+    fn stage(self, inner: Box<dyn Stage>, limits: &Limits) -> Box<dyn Stage> {
         match self {
             Self::Gzip => Box::new(flate2::write::GzDecoder::new(inner)),
             Self::Deflate => Box::new(Deflate::Opening(Vec::new(), Some(inner))),
@@ -281,7 +298,7 @@ impl Coding {
                 inner,
                 BROTLI_BUFFER,
             )),
-            Self::Zstd => Box::new(Zstd::new(inner)),
+            Self::Zstd => Box::new(Zstd::new(inner, limits)),
         }
     }
 }
@@ -455,8 +472,9 @@ fn has_zlib_header(body: &[u8]) -> bool {
     }
 }
 
-/// A `zstd` stage, whose frame may ask for a window of at most 8 MiB; one
-/// whose decoder cannot start fails on its first write.
+/// A `zstd` stage, whose frame may ask for a window of 8 MiB, or up to
+/// `network.max_body_size` rounded up to a power of two; one whose decoder
+/// cannot start fails on its first write.
 enum Zstd {
     /// The decoder.
     Decoding(Box<zstd::stream::write::Decoder<'static, Box<dyn Stage>>>),
@@ -465,15 +483,15 @@ enum Zstd {
 }
 
 impl Zstd {
-    fn new(inner: Box<dyn Stage>) -> Self {
+    fn new(inner: Box<dyn Stage>, limits: &Limits) -> Self {
+        let body_log = limits.max_body_size.saturating_sub(1).bit_width();
+        let window_log = body_log.clamp(ZSTD_WINDOW_LOG_FLOOR, ZSTD_WINDOW_LOG_CEILING);
         // The decoder's context is made before the inner stage is moved in,
         // so a context that cannot be made keeps the stage.
         match zstd::stream::raw::Decoder::new() {
             Ok(mut raw) => {
                 if raw
-                    .set_parameter(zstd::stream::raw::DParameter::WindowLogMax(
-                        ZSTD_WINDOW_LOG_MAX,
-                    ))
+                    .set_parameter(zstd::stream::raw::DParameter::WindowLogMax(window_log))
                     .is_err()
                 {
                     return Self::Unopened(inner);
@@ -522,6 +540,37 @@ impl Stage for Zstd {
     }
 }
 
+/// `json`, a body of `url`, parsed once [`check_json_depth`] found it within
+/// `network.max_json_depth` and [`JSON_DEPTH_CEILING`].
+///
+/// # Errors
+///
+/// [`JsonFailure::Limit`] past the depth; [`JsonFailure::Malformed`] for a
+/// body that is no JSON.
+pub fn parse_json(
+    url: &str,
+    json: &[u8],
+    limits: &Limits,
+) -> Result<serde_json::Value, JsonFailure> {
+    check_json_depth(url, json, limits).map_err(JsonFailure::Limit)?;
+    let mut deserializer = serde_json::Deserializer::from_slice(json);
+    // The scan above bounds the depth, below the ceiling.
+    deserializer.disable_recursion_limit();
+    let value =
+        serde::Deserialize::deserialize(&mut deserializer).map_err(|_| JsonFailure::Malformed)?;
+    deserializer.end().map_err(|_| JsonFailure::Malformed)?;
+    Ok(value)
+}
+
+/// Why JSON from outside was not parsed.
+#[derive(Debug)]
+pub enum JsonFailure {
+    /// It nests past `network.max_json_depth`.
+    Limit(LimitExceeded),
+    /// It is no JSON.
+    Malformed,
+}
+
 /// Judges how deep `json`, a body of `url`, nests its arrays and objects,
 /// before anything parses it: a scan that holds no state but its depth, so
 /// JSON past `network.max_json_depth` is refused at the bracket that passes
@@ -548,7 +597,7 @@ pub fn check_json_depth(url: &str, json: &[u8], limits: &Limits) -> Result<(), L
             b'"' => in_string = true,
             b'[' | b'{' => {
                 depth += 1;
-                if depth > limits.max_json_depth {
+                if depth > limits.max_json_depth.min(JSON_DEPTH_CEILING) {
                     return Err(limits.exceeded(url, LimitSetting::MaxJsonDepth));
                 }
             }

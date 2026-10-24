@@ -1,4 +1,4 @@
-//! Covers: row:SC-05, pitfall:H14
+//! Covers: row:SC-05
 
 use std::io::Write as _;
 
@@ -8,7 +8,7 @@ use goodfetch_protocol::settings::SettingsLayer;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{BodyFailure, Decoding, Limits, check_json_depth};
+use super::{BodyFailure, Decoding, JsonFailure, Limits, check_json_depth, parse_json};
 use crate::settings::{Layers, Values, resolve};
 
 const URL: &str = "http://limits.test/";
@@ -247,6 +247,88 @@ fn json_past_the_depth_is_refused_naming_the_setting(#[case] json: String) {
         (checked.setting, checked.limit),
         (LimitSetting::MaxJsonDepth, 128)
     );
+}
+
+#[test]
+fn json_nested_as_deep_as_the_depth_parses() {
+    let json = nested(128);
+
+    let parsed = parse_json(URL, json.as_bytes(), &Limits::default());
+
+    assert!(parsed.is_ok(), "{parsed:?}");
+}
+
+#[test]
+fn json_past_the_ceiling_is_refused_whatever_the_setting_says() {
+    let limits = Limits {
+        max_json_depth: 100_000,
+        ..Limits::default()
+    };
+    let within = nested(1024);
+    let past = nested(1025);
+
+    let within = parse_json(URL, within.as_bytes(), &limits);
+    let past = parse_json(URL, past.as_bytes(), &limits);
+
+    assert!(within.is_ok(), "{within:?}");
+    let Err(JsonFailure::Limit(exceeded)) = past else {
+        panic!("expected a limit, got {past:?}");
+    };
+    assert_eq!(
+        (exceeded.setting, exceeded.limit),
+        (LimitSetting::MaxJsonDepth, 1024)
+    );
+}
+
+#[test]
+fn a_body_that_is_no_json_is_malformed() {
+    let parsed = parse_json(URL, b"[1, 2", &Limits::default());
+
+    assert!(matches!(parsed, Err(JsonFailure::Malformed)), "{parsed:?}");
+}
+
+/// A zstd frame (RFC 8878) that regenerates `size` zero bytes from RLE
+/// blocks, single-segment, so its window is its whole content, as a bomb's
+/// is.
+fn zstd_rle(size: u32) -> Vec<u8> {
+    let mut frame = 0xFD2F_B528_u32.to_le_bytes().to_vec();
+    frame.push(0b1010_0000);
+    frame.extend_from_slice(&size.to_le_bytes());
+    let mut remaining = size;
+    while remaining > 0 {
+        let block = remaining.min(128 * 1024);
+        remaining -= block;
+        let header = (block << 3) | (1 << 1) | u32::from(remaining == 0);
+        frame.extend_from_slice(&header.to_le_bytes()[..3]);
+        frame.push(0);
+    }
+    frame
+}
+
+#[test]
+fn a_zstd_frame_whose_window_is_past_eight_mebibytes_but_within_the_size_is_decoded() {
+    let received = zstd_rle(10 * 1024 * 1024);
+    let limits = Limits {
+        max_decompression_ratio: 100_000,
+        ..Limits::default()
+    };
+
+    let read = read(&["zstd"], &received, limits);
+
+    assert_eq!(read.unwrap().len(), 10 * MIB);
+}
+
+#[test]
+fn a_zstd_frame_whose_window_is_past_the_size_fails_to_decode() {
+    let received = zstd_rle(10 * 1024 * 1024);
+    let limits = Limits {
+        max_body_size: MIB as u64,
+        ..Limits::default()
+    };
+
+    let read = read(&["zstd"], &received, limits);
+
+    assert!(matches!(read, Err(BodyFailure::Decoding)), "{read:?}");
 }
 
 #[test]

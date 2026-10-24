@@ -69,7 +69,7 @@ pub const NETWORK_MAX_DECOMPRESSION_RATIO: Setting = Setting {
 /// `network.max_json_depth` (SC-05).
 pub const NETWORK_MAX_JSON_DEPTH: Setting = Setting {
     name: "network.max_json_depth",
-    description: "The deepest nesting of arrays and objects in JSON the engine parses from outside. 128 by default; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+    description: "The deepest nesting of arrays and objects in JSON the engine parses from outside. 128 by default, and at most 1024 whatever it says; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
     kind: ValueKind::Count,
     default: one_hundred_twenty_eight,
     clearable: false,

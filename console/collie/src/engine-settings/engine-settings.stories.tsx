@@ -95,3 +95,8 @@ export const ProjectNotToml: Story = {
     },
   },
 };
+
+/** The Console has no Connection: the values shown stay, and explaining is disabled. */
+export const ReadOnly: Story = {
+  args: { explained: { kind: "explained", explanation: everyLayer }, readOnly: true },
+};

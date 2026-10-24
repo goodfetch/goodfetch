@@ -4,6 +4,10 @@
 // calls it "Collie", and says which engine its Client reached, by Product
 // and version, or that the page is not signed in. Each screen's route is
 // plain data (`routes.ts`, ADR 0072), and the page's title names it.
+// While the Client has no Connection, after its first or once its first
+// attempt failed, a banner says the page is read-only until it reconnects,
+// which it does by itself, and each screen disables its actions (ADR
+// 0031).
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -35,6 +39,30 @@ const SCREENS: readonly Screen[] = [
     content: (client) => <EngineSettings client={client} />,
   },
 ];
+
+/** Whether the page is read-only: its Client has no Connection now, after one it had or one it failed to open. */
+function useReadOnly(client: ConsoleClient | undefined): boolean {
+  const state = useSyncExternalStore(
+    (changed) => client?.watch(changed) ?? (() => {}),
+    () => client?.state,
+  );
+  if (client === undefined) {
+    return false;
+  }
+  return state === "read_only" || (state === "reconnecting" && client.engine !== undefined);
+}
+
+/** The banner of a page with no Connection. */
+function ReadOnlyBanner(): ReactNode {
+  return (
+    <div role="alert" className="border-b bg-muted px-6 py-2 text-center font-medium">
+      <Trans>
+        No connection to the engine: this page is read-only until the Console reconnects, which it
+        does by itself.
+      </Trans>
+    </div>
+  );
+}
 
 /** Where the Client stands, and the engine it reached. */
 function Engine({ client }: { readonly client: ConsoleClient }): ReactNode {
@@ -104,8 +132,10 @@ export function Shell({ client, route }: ShellProps): ReactNode {
   useEffect(() => {
     document.title = title;
   }, [title]);
+  const readOnly = useReadOnly(client);
   return (
     <div className="min-h-svh">
+      {readOnly ? <ReadOnlyBanner /> : null}
       <header className="border-b">
         <nav aria-label={t`Console`} className="mx-auto flex max-w-5xl gap-4 px-6 py-3">
           <MenuLink route="/" current={screen === undefined}>

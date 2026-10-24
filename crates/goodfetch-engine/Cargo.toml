@@ -16,7 +16,10 @@ chacha20.workspace = true
 chacha20poly1305.workspace = true
 # The Base64 of the page-body chunks `page.body` sends.
 data-encoding.workspace = true
-# Only names the inflate backend (miniz_oxide) for zip's DEFLATE.
+# Brotli's decoder alone, for a body under `br` (SC-05).
+brotli-decompressor.workspace = true
+# gzip and deflate bodies (SC-05), and the inflate backend (miniz_oxide) for
+# zip's DEFLATE.
 flate2.workspace = true
 # Drives the WebSocket's stream of messages and its sink (ADR 0049).
 futures-util.workspace = true
@@ -80,6 +83,8 @@ ulid.workspace = true
 url.workspace = true
 webpki-roots.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }
+# A body under `zstd` (SC-05).
+zstd.workspace = true
 
 # Frees the buffer launchd answers the Daemon's activated sockets in, and
 # watches an Attached engine's parent (prctl, kqueue).
@@ -110,6 +115,8 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Securit
 bindgen.workspace = true
 
 [dev-dependencies]
+# Brotli bodies the response limits' tests decode.
+brotli.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 # The pinned downloads' HTTPS stand-in (tests/it/downloads.rs).
@@ -137,8 +144,7 @@ name = "heap"
 harness = false
 
 [package.metadata.cargo-shear]
-# flate2 is never named: it only picks the backend zip inflates with.
-ignored = ["bindgen", "flate2"]
+ignored = ["bindgen"]
 
 [lints]
 workspace = true

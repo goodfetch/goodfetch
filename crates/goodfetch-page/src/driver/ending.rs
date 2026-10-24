@@ -50,8 +50,8 @@ impl PageDriver {
     /// Dropping the future loses nothing: it only reads.
     pub(crate) async fn lost(&self) -> Lost {
         let connection = &self.browser.connection;
-        let mut page = connection.subscribe(Some(&self.session)).await;
-        let mut root = connection.subscribe(None).await;
+        let mut page = connection.subscribe(Some(&self.session));
+        let mut root = connection.subscribe(None);
         loop {
             tokio::select! {
                 event = page.next() => match event {

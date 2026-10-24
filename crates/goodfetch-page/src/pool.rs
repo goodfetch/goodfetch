@@ -651,7 +651,7 @@ impl Seat {
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
         drop(opening);
         let page = driver.new_page().await?;
-        let events = page.events().await;
+        let events = page.events();
         self.shared
             .pool
             .shared
@@ -663,9 +663,9 @@ impl Seat {
     /// Takes in a popup, `popup`, that a page of the Session opened in the
     /// browser `number`, its opener's: it counts there as a page the
     /// Session opened, and its documents' origins are carried as theirs.
-    pub(crate) async fn popup_in(&self, number: u64, popup: &PageDriver) -> InBrowser {
+    pub(crate) fn popup_in(&self, number: u64, popup: &PageDriver) -> InBrowser {
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
-        let events = popup.events().await;
+        let events = popup.events();
         self.shared
             .pool
             .shared

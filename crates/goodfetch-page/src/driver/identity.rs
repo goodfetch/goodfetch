@@ -153,7 +153,7 @@ async fn hints_of(
     session: &TargetSession,
 ) -> Result<emulation::UserAgentMetadata, CallError> {
     let opening = browser.launching();
-    let mut events = browser.connection.subscribe(Some(session)).await;
+    let mut events = browser.connection.subscribe(Some(session));
     browser
         .send(Some(session), &page::EnableParams::default(), &opening)
         .await?;
@@ -201,6 +201,8 @@ async fn hints_of(
             return Err(unread(browser, &format!("{SECURE_PAGE} did not load")));
         }
     }
+    // No later command waits on a subscription nobody reads.
+    drop(events);
     let evaluated = browser
         .send(
             Some(session),

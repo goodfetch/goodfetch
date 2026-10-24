@@ -178,7 +178,7 @@ impl Consent {
             walls: self.walls.clone(),
         });
         let session = driver.session().clone();
-        let events = driver.events_on(&session).await;
+        let events = driver.events_on(&session);
         prepare(&shared, &session).await.map_err(|failure| {
             CallError::new(
                 &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
@@ -341,7 +341,7 @@ async fn attach(
         .lock()
         .await
         .attach(&parent, &session, attached.target_info.target_id);
-    let events = shared.driver.events_on(&session).await;
+    let events = shared.driver.events_on(&session);
     let prepared = async {
         shared
             .driver

@@ -92,7 +92,7 @@ pub(crate) async fn send(
     sender: &EngineRequests,
     request: &Request<'_>,
 ) -> Result<Fetched, CallError> {
-    let events = driver.events().await;
+    let events = driver.events();
     driver
         .opening_command(&emulation::SetScriptExecutionDisabledParams { value: true })
         .await?;

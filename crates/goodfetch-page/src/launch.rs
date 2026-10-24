@@ -406,12 +406,17 @@ async fn supervise(supervised: Supervised) {
         let status = tokio::select! {
             status = child.wait() => status,
             () = stopping.cancelled() => {
+                // Asked to close, then waited for, all within the deadline,
+                // whatever its connection does: a browser that no longer
+                // reads its pipe is killed at the deadline all the same.
                 let closing = clock.now();
-                let _ = connection
-                    .send_raw("Browser.close", None, serde_json::json!({}), close.duration())
-                    .await;
                 let exited = tokio::select! {
-                    status = child.wait() => Some(status),
+                    status = async {
+                        let _ = connection
+                            .send_raw("Browser.close", None, serde_json::json!({}), close.duration())
+                            .await;
+                        child.wait().await
+                    } => Some(status),
                     () = clock.sleep_until(closing + close.duration()) => None,
                 };
                 if let Some(status) = exited {

@@ -1086,8 +1086,8 @@ impl PageDriver {
     }
 
     /// The events of the page's target, from when this answers.
-    pub(crate) async fn events(&self) -> Subscription {
-        self.browser.connection.subscribe(Some(&self.session)).await
+    pub(crate) fn events(&self) -> Subscription {
+        self.browser.connection.subscribe(Some(&self.session))
     }
 
     /// Sends `params` on the page's target, recorded in the Run trace, as
@@ -1284,7 +1284,7 @@ impl PageDriver {
             return Ok(Arrived::Document(None));
         };
         let call = Call::Navigation { url: url.clone() };
-        let mut events = self.browser.connection.subscribe(Some(&self.session)).await;
+        let mut events = self.browser.connection.subscribe(Some(&self.session));
         let mut generation = 0;
         self.started.send_modify(|started| {
             *started += 1;
@@ -1352,7 +1352,8 @@ impl PageDriver {
                 Box::pin(self.follow(command, &mut events, &call, wait_until, superseded)),
             )
             .await;
-        drop(waiting);
+        // No later command waits on a subscription nobody reads.
+        drop((waiting, events));
         match followed? {
             Ok(Ok(Arrived::Document(Some(response))))
                 if let Some(failed) = self.answered_by_proxy(&url, &response) =>

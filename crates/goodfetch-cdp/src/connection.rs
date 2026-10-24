@@ -4,8 +4,19 @@
 //! of one target's session (CDP's flat sessions, `Target.attachToTarget`
 //! with `flatten`). When the browser closes its end, every command in
 //! flight fails with [`Failure::Disconnected`] and every subscription ends.
+//!
+//! Nothing waits on the driver without a bound: a command's whole wait,
+//! for the driver and for its answer, is under its timeout, a subscription
+//! starts without the driver, and the driver never waits on a subscriber,
+//! so a browser that stops reading its pipe, or a subscription its holder
+//! never reads, holds up no other call.
+#![expect(
+    clippy::disallowed_types,
+    reason = "the subscribers' list is shared by every handle and the driver, each lock held for one list operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
+)]
 
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
@@ -19,8 +30,10 @@ use crate::framing::{Framer, FramingError, frame};
 /// How many requests wait for the driver before their senders wait.
 const REQUESTS: usize = 64;
 
-/// How many events wait for a subscriber before the driver waits for it.
-const EVENTS: usize = 256;
+/// How many events wait for a subscriber before the driver ends its
+/// subscription: one that falls this far behind is no longer read, and the
+/// driver never waits for it.
+const EVENTS: usize = 4_096;
 
 /// The bytes read from the pipe at once.
 const READ: usize = 64 * 1024;
@@ -66,24 +79,37 @@ impl Subscription {
     }
 }
 
-enum Request {
-    Command {
-        method: &'static str,
-        session: Option<SessionId>,
-        params: Value,
-        answer: oneshot::Sender<Result<Value, Failure>>,
-    },
-    Subscribe {
-        session: Option<SessionId>,
-        events: mpsc::Sender<Event>,
-        subscribed: oneshot::Sender<()>,
-    },
+struct Request {
+    method: &'static str,
+    session: Option<SessionId>,
+    params: Value,
+    answer: oneshot::Sender<Result<Value, Failure>>,
+}
+
+/// The subscriptions of the connection, which every handle adds to and the
+/// driver hands each event to.
+#[derive(Debug, Default)]
+struct Subscribers {
+    /// Each subscription's session and the sender of its events.
+    list: Vec<(Option<SessionId>, mpsc::Sender<Event>)>,
+    /// Whether the connection ended, so a new subscription ends at once.
+    ended: bool,
+}
+
+/// The connection's subscribers, shared.
+type Shared = Arc<Mutex<Subscribers>>;
+
+/// The subscribers, a panic in another holder notwithstanding: each change
+/// is one list operation, so none leaves the list half changed.
+fn lock(subscribers: &Shared) -> MutexGuard<'_, Subscribers> {
+    subscribers.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// A handle to the browser's connection, which any task may clone.
 #[derive(Clone, Debug)]
 pub struct Connection {
     requests: mpsc::Sender<Request>,
+    subscribers: Shared,
 }
 
 /// How the connection ended.
@@ -105,6 +131,7 @@ pub struct Driver<R, W> {
     reader: R,
     writer: W,
     requests: mpsc::Receiver<Request>,
+    subscribers: Shared,
 }
 
 impl Connection {
@@ -116,12 +143,17 @@ impl Connection {
         W: AsyncWrite + Unpin + Send,
     {
         let (requests, receiver) = mpsc::channel(REQUESTS);
+        let subscribers = Shared::default();
         (
-            Self { requests },
+            Self {
+                requests,
+                subscribers: Arc::clone(&subscribers),
+            },
             Driver {
                 reader,
                 writer,
                 requests: receiver,
+                subscribers,
             },
         )
     }
@@ -132,6 +164,7 @@ impl Connection {
     /// # Errors
     ///
     /// Each [`Failure`]: the browser's refusal, no answer within `timeout`,
+    /// counted from the call, the driver's own wait to send it included,
     /// the connection's end, or an answer that is not what `C` returns.
     ///
     /// # Cancel safety
@@ -168,44 +201,33 @@ impl Connection {
         timeout: Duration,
     ) -> Result<Value, Failure> {
         let (answer, answered) = oneshot::channel();
-        self.requests
-            .send(Request::Command {
-                method,
-                session: session.cloned(),
-                params,
-                answer,
-            })
+        let request = Request {
+            method,
+            session: session.cloned(),
+            params,
+            answer,
+        };
+        let sent = async {
+            self.requests
+                .send(request)
+                .await
+                .map_err(|_| Failure::Disconnected)?;
+            answered.await.map_err(|_| Failure::Disconnected)?
+        };
+        tokio::time::timeout(timeout, sent)
             .await
-            .map_err(|_| Failure::Disconnected)?;
-        match tokio::time::timeout(timeout, answered).await {
-            Ok(Ok(answer)) => answer,
-            Ok(Err(_)) => Err(Failure::Disconnected),
-            Err(_) => Err(Failure::TimedOut { method }),
-        }
+            .unwrap_or(Err(Failure::TimedOut { method }))
     }
 
     /// The events of `session` (the browser's own when `None`) the driver
-    /// reads once it answers.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future loses only the subscription.
-    pub async fn subscribe(&self, session: Option<&SessionId>) -> Subscription {
+    /// reads from now on, without waiting for the driver; it ends with the
+    /// connection, or once its holder fell [`EVENTS`] events behind.
+    pub fn subscribe(&self, session: Option<&SessionId>) -> Subscription {
         let (events, receiver) = mpsc::channel(EVENTS);
-        let (subscribed, confirmed) = oneshot::channel();
+        let mut subscribers = lock(&self.subscribers);
         // A connection that ended gives a subscription that ends at once.
-        if self
-            .requests
-            .send(Request::Subscribe {
-                session: session.cloned(),
-                events,
-                subscribed,
-            })
-            .await
-            .is_ok()
-        {
-            // Every event the driver reads from now on reaches it.
-            let _ = confirmed.await;
+        if !subscribers.ended {
+            subscribers.list.push((session.cloned(), events));
         }
         Subscription { events: receiver }
     }
@@ -238,33 +260,26 @@ where
     pub async fn run(mut self) -> Ended {
         let mut framer = Framer::default();
         let mut pending: BTreeMap<u64, Pending> = BTreeMap::new();
-        let mut subscribers: Vec<(Option<SessionId>, mpsc::Sender<Event>)> = Vec::new();
         let mut next_id: u64 = 1;
         let mut buffer = vec![0; READ];
         let ended = loop {
             tokio::select! {
                 request = self.requests.recv() => {
-                    let Some(request) = request else { break Ended::Dropped };
-                    match request {
-                        Request::Command { method, session, params, answer } => {
-                            let id = next_id;
-                            next_id += 1;
-                            let mut message = json!({ "id": id, "method": method, "params": params });
-                            if let Some(session) = session {
-                                message["sessionId"] = Value::String(session.0);
-                            }
-                            tracing::trace!(target: "goodfetch::cdp::command", method, id, "sending");
-                            if let Err(error) = self.writer.write_all(&frame(&message)).await {
-                                let _ = answer.send(Err(Failure::Disconnected));
-                                break Ended::Broken(error.kind());
-                            }
-                            pending.insert(id, Pending { method, answer });
-                        }
-                        Request::Subscribe { session, events, subscribed } => {
-                            subscribers.push((session, events));
-                            let _ = subscribed.send(());
-                        }
+                    let Some(Request { method, session, params, answer }) = request else {
+                        break Ended::Dropped;
+                    };
+                    let id = next_id;
+                    next_id += 1;
+                    let mut message = json!({ "id": id, "method": method, "params": params });
+                    if let Some(session) = session {
+                        message["sessionId"] = Value::String(session.0);
                     }
+                    tracing::trace!(target: "goodfetch::cdp::command", method, id, "sending");
+                    if let Err(error) = self.writer.write_all(&frame(&message)).await {
+                        let _ = answer.send(Err(Failure::Disconnected));
+                        break Ended::Broken(error.kind());
+                    }
+                    pending.insert(id, Pending { method, answer });
                 }
                 read = self.reader.read(&mut buffer) => {
                     match read {
@@ -275,9 +290,7 @@ where
                     let mut too_large = false;
                     loop {
                         match framer.next_frame() {
-                            Ok(Some(bytes)) => {
-                                dispatch(&bytes, &mut pending, &mut subscribers).await;
-                            }
+                            Ok(Some(bytes)) => dispatch(&bytes, &mut pending, &self.subscribers),
                             Ok(None) => break,
                             Err(FramingError::TooLarge) => {
                                 too_large = true;
@@ -294,17 +307,17 @@ where
         for (_, Pending { answer, .. }) in pending {
             let _ = answer.send(Err(Failure::Disconnected));
         }
+        let mut subscribers = lock(&self.subscribers);
+        subscribers.ended = true;
+        subscribers.list.clear();
         ended
     }
 }
 
 /// Hands one message to the command it answers or to the subscribers of
-/// its session.
-async fn dispatch(
-    bytes: &[u8],
-    pending: &mut BTreeMap<u64, Pending>,
-    subscribers: &mut Vec<(Option<SessionId>, mpsc::Sender<Event>)>,
-) {
+/// its session, never waiting for one: a subscription its holder dropped
+/// leaves, and one that fell [`EVENTS`] behind ends.
+fn dispatch(bytes: &[u8], pending: &mut BTreeMap<u64, Pending>, subscribers: &Shared) {
     let Ok(message) = serde_json::from_slice::<Value>(bytes) else {
         tracing::warn!("the browser sent a message that is not JSON");
         return;
@@ -331,15 +344,25 @@ async fn dispatch(
         method: method.to_owned(),
         params: message.get("params").cloned().unwrap_or(Value::Null),
     };
-    let mut index = 0;
-    while index < subscribers.len() {
-        let (subscribed, events) = &subscribers[index];
-        if *subscribed == session && events.send(event.clone()).await.is_err() {
-            subscribers.swap_remove(index);
-            continue;
+    lock(subscribers).list.retain(|(subscribed, events)| {
+        if events.is_closed() {
+            return false;
         }
-        index += 1;
-    }
+        if *subscribed != session {
+            return true;
+        }
+        match events.try_send(event.clone()) {
+            Ok(()) => true,
+            Err(mpsc::error::TrySendError::Closed(_)) => false,
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                tracing::warn!(
+                    method = event.method,
+                    "a subscription of the browser's connection fell too far behind and ends"
+                );
+                false
+            }
+        }
+    });
 }
 
 #[cfg(test)]

@@ -21,8 +21,8 @@ impl PageDriver {
 
     /// The events of `session`, the page's or one of its frames' targets,
     /// from when this answers.
-    pub(crate) async fn events_on(&self, session: &TargetSession) -> Subscription {
-        self.browser.connection.subscribe(Some(session)).await
+    pub(crate) fn events_on(&self, session: &TargetSession) -> Subscription {
+        self.browser.connection.subscribe(Some(session))
     }
 
     /// Sends `params` on `session`, the page's or one of its frames'

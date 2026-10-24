@@ -122,12 +122,12 @@ impl Sessions {
             &run,
             stream.clone(),
             refusals.clone(),
-            driver.events().await,
+            driver.events(),
             wait_deadline(&run),
         );
         self.events.insert(page.clone(), events);
         self.dialogs
-            .start(page.clone(), driver.clone(), &run, driver.events().await);
+            .start(page.clone(), driver.clone(), &run, driver.events());
         let pages = std::slice::from_ref(&page);
         let started = async {
             let clean_up = self
@@ -234,10 +234,7 @@ impl Sessions {
         };
         let run = open.run.clone();
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
-        let in_browser = open
-            .seat
-            .popup_in(opener.in_browser.browser(), &driver)
-            .await;
+        let in_browser = open.seat.popup_in(opener.in_browser.browser(), &driver);
         let driver = driver
             .for_session(open.proxy.clone())
             .with_value(opener.driver.value().clone(), run.clock());

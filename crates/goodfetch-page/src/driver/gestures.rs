@@ -50,9 +50,9 @@ impl GestureWatch {
 impl PageDriver {
     /// Starts watching the main frame for a navigation the gesture about to
     /// be sent requests.
-    pub(crate) async fn watch_gesture(&self) -> GestureWatch {
+    pub(crate) fn watch_gesture(&self) -> GestureWatch {
         GestureWatch {
-            events: self.browser.connection.subscribe(Some(&self.session)).await,
+            events: self.browser.connection.subscribe(Some(&self.session)),
             navigation: Navigation::of(self.frame.clone()),
             ended: false,
         }

@@ -175,7 +175,7 @@ impl PageDriver {
 ///
 /// The code of opening a page when the browser refuses to attach.
 pub(super) async fn start(browser: &Browser, run: &Run) -> Result<(), CallError> {
-    let events = browser.connection.subscribe(None).await;
+    let events = browser.connection.subscribe(None);
     run.spawn(follow(events, browser.clone(), run.clone()));
     browser
         .send(

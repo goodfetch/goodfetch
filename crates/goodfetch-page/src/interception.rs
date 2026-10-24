@@ -473,7 +473,7 @@ impl Interception {
             tables.pages.insert(page_id.clone(), Arc::clone(&state));
             (state, lookups)
         };
-        let events = driver.events().await;
+        let events = driver.events();
         let observing = observer.map(Observing::of);
         let patterns = patterns(observing.is_some());
         driver
@@ -570,7 +570,7 @@ impl Interception {
                 };
                 let log = Arc::new(RequestLog::new(run.owner().child(), run.folder()));
                 let worker = worker.with_proxy(proxy).with_value(value, run.clock());
-                let events = worker.events().await;
+                let events = worker.events();
                 let enabled = worker
                     .opening_command(&fetch::EnableParams {
                         patterns: Some(patterns(observing.is_some())),

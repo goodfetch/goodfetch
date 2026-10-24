@@ -206,7 +206,7 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
         match seen {
             Seen::Ready { x, y, .. } => match &request.action {
                 Action::Click => {
-                    let mut watch = page.watch_gesture().await;
+                    let mut watch = page.watch_gesture();
                     // The disarm is the round trip into the renderer after
                     // the input that a key press makes with `settled`.
                     // Boxed, as the wait below: the action's future stays small.
@@ -233,7 +233,7 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                 }
                 Action::Fill(value) => return fill(&mut turn, value).await,
                 Action::Press(events) => {
-                    let mut watch = page.watch_gesture().await;
+                    let mut watch = page.watch_gesture();
                     Box::pin(watch.during(async {
                         for event in events {
                             turn.key(event).await?;

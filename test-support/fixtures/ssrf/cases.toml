@@ -779,6 +779,24 @@ route = { via = "upstream_proxy" }
 target = "127.0.0.1"
 refusal = { code = "egress_refused", rule = "private_address" }
 
+[[cases]]
+name = "mixed_answers_through_the_proxy"
+family = "upstream_proxy"
+url = "http://mixed.ssrf.test/"
+route = { via = "upstream_proxy" }
+lookups = [{ name = "mixed.ssrf.test", answers = ["public", "10.0.0.1"] }]
+target = "10.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "mixed_answers_through_a_connect_tunnel"
+family = "upstream_proxy"
+url = "https://mixed.ssrf.test/"
+route = { via = "upstream_proxy" }
+lookups = [{ name = "mixed.ssrf.test", answers = ["public", "fd00::1"] }]
+target = "fd00::1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
 # Plugin traffic: a Plugin's own requests meet the same checks.
 
 [[cases]]

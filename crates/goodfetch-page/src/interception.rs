@@ -78,6 +78,7 @@ use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
+use goodfetch_engine::http_client::Resolve;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{RunSettings, Values};
@@ -206,6 +207,9 @@ struct Tables {
     /// The Sessions whose Run was warned that `browser.block_resources`
     /// shows.
     warned: BTreeSet<SessionId>,
+    /// The Sessions on a Borrowed browser, each with the Run's
+    /// `network.resolve` mapping its requests' hosts are resolved through.
+    interception_only: BTreeMap<SessionId, Arc<Resolve>>,
 }
 
 /// One page's side of the interception: its routes, its Session's, and the
@@ -369,6 +373,17 @@ impl Interception {
             .or_default();
     }
 
+    /// Holds the Session `session`, on a Borrowed browser, to the policy by
+    /// interception alone (ADR 0056): no relay is under that browser, so
+    /// each request's host is resolved by the engine through `resolve`,
+    /// the Run's `network.resolve` mapping, and its answers judged before
+    /// it is sent on.
+    pub(crate) fn hold_by_interception_only(&self, session: &SessionId, resolve: Resolve) {
+        lock(&self.shared.tables)
+            .interception_only
+            .insert(session.clone(), Arc::new(resolve));
+    }
+
     /// Puts the page `page_id` of the Session `session`, which `driver`
     /// drives for `run`, under the interception: every request of its
     /// target is paused and passes the pipeline from now on, its Clean-up
@@ -434,8 +449,9 @@ impl Interception {
         if let Some(blocked) = blocked {
             self.warn_of_blocked_resources(session, run, &blocked).await;
         }
-        let state = {
+        let (state, lookups) = {
             let mut tables = lock(&self.shared.tables);
+            let lookups = tables.interception_only.get(session).cloned();
             let pending = Arc::clone(tables.pending.entry(session.clone()).or_default());
             let session = Arc::clone(tables.sessions.entry(session.clone()).or_default());
             let state = Arc::new(PageState {
@@ -455,7 +471,7 @@ impl Interception {
                 },
             });
             tables.pages.insert(page_id.clone(), Arc::clone(&state));
-            state
+            (state, lookups)
         };
         let events = driver.events().await;
         let observing = observer.map(Observing::of);
@@ -478,7 +494,7 @@ impl Interception {
                     session,
                     driver,
                     run,
-                    policy.clone(),
+                    (policy.clone(), lookups.clone()),
                     blocking.clone(),
                     observing.clone(),
                 )),
@@ -486,17 +502,20 @@ impl Interception {
         // Chosen before the page loads anything, so no worker of its sites
         // runs before the interception holds it.
         driver.service_workers(workers).await?;
-        let context = Arc::new(PageContext::new(
-            driver.clone(),
-            Sender::Page(page_id.clone()),
-            state,
-            self.shared.answers.clone(),
-            policy,
-            blocking,
-            refusals,
-            observing,
-            run.clone(),
-        ));
+        let context = Arc::new(
+            PageContext::new(
+                driver.clone(),
+                Sender::Page(page_id.clone()),
+                state,
+                self.shared.answers.clone(),
+                policy,
+                blocking,
+                refusals,
+                observing,
+                run.clone(),
+            )
+            .with_lookups(lookups),
+        );
         run.spawn(pipeline::dispatch(events, context));
         Ok(clean_up)
     }
@@ -512,7 +531,7 @@ impl Interception {
         session: &SessionId,
         page: &PageDriver,
         run: &Run,
-        policy: Policy,
+        (policy, lookups): (Policy, Option<Arc<Resolve>>),
         blocking: steps::Blocking,
         observing: Option<Observing>,
     ) -> OnServiceWorker {
@@ -532,8 +551,12 @@ impl Interception {
                 run.clone(),
                 value.clone(),
             );
-            let (policy, blocking, observing) =
-                (policy.clone(), blocking.clone(), observing.clone());
+            let (policy, blocking, observing, lookups) = (
+                policy.clone(),
+                blocking.clone(),
+                observing.clone(),
+                lookups.clone(),
+            );
             Box::pin(async move {
                 let (routes, pending) = {
                     let tables = lock(&shared.tables);
@@ -577,17 +600,20 @@ impl Interception {
                         blocking: blocking.clone(),
                     },
                 });
-                let context = Arc::new(PageContext::new(
-                    worker,
-                    Sender::ServiceWorker { session, log },
-                    state,
-                    shared.answers.clone(),
-                    policy,
-                    blocking,
-                    Refusals::default(),
-                    observing,
-                    run.clone(),
-                ));
+                let context = Arc::new(
+                    PageContext::new(
+                        worker,
+                        Sender::ServiceWorker { session, log },
+                        state,
+                        shared.answers.clone(),
+                        policy,
+                        blocking,
+                        Refusals::default(),
+                        observing,
+                        run.clone(),
+                    )
+                    .with_lookups(lookups),
+                );
                 run.spawn(async move {
                     tokio::select! {
                         () = gone.cancelled() => {}
@@ -787,6 +813,7 @@ impl Interception {
             table.close();
         }
         tables.pending.remove(session);
+        tables.interception_only.remove(session);
     }
 }
 

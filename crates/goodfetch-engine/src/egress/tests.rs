@@ -305,6 +305,7 @@ proptest! {
     }
 }
 
+mod endpoints;
 mod navigations;
 mod ssrf;
 

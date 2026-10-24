@@ -82,8 +82,13 @@ pub(super) fn parsed<T: serde::de::DeserializeOwned>(text: &str) -> rusqlite::Re
 }
 
 pub(super) fn point_in_time(clock: &Clock) -> PointInTime {
-    let wall = jiff::Timestamp::try_from(clock.wall())
-        .expect("invariant: the clock reads a time jiff can hold");
+    point_in_time_at(clock.wall())
+}
+
+/// The wall time `wall` as a point in time, to the millisecond.
+pub(super) fn point_in_time_at(wall: std::time::SystemTime) -> PointInTime {
+    let wall =
+        jiff::Timestamp::try_from(wall).expect("invariant: the clock reads a time jiff can hold");
     PointInTime::from_rfc3339(
         wall.round(jiff::Unit::Millisecond)
             .unwrap_or(wall)

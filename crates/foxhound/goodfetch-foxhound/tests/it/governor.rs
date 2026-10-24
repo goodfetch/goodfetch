@@ -95,3 +95,52 @@ fn two_crawls_take_the_governors_http_admissions_in_turn() {
         ]
     );
 }
+
+/// Follows the progress of `run_id` from its first value to the first that
+/// holds a wait group of `reason`, and answers that group.
+fn wait_group(engine: &mut Attached, run_id: &str, reason: &str) -> Value {
+    let mut params = json!({ "run_id": run_id });
+    loop {
+        engine.send(
+            &json!({ "jsonrpc": "2.0", "id": "progress", "method": "run.progress", "params": params }),
+        );
+        let progress = loop {
+            let message = engine.next().unwrap();
+            if message["id"] == "progress" {
+                break message["result"].clone();
+            }
+        };
+        if let Some(group) = progress["waiting"]
+            .as_array()
+            .and_then(|groups| groups.iter().find(|group| group["reason"] == reason))
+        {
+            return group.clone();
+        }
+        assert_eq!(progress["last"], false, "the crawl ended: {progress}");
+        params["after"] = progress["position"].clone();
+    }
+}
+
+/// A crawl whose governor admits nothing more, `governor.http` fixed at 1
+/// with one request in flight, says that its due request waits under
+/// `governor`.
+///
+/// Covers: story:3-162, operation:run.progress
+#[test]
+fn a_crawl_the_governor_admits_nothing_more_for_says_its_due_requests_wait_under_governor() {
+    let env = TestEnv::new();
+    env.user_configuration("governor.http.floor = 1\ngovernor.http.ceiling = 1\n");
+    let mut engine = Attached::start(&env);
+
+    start(&mut engine, "held", &["a.test", "b.test"]);
+    let held = turn(&mut engine);
+    let group = wait_group(&mut engine, "held", "governor");
+    answer(&mut engine, held);
+    let _ = turn(&mut engine);
+    assert!(engine.finish());
+
+    assert_eq!(
+        group,
+        json!({ "reason": "governor", "count": 1, "domains": [{ "domain": "b.test" }] })
+    );
+}

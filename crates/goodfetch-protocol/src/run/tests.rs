@@ -183,3 +183,56 @@ fn a_crawls_report_reads_what_every_report_holds_and_what_a_crawl_adds() {
     assert!(read.report.kind_parts.is_empty());
     assert_eq!(serde_json::to_value(&read).unwrap(), sent);
 }
+
+/// A crawl's progress as a newer Foxhound engine sends it: with a wait
+/// reason this engine does not know.
+fn newer_crawl_progress() -> serde_json::Value {
+    serde_json::json!({
+        "run_id": "books",
+        "position": 4_294_967_300_u64,
+        "at": "2026-01-05T09:00:00Z",
+        "lifecycle": "running",
+        "writer": "live",
+        "epoch": 1,
+        "pauses": [],
+        "last": false,
+        "waiting": [
+            {
+                "reason": "domain_delay",
+                "count": 2,
+                "domains": [{ "domain": "shop.test", "next_admitted_at": "2026-01-05T09:00:01Z" }],
+                "setting": { "key": "politeness.domain.delay", "value": 1000, "layer": "run" }
+            },
+            { "reason": "a_reason_from_a_newer_engine", "count": 1, "domains": [{ "domain": "a.test" }] }
+        ],
+        "idle": false
+    })
+}
+
+/// Covers: story:3-162
+#[test]
+fn a_collie_reader_keeps_a_crawls_parts_of_its_progress() {
+    let sent = newer_crawl_progress();
+
+    let read: super::RunProgress = serde_json::from_value(sent.clone()).unwrap();
+
+    assert_eq!(serde_json::to_value(&read).unwrap(), sent);
+}
+
+/// Covers: story:3-162
+#[test]
+fn a_crawls_progress_keeps_a_wait_reason_a_newer_engine_sends() {
+    let sent = newer_crawl_progress();
+
+    let read: crate::foxhound::progress::CrawlRunProgress =
+        serde_json::from_value(sent.clone()).unwrap();
+
+    assert_eq!(
+        (
+            read.waiting.as_ref().unwrap()[1].reason.as_str(),
+            read.progress.kind_parts.is_empty(),
+            serde_json::to_value(&read).unwrap(),
+        ),
+        ("a_reason_from_a_newer_engine", true, sent)
+    );
+}

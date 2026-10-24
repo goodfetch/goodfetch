@@ -1,5 +1,5 @@
 //! The tiers that serve a crawl request (spec #579; ADRs 0020, 0087 and
-//! 0093), and the crate's one composition value, [`FetchTiers`]: the hook
+//! 0093), and the crate's one composition value, [`FetchTiers`]: the seam
 //! Foxhound's composition sets on Collie's pages, and the tiers its crawl
 //! serves requests with. Under `fetch.tier: http`, [`HttpTier`] fetches a
 //! request's document over reqwest through the fetch driver, and
@@ -42,7 +42,7 @@ use crate::redundant::{Redundant, Requester};
 use crate::transports::{Reqwest, TransportConfig};
 
 /// Foxhound's fetch tiers: the pages they serve, which Collie's page
-/// crate reads through the hook [`FetchTiers::handler_pages`] gives, and
+/// crate reads through the seam [`FetchTiers::handler_pages`] gives, and
 /// the tier each Run's crawl requests take. Cheap to clone; every clone
 /// shares the pages.
 #[derive(Clone, Default)]
@@ -75,7 +75,7 @@ impl FetchTiers {
         Self::default()
     }
 
-    /// The hook Foxhound's composition gives Collie's page crate (ADR
+    /// The seam Foxhound's composition gives Collie's page crate (ADR
     /// 0087): the pages the tiers serve, with the empty value and no
     /// response observer of a program's pages, which Foxhound's gate fills
     /// later (area 5).

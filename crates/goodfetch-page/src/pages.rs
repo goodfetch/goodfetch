@@ -124,13 +124,13 @@ pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
 }
 
 /// What the page crate adds to the engine, as [`contribution`], each page
-/// it opens taking its value and its response observer from `hooks` (ADR
-/// 0087): the hook through which Foxhound sets them on the pages it hands
-/// to handlers; `blocks` tells a page's Block cause, from the Product's
-/// rules (ADR 0035).
+/// it opens taking its value and its response observer from
+/// `handler_pages` (ADR 0087): the seam through which Foxhound sets them
+/// on the pages it hands to handlers; `blocks` tells a page's Block cause,
+/// from the Product's rules (ADR 0035).
 pub fn contribution_with(
     pins: Vec<PinnedArtifact>,
-    hooks: Arc<dyn HandlerPages>,
+    handler_pages: Arc<dyn HandlerPages>,
     blocks: Arc<dyn BlockClassifier>,
 ) -> Contribution {
     let interception = Interception::default();
@@ -142,12 +142,12 @@ pub fn contribution_with(
             interception.clone(),
             events.clone(),
             dialogs.clone(),
-            Arc::clone(&hooks),
+            Arc::clone(&handler_pages),
         ),
         interception,
         events,
         dialogs,
-        hooks,
+        product: handler_pages,
         blocks,
         init_scripts: InitScripts::default(),
         injections: Injections::default(),
@@ -699,9 +699,9 @@ struct Pages {
     events: page_events::Table,
     /// Each open page's dialogs and their handlers.
     dialogs: Dialogs,
-    /// The Product's hook, which also serves the pages its fetch tiers
-    /// opened from a document.
-    hooks: Arc<dyn HandlerPages>,
+    /// The Product's seam that sets what its handlers' pages carry, which
+    /// also serves the pages its fetch tiers opened from a document.
+    product: Arc<dyn HandlerPages>,
     /// The Product's Block classification.
     blocks: Arc<dyn BlockClassifier>,
     /// Each page's init scripts on their way in or out, which its
@@ -1085,7 +1085,7 @@ impl Pages {
     /// cosmetic rules match (ADR 0047), which Provenance records.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_FORMATS.name, run_id = tracing::field::Empty))]
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
-        if let Some(served) = self.hooks.document(&params.page_id) {
+        if let Some(served) = self.product.document(&params.page_id) {
             tracing::Span::current().record("run_id", served.run.id().as_str());
             let document = SerializedDocument {
                 html: served.html,

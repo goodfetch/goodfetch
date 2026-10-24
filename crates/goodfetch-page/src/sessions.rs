@@ -137,7 +137,7 @@ pub(crate) struct Sessions {
     dialogs: Dialogs,
     /// What each page carries for the Product that hands pages to
     /// handlers: its value and its response observer (ADR 0087).
-    hooks: Arc<dyn HandlerPages>,
+    handler_pages: Arc<dyn HandlerPages>,
 }
 
 #[derive(Default)]
@@ -304,13 +304,13 @@ impl Drop for EnginePage {
 impl Sessions {
     /// The engine's Sessions, whose browsers come from `pins`, under
     /// `interception`, their pages' events in `events` and their dialogs in
-    /// `dialogs`, each page's value and response observer from `hooks`.
+    /// `dialogs`, each page's value and response observer from `handler_pages`.
     pub(crate) fn new(
         pins: Vec<PinnedArtifact>,
         interception: Interception,
         events: page_events::Table,
         dialogs: Dialogs,
-        hooks: Arc<dyn HandlerPages>,
+        handler_pages: Arc<dyn HandlerPages>,
     ) -> Self {
         Self {
             state: Arc::new(Mutex::new(State::default())),
@@ -320,7 +320,7 @@ impl Sessions {
             hiding: Hiding::default(),
             events,
             dialogs,
-            hooks,
+            handler_pages,
         }
     }
 
@@ -476,7 +476,7 @@ impl Sessions {
             proxy.warn_if_outlived(&run, session).await;
         }
         let (navigation_timeout, _) = timeouts(&run);
-        let value = self.hooks.value(run.id(), session);
+        let value = self.handler_pages.value(run.id(), session);
         lease_holds(&value)?;
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
         let (driver, in_browser) = open.seat.new_page(navigation_timeout).await?;
@@ -484,7 +484,7 @@ impl Sessions {
         let open_session = Arc::clone(&open);
         let page = self
             .adopt(tabs::Adopting {
-                observer: self.hooks.observer(run.id(), session),
+                observer: self.handler_pages.observer(run.id(), session),
                 open,
                 driver,
                 in_browser,

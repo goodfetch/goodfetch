@@ -108,9 +108,9 @@ impl RecordingGate {
         Self::default()
     }
 
-    /// The hook an engine's page crate takes, which gives every page this
+    /// The seam an engine's page crate takes, which gives every page this
     /// gate and lease check, and this observer once [`Self::observe`] ran.
-    pub fn hooks(&self) -> Arc<dyn HandlerPages> {
+    pub fn handler_pages(&self) -> Arc<dyn HandlerPages> {
         Arc::new(self.clone())
     }
 

@@ -16,7 +16,7 @@
 //!   body up to its byte cap (ADR 0110). A page that registers none keeps
 //!   nothing.
 //!
-//! [`HandlerPages`] is the hook that gives a page both when it opens; a
+//! [`HandlerPages`] is the seam that gives a page both when it opens; a
 //! Collie engine's gives every page none. The pages opened in a page's
 //! Session, the engine's own page that sends its `page.request` among
 //! them, take the value its Session's pages take.
@@ -254,7 +254,7 @@ impl Debug for ServedDocument {
     }
 }
 
-/// The hook through which a Product sets what the pages it hands to
+/// The seam through which a Product sets what the pages it hands to
 /// handlers carry, asked as each page of the Session `session` of the Run
 /// `run` opens; every page of one Session takes the same.
 pub trait HandlerPages: Send + Sync {
@@ -272,7 +272,7 @@ pub trait HandlerPages: Send + Sync {
     }
 }
 
-/// The hook of an engine that hands no pages to handlers, Collie's: every
+/// The seam of an engine that hands no pages to handlers, Collie's: every
 /// page's value is empty and none registers an observer.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ProgramPages;

@@ -14,6 +14,7 @@ use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 
 use crate::clock::Clock;
 use crate::composition::CallError;
+use crate::runs::Run;
 use crate::settings::Resolved;
 
 /// A timeout's deadline, as its setting resolved.
@@ -51,6 +52,29 @@ impl Deadline {
             },
             duration: Duration::from_millis(millis),
         }
+    }
+
+    /// The deadline the timeout `setting` declares as its default, set by
+    /// the default layer: a Run whose settings resolve none waits under it,
+    /// so it follows the catalog when the default changes.
+    ///
+    /// # Panics
+    ///
+    /// When `setting` declares no default in milliseconds, which no timeout
+    /// setting does.
+    pub fn declared(setting: &Setting) -> Self {
+        let millis = (setting.default)()
+            .as_u64()
+            .expect("invariant: a timeout setting declares its default in milliseconds");
+        Self::given(setting, millis, SettingsLayer::Default)
+    }
+
+    /// The deadline `run` waits under for the timeout `setting`: as its
+    /// settings resolve it, else the setting's declared default.
+    pub fn of_run(run: &Run, setting: &Setting) -> Self {
+        run.settings()
+            .and_then(|settings| Self::of(settings.resolved(), setting))
+            .unwrap_or_else(|| Self::declared(setting))
     }
 
     /// How long it allows.

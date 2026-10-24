@@ -104,17 +104,6 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
     ],
 };
 
-/// A navigation's deadline when the Run's settings name none: 30 s.
-const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// The guard's window when the Run's settings name none: 30 s, the
-/// setting's default.
-const ACTION_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// An app-state wait's deadline when the Run's settings name none: 30 s,
-/// the setting's default.
-const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
-
 /// What separates a Session's Run ID from its position in its ID; a
 /// position is digits alone, so the last one splits the ID.
 const SESSION_MARK: &str = ".session-";
@@ -1137,37 +1126,13 @@ async fn finished(run_id: &RunId, context: &CallContext) -> bool {
 
 /// The Run's `timeout.wait`, an app-state wait's deadline.
 fn wait_deadline(run: &Run) -> Deadline {
-    run.settings()
-        .and_then(|settings| Deadline::of(settings.resolved(), &TIMEOUT_WAIT))
-        .unwrap_or_else(|| {
-            Deadline::given(
-                &TIMEOUT_WAIT,
-                u64::try_from(WAIT_TIMEOUT.as_millis()).unwrap_or(u64::MAX),
-                SettingsLayer::Default,
-            )
-        })
+    Deadline::of_run(run, &TIMEOUT_WAIT)
 }
 
 /// The Run's `timeout.navigation`, and its `timeout.action` with where it
 /// was set.
 fn timeouts(run: &Run) -> (Duration, (SettingLimit, Duration)) {
-    let navigation = run
-        .settings()
-        .and_then(|settings| settings.resolved().duration(TIMEOUT_NAVIGATION.name))
-        .unwrap_or(NAVIGATION_TIMEOUT);
-    let action = run
-        .settings()
-        .and_then(|settings| Deadline::of(settings.resolved(), &TIMEOUT_ACTION))
-        .map_or_else(
-            || {
-                let limit = SettingLimit {
-                    key: TIMEOUT_ACTION.name.to_owned(),
-                    value: json!(ACTION_TIMEOUT.as_millis()),
-                    layer: SettingsLayer::Default,
-                };
-                (limit, ACTION_TIMEOUT)
-            },
-            |deadline| (deadline.limit().clone(), deadline.duration()),
-        );
-    (navigation, action)
+    let navigation = Deadline::of_run(run, &TIMEOUT_NAVIGATION).duration();
+    let action = Deadline::of_run(run, &TIMEOUT_ACTION);
+    (navigation, (action.limit().clone(), action.duration()))
 }

@@ -15,6 +15,7 @@ use data_encoding::BASE64;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::connection::{CALL_CANCELLED, CANCEL};
 use goodfetch_protocol::egress::EGRESS_REFUSED;
+use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::route::{
     PAGE_HANDLER_FAILED, PAGE_ROUTE, ROUTE_ABORT, ROUTE_ALREADY_HANDLED, ROUTE_CONTINUE,
     ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL, ROUTE_HANDLE, SESSION_ROUTE,
@@ -45,6 +46,7 @@ pub(crate) enum Case {
     StepOrder,
     Cache,
     SiblingClosed,
+    PostData,
     FetchPageClosed,
 }
 
@@ -67,6 +69,7 @@ impl Case {
             }
             "adding-a-route-leaves-the-browsers-cache-serving-a-cached-response" => Self::Cache,
             "a-session-route-keeps-serving-its-other-pages-once-one-closes" => Self::SiblingClosed,
+            "a-route-reads-the-body-the-page-posts" => Self::PostData,
             "a-fetch-whose-page-closes-before-its-response-raises-closed-and-the-run-finishes" => {
                 Self::FetchPageClosed
             }
@@ -91,6 +94,7 @@ impl Case {
             Self::StepOrder => order_of_steps(connection, site, checks),
             Self::Cache => cache_kept(connection, site, checks),
             Self::SiblingClosed => sibling_closed(connection, site, checks),
+            Self::PostData => post_data(connection, site, checks),
             Self::FetchPageClosed => fetch_page_closed(connection, site, checks),
         }
     }
@@ -1084,4 +1088,43 @@ fn fetch_page_closed(
     let finished = connection.browser_answer(finished)?.message;
     checks.check("the Run finishes", finished.get("result").is_some());
     Ok(())
+}
+
+/// A route sees the body a page posts, in Base64, as `route.request()`'s
+/// `postData()` reads it; a request with none has none.
+fn post_data(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
+    let run_id = "conformance-route-post-data";
+    let (Some(url), Some(page)) = (
+        site.named_url("scope.test", "/about?route=post-data"),
+        page(connection, site, run_id, &json!({}), checks)?,
+    ) else {
+        return finish_run(connection, run_id);
+    };
+    let mut routes = Routes::new(|_| vec![Act::End]);
+    goto(&mut routes, connection, &page, &url)?;
+    Routes::route(
+        connection,
+        PAGE_ROUTE.name,
+        &json!({ "page_id": page.page_id, "url": glob("**/about*") }),
+    )?;
+    let posted = routes.call(
+        connection,
+        PAGE_EVALUATE.name,
+        &json!({
+            "page_id": page.page_id,
+            "function": "async () => (await fetch('/about?route=posted', { method: 'POST', body: 'a=1&b=2' })).status",
+        }),
+    )?;
+    checks.check(
+        "the page's POST goes on past its route and gets an answer",
+        posted["result"]["value"].is_number(),
+    );
+    checks.check(
+        "the route sees the posted body in Base64",
+        routes.handled.first().is_some_and(|params| {
+            params["request"]["method"] == json!("POST")
+                && params["request"]["post_data"] == json!(base64("a=1&b=2"))
+        }),
+    );
+    finish_run(connection, run_id)
 }

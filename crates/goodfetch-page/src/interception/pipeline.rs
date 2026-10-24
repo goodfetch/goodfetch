@@ -45,7 +45,7 @@ use super::steps::{self, Blocking, Overrides, Stopped, entries};
 use super::{PageState, lock};
 use crate::driver::PageDriver;
 use crate::errors::{site_preferences_failure, site_preferences_refused};
-use crate::page_events::Refusals;
+use crate::page_events::{Refusals, post_data};
 use crate::page_value::{DocumentResponse, Navigation, NavigationKind, Permit, Refusal};
 use crate::proxy::{self, PROXY_STATUS, ProxyPermit};
 
@@ -322,6 +322,11 @@ impl Held {
             headers,
             resource_type: resource_type(self.paused.resource_type),
             is_navigation_request: self.navigation,
+            post_data: self
+                .overrides
+                .post_data
+                .clone()
+                .or_else(|| post_data(&self.paused.request)),
         }
     }
 }

@@ -1119,7 +1119,7 @@ fn headers(headers: &network::Headers) -> BTreeMap<String, String> {
 }
 
 /// A request's body in Base64, from its entries' bytes or else its text.
-fn post_data(request: &network::Request) -> Option<String> {
+pub(crate) fn post_data(request: &network::Request) -> Option<String> {
     if let Some(entries) = &request.post_data_entries {
         let mut bytes = Vec::new();
         for entry in entries {

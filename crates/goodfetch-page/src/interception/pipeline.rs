@@ -202,7 +202,11 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
                 && started.navigation_type
                     != page::FrameStartedNavigatingNavigationType::SameDocument
             {
-                context.state.pending.started(page_id, &started.url);
+                context.state.pending.started(
+                    page_id,
+                    &started.url,
+                    &Arc::downgrade(&context.state),
+                );
             }
             continue;
         }
@@ -688,12 +692,12 @@ impl PageContext {
                 // Step 6: the page's navigation gate; its lease check is
                 // asked before the command that sends the request on.
                 let admitted = if held.navigation {
-                    self.admit(held).await
+                    self.admit(held).await.map_err(|refusal| (refusal, None))
                 } else {
                     self.admit_for_worker(held).await
                 };
-                if let Err(refusal) = admitted {
-                    return Err(self.gate_refused(held, &refusal).await);
+                if let Err((refusal, carried)) = admitted {
+                    return Err(self.gate_refused(held, &refusal, carried.as_deref()).await);
                 }
                 self.trace_service_worker(held, None);
                 command
@@ -892,35 +896,60 @@ impl PageContext {
     /// Asks the navigation gate to admit `held`, a service worker's request,
     /// when it carries a navigation pending on a page of its Session: one to
     /// that navigation's URL, fragment removed, in `navigate` mode or any
-    /// other. Its permit is the navigation's, held until the page's `load`.
-    /// Any other request is admitted at once.
-    async fn admit_for_worker(&self, held: &Held) -> Result<(), Refusal> {
+    /// other. Its permit is the navigation's, held until the page's `load`,
+    /// and the navigation stays its page's: the page's gate admits it, the
+    /// wait counting against none of the page's deadlines. Any other
+    /// request is admitted at once.
+    ///
+    /// # Errors
+    ///
+    /// The gate's refusal, with the page whose navigation it carries.
+    async fn admit_for_worker(&self, held: &Held) -> Result<(), (Refusal, Option<Arc<PageState>>)> {
         if !matches!(self.sender, Sender::ServiceWorker { .. })
             || self.driver.value().gate().is_none()
         {
             return Ok(());
         }
-        let Some(page) = self.state.pending.take(held.url()) else {
+        let Some((page, carried)) = self.state.pending.take(held.url()) else {
             return Ok(());
         };
+        let carried = carried.upgrade();
+        let driver = carried
+            .as_ref()
+            .and_then(|state| state.navigating.as_ref())
+            .map_or(&self.driver, |navigating| &navigating.driver);
         let navigation = Navigation {
             url: held.url().to_owned(),
             method: held.method().to_owned(),
             kind: NavigationKind::ServiceWorker,
         };
-        if let Some(permit) = self.driver.admit(&navigation).await? {
-            self.state.pending.hold(&page, permit);
+        match driver.admit(&navigation).await {
+            Ok(Some(permit)) => self.state.pending.hold(&page, permit),
+            Ok(None) => {}
+            Err(refusal) => return Err((refusal, carried)),
         }
         Ok(())
     }
 
     /// Aborts `held`, which the page's navigation gate refused, and answers
     /// `site_preferences_refused`: a navigation call waiting on the page
-    /// raises it; with none waiting, its `page.request_failed` carries it
-    /// and the Run trace records it. Aborted, the page keeps its document.
-    async fn gate_refused(&self, held: &Held, refusal: &Refusal) -> CallError {
+    /// raises it; with none waiting, its `page.request_failed` carries it,
+    /// the Run trace records it and the waiters armed for it raise it.
+    /// Aborted, the page keeps its document. A service worker's request
+    /// that carried the navigation of the page `carried` raises it from
+    /// that page's navigation call or waiters.
+    async fn gate_refused(
+        &self,
+        held: &Held,
+        refusal: &Refusal,
+        carried: Option<&PageState>,
+    ) -> CallError {
         let url = held.url();
-        let waiting = self.driver.navigation_waits();
+        let page = carried.and_then(|state| state.navigating.as_ref().map(|page| (state, page)));
+        let waiting = match page {
+            Some((_, page)) => page.driver.navigation_waits(),
+            None => self.driver.navigation_waits(),
+        };
         if matches!(self.sender, Sender::ServiceWorker { .. }) {
             // A worker's request, which no page's event reports, is
             // recorded refused at once.
@@ -929,12 +958,17 @@ impl PageContext {
             self.refusals
                 .leave(network_id, site_preferences_failure(url, refusal), !waiting);
         }
-        if waiting {
-            self.state.leave(site_preferences_refused(url, refusal));
-        } else if held.navigation {
+        match page {
+            Some((state, _)) if waiting => state.leave(site_preferences_refused(url, refusal)),
             // No call waits on it: the waiters armed for it raise it.
-            self.refusals
-                .refuse_navigation(url, site_preferences_refused(url, refusal));
+            Some((_, page)) => page
+                .refusals
+                .refuse_navigation(url, site_preferences_refused(url, refusal)),
+            None if waiting => self.state.leave(site_preferences_refused(url, refusal)),
+            None if held.navigation => self
+                .refusals
+                .refuse_navigation(url, site_preferences_refused(url, refusal)),
+            None => {}
         }
         self.fail(&held.paused.request_id, network::ErrorReason::Aborted)
             .await;

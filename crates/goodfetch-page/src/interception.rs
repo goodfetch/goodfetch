@@ -99,7 +99,7 @@ use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
 use self::clean_up::CleanUp;
 pub(crate) use self::clean_up::SESSION_KEYS;
-use self::navigations::Pending;
+use self::navigations::{NavigatingPage, Pending};
 use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
@@ -226,6 +226,9 @@ pub(super) struct PageState {
     engine_requests: EngineRequests,
     /// Its Session's pending navigations.
     pending: Arc<Pending>,
+    /// What a service worker's request carrying one of its navigations is
+    /// admitted and refused through; none for a service worker's own.
+    navigating: Option<NavigatingPage>,
     /// Who asked for the navigation call going on, while it may load a
     /// `file:` URL.
     files: Mutex<Option<Navigator>>,
@@ -454,6 +457,10 @@ impl Interception {
                 routes: Arc::default(),
                 session,
                 pending,
+                navigating: Some(NavigatingPage {
+                    driver: driver.clone(),
+                    refusals: refusals.clone(),
+                }),
                 failure: Mutex::new(None),
                 files: Mutex::new(None),
                 lists_on: blocking.lists.is_some(),
@@ -574,6 +581,7 @@ impl Interception {
                     routes: Arc::default(),
                     session: routes,
                     pending,
+                    navigating: None,
                     failure: Mutex::new(None),
                     files: Mutex::new(None),
                     lists_on: blocking.lists.is_some(),

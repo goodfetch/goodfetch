@@ -31,6 +31,7 @@ fn hold_page(interception: &Interception, page: &PageId, session: &SessionId) ->
             },
         },
         pending,
+        navigating: None,
         files: Mutex::new(None),
         lists_on: false,
         retrying: AtomicBool::new(false),
@@ -53,7 +54,9 @@ fn a_page_that_closes_before_load_gives_back_its_navigations_permit() {
     );
     interception.open_session(&session);
     let state = hold_page(&interception, &page, &session);
-    state.pending.started(&page, "http://a.test/#top");
+    state
+        .pending
+        .started(&page, "http://a.test/#top", &Arc::downgrade(&state));
     let carried = state.pending.take("http://a.test/");
     let released = Arc::new(AtomicBool::new(false));
     let releasing = Arc::clone(&released);
@@ -65,7 +68,10 @@ fn a_page_that_closes_before_load_gives_back_its_navigations_permit() {
     interception.close_pages(std::slice::from_ref(&page));
 
     assert_eq!(
-        (carried, released.load(Ordering::SeqCst)),
+        (
+            carried.map(|(page, _)| page),
+            released.load(Ordering::SeqCst)
+        ),
         (Some(page), true)
     );
 }

@@ -589,6 +589,46 @@ fn a_service_workers_request_carrying_a_navigation_is_admitted_once(#[case] navi
     });
 }
 
+/// A navigation a service worker carries is its page's: its wait for the
+/// gate's permit counts against no `timeout.navigation` of the page, and
+/// the gate's refusal raises `site_preferences_refused` from the page's
+/// `page.reload`, never a retryable `navigation_failed`.
+/// Covers: operation:page.reload, error:site_preferences_refused
+#[test]
+fn a_service_workers_navigation_waits_and_is_refused_as_its_pages() {
+    let gate = RecordingGate::new();
+    let mut settings = Map::new();
+    settings.insert("timeout".to_owned(), json!({ "navigation": 1000 }));
+    with_handler_page(&gate, settings, async |program| {
+        let page = "/service-worker/?navigations=pass";
+        program.goto("access.localhost", page).await;
+        settled_or(
+            || program.reported(page, "controlled").as_deref() == Some("true"),
+            || format!("{:?}", program.reported(page, "register")),
+        )
+        .await;
+        gate.hold("navigations=pass", Duration::from_millis(1500));
+        let held = program.on_page("page.reload", json!({})).await;
+        gate.refuse("navigations=pass", SitePreference::RobotsTxt);
+        let refused = program.on_page("page.reload", json!({})).await;
+
+        assert_eq!(
+            (
+                held["result"]["response"]["status"].clone(),
+                refusal(&refused),
+            ),
+            (
+                json!(200),
+                (
+                    json!("site_preferences_refused"),
+                    json!("robots_txt"),
+                    Some("/service-worker/".to_owned())
+                ),
+            )
+        );
+    });
+}
+
 /// A popup a handler's page opens takes the page's value (A05-26): its
 /// first navigation is admitted by the opener's gate before it leaves, and
 /// once the lease ended a call on the popup raises its lease check's error and

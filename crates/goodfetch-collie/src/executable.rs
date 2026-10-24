@@ -49,6 +49,7 @@ use goodfetch_cli::generated::{Call, Generated, Joined, Joining};
 use goodfetch_cli::output::{self, ColourChoice, ColourFlag, Human};
 use goodfetch_cli::settings_flags::SettingsFlags;
 use goodfetch_engine::age_notice::AgeNotice;
+use goodfetch_engine::audit::AuditEvents;
 use goodfetch_engine::browser_cache::BROWSERS_PATH_VARIABLE;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::crash_report;
@@ -65,6 +66,8 @@ use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 
+mod audit;
+mod audit_events;
 mod browsers;
 mod certs;
 mod config;
@@ -121,6 +124,13 @@ enum Command {
     Browsers {
         #[command(subcommand)]
         command: BrowsersCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
+    /// Exports and verifies the user's Audit log.
+    Audit {
+        #[command(subcommand)]
+        command: audit::AuditCommand,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -467,7 +477,7 @@ pub fn main(start: &Start) -> ExitCode {
     let clock = Clock::system();
     let log_events = LogEvents::new();
     let launched = logs::Process::of(&parsed) == logs::Process::DaemonLaunched;
-    let (_logs, entropy) = match observe(start, &binary, home.as_ref(), &parsed, clock, &log_events)
+    let (logs, entropy) = match observe(start, &binary, home.as_ref(), &parsed, clock, &log_events)
     {
         Ok(installed) => installed,
         Err(exit) => return exit,
@@ -495,7 +505,7 @@ pub fn main(start: &Start) -> ExitCode {
         channel: Channel::CratesIo,
     };
     let engine = match Engine::new(identity, &(start.composition)()) {
-        Ok(engine) => instrumented(engine, log_events),
+        Ok(engine) => instrumented(engine, log_events, logs.audit_events()),
         Err(error) => {
             tracing::error!(%error, "the composition cannot start an engine");
             return ExitCode::FAILURE;
@@ -534,12 +544,21 @@ pub fn main(start: &Start) -> ExitCode {
     )
 }
 
-/// `engine`, its Connections receiving `log_events` and its Resource
-/// governor reading the OS it runs on (ADR 0040).
-fn instrumented(engine: Engine, log_events: LogEvents) -> Engine {
-    engine
+/// `engine`, its Connections receiving `log_events`, its Resource governor
+/// reading the OS it runs on (ADR 0040) and its Audit log also sending each
+/// new entry to `audit_events`, if anywhere.
+fn instrumented(
+    engine: Engine,
+    log_events: LogEvents,
+    audit_events: Option<AuditEvents>,
+) -> Engine {
+    let engine = engine
         .with_log_events(log_events)
-        .with_governor(System::os())
+        .with_governor(System::os());
+    match audit_events {
+        Some(events) => engine.with_audit_events(events),
+        None => engine,
+    }
 }
 
 /// Installs the `tracing` subscriber of `parsed`'s process, with
@@ -627,6 +646,18 @@ fn with_passed_variables(
     environment
 }
 
+/// Whether `parsed` records the executable in the list of installed
+/// executables: every command but `daemon launched`.
+fn records_the_executable(parsed: &Parsed) -> bool {
+    !matches!(
+        parsed,
+        Parsed::HandWritten(Command::Daemon {
+            command: DaemonCommand::Launched { .. },
+            ..
+        })
+    )
+}
+
 /// Runs the command `parsed` asks for on `engine`, once the executable is
 /// set up.
 fn run(
@@ -644,13 +675,7 @@ fn run(
         environment,
         executable: std::env::current_exe().ok(),
     };
-    if !matches!(
-        parsed,
-        Parsed::HandWritten(Command::Daemon {
-            command: DaemonCommand::Launched { .. },
-            ..
-        })
-    ) {
+    if records_the_executable(&parsed) {
         machine.record();
     }
     let command = match parsed {
@@ -729,6 +754,9 @@ fn run(
         Command::Usage { command, .. } => {
             warn_of_a_temporary_ledger(&home, human);
             usage_command(command, engine, dependencies, &machine, human)
+        }
+        Command::Audit { command, .. } => {
+            audit::run(command, engine, dependencies, &machine, human)
         }
         Command::Certs { command, .. } => {
             certs::run(command, engine, dependencies, &machine, human)

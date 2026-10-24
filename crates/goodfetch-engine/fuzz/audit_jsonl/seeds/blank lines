@@ -1,0 +1,4 @@
+
+   
+{"sequence":1,"time":"2026-01-05T09:00:00Z","kind":"secret_reference_used","actor":{"kind":"client_surface","surface":"cli"},"details":{"reference":"env:A","domain":"example.com"},"hash":"c70d88c60f9b58c7ab63a0fdb012de542ab732d4f29e077801a1ed4a47d186f0"}
+

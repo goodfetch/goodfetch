@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /*a*b*c*d*e*f*g*h*i*j*k*$
+Allow: /%E3%83%84%2A%zz%
+Crawl-delay: 1e309
+Sitemap:

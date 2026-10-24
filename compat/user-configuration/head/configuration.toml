@@ -12,6 +12,7 @@ max_files = 4
 
 [settings.otlp]
 traces_endpoint = "example"
+logs_endpoint = "example"
 metrics_endpoint = "example"
 
 [settings.console]
@@ -108,6 +109,10 @@ key_reference = "env:EXAMPLE"
 [settings.checkpoint]
 interval = 30000
 
+[settings.audit]
+retention = 30000
+otlp = true
+
 [settings.timeout]
 secret = 30000
 run = 30000
@@ -198,6 +203,7 @@ max_requests = 4
 max_url_length = 4
 max_path_segments = 4
 max_segment_repeats = 4
+path_budgets = [{ max_requests = 100, pattern = "/shop?*" }]
 
 [settings.crawl.retry]
 max = 4
@@ -213,6 +219,11 @@ exclude = ["example"]
 
 [settings.fetch]
 tier = "auto"
+coalesce = true
+
+[settings.fetch.hedge]
+enabled = true
+max_percent = 4
 
 [settings.paid_fetch]
 domains = ["example"]

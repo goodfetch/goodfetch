@@ -19,10 +19,20 @@
 //! the run file as a [`Journal`], and it opens again from it. Every rule
 //! here is a pure function of a monotonic reading the caller gives
 //! (ADR 0059).
+//!
+//! A request already admitted may send a second copy beside its first,
+//! such as a hedge (ADRs 0040 and 0086): [`SecondCopies`] gives the copy
+//! room of its own, a Permit of its key under the same shared rule and a
+//! share of the rate cap, so a key that admits one request at a time never
+//! sends one, and one whose delay has not passed holds it until it has.
+#![expect(
+    clippy::disallowed_types,
+    reason = "the rate cap is read and changed in one step, never across an `.await` or under another lock, so there is no lock order to test under loom (ADR 0060)"
+)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::settings::ADMISSION_MAX_REQUESTS_PER_MINUTE;
@@ -213,8 +223,17 @@ pub trait Gates: Send + Sync {
 /// which a request passes all of to go.
 pub struct Admission {
     gate: Box<dyn Gate>,
-    rate: Option<RateCap>,
+    /// Shared with its second copies, which each take a share of it too.
+    rate: SharedRate,
     shared: Option<Shared>,
+}
+
+/// A Run's rate cap, which its admission and its second copies share.
+type SharedRate = Arc<Mutex<Option<RateCap>>>;
+
+/// Locks `rate`, whose holders never panic while they hold it.
+fn lock(rate: &SharedRate) -> MutexGuard<'_, Option<RateCap>> {
+    rate.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// The Politeness a Run shares, and the Permits its requests in flight
@@ -234,7 +253,7 @@ impl fmt::Debug for Admission {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Admission")
-            .field("rate", &self.rate)
+            .field("rate", &*lock(&self.rate))
             .field("shared", &self.shared.is_some())
             .finish_non_exhaustive()
     }
@@ -272,7 +291,7 @@ impl Admission {
     pub(crate) fn new(gate: Box<dyn Gate>, settings: &Resolved) -> Self {
         Self {
             gate,
-            rate: rate_cap_of(settings).map(RateCap::per_minute),
+            rate: Arc::new(Mutex::new(rate_cap_of(settings).map(RateCap::per_minute))),
             shared: None,
         }
     }
@@ -312,11 +331,14 @@ impl Admission {
     /// Politeness, as a Run does at each admission point, keeping when it
     /// last admitted.
     pub fn update(&mut self, settings: &Resolved) {
-        self.rate = match (self.rate, rate_cap_of(settings)) {
-            (Some(rate), Some(per_minute)) => Some(rate.set_to(per_minute)),
-            (None, Some(per_minute)) => Some(RateCap::per_minute(per_minute)),
-            (_, None) => None,
-        };
+        {
+            let mut rate = lock(&self.rate);
+            *rate = match (*rate, rate_cap_of(settings)) {
+                (Some(rate), Some(per_minute)) => Some(rate.set_to(per_minute)),
+                (None, Some(per_minute)) => Some(RateCap::per_minute(per_minute)),
+                (_, None) => None,
+            };
+        }
         if let Some(shared) = &mut self.shared
             && let Some(rule) = self.gate.rule(settings)
         {
@@ -381,7 +403,7 @@ impl Admission {
     /// now, `None` when none is waiting or the rate cap admits nothing.
     pub fn ready_at(&self, now: Instant) -> Option<Instant> {
         let gate = self.gate.ready_at(now)?;
-        match &self.rate {
+        match *lock(&self.rate) {
             Some(rate) => Some(rate.ready_at(now)?.max(gate)),
             None => Some(gate),
         }
@@ -446,7 +468,7 @@ impl Admission {
 
     fn admit_from_gate(&mut self, now: Instant) -> Option<Admitted> {
         let admitted = self.gate.admit(now)?;
-        if let Some(rate) = &mut self.rate {
+        if let Some(rate) = lock(&self.rate).as_mut() {
             let _ = rate.admit(now);
         }
         Some(admitted)
@@ -537,6 +559,146 @@ impl Admission {
     /// file, read at `wall` when the monotonic clock read `now`.
     pub fn journal(&mut self, wall: SystemTime, now: Instant) -> Option<Journal> {
         self.gate.journal(wall, now)
+    }
+}
+
+impl Admission {
+    /// Room for second copies of the requests it admitted, under the rule
+    /// of its shared Politeness and its rate cap as they stand now.
+    pub fn second_copies(&self) -> SecondCopies {
+        SecondCopies {
+            shared: self.shared.as_ref().map(|shared| BesideShared {
+                politeness: shared.politeness.clone(),
+                holder: shared.holder.clone(),
+                rule: Arc::clone(&shared.rule),
+                clock: shared.clock,
+            }),
+            rate: Arc::clone(&self.rate),
+        }
+    }
+}
+
+/// Room for a second copy of a request a Run already admitted, such as a
+/// hedge's (ADRs 0040 and 0086): the copy is governed as a request of its
+/// own, so it takes a Permit of its key from the Politeness the Run shares,
+/// beside its first's, and a share of the Run's rate cap. Cheap to clone;
+/// every clone shares the rate cap.
+#[derive(Clone)]
+pub struct SecondCopies {
+    shared: Option<BesideShared>,
+    rate: SharedRate,
+}
+
+impl fmt::Debug for SecondCopies {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SecondCopies")
+            .field("rate", &*lock(&self.rate))
+            .field("shared", &self.shared.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+/// The Politeness a second copy takes its Permit from.
+#[derive(Clone)]
+struct BesideShared {
+    politeness: Politeness,
+    holder: Holder,
+    rule: Arc<dyn PermitRule>,
+    clock: Clock,
+}
+
+/// What a second copy's take answered.
+#[derive(Debug)]
+pub enum Room {
+    /// The copy may go, holding this room until it ends.
+    Taken(SecondCopy),
+    /// Not before this moment, such as the end of its key's delay or of the
+    /// rate cap's interval: try again then.
+    Until(Instant),
+    /// Not while the requests in flight under its key stay, nor at all
+    /// when its key's site asked for a time further away than the Run
+    /// waits: the copy is not sent.
+    Full,
+}
+
+/// The room a second copy holds while it is in flight.
+#[derive(Debug)]
+pub struct SecondCopy {
+    permit: Option<Permit>,
+}
+
+impl SecondCopies {
+    /// Takes room for a second copy of a request of `key` at `now`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave a Permit taken for no copy, which its
+    /// Run's end or another engine's reclaim gives back.
+    pub async fn take(&self, key: &str, now: Instant) -> Room {
+        let rate_ready = match *lock(&self.rate) {
+            Some(rate) => match rate.ready_at(now) {
+                Some(ready_at) if ready_at > now => return Room::Until(ready_at),
+                Some(_) => true,
+                None => return Room::Full,
+            },
+            None => false,
+        };
+        let permit = match &self.shared {
+            None => None,
+            Some(shared) => {
+                let wall = shared.clock.wall();
+                let taken = shared
+                    .politeness
+                    .take_beside(key, &shared.holder, Arc::clone(&shared.rule), wall)
+                    .await;
+                match taken {
+                    Ok(Taken::Granted(permit)) => Some(permit),
+                    Ok(Taken::Wait(Some((until, _)))) => {
+                        return Room::Until(now + until.duration_since(wall).unwrap_or_default());
+                    }
+                    Ok(Taken::Wait(None) | Taken::Refused(_)) => return Room::Full,
+                    Err(error) => {
+                        tracing::warn!(%error, run_id = %shared.holder.run_id, "the Politeness file refused a second copy's take; it is not sent");
+                        return Room::Full;
+                    }
+                }
+            }
+        };
+        let copy = SecondCopy { permit };
+        let admitted = if rate_ready {
+            lock(&self.rate)
+                .as_mut()
+                .map_or(Ok(()), |rate| rate.admit(now))
+        } else {
+            Ok(())
+        };
+        if let Err(ready_at) = admitted {
+            // The Run admitted a request of its own meanwhile.
+            self.give_back(copy).await;
+            return ready_at.map_or(Room::Full, Room::Until);
+        }
+        Room::Taken(copy)
+    }
+
+    /// Gives back the room `copy` held, once it ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave its Permit held until its Run ends,
+    /// or another engine's reclaim.
+    pub async fn give_back(&self, copy: SecondCopy) {
+        let (Some(shared), Some(permit)) = (&self.shared, copy.permit) else {
+            return;
+        };
+        let wall = shared.clock.wall();
+        if let Err(error) = shared
+            .politeness
+            .give_back(permit, Arc::clone(&shared.rule), Ending::Done, wall)
+            .await
+        {
+            tracing::warn!(%error, run_id = %shared.holder.run_id, "a second copy's Permit was not given back; another engine reclaims it once its Run is gone");
+        }
     }
 }
 

@@ -504,6 +504,34 @@
       ],
       "type": "object"
     },
+    "AuditExportParams": {
+      "additionalProperties": false,
+      "description": "What `audit.export` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
+    "AuditExported": {
+      "description": "What `audit.export` answers.",
+      "properties": {
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "Every entry the log holds, in sequence, each with its hash: the\nanchor first when the log was pruned.",
+          "items": {
+            "$ref": "#/$defs/ExportedAuditEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "type": "object"
+    },
     "AuditVerified": {
       "description": "What `audit.verify` answers.",
       "properties": {
@@ -3874,6 +3902,87 @@
       ],
       "type": "object"
     },
+    "ExportedAuditEntry": {
+      "description": "One entry of an exported Audit log, one line of its JSONL: the entry\nand the hash that chains it to the line before it.",
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Actor",
+          "arrived_in": "0.1",
+          "description": "Who did what it records."
+        },
+        "details": {
+          "arrived_in": "0.1",
+          "description": "What its kind records, such as a Secret reference and the domain it\nwas sent to, never a secret's value."
+        },
+        "hash": {
+          "arrived_in": "0.1",
+          "description": "`SHA-256(previous hash ‖ RFC 8785 canonical JSON of the entry)`, in\nlowercase hex; an anchor's is the last pruned entry's.",
+          "type": "string"
+        },
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "Its kind, a value of the shared type `audit_kind`.",
+          "type": "string"
+        },
+        "layer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsLayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The settings layer its event came from, such as an Operator policy\nthat switched a control off; none where no layer applies."
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run it happened in; none outside a Run."
+        },
+        "sequence": {
+          "arrived_in": "0.1",
+          "description": "Its place in the chain, from 1.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "surface": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Surface"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The surface the actor acted through, such as `console` for a person\nin the Console; none for the engine's own events."
+        },
+        "time": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it was recorded."
+        }
+      },
+      "required": [
+        "sequence",
+        "time",
+        "kind",
+        "actor",
+        "details",
+        "hash"
+      ],
+      "type": "object"
+    },
     "FailedRequests": {
       "description": "What `run.failed_requests` answers.",
       "properties": {
@@ -6096,6 +6205,11 @@
         {
           "const": "max_segment_repeats",
           "description": "A segment of its URL's path repeats more than\n`crawl.max_segment_repeats`.",
+          "type": "string"
+        },
+        {
+          "const": "path_budget",
+          "description": "The first entry of `crawl.path_budgets` whose pattern its URL's path\nand query match already counted that entry's `max_requests`.",
           "type": "string"
         },
         {
@@ -12837,6 +12951,25 @@
                 },
                 "type": "object"
               },
+              "audit": {
+                "additionalProperties": false,
+                "properties": {
+                  "retention": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "browser_cache": {
                 "additionalProperties": false,
                 "properties": {
@@ -13002,6 +13135,23 @@
                     "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "fetch": {
+                "additionalProperties": false,
+                "properties": {
+                  "hedge": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_percent": {
+                        "description": "The most hedges a run sends, as a whole percentage of the crawl requests its HTTP tier sent: 5 by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -13439,6 +13589,29 @@
                 },
                 "type": "object"
               },
+              "audit": {
+                "additionalProperties": false,
+                "properties": {
+                  "otlp": {
+                    "description": "Whether an engine process also sends each new Audit log entry, the hash with it, as an OpenTelemetry event to the OTLP/HTTP collector `otlp.logs_endpoint` names: off by default, and nothing is sent while `otlp.logs_endpoint` is unset. Read when the process starts; set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
+                  "retention": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "browser": {
                 "additionalProperties": false,
                 "properties": {
@@ -13699,6 +13872,29 @@
                     ],
                     "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
                   },
+                  "path_budgets": {
+                    "description": "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "max_requests": {
+                          "description": "How many requests whose URL the pattern matches first the crawl admits.",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "pattern": {
+                          "description": "A glob read as Playwright reads one, such as `/shop?*`, matched in the engine against a URL's path and query.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "pattern",
+                        "max_requests"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
@@ -13816,6 +14012,25 @@
               "fetch": {
                 "additionalProperties": false,
                 "properties": {
+                  "coalesce": {
+                    "description": "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
+                    "type": "boolean"
+                  },
+                  "hedge": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "enabled": {
+                        "description": "Whether the HTTP tier hedges a crawl request: once a GET or HEAD from a work item that declares no Effect has not answered within its route's 95th-percentile latency, a second copy is sent on a new connection through the Session's own exit, and the first answer wins, the other cancelled. Both copies hold per-domain slots and count in Usage; a Paid fetch is never hedged. Off by default; a crawl that switches it on while `politeness.domain.concurrency` is 1 is refused with `setting_not_applicable`.",
+                        "type": "boolean"
+                      },
+                      "max_percent": {
+                        "description": "The most hedges a run sends, as a whole percentage of the crawl requests its HTTP tier sent: 5 by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "tier": {
                     "description": "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
                     "enum": [
@@ -14098,6 +14313,17 @@
               "otlp": {
                 "additionalProperties": false,
                 "properties": {
+                  "logs_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The OTLP/HTTP endpoint an engine process sends its OpenTelemetry events to, such as `http://localhost:4318/v1/logs`: today the Audit log's entries, while `audit.otlp` is on. Unset, the default, sends nothing, and nothing leaves the machine. Read when the process starts; set in user configuration or an Operator policy only."
+                  },
                   "metrics_endpoint": {
                     "anyOf": [
                       {
@@ -15399,6 +15625,29 @@
                 },
                 "type": "object"
               },
+              "audit": {
+                "additionalProperties": false,
+                "properties": {
+                  "otlp": {
+                    "description": "Whether an engine process also sends each new Audit log entry, the hash with it, as an OpenTelemetry event to the OTLP/HTTP collector `otlp.logs_endpoint` names: off by default, and nothing is sent while `otlp.logs_endpoint` is unset. Read when the process starts; set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
+                  "retention": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "browser": {
                 "additionalProperties": false,
                 "properties": {
@@ -15659,6 +15908,29 @@
                     ],
                     "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
                   },
+                  "path_budgets": {
+                    "description": "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "max_requests": {
+                          "description": "How many requests whose URL the pattern matches first the crawl admits.",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "pattern": {
+                          "description": "A glob read as Playwright reads one, such as `/shop?*`, matched in the engine against a URL's path and query.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "pattern",
+                        "max_requests"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
@@ -15776,6 +16048,25 @@
               "fetch": {
                 "additionalProperties": false,
                 "properties": {
+                  "coalesce": {
+                    "description": "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
+                    "type": "boolean"
+                  },
+                  "hedge": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "enabled": {
+                        "description": "Whether the HTTP tier hedges a crawl request: once a GET or HEAD from a work item that declares no Effect has not answered within its route's 95th-percentile latency, a second copy is sent on a new connection through the Session's own exit, and the first answer wins, the other cancelled. Both copies hold per-domain slots and count in Usage; a Paid fetch is never hedged. Off by default; a crawl that switches it on while `politeness.domain.concurrency` is 1 is refused with `setting_not_applicable`.",
+                        "type": "boolean"
+                      },
+                      "max_percent": {
+                        "description": "The most hedges a run sends, as a whole percentage of the crawl requests its HTTP tier sent: 5 by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "tier": {
                     "description": "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
                     "enum": [
@@ -16058,6 +16349,17 @@
               "otlp": {
                 "additionalProperties": false,
                 "properties": {
+                  "logs_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The OTLP/HTTP endpoint an engine process sends its OpenTelemetry events to, such as `http://localhost:4318/v1/logs`: today the Audit log's entries, while `audit.otlp` is on. Unset, the default, sends nothing, and nothing leaves the machine. Read when the process starts; set in user configuration or an Operator policy only."
+                  },
                   "metrics_endpoint": {
                     "anyOf": [
                       {
@@ -17375,6 +17677,29 @@
                 },
                 "type": "object"
               },
+              "audit": {
+                "additionalProperties": false,
+                "properties": {
+                  "otlp": {
+                    "description": "Whether an engine process also sends each new Audit log entry, the hash with it, as an OpenTelemetry event to the OTLP/HTTP collector `otlp.logs_endpoint` names: off by default, and nothing is sent while `otlp.logs_endpoint` is unset. Read when the process starts; set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
+                  "retention": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "browser": {
                 "additionalProperties": false,
                 "properties": {
@@ -17635,6 +17960,29 @@
                     ],
                     "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
                   },
+                  "path_budgets": {
+                    "description": "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "max_requests": {
+                          "description": "How many requests whose URL the pattern matches first the crawl admits.",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "pattern": {
+                          "description": "A glob read as Playwright reads one, such as `/shop?*`, matched in the engine against a URL's path and query.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "pattern",
+                        "max_requests"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
@@ -17752,6 +18100,25 @@
               "fetch": {
                 "additionalProperties": false,
                 "properties": {
+                  "coalesce": {
+                    "description": "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
+                    "type": "boolean"
+                  },
+                  "hedge": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "enabled": {
+                        "description": "Whether the HTTP tier hedges a crawl request: once a GET or HEAD from a work item that declares no Effect has not answered within its route's 95th-percentile latency, a second copy is sent on a new connection through the Session's own exit, and the first answer wins, the other cancelled. Both copies hold per-domain slots and count in Usage; a Paid fetch is never hedged. Off by default; a crawl that switches it on while `politeness.domain.concurrency` is 1 is refused with `setting_not_applicable`.",
+                        "type": "boolean"
+                      },
+                      "max_percent": {
+                        "description": "The most hedges a run sends, as a whole percentage of the crawl requests its HTTP tier sent: 5 by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "tier": {
                     "description": "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
                     "enum": [
@@ -18034,6 +18401,17 @@
               "otlp": {
                 "additionalProperties": false,
                 "properties": {
+                  "logs_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The OTLP/HTTP endpoint an engine process sends its OpenTelemetry events to, such as `http://localhost:4318/v1/logs`: today the Audit log's entries, while `audit.otlp` is on. Unset, the default, sends nothing, and nothing leaves the machine. Read when the process starts; set in user configuration or an Operator policy only."
+                  },
                   "metrics_endpoint": {
                     "anyOf": [
                       {

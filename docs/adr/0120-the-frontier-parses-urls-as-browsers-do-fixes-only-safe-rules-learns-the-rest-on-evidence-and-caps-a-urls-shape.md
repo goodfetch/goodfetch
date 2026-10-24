@@ -110,6 +110,7 @@ Decided in [URL identity and crawl-space rules beyond ADR 0005's learned rules](
   - a `crawl.scope.exclude` pattern naming the facet parameters, since ADR 0093's patterns match the whole URL, its query included;
   - `crawl.max_requests`.
 - **Why not more.** At ADR 0086's default rate, a facet explosion is ordinary load on the site, so it costs the program's requests and is no burden on the site (G5). ADR 0037's CO-08 per-path bounds (Spider's `with_budget` shape) stay area 6's spec.
+  > Note (agent decision, pending owner review), 2026-10-24, [#847](https://github.com/goodfetch/goodfetch/issues/847): `crawl.path_budgets` takes each entry's `pattern` as a glob, as `crawl.scope.*` takes theirs (a regular expression form waits for the SDKs' `LinkPattern` mapping, area 11), matched against the URL's path and query as the WHATWG parser serializes them (`/shop?*`). It is checked after `crawl.max_requests` and before the caps, on what the crawl would otherwise admit, seeds included; each entry counts what it admitted and refused by its pattern in the run file, so a resume that changes an entry's count keeps what it admitted. Each entry that refused a URL is a Completeness reason of its own, `{code: "crawl.path_budgets", message}`, the message naming the pattern, its count and how many it refused. An unreadable pattern fails the start with `pattern_unsupported`, and a resume with one ends the Run `failed`.
 
 ### Sitemap entries stay inside the crawl's scope
 

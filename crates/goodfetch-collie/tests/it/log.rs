@@ -29,7 +29,6 @@ use std::sync::mpsc;
 use goodfetch_test_support::{Canaries, MESSAGE_DEADLINE, Output, SecretKind, TestEnv};
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value::Value as AnyValue;
-use prost::Message as _;
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -278,8 +277,11 @@ fn spans_of(request: &ExportTraceServiceRequest) -> Exported {
 }
 
 /// Serves one Connection of the collector stand-in: each request's body,
-/// answered `200` with nothing.
-fn serve_exports(stream: std::net::TcpStream, exports: &mpsc::Sender<ExportTraceServiceRequest>) {
+/// read as an `M`, answered `200` with nothing.
+fn serve_exports<M: prost::Message + Default>(
+    stream: std::net::TcpStream,
+    exports: &mpsc::Sender<M>,
+) {
     let mut writer = stream.try_clone().unwrap();
     let mut reader = BufReader::new(stream);
     loop {
@@ -301,7 +303,7 @@ fn serve_exports(stream: std::net::TcpStream, exports: &mpsc::Sender<ExportTrace
         }
         let mut body = vec![0; length];
         reader.read_exact(&mut body).unwrap();
-        let _ = exports.send(ExportTraceServiceRequest::decode(body.as_slice()).unwrap());
+        let _ = exports.send(M::decode(body.as_slice()).unwrap());
         let _ = writer.write_all(
             b"HTTP/1.1 200 OK\r\ncontent-type: application/x-protobuf\r\ncontent-length: 0\r\n\r\n",
         );
@@ -322,8 +324,17 @@ fn recorded_collector() -> (
     mpsc::Receiver<ExportTraceServiceRequest>,
     mpsc::Receiver<()>,
 ) {
+    collector_of("/v1/traces")
+}
+
+/// An OTLP/HTTP collector stand-in on loopback, on a thread of its own: its
+/// endpoint at `path`, each export it receives, read as an `M`, and its
+/// connection record, one message for each connection it accepted.
+pub(crate) fn collector_of<M: prost::Message + Default + 'static>(
+    path: &str,
+) -> (String, mpsc::Receiver<M>, mpsc::Receiver<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let endpoint = format!("http://{}/v1/traces", listener.local_addr().unwrap());
+    let endpoint = format!("http://{}{path}", listener.local_addr().unwrap());
     let (exports, received) = mpsc::channel();
     let (accepted, connections) = mpsc::channel();
     std::thread::spawn(move || {

@@ -29,7 +29,7 @@ use goodfetch_page::page_value::{
     HandlerPages, PageValue, ProgramPages, ResponseObserver, ServedDocument,
 };
 use goodfetch_protocol::foxhound::crawl::CrawlRequest;
-use goodfetch_protocol::foxhound::fetch::{FETCH_TIER, FetchTier};
+use goodfetch_protocol::foxhound::fetch::{FETCH_HEDGE_ENABLED, FETCH_TIER, FetchTier};
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{
@@ -38,7 +38,8 @@ use goodfetch_protocol::settings::{
 use url::Url;
 
 use crate::canonical::canonical;
-use crate::driver::{Deadlines, Hop, fetch};
+use crate::driver::{Deadlines, Hop};
+use crate::redundant::{Redundant, Requester};
 use crate::transports::{Reqwest, TransportConfig};
 
 /// Foxhound's fetch tiers: the pages they serve, which Collie's page
@@ -98,13 +99,16 @@ impl FetchTiers {
     }
 
     /// Refuses a Run whose `fetch.tier` forces a tier this engine does not
-    /// build yet, with `capability_unavailable` naming the setting.
+    /// build yet, with `capability_unavailable` naming the setting, and one
+    /// that hedges where a hedge could never start.
     ///
     /// # Errors
     ///
     /// `capability_unavailable` for `discovered_api`, `browser_fetch`,
-    /// `light_browser` and `browser`.
+    /// `light_browser` and `browser`; `setting_not_applicable` for hedges
+    /// switched on while a domain admits one request at a time (ADR 0086).
     pub fn check(settings: &Resolved) -> Result<(), CallError> {
+        goodfetch_frontier::refuse_second_copies(settings, &FETCH_HEDGE_ENABLED)?;
         let Some((tier, layer)) = forced(settings) else {
             return Ok(());
         };
@@ -151,11 +155,15 @@ impl FetchTiers {
         Ok(Some(HttpTier {
             transport: Arc::new(transport),
             deadlines: Deadlines::of(settings),
+            redundant: Arc::new(Redundant::of(settings)),
         }))
     }
 
-    /// Fetches `request`'s document on `tier` for `run` and opens a page
-    /// served from it, whose ID the handler is given.
+    /// Fetches `request`'s document on `tier` for `run`, sent for
+    /// `requester`, and opens a page served from it, whose ID the handler
+    /// is given. An identical request in flight from its Session answers it
+    /// instead, and a slow one is hedged (ADR 0040; the `redundant`
+    /// module).
     ///
     /// # Errors
     ///
@@ -164,12 +172,14 @@ impl FetchTiers {
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future closes the fetch's connection and opens no page.
+    /// Dropping the future closes the fetch's connections and opens no
+    /// page.
     pub async fn serve(
         &self,
         tier: &HttpTier,
         run: &Run,
         request: &CrawlRequest,
+        requester: &Requester<'_>,
     ) -> Result<PageId, CallError> {
         let url = Url::parse(&request.url).map_err(|error| {
             CallError::new(
@@ -196,7 +206,16 @@ impl FetchTiers {
             // A crawl request is a read whatever its method (ADR 0106).
             read: true,
         };
-        let fetched = fetch(tier.transport.as_ref(), &hop, &tier.deadlines, &run.clock()).await?;
+        let fetched = tier
+            .redundant
+            .fetch(
+                tier.transport.as_ref(),
+                &tier.deadlines,
+                run,
+                &hop,
+                requester,
+            )
+            .await?;
         let url = fetched.url.to_string();
         let html = String::from_utf8_lossy(&fetched.body).into_owned();
         let base_url = goodfetch_frontier::document_base(&url, base_href(&html).as_deref())
@@ -290,6 +309,8 @@ impl HandlerPages for FetchTiers {
 pub struct HttpTier {
     transport: Arc<Reqwest>,
     deadlines: Deadlines,
+    /// Its Run's hedges and requests in flight, which no other Run shares.
+    redundant: Arc<Redundant>,
 }
 
 /// The tier `fetch.tier` forces and the layer that set it; `None` under

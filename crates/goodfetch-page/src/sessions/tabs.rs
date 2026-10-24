@@ -124,6 +124,7 @@ impl Sessions {
             refusals.clone(),
             driver.events().await,
             wait_deadline(&run),
+            observer,
         );
         self.events.insert(page.clone(), events);
         self.dialogs
@@ -132,15 +133,7 @@ impl Sessions {
         let started = async {
             let clean_up = self
                 .interception
-                .start(
-                    &page,
-                    session,
-                    &driver,
-                    &run,
-                    &open.settings,
-                    refusals,
-                    observer,
-                )
+                .start(&page, session, &driver, &run, &open.settings, refusals)
                 .await?;
             // Live hiding and the Consent prompt runner share each
             // document's one hiding sheet.

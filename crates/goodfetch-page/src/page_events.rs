@@ -22,6 +22,11 @@
 //! A response `page.request` answered from the page's Session keeps its
 //! body too, whole or as cut, under its request's ID.
 //!
+//! The page's response observer, when its Session registered one (ADRs
+//! 0110 and 0121), receives each response the page's events report whose
+//! URL its patterns match, with its body once it finished, cut at its byte
+//! cap: one a service worker answered too, marked as the browser marks it.
+//!
 //! A request the interception refused carries the refusal's Error code in
 //! its `failure`, and one no call waited on is recorded in the Run trace as
 //! `page.request_failed`, so a refusal is never a timeout.
@@ -76,6 +81,7 @@ use self::document::{Document, InFlight, UrlWaiter};
 use self::runtime_values::{console_message, web_error};
 use self::waiters::{Armed, answer_armed};
 use crate::driver::{PageDriver, response_of};
+use crate::page_value::{Kept, ObservedResponse, ResponseObserver};
 use crate::url_pattern::UrlPattern;
 
 /// The error text of a request the browser cancelled.
@@ -214,6 +220,9 @@ struct Shared {
     closed: watch::Sender<bool>,
     /// The main frame's document and the load states it reached.
     document: watch::Sender<Document>,
+    /// The response observer its Session registered, and what it keeps,
+    /// read once when the page opened.
+    observing: Option<(Arc<dyn ResponseObserver>, Kept)>,
 }
 
 #[derive(Default)]
@@ -329,7 +338,12 @@ impl Listening {
 impl PageEvents {
     /// Starts reading the events of the page `page_id`, which `driver`
     /// drives for `run`, from `subscription`, publishing on `events`; its
-    /// waiters wait at most `wait`.
+    /// waiters wait at most `wait`, and each response `observer` keeps is
+    /// passed to it.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one value per part of the page its events follow, each its own owner's"
+    )]
     pub(crate) fn start(
         page_id: PageId,
         driver: PageDriver,
@@ -338,6 +352,7 @@ impl PageEvents {
         refusals: Refusals,
         subscription: Subscription,
         wait: Deadline,
+        observer: Option<Arc<dyn ResponseObserver>>,
     ) -> Self {
         let shared = Arc::new(Shared {
             page_id,
@@ -356,6 +371,10 @@ impl PageEvents {
             gone: watch::Sender::new(false),
             closed: watch::Sender::new(false),
             document: watch::Sender::new(Document::blank()),
+            observing: observer.map(|observer| {
+                let kept = observer.kept();
+                (observer, kept)
+            }),
         });
         run.spawn(read(subscription, Arc::clone(&shared)));
         run.spawn(document::watch_idle(Arc::clone(&shared)));
@@ -587,18 +606,7 @@ fn declared_length(response: &PageResponse) -> Option<u64> {
 /// and stores it in the Run's folder; none when the browser no longer holds
 /// it.
 async fn read_body(shared: &Shared, request_id: &str) -> Option<BodyHandle> {
-    let read = shared
-        .driver
-        .command(&network::GetResponseBodyParams {
-            request_id: request_id.to_owned(),
-        })
-        .await
-        .ok()?;
-    let bytes = if read.base64_encoded {
-        BASE64.decode(read.body.as_bytes()).ok()?
-    } else {
-        read.body.into_bytes()
-    };
+    let bytes = body_bytes(shared, request_id).await?;
     match shared.run.store_body(bytes).await {
         Ok(handle) => Some(handle),
         Err(error) => {
@@ -606,6 +614,67 @@ async fn read_body(shared: &Shared, request_id: &str) -> Option<BodyHandle> {
             None
         }
     }
+}
+
+/// The body of the finished request `request_id`, after any content
+/// coding, as the browser holds it; none when it no longer does.
+async fn body_bytes(shared: &Shared, request_id: &str) -> Option<Vec<u8>> {
+    let read = shared
+        .driver
+        .command(&network::GetResponseBodyParams {
+            request_id: request_id.to_owned(),
+        })
+        .await
+        .ok()?;
+    if read.base64_encoded {
+        BASE64.decode(read.body.as_bytes()).ok()
+    } else {
+        Some(read.body.into_bytes())
+    }
+}
+
+/// Passes `response` to the page's response observer when it keeps its URL
+/// (ADR 0110): with its body once the request `finished`, read from the
+/// browser and cut at the observer's byte cap, and with none for a
+/// redirect's, which has no body.
+fn observe(shared: &Arc<Shared>, response: &PageResponse, finished: bool) {
+    let Some((_, kept)) = &shared.observing else {
+        return;
+    };
+    if !kept
+        .urls
+        .iter()
+        .any(|pattern| pattern.matches(&response.url))
+    {
+        return;
+    }
+    let (shared, response) = (Arc::clone(shared), response.clone());
+    let run = shared.run.clone();
+    run.spawn(async move {
+        let body = if finished {
+            body_bytes(&shared, &response.request_id)
+                .await
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let Some((observer, kept)) = &shared.observing else {
+            return;
+        };
+        let headers: Vec<(String, String)> = response
+            .headers
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect();
+        let passed = ObservedResponse {
+            url: &response.url,
+            status: response.status,
+            headers: &headers,
+            from_service_worker: response.from_service_worker,
+        };
+        let cut = body.len().min(kept.byte_cap);
+        observer.on_response(&passed, &body[..cut]);
+    });
 }
 
 /// `body_unavailable` for the request `request_id` to `url`, its fix
@@ -747,6 +816,7 @@ fn take_in(shared: &Arc<Shared>, event: &goodfetch_cdp::RawEvent) -> Vec<Publish
                 &request,
             );
             if let Some(response) = response {
+                observe(shared, &response, true);
                 answer_waiters(shared, state, request, response);
             }
         }
@@ -766,7 +836,7 @@ fn take_in(shared: &Arc<Shared>, event: &goodfetch_cdp::RawEvent) -> Vec<Publish
 /// A request sent, or its next hop after a redirect: the hop before got the
 /// redirect as its response, and finished.
 fn sent_request(
-    shared: &Shared,
+    shared: &Arc<Shared>,
     state: &mut State,
     out: &mut Vec<Published>,
     sent: network::RequestWillBeSentEvent,
@@ -781,6 +851,7 @@ fn sent_request(
         };
         chain.clone_from(&exchange.request.redirect_chain);
         chain.push(exchange.request.url.clone());
+        observe(shared, &exchange.response, false);
         answer_armed(
             &mut state.response_waiters,
             &exchange.request.url,

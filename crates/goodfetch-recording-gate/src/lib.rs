@@ -78,7 +78,7 @@ pub struct Observed {
     pub url: String,
     /// Its status.
     pub status: u16,
-    /// Whether a service worker's own request got it.
+    /// Whether a service worker's fetch handler answered it.
     pub from_service_worker: bool,
     /// Its body as received, cut at the byte cap.
     pub body: Vec<u8>,

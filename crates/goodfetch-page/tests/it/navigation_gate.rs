@@ -483,9 +483,10 @@ fn a_permit_wait_counts_against_no_timeout_and_holds_the_lease() {
 }
 
 /// The response observer Foxhound registers receives each response the
-/// engine observes whose URL its patterns match, with its body cut at its
-/// byte cap, a service worker's own included; one that matches nothing is
-/// never passed to it.
+/// engine observes on the page whose URL its patterns match, with its body
+/// cut at its byte cap, those a service worker answered included and
+/// marked so: one from its Cache Storage, and one it fetched itself. One
+/// that matches nothing is never passed to it.
 /// Covers: operation:page.goto
 #[test]
 fn the_response_observer_receives_each_kept_response_with_its_body_a_service_workers_included() {
@@ -493,6 +494,7 @@ fn the_response_observer_receives_each_kept_response_with_its_body_a_service_wor
     gate.observe(Kept {
         urls: vec![
             UrlPattern::glob("**/effects.js").unwrap(),
+            UrlPattern::glob("**/cached.json*").unwrap(),
             UrlPattern::glob("**/network.json*").unwrap(),
         ],
         byte_cap: 8,
@@ -502,13 +504,14 @@ fn the_response_observer_receives_each_kept_response_with_its_body_a_service_wor
         program
             .goto("access.localhost", "/service-worker/?case=observed")
             .await;
-        let from_worker = |gate: &RecordingGate| {
-            gate.observed()
+        let observed_both = |gate: &RecordingGate| {
+            let observed = gate.observed();
+            ["/cached.json", "/network.json"]
                 .iter()
-                .any(|observed| observed.url.contains("/network.json"))
+                .all(|path| observed.iter().any(|response| response.url.contains(path)))
         };
-        settled(|| from_worker(&gate)).await;
-        let observed: Vec<(Option<String>, u16, bool, usize)> = gate
+        settled(|| observed_both(&gate)).await;
+        let mut observed: Vec<(Option<String>, u16, bool, usize)> = gate
             .observed()
             .into_iter()
             .map(|observed| {
@@ -520,11 +523,13 @@ fn the_response_observer_receives_each_kept_response_with_its_body_a_service_wor
                 )
             })
             .collect();
+        observed.sort();
 
         assert_eq!(
             observed,
             vec![
                 (Some("/effects.js".to_owned()), 200, false, 8),
+                (Some("/service-worker/cached.json".to_owned()), 200, true, 8),
                 (
                     Some("/service-worker/network.json".to_owned()),
                     200,

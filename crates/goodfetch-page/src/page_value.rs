@@ -11,9 +11,10 @@
 //!   Collie program does is refused, delayed or counted by them (its
 //!   Session's proxy's limits alone hold its navigation, ADR 0088).
 //! - **The response observer** ([`ResponseObserver`]), no part of the
-//!   value, receives the responses the engine observes on a page, a
-//!   service worker's included, whose URLs its patterns match, each body up
-//!   to its byte cap (ADR 0110). A page that registers none keeps nothing.
+//!   value, receives the responses the engine observes on a page, those a
+//!   service worker answered included, whose URLs its patterns match, each
+//!   body up to its byte cap (ADR 0110). A page that registers none keeps
+//!   nothing.
 //!
 //! [`HandlerPages`] is the hook that gives a page both when it opens; a
 //! Collie engine's gives every page none. The pages opened in a page's
@@ -184,8 +185,8 @@ impl PageValue {
     }
 }
 
-/// A response the engine observed on a page, or on a service worker of its
-/// Session.
+/// A response the engine observed on a page, one a service worker of its
+/// Session answered included.
 #[derive(Clone, Copy, Debug)]
 pub struct ObservedResponse<'a> {
     /// The URL that answered.
@@ -194,7 +195,8 @@ pub struct ObservedResponse<'a> {
     pub status: u16,
     /// Its headers, as the browser gives them.
     pub headers: &'a [(String, String)],
-    /// Whether a service worker's own request got it.
+    /// Whether a service worker's fetch handler answered it, from its cache
+    /// or its own fetch, as the browser marks it (`fromServiceWorker()`).
     pub from_service_worker: bool,
 }
 

@@ -511,8 +511,10 @@ async fn lease_to_servers(
                     server.client.clone(),
                     (leased, session, leased_count(run)),
                     lease,
-                    pooled.fetching.served(&admission.second_copies()),
-                    pooled.fetching.gating(&admission.second_copies()),
+                    (
+                        pooled.fetching.served(&admission.second_copies()),
+                        pooled.fetching.gating(&admission.second_copies()),
+                    ),
                     std::sync::Arc::clone(&pooled.fetching.in_flight),
                 ),
             ));

@@ -297,7 +297,7 @@ fn applying(fetched: &Fetched, operator: Option<&ProductToken>, url: &Url) -> Ap
             let rules: Vec<&Rule> = applying
                 .iter()
                 .filter_map(|at| file.groups().get(*at))
-                .flat_map(|group| group.rules())
+                .flat_map(robots_txt::Group::rules)
                 .collect();
             let crawl_delay = applying
                 .iter()

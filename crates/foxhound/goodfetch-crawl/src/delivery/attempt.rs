@@ -21,7 +21,6 @@
 //! read here and applied by the gate of #883.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use std::collections::BTreeSet;
 
@@ -147,7 +146,6 @@ impl Gating {
                 run: run.clone(),
                 request_id: leased.crawl_request.id.clone(),
                 in_flight: Arc::clone(in_flight),
-                waits: Arc::default(),
             }),
         })
     }
@@ -163,8 +161,6 @@ struct HandlerLease {
     run: Run,
     request_id: String,
     in_flight: SharedInFlight,
-    /// How many of its pages' waits are under way.
-    waits: Arc<AtomicUsize>,
 }
 
 /// How often a permit's wait renews its lease, as a share of its length.
@@ -182,14 +178,13 @@ impl LeaseCheck for HandlerLease {
     fn permit_wait(&self, _url: &str) -> PermitWait {
         let (stop, mut stopped) = oneshot::channel::<()>();
         let waiting = self.clone();
-        self.waits.fetch_add(1, Ordering::SeqCst);
         self.run.spawn(async move {
             let id = &waiting.request_id;
-            waiting.in_flight.lock().await.went_on(
-                &waiting.run,
-                id,
-                InFlightPhase::WaitingForPermit,
-            );
+            waiting
+                .in_flight
+                .lock()
+                .await
+                .permit_wait_began(&waiting.run, id);
             let (length, clock) = (waiting.lease.length(), waiting.run.clock());
             loop {
                 waiting.lease.renew(length);
@@ -200,13 +195,11 @@ impl LeaseCheck for HandlerLease {
             }
             // The handler's timeout runs again from the wait's end.
             waiting.lease.renew(length);
-            if waiting.waits.fetch_sub(1, Ordering::SeqCst) == 1 {
-                waiting
-                    .in_flight
-                    .lock()
-                    .await
-                    .went_on(&waiting.run, id, InFlightPhase::Handling);
-            }
+            waiting
+                .in_flight
+                .lock()
+                .await
+                .permit_wait_ended(&waiting.run, id);
         });
         PermitWait::holding(stop)
     }
@@ -291,8 +284,7 @@ pub(super) async fn attempt(
     client: Client,
     (leased, session, counted): (Leased, ServingSession, Counted),
     lease: WorkItemLease,
-    fetching: Option<DocumentFetch>,
-    gating: Gating,
+    (fetching, gating): (Option<DocumentFetch>, Gating),
     in_flight: SharedInFlight,
 ) -> Attempt {
     let fetched = match &fetching {

@@ -7,8 +7,10 @@
 //! that select by CSS, by their text (`:has-text`, `:min-text-length`) and
 //! by an ancestor (`:upward`); the rest are left out. The caller learns
 //! what went, each element with its rule, its text and the links inside it,
-//! which area 6's trap-link judgement leaves out (ADR 0035). A removal
-//! over a fifth of the main content's text is flagged ([`Share`]).
+//! which area 6's trap-link judgement leaves out (ADR 0035). The prompts
+//! the Consent prompt runner hid go the same way, by the selectors of its
+//! rules ([`remove_selected`], ADR 0048). A removal over a fifth of the
+//! main content's text is flagged ([`Share`]).
 
 use std::collections::BTreeSet;
 
@@ -43,8 +45,9 @@ pub struct Removal {
 pub struct Removed {
     /// The rule that matched it: its selector, or a procedural rule's text.
     pub rule: String,
-    /// The list the rule comes from.
-    pub list: List,
+    /// The list the rule comes from; none for a rule the Consent prompt
+    /// runner hid a prompt with.
+    pub list: Option<List>,
     /// Whether it sat in a shadow root.
     pub in_shadow_root: bool,
     /// Its text, white space aside, in characters.
@@ -153,7 +156,7 @@ pub fn remove(html: &str, url: &str, lists: &FilterLists, choices: &Choices) -> 
             }
             removed.push(Removed {
                 rule: rule.to_owned(),
-                list,
+                list: Some(list),
                 in_shadow_root: index > 0,
                 text: visible_length(&node.text()),
                 links: links(&node),
@@ -169,6 +172,62 @@ pub fn remove(html: &str, url: &str, lists: &FilterLists, choices: &Choices) -> 
         html: document.html().to_string(),
         removed_text: removed.iter().map(|element| element.text).sum(),
         removed,
+    }
+}
+
+/// `removal` with every element `selectors` match removed too, in the
+/// document and its shadow roots: the selectors of the rules the Consent
+/// prompt runner hid prompts with, each element recorded with no list. A
+/// selector that does not parse is left out.
+pub fn remove_selected(removal: Removal, selectors: &[String]) -> Removal {
+    let matchers: Vec<(&str, Matcher)> = selectors
+        .iter()
+        .filter_map(|selector| Some((selector.as_str(), Matcher::new(selector).ok()?)))
+        .collect();
+    if matchers.is_empty() {
+        return removal;
+    }
+    let Removal {
+        html,
+        mut removed,
+        mut removed_text,
+    } = removal;
+    let document = Document::from(html.as_str());
+    let roots = roots(&document);
+    let mut gone = BTreeSet::new();
+    let mut took = false;
+    for (index, (root, host)) in roots.iter().enumerate() {
+        if host.is_some_and(|host| gone_with_an_ancestor(&host, &gone)) {
+            continue;
+        }
+        for (selector, matcher) in &matchers {
+            for node in Selection::from(*root).select_matcher(matcher).nodes() {
+                if gone_with_an_ancestor(node, &gone) {
+                    continue;
+                }
+                let text = visible_length(&node.text());
+                removed.push(Removed {
+                    rule: (*selector).to_owned(),
+                    list: None,
+                    in_shadow_root: index > 0,
+                    text,
+                    links: links(node),
+                });
+                removed_text += text;
+                gone.insert(node.id);
+                node.remove_from_parent();
+                took = true;
+            }
+        }
+    }
+    Removal {
+        html: if took {
+            document.html().to_string()
+        } else {
+            html
+        },
+        removed,
+        removed_text,
     }
 }
 

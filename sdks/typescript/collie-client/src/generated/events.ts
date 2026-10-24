@@ -75,7 +75,7 @@ export interface CollieEventPayloads {
    */
   "page.page_error": WebError;
   /**
-   * The page opened a popup, `window.open()` or a link to a new tab: a page of the same Session, already under its routes and its interception, published before the popup's first request leaves. Published while `page.on` listens to `popup`.
+   * The page opened a popup, `window.open()` or a link opening another window: a page of the same Session, already under its routes and its interception, published before the popup's first request leaves. Published while `page.on` listens to `popup`.
    *
    * @experimental
    */

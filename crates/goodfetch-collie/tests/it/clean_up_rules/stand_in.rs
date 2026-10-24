@@ -1,7 +1,8 @@
 //! A local HTTPS stand-in for the Clean-up rules' sources: the daily
 //! channel's OCI registry and the Filter lists' authors. It answers fixed
 //! files by path, on loopback, under a certificate its own authority signs
-//! for every host it stands in for, and records the path of each request.
+//! for every host it stands in for, and records the path of each request;
+//! a path it stalls on is read and never answered while the test lasts.
 //! Its listener runs on a thread of the test, outside any engine.
 
 use std::collections::BTreeMap;
@@ -17,10 +18,15 @@ use sha2::{Digest as _, Sha256};
 /// The daily channel's repository on the stand-in registry.
 const REPOSITORY: &str = "goodfetch/clean-up-rules";
 
-/// The answers by path, and the paths asked for, in order.
+/// How long a stalled answer waits: longer than any test that stalls.
+const STALL: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// The answers by path, the paths it stalls on, and the paths asked for,
+/// in order.
 #[derive(Default)]
 struct Served {
     files: BTreeMap<String, Vec<u8>>,
+    stalled: Vec<String>,
     asked: Vec<String>,
 }
 
@@ -70,7 +76,8 @@ impl StandIn {
         let serving = Arc::clone(&served);
         std::thread::spawn(move || {
             for stream in listener.incoming().map_while(Result::ok) {
-                answer(stream, &config, &serving);
+                let (config, serving) = (Arc::clone(&config), Arc::clone(&serving));
+                std::thread::spawn(move || answer(stream, &config, &serving));
             }
         });
         Self {
@@ -97,6 +104,16 @@ impl StandIn {
             .unwrap()
             .files
             .insert(path.to_owned(), body);
+    }
+
+    /// What it serves at `path`, if anything.
+    pub(crate) fn served(&self, path: &str) -> Option<Vec<u8>> {
+        self.served.lock().unwrap().files.get(path).cloned()
+    }
+
+    /// Reads each request for `path` from now on, and never answers it.
+    pub(crate) fn stall(&self, path: &str) {
+        self.served.lock().unwrap().stalled.push(path.to_owned());
     }
 
     /// The paths asked for so far, in order.
@@ -158,11 +175,18 @@ fn answer(stream: TcpStream, config: &Arc<rustls::ServerConfig>, served: &Mutex<
     let Some(path) = requested_path(&mut BufReader::new(&mut tls)) else {
         return;
     };
-    let body = {
+    let (body, stalled) = {
         let mut served = served.lock().unwrap();
         served.asked.push(path.clone());
-        served.files.get(&path).cloned()
+        (
+            served.files.get(&path).cloned(),
+            served.stalled.contains(&path),
+        )
     };
+    if stalled {
+        std::thread::sleep(STALL);
+        return;
+    }
     let (status, body) = match body {
         Some(body) => ("200 OK", body),
         None => ("404 Not Found", Vec::new()),

@@ -36,6 +36,10 @@ use crate::protocol::target::EngineTarget;
 /// The host the pages are served on.
 pub(super) const HOST: &str = "clean-up.test";
 
+/// The host of `/cross-site`'s frame, another site, which the browser loads
+/// in a process of its own.
+pub(super) const FRAME_HOST: &str = "clean-up-frame.test";
+
 /// The browser's network error for a request a blocker failed.
 const BLOCKED_BY_CLIENT: &str = "net::ERR_BLOCKED_BY_CLIENT";
 
@@ -66,6 +70,7 @@ pub(crate) enum Case {
     StandIn,
     BlockResources,
     RouteSendsOn,
+    CrossSiteFrame,
     HiddenTextRemoved,
     HidingSheetUnseen,
     HiddenTargetLifted,
@@ -91,6 +96,9 @@ impl Case {
                 Self::BlockResources
             }
             "a-request-a-route-sends-on-passes-the-filter-lists" => Self::RouteSendsOn,
+            "requests-of-another-sites-frame-pass-the-filter-lists-and-block-resources" => {
+                Self::CrossSiteFrame
+            }
             "hidden-text-is-absent-from-extracted-output-in-shadow-roots-too-and-a-large-removal-is-flagged" => {
                 Self::HiddenTextRemoved
             }
@@ -119,6 +127,7 @@ impl Case {
             Self::StandIn => stand_in(connection, site, checks),
             Self::BlockResources => block_resources(connection, site, checks),
             Self::RouteSendsOn => route_sends_on(connection, site, checks),
+            Self::CrossSiteFrame => cross_site_frame(connection, site, checks),
             Self::HiddenTextRemoved => hidden_text_removed(connection, target, site, checks),
             Self::HidingSheetUnseen => hiding_sheet_unseen(connection, target, site, checks),
             Self::HiddenTargetLifted => hidden_target_lifted(connection, target, site, checks),
@@ -442,6 +451,77 @@ fn block_resources(
         answer["error"]["data"]["code"] == json!(SETTING_INVALID.name),
     );
     Ok(())
+}
+
+/// How many requests for `target` on `/cross-site`'s frame's host the
+/// Proving ground received.
+fn received_in_frame(site: &Site, target: &str) -> usize {
+    site.proving_ground
+        .observations()
+        .ok()
+        .and_then(|observations| observations["requests"].as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter(|request| {
+            request["host"] == json!(FRAME_HOST) && request["target"] == json!(target)
+        })
+        .count()
+}
+
+/// The requests of another site's frame, which the browser loads in a
+/// process of its own, pass the interception as the page's do: its own
+/// script and photo load and its ad and tracker do not; under
+/// `browser.block_resources: ["image"]` its photo does not load either.
+fn cross_site_frame(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let frame = |site: &Site| {
+        ["/framed", "/js/site.js", "/img/photo.gif", AD, TRACKER]
+            .map(|target| received_in_frame(site, target))
+    };
+    let run_id = "conformance-clean-up-cross-site-frame";
+    let Some(page) = open(connection, site, run_id, &json!({}), checks)? else {
+        return finish(connection, run_id).map(drop);
+    };
+    let before = frame(site);
+    let (url, answer) = visit(connection, site, &page, "/cross-site")?;
+    answered(&answer, "the `goto` to the framing page", &url, 200, checks);
+    let after = frame(site);
+    checks.check(
+        "the frame's document, own script and photo reached the Proving ground",
+        after[..3]
+            .iter()
+            .zip(&before[..3])
+            .all(|(after, before)| *after == before + 1),
+    );
+    checks.check(
+        "neither the frame's ad nor its tracker reached the Proving ground",
+        after[3..] == before[3..],
+    );
+    finish(connection, run_id)?;
+
+    let run_id = "conformance-clean-up-cross-site-frame-images";
+    let settings = json!({ "browser": { "block_resources": ["image"] } });
+    let Some(page) = open(connection, site, run_id, &settings, checks)? else {
+        return finish(connection, run_id).map(drop);
+    };
+    let before = frame(site);
+    let (url, answer) = visit(connection, site, &page, "/cross-site")?;
+    answered(
+        &answer,
+        "the `goto` to the framing page under `browser.block_resources`",
+        &url,
+        200,
+        checks,
+    );
+    let after = frame(site);
+    checks.check(
+        "under `browser.block_resources: [\"image\"]` the frame's script loaded and its photo did not",
+        after[1] == before[1] + 1 && after[2] == before[2],
+    );
+    finish(connection, run_id).map(drop)
 }
 
 /// A route that sends the `/ads` page's own script on as its tracker's URL

@@ -5428,6 +5428,17 @@
       ]
     },
     {
+      "id": "setting:clean_up.fetch_timeout",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:clean_up.lists",
       "kind": "setting",
       "area": 5,

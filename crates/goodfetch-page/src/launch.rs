@@ -25,9 +25,7 @@ use goodfetch_engine::browser_cache::{
 use goodfetch_engine::children::Children;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::Policy;
-use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::home::Home;
-use goodfetch_engine::http_client::Resolve;
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::runs::Run;
@@ -35,7 +33,6 @@ use goodfetch_engine::settings::RunSettings;
 use goodfetch_protocol::browser_cache::{
     BROWSER_NOT_INSTALLED, BrowserNotInstalledDetails, MissingBrowser,
 };
-use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::page::{
     BROWSER_HEADLESS, BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails,
 };
@@ -82,25 +79,10 @@ fn executable_in(files: &Path, platform: BuildPlatform) -> Option<PathBuf> {
 
 /// What a download of a missing build may do under the Run's settings.
 fn fetching(run: &Run) -> Fetching {
-    let Some(settings) = run.settings().map(RunSettings::resolved) else {
-        return Fetching::new(run.clock());
-    };
-    let offline = settings
-        .get(EGRESS_OFFLINE.name)
-        .filter(|offline| offline.value == serde_json::Value::Bool(true))
-        .map(|offline| offline.layer);
-    let resolve = settings
-        .hosts(NETWORK_RESOLVE.name)
-        .into_iter()
-        .fold(Resolve::new(), |mapping, (host, addresses)| {
-            mapping.with(host, addresses)
-        });
-    Fetching {
-        offline,
-        resolve,
-        delays: Delays::of(settings),
-        ..Fetching::new(run.clock())
-    }
+    run.settings().map_or_else(
+        || Fetching::new(run.clock()),
+        |settings| Fetching::of(settings.resolved(), run.clock()),
+    )
 }
 
 /// The browser's executable, the build it holds while it runs, and its

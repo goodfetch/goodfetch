@@ -16,6 +16,11 @@ pub(crate) const START: &str = "function start({ binding, answering }) { const r
 /// Gives the runner the engine's answer to one of its requests.
 pub(crate) const ANSWER: &str = "function answer({ id, value }) { return globalThis[Symbol.for(\"goodfetch.consent\")]?.answer(id, value) ?? false; }";
 
+/// Where the document's first detection pass stands: `settled` once it
+/// ended, `detecting` while it acts on a prompt or the page shows one a rule
+/// or the heuristics would detect, `none` otherwise.
+pub(crate) const DETECTING: &str = "function detecting() { return globalThis[Symbol.for(\"goodfetch.consent\")]?.detecting() ?? \"none\"; }";
+
 /// Starts the runner's detection again, on a route change of a single-page
 /// app.
 pub(crate) const RESTART: &str = "function restart() { return globalThis[Symbol.for(\"goodfetch.consent\")]?.restart() ?? \"absent\"; }";
@@ -60,6 +65,11 @@ pub(crate) enum Message {
     },
     /// What the runner did with a prompt.
     Outcome(Outcome),
+    /// The document's first detection pass found a prompt: a vendor's, a
+    /// pre-hide rule's or one the heuristics know.
+    Detected,
+    /// The document's first detection pass and wall test ended.
+    Settled,
 }
 
 /// What makes a prompt with no refusal a consent wall (ADR 0048).

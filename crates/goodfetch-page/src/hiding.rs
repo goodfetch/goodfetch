@@ -10,6 +10,10 @@
 //! finds an action's target not visible because a rule hid it, that rule
 //! is lifted for the whole Session, its pages' sheets are written again
 //! without it, and Provenance records it; this is never Drift (ADR 0009).
+//! In each new document the rules wait until the Consent prompt runner's
+//! first detection pass and wall test there ended, so no cosmetic rule
+//! hides a consent wall before it is judged (ADR 0048), or at most
+//! [`RUNNER_WAIT`] for a document the runner never settles in.
 //!
 //! `live_view.hiding` chooses: `auto`, the default, and `always` hide (on
 //! Firefox and `WebKit`, where any hiding is visible, `auto` will hide only
@@ -46,6 +50,11 @@ const COLLECT: &str = include_str!("hiding/collect.js");
 
 /// The read of which rules hide a target.
 const HIDDEN_BY: &str = include_str!("hiding/hidden_by.js");
+
+/// The longest live hiding waits in a new document for the Consent prompt
+/// runner's first pass to end: past autoconsent's own 3 s fallback to the
+/// heuristics and their wall test.
+const RUNNER_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// What `live_view.hiding` chooses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -196,6 +205,21 @@ async fn follow(mut events: Subscription, page: Arc<PageHiding>) {
                 &navigated.frame.id,
                 &navigated.frame.loader_id,
             );
+            let waited = Arc::clone(&page);
+            let (frame, loader) = (
+                navigated.frame.id.clone(),
+                navigated.frame.loader_id.clone(),
+            );
+            page.run.spawn(async move {
+                waited.run.clock().sleep(RUNNER_WAIT).await;
+                let released = waited
+                    .sheets
+                    .release(waited.driver.session(), &frame, Some(&loader))
+                    .await;
+                if let Err(failure) = released {
+                    tracing::debug!(%failure, "a document's live hiding did not start: its document went");
+                }
+            });
             navigated.frame.id
         } else if let Some(reached) = event.read::<page::LifecycleEventEvent>()
             && matches!(reached.name.as_str(), "DOMContentLoaded" | "load")

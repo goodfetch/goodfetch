@@ -2562,6 +2562,12 @@ class WaitForExchangeParams(BaseModel):
     )
     page_id: PageId
     """The page."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
     url: UrlMatcher | None = None
     """The URLs it waits for."""
 
@@ -2576,6 +2582,12 @@ class WaitForLoadStateParams(BaseModel):
     """The page."""
     state: LoadState | None = None
     """The state; `load` when absent."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
 
 
 class WaitForRequestFinishedParams(BaseModel):
@@ -2589,6 +2601,12 @@ class WaitForRequestFinishedParams(BaseModel):
     )
     page_id: PageId
     """The page."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
     url: UrlMatcher | None = None
     """The URLs it waits for."""
 
@@ -2604,6 +2622,12 @@ class WaitForUrlParams(BaseModel):
     )
     page_id: PageId
     """The page."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
     url: UrlMatcher
     """The URL it waits for."""
     wait_until: LoadState | None = None
@@ -3524,6 +3548,12 @@ class LocatorWaitForParams(BaseModel):
     """The locator."""
     state: ElementState | None = None
     """The state; `visible` when absent."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
 
 
 class LogEvent(BaseModel):
@@ -4423,6 +4453,12 @@ class WaitForCountParams(BaseModel):
     """The count."""
     locator: Locator
     """The locator."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
 
 
 class WaitForFunctionParams(BaseModel):
@@ -4447,6 +4483,12 @@ class WaitForFunctionParams(BaseModel):
     """
     The milliseconds between two checks, at least 1; absent, about one
     frame's, 16.
+    """
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
     """
     world: World | None = None
     """Where it runs; the main world when absent."""

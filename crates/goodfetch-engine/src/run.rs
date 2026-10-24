@@ -231,6 +231,7 @@ pub fn start_error(error: StartError) -> CallError {
         StartError::ResourcesExhausted(exhausted) => storage_exhausted(&exhausted),
         StartError::Secret(error) => secret_error(&error),
         StartError::Stopped => stopped(),
+        StartError::Refused(refused) => *refused,
     }
 }
 

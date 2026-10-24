@@ -370,6 +370,7 @@ fn the_committed_table_covers_the_committed_iana_registries() {
 #[case::lent_page_client(Family::LentPageClient)]
 #[case::operator_endpoint(Family::OperatorEndpoint)]
 #[case::domain_policy(Family::DomainPolicy)]
+#[case::borrowed_browser(Family::BorrowedBrowser)]
 fn the_committed_table_has_cases_of_every_family(#[case] family: Family) {
     let table = SsrfTable::committed().unwrap();
 

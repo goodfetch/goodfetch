@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 
 use goodfetch_cdp::SessionId as TargetSession;
+use goodfetch_cdp::generated::network::LoaderId;
 use goodfetch_cdp::generated::page::FrameId;
 use goodfetch_cdp::generated::runtime::ExecutionContextId;
 
@@ -30,6 +31,8 @@ pub(super) struct Frames {
     parents: BTreeMap<TargetSession, TargetSession>,
     /// Each frame's guard world in its current document.
     contexts: BTreeMap<(TargetSession, FrameId), ExecutionContextId>,
+    /// The browser's ID of each frame's current document's load.
+    loaders: BTreeMap<(TargetSession, FrameId), LoaderId>,
 }
 
 impl Frames {
@@ -40,6 +43,7 @@ impl Frames {
             mains: BTreeMap::from([(page, main)]),
             parents: BTreeMap::new(),
             contexts: BTreeMap::new(),
+            loaders: BTreeMap::new(),
         }
     }
 
@@ -50,15 +54,23 @@ impl Frames {
         self.parents.insert(child.clone(), parent.clone());
     }
 
-    /// `frame` of `session` holds a new document, whose guard world is
-    /// `context`.
+    /// `frame` of `session` holds a new document, the load `loader`, whose
+    /// guard world is `context`.
     pub(super) fn document(
         &mut self,
         session: &TargetSession,
         frame: FrameId,
         context: ExecutionContextId,
+        loader: LoaderId,
     ) {
-        self.contexts.insert((session.clone(), frame), context);
+        self.contexts
+            .insert((session.clone(), frame.clone()), context);
+        self.loaders.insert((session.clone(), frame), loader);
+    }
+
+    /// The browser's ID of the load of `frame`'s current document.
+    pub(super) fn loader(&self, session: &TargetSession, frame: &FrameId) -> Option<LoaderId> {
+        self.loaders.get(&(session.clone(), frame.clone())).cloned()
     }
 
     /// The guard's world in `frame`'s current document.
@@ -93,11 +105,13 @@ impl Frames {
         self.mains.remove(session);
         self.parents.remove(session);
         self.contexts.retain(|(owner, _), _| owner != session);
+        self.loaders.retain(|(owner, _), _| owner != session);
     }
 
     /// `frame` of `session` detached.
     pub(super) fn forget_frame(&mut self, session: &TargetSession, frame: &FrameId) {
         self.contexts.remove(&(session.clone(), frame.clone()));
+        self.loaders.remove(&(session.clone(), frame.clone()));
     }
 
     /// The owners between `frame` and the page, innermost first: each

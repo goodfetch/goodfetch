@@ -499,6 +499,13 @@ number = 4
 kind = "error"
 prefix = "egress_"
 
+# Area 4's `cdp_url` address rule (#633); the other `cdp_url_` codes, the
+# probe's, are area 5's (ADR 0115).
+[[area]]
+number = 4
+kind = "error"
+prefix = "cdp_url_not_allowed"
+
 # Area 4's certificate verification (#625): the Error codes a certificate
 # fails with.
 [[area]]

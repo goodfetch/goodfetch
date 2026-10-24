@@ -381,7 +381,7 @@ fn a_value_outside_a_recipes_bounds_names_the_bounds_as_its_limit() {
 
 /// The keys a Recipe and the run only narrow, or never set (spec #213's
 /// story 90): each refused when it widens or sets what is reserved.
-/// Covers: story:3-90, setting:paid_fetch.domains, setting:paid_fetch.max_price_per_page, setting:consent.domains, setting:wall.domains, setting:wall.refetch_domains, setting:wall.denied_domains, setting:tls.trusted_cas, setting:tls.accept_invalid_certs, setting:paid_fetch.exchange_rates, setting:paid_fetch.chain_rpc_endpoints
+/// Covers: story:3-90, story:5-101, setting:paid_fetch.domains, setting:paid_fetch.max_price_per_page, setting:consent.domains, setting:wall.domains, setting:wall.refetch_domains, setting:wall.denied_domains, setting:tls.trusted_cas, setting:tls.accept_invalid_certs, setting:paid_fetch.exchange_rates, setting:paid_fetch.chain_rpc_endpoints
 #[rstest]
 #[case::paid_fetch_domains_widened_by_the_run(
     "paid_fetch.domains", json!(["shop.example"]), SettingsLayer::Run, json!(["shop.example", "other.example"])
@@ -394,6 +394,9 @@ fn a_value_outside_a_recipes_bounds_names_the_bounds_as_its_limit() {
 )]
 #[case::consent_domains_widened_by_the_run(
     "consent.domains", json!(["news.example"]), SettingsLayer::Run, json!(["news.example", "blog.example"])
+)]
+#[case::consent_domains_widened_by_a_recipe(
+    "consent.domains", json!(["news.example"]), SettingsLayer::Recipe, json!(["blog.example"])
 )]
 #[case::wall_domains_widened_by_the_run(
     "wall.domains", json!(["paper.example"]), SettingsLayer::Run, json!(["other.example"])

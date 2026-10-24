@@ -45,7 +45,10 @@ use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
 use tokio::sync::{Mutex, OnceCell};
 
-use crate::driver::{Carried, LocalBrowser, Origins, PageDriver, SessionDriver};
+use crate::borrowed::CdpUrl;
+use crate::driver::{
+    Behind, BorrowedBrowser, Carried, LocalBrowser, Origins, PageDriver, SessionDriver,
+};
 use crate::proxy::SessionProxy;
 use crate::trace::CommandLog;
 pub(crate) use rules::Placement;
@@ -170,6 +173,27 @@ impl Pool {
     /// one, in every browser it is seated in, placed under `placement` on
     /// its first use.
     pub(crate) fn seat(&self, placement: Placement, proxy: Option<Arc<SessionProxy>>) -> Seat {
+        self.seat_of(placement, proxy, None)
+    }
+
+    /// A seat for a Session on the Borrowed browser at `cdp_url`, which
+    /// never enters the pool: it is neither recycled, nor counted, nor
+    /// closed (ADR 0056).
+    pub(crate) fn borrowed_seat(&self, cdp_url: CdpUrl) -> Seat {
+        let browser = BorrowedBrowser::new(
+            self.shared.run.clone(),
+            cdp_url,
+            Arc::clone(&self.shared.log),
+        );
+        self.seat_of(Placement::Shared, None, Some(Arc::new(browser)))
+    }
+
+    fn seat_of(
+        &self,
+        placement: Placement,
+        proxy: Option<Arc<SessionProxy>>,
+        borrowed: Option<Arc<BorrowedBrowser>>,
+    ) -> Seat {
         let number = {
             let mut browsers = lock(&self.shared.browsers);
             browsers.seats += 1;
@@ -181,6 +205,7 @@ impl Pool {
                 number,
                 placement,
                 proxy,
+                borrowed,
                 origins: Origins::default(),
                 place: Mutex::new(Place::default()),
             }),
@@ -578,12 +603,18 @@ struct SeatShared {
     placement: Placement,
     /// The Session's one proxy, which it keeps in every browser (SA-22).
     proxy: Option<Arc<SessionProxy>>,
+    /// The Borrowed browser it is seated in for good, outside the pool.
+    borrowed: Option<Arc<BorrowedBrowser>>,
     origins: Origins,
     place: Mutex<Place>,
 }
 
 /// The Session's driver in one browser.
-type Driver = Arc<SessionDriver<Arc<LocalBrowser>>>;
+type Driver = Arc<SessionDriver<Behind>>;
+
+/// The number a Borrowed browser goes by, which no browser of the pool
+/// takes: the pool counts nothing under it.
+const BORROWED: u64 = 0;
 
 #[derive(Default)]
 struct Place {
@@ -615,7 +646,7 @@ impl Seat {
         let mut place = self.shared.place.lock().await;
         let (number, driver, opening) = loop {
             let (number, driver, opening) = self.shared.seated(&mut place).await?;
-            if !self.shared.pool.recycled(number).await {
+            if self.shared.borrowed.is_some() || !self.shared.pool.recycled(number).await {
                 break (number, driver, opening);
             }
             drop(opening);
@@ -684,8 +715,20 @@ impl SeatShared {
         if let Some((number, driver)) = &place.at {
             return Ok((*number, Arc::clone(driver), self.pool.opening(*number)));
         }
+        if let Some(borrowed) = &self.borrowed {
+            let driver = Arc::new(SessionDriver::new(
+                Behind::Borrowed(Arc::clone(borrowed)),
+                None,
+            ));
+            driver.open().await?;
+            place.at = Some((BORROWED, Arc::clone(&driver)));
+            return Ok((BORROWED, driver, self.pool.opening(BORROWED)));
+        }
         let (number, browser, opening) = self.pool.place(self);
-        let driver = Arc::new(SessionDriver::new(browser, self.proxy.clone()));
+        let driver = Arc::new(SessionDriver::new(
+            Behind::Launched(browser),
+            self.proxy.clone(),
+        ));
         let opened = match driver.open().await {
             Ok(()) => driver.restore(&place.carried).await,
             Err(error) => Err(error),

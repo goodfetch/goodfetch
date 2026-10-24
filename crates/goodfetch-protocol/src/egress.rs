@@ -10,6 +10,11 @@
 //! [`ConfiguredKind`] classed by [`CONFIGURED_KINDS`], which
 //! `egress.no_private_endpoints`, set in the Operator policy alone, holds
 //! to globally reachable addresses.
+//!
+//! A `cdp_url` Session source's address is judged by ADR 0056's address
+//! rules before any connection, and one they refuse raises
+//! `cdp_url_not_allowed` (ADR 0115), naming the rule, the address and the
+//! settings layer that gave it.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -273,13 +278,60 @@ pub struct EgressRefusedDetails {
     pub setting: Option<String>,
 }
 
+/// A `cdp_url` whose address ADR 0056's rules refuse (ADR 0115).
+pub const CDP_URL_NOT_ALLOWED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "cdp_url_not_allowed",
+    description: "A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user or project configuration, or give a public address.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The rule of ADR 0056's that refused a `cdp_url`'s address.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CdpUrlRule {
+    /// Loopback, from a value that may not use it: a Client acting for a
+    /// model's or a Recipe's.
+    Loopback,
+    /// An address that is not globally reachable, from a value that is not
+    /// Operator-configured, or under `egress.no_private_endpoints`.
+    PrivateAddress,
+}
+
+/// What `cdp_url_not_allowed` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CdpUrlNotAllowedDetails {
+    /// The `cdp_url`, without its query string or any credentials in it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// The settings layer that gave it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub layer: SettingsLayer,
+    /// The rule that refused it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub rule: CdpUrlRule,
+    /// The address it resolved to that the rule refused.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub address: String,
+    /// The setting that refused it, or whose value would allow it, when one
+    /// does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub setting: Option<String>,
+    /// What would allow it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[],
     events: &[],
     handler_requests: &[],
-    error_codes: &[EGRESS_REFUSED],
+    error_codes: &[EGRESS_REFUSED, CDP_URL_NOT_ALLOWED],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[

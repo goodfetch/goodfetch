@@ -881,6 +881,53 @@ class ModelUsage(BaseModel):
     """The tokens, input and output."""
 
 
+class NeedsYouDismissParams(BaseModel):
+    """What `needs_you.dismiss` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    item: str
+    """The item's ID."""
+
+
+class NeedsYouDismissed(BaseModel):
+    """What `needs_you.dismiss` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    dismissed: bool
+    """
+    Whether it hid the item: false when the list no longer holds it, or
+    its source does not let a person dismiss it.
+    """
+
+
+class NeedsYouListParams(BaseModel):
+    """What `needs_you.list` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: str | None = None
+    """The `next` of the page read before: the list goes on after it."""
+    kinds: list[str] | None = None
+    """Only the items of these kinds; every kind when absent."""
+
+
+class NeedsYouRemoval(StrEnum):
+    """Why an item left the list."""
+
+    resolved = "resolved"
+    """
+    What waited is resolved: by a person, here or elsewhere, or by its
+    Run.
+    """
+    dismissed = "dismissed"
+    """A person dismissed it."""
+
+
 class NotAddedReason(StrEnum):
     """Why the Frontier did not add a request (ADRs 0093 and 0120)."""
 
@@ -3239,6 +3286,79 @@ class Navigated(BaseModel):
     """The document's response."""
 
 
+class NeedsYouChange2(BaseModel):
+    """An item left the list."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    change: Literal["removed"]
+    id: str
+    """The item's ID."""
+    reason: NeedsYouRemoval
+    """Why."""
+
+
+class NeedsYouItem(BaseModel):
+    """One thing waiting for a person."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    actions: list[str]
+    """
+    The catalog operations a person may answer it with, such as
+    `needs_you.dismiss`; empty when only something outside the engine,
+    such as freeing space, resolves it.
+    """
+    details: dict[str, Any] | None = None
+    """
+    Its kind's own fields, which the kind's value in the catalog names:
+    for `storage_level`, `level` and `folder`; for
+    `run_stopped_by_storage`, `folder`.
+    """
+    id: str
+    """
+    Its ID, which names this one occurrence for good: a Run stopped
+    again by storage after a resume is another item.
+    """
+    kind: str
+    """
+    What it is, a value of a type both Products share, such as
+    `storage_level`; a Client shows a kind it does not know by its
+    summary.
+    """
+    run: RunId | None = None
+    """The Run it is about, if any."""
+    schedule: str | None = None
+    """The Schedule it is about, if any."""
+    since: PointInTime
+    """Since when it waits."""
+    summary: str
+    """
+    What waits, in the engine's English, which a Client shows for a kind
+    it has no words of its own for.
+    """
+
+
+class NeedsYouList(BaseModel):
+    """
+    What `needs_you.list` answers: one page of the items, the longest
+    waiting first.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    items: list[NeedsYouItem]
+    """The items, by `since`, then by ID."""
+    next: str | None = None
+    """
+    Where the next page starts, as the next call's `after`; absent on
+    the last page.
+    """
+
+
 class NewPageParams(BaseModel):
     """What `run.new_page` takes: the Run whose default Session opens the page."""
 
@@ -4145,6 +4265,22 @@ class LimitUsage(BaseModel):
     """What the engine that read it makes of it."""
 
 
+class NeedsYouChange1(BaseModel):
+    """An item appeared, or changed: it as it is now."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    change: Literal["listed"]
+    item: NeedsYouItem
+    """The item."""
+
+
+class NeedsYouChange(RootModel[NeedsYouChange1 | NeedsYouChange2]):
+    root: NeedsYouChange1 | NeedsYouChange2
+    """What `needs_you.changed` carries: one change of the list."""
+
+
 class NewSessionParams(BaseModel):
     """
     What `run.new_session` takes: the Run whose Session it opens, the
@@ -4218,6 +4354,8 @@ class Resync(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    needs_you: list[NeedsYouItem]
+    """Every item of "Needs you", by `since`, then by ID."""
     runs: list[RunAxes]
     """The axes of each Run the engine knows, live or ended."""
 

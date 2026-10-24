@@ -884,10 +884,22 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, from which the stream continues.",
+      "description": "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, every Run's axes and every item of \"Needs you\", from which the stream continues.",
       "name": "events.resync",
       "payload": {
         "$ref": "#/$defs/Resync"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "An item of \"Needs you\" appeared, changed or left the list: resolved, by a person or by its Run, or dismissed. Lossless: a subscription that falls behind next takes `events.resync`, which holds every item.",
+      "name": "needs_you.changed",
+      "payload": {
+        "$ref": "#/$defs/NeedsYouChange"
       },
       "product": "collie",
       "stability": "experimental"
@@ -1910,6 +1922,7 @@
       "events": [
         "events.resync",
         "run.axes_changed",
+        "needs_you.changed",
         "engine.system_info"
       ],
       "kind": "sequence",
@@ -2130,6 +2143,46 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/Counted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Hides an item of \"Needs you\" whose source lets a person dismiss it, for every Client, and answers whether it did; an item the list no longer holds, or one only resolving it removes, stays as it is. The item leaves the list with `needs_you.changed`.",
+      "events": [
+        "needs_you.changed"
+      ],
+      "kind": "round_trip",
+      "name": "needs_you.dismiss",
+      "params": {
+        "$ref": "#/$defs/NeedsYouDismissParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/NeedsYouDismissed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists what waits for a person across every Run in the Run index and the stores beside it, the longest waiting first, a page at a time: `after` takes the `next` of the page before. `kinds` keeps the items of those kinds. Each change after the answer arrives as `needs_you.changed` on the event stream.",
+      "events": [],
+      "kind": "query",
+      "name": "needs_you.list",
+      "params": {
+        "$ref": "#/$defs/NeedsYouListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/NeedsYouList"
       },
       "stability": "experimental"
     },
@@ -6367,6 +6420,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Run stopped by storage, resumable once space is freed by a start with its Run ID (ADR 0122); `details` give the `folder` whose filesystem filled. It leaves the list once the Run runs again, or when a person dismisses it.",
+      "name": "run_stopped_by_storage",
+      "product": "collie",
+      "type": "needs_you_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Pages the sample crawl visited.",
       "name": "sample_crawled_pages",
       "product": "foxhound",
@@ -6420,6 +6480,13 @@
       "name": "signed_in",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A filesystem a Run writes to is at the `low` or `critical` storage level (ADR 0122); `details` give its `level` and a `folder` on it. It leaves the list at the first sample that finds the space again.",
+      "name": "storage_level",
+      "product": "collie",
+      "type": "needs_you_kind"
     },
     {
       "arrived_in": "0.1",

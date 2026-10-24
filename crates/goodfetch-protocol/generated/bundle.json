@@ -5621,6 +5621,225 @@
       },
       "type": "object"
     },
+    "NeedsYouChange": {
+      "description": "What `needs_you.changed` carries: one change of the list.",
+      "oneOf": [
+        {
+          "description": "An item appeared, or changed: it as it is now.",
+          "properties": {
+            "change": {
+              "const": "listed",
+              "type": "string"
+            },
+            "item": {
+              "$ref": "#/$defs/NeedsYouItem",
+              "arrived_in": "0.1",
+              "description": "The item."
+            }
+          },
+          "required": [
+            "change",
+            "item"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An item left the list.",
+          "properties": {
+            "change": {
+              "const": "removed",
+              "type": "string"
+            },
+            "id": {
+              "arrived_in": "0.1",
+              "description": "The item's ID.",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/NeedsYouRemoval",
+              "arrived_in": "0.1",
+              "description": "Why."
+            }
+          },
+          "required": [
+            "change",
+            "id",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "NeedsYouDismissParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.dismiss` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "item": {
+          "arrived_in": "0.1",
+          "description": "The item's ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item"
+      ],
+      "type": "object"
+    },
+    "NeedsYouDismissed": {
+      "description": "What `needs_you.dismiss` answers.",
+      "properties": {
+        "dismissed": {
+          "arrived_in": "0.1",
+          "description": "Whether it hid the item: false when the list no longer holds it, or\nits source does not let a person dismiss it.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dismissed"
+      ],
+      "type": "object"
+    },
+    "NeedsYouItem": {
+      "description": "One thing waiting for a person.",
+      "properties": {
+        "actions": {
+          "arrived_in": "0.1",
+          "description": "The catalog operations a person may answer it with, such as\n`needs_you.dismiss`; empty when only something outside the engine,\nsuch as freeing space, resolves it.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "details": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`.",
+          "type": "object"
+        },
+        "id": {
+          "arrived_in": "0.1",
+          "description": "Its ID, which names this one occurrence for good: a Run stopped\nagain by storage after a resume is another item.",
+          "type": "string"
+        },
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "What it is, a value of a type both Products share, such as\n`storage_level`; a Client shows a kind it does not know by its\nsummary.",
+          "type": "string"
+        },
+        "run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run it is about, if any."
+        },
+        "schedule": {
+          "arrived_in": "0.1",
+          "description": "The Schedule it is about, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "since": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "Since when it waits."
+        },
+        "summary": {
+          "arrived_in": "0.1",
+          "description": "What waits, in the engine's English, which a Client shows for a kind\nit has no words of its own for.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "since",
+        "summary",
+        "actions"
+      ],
+      "type": "object"
+    },
+    "NeedsYouList": {
+      "description": "What `needs_you.list` answers: one page of the items, the longest\nwaiting first.",
+      "properties": {
+        "items": {
+          "arrived_in": "0.1",
+          "description": "The items, by `since`, then by ID.",
+          "items": {
+            "$ref": "#/$defs/NeedsYouItem"
+          },
+          "type": "array"
+        },
+        "next": {
+          "arrived_in": "0.1",
+          "description": "Where the next page starts, as the next call's `after`; absent on\nthe last page.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
+    "NeedsYouListParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.list` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "after": {
+          "arrived_in": "0.1",
+          "description": "The `next` of the page read before: the list goes on after it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kinds": {
+          "arrived_in": "0.1",
+          "description": "Only the items of these kinds; every kind when absent.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "NeedsYouRemoval": {
+      "description": "Why an item left the list.",
+      "oneOf": [
+        {
+          "const": "resolved",
+          "description": "What waited is resolved: by a person, here or elsewhere, or by its\nRun.",
+          "type": "string"
+        },
+        {
+          "const": "dismissed",
+          "description": "A person dismissed it.",
+          "type": "string"
+        }
+      ]
+    },
     "NewPageParams": {
       "additionalProperties": false,
       "description": "What `run.new_page` takes: the Run whose default Session opens the page.",
@@ -7618,6 +7837,14 @@
     "Resync": {
       "description": "What `events.resync` gives: the current state, from which the stream\ncontinues.",
       "properties": {
+        "needs_you": {
+          "arrived_in": "0.1",
+          "description": "Every item of \"Needs you\", by `since`, then by ID.",
+          "items": {
+            "$ref": "#/$defs/NeedsYouItem"
+          },
+          "type": "array"
+        },
         "runs": {
           "arrived_in": "0.1",
           "description": "The axes of each Run the engine knows, live or ended.",
@@ -7628,7 +7855,8 @@
         }
       },
       "required": [
-        "runs"
+        "runs",
+        "needs_you"
       ],
       "type": "object"
     },
@@ -8275,6 +8503,17 @@
         "started_at": {
           "$ref": "#/$defs/PointInTime",
           "description": "When it started."
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StopReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why it stopped, once it stopped: \"Needs you\" lists a Run stopped by\nstorage from it (ADR 0122)."
         },
         "tags": {
           "$ref": "#/$defs/Tags",

@@ -9,7 +9,8 @@
 //! subscription takes them in the order they were published, and one whose
 //! queue is full falls behind instead, its queued lossless events dropped,
 //! and next takes `events.resync`, the axes of every Run the stream has
-//! reported, then the stream (ADRs 0024 and 0031). A telemetry event
+//! reported and every item of "Needs you" it lists, then the stream (ADRs
+//! 0024 and 0031). A telemetry event
 //! (progress, logs) replaces the unsent one of the same kind and scope in
 //! each queue, which the one sent counts as `dropped`. A subscription that
 //! names the position its Client last read resumes after it from the kept
@@ -26,6 +27,7 @@ use goodfetch_protocol::catalog::{Event, EventClass};
 use goodfetch_protocol::connection::EngineInstance;
 use goodfetch_protocol::events::{EventEnvelope, LastRead, Position, RESYNC, Resync};
 use goodfetch_protocol::governor::SYSTEM_INFO;
+use goodfetch_protocol::needs_you::{NEEDS_YOU_CHANGED, NeedsYouChange, NeedsYouItem};
 use goodfetch_protocol::run::{RUN_AXES_CHANGED, RunAxes, RunId};
 use serde::Serialize;
 use serde_json::Value;
@@ -101,8 +103,51 @@ struct Publish {
     event: &'static Event,
     scope: Option<String>,
     data: Value,
-    axes: Option<RunAxes>,
+    fold: Option<Fold>,
     accepted: oneshot::Sender<()>,
+}
+
+/// What a lossless event changes of the state a resync gives.
+enum Fold {
+    Axes(RunAxes),
+    NeedsYou(Box<NeedsYouChange>),
+}
+
+/// The state a resync gives: every Run's axes the stream has reported, and
+/// every item of "Needs you" it lists.
+#[derive(Default)]
+struct Snapshot {
+    runs: BTreeMap<RunId, RunAxes>,
+    needs_you: BTreeMap<String, NeedsYouItem>,
+}
+
+impl Snapshot {
+    fn fold(&mut self, fold: Fold) {
+        match fold {
+            Fold::Axes(axes) => {
+                self.runs.insert(axes.run_id.clone(), axes);
+            }
+            Fold::NeedsYou(change) => match *change {
+                NeedsYouChange::Listed { item } => {
+                    self.needs_you.insert(item.id.clone(), item);
+                }
+                NeedsYouChange::Removed { id, .. } => {
+                    self.needs_you.remove(&id);
+                }
+            },
+        }
+    }
+
+    fn resync(&self) -> Resync {
+        let mut needs_you: Vec<NeedsYouItem> = self.needs_you.values().cloned().collect();
+        needs_you.sort_by(|left, right| {
+            (left.since.as_str(), &left.id).cmp(&(right.since.as_str(), &right.id))
+        });
+        Resync {
+            runs: self.runs.values().cloned().collect(),
+            needs_you,
+        }
+    }
 }
 
 impl Events {
@@ -120,7 +165,7 @@ impl Events {
             last: 0,
             floor: 0,
             retained: VecDeque::new(),
-            runs: BTreeMap::new(),
+            snapshot: Snapshot::default(),
             subscriptions: BTreeMap::new(),
             next_subscription: 0,
         };
@@ -164,7 +209,25 @@ impl Events {
     pub(crate) async fn publish_axes(&self, axes: RunAxes) {
         let data = serde_json::to_value(&axes).expect("invariant: a Run's axes encode as JSON");
         let scope = Some(axes.run_id.as_str().to_owned());
-        self.send(&RUN_AXES_CHANGED, scope, data, Some(axes)).await;
+        self.send(&RUN_AXES_CHANGED, scope, data, Some(Fold::Axes(axes)))
+            .await;
+    }
+
+    /// Publishes a change of "Needs you" as `needs_you.changed`, which a
+    /// resync then reports.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Events::publish`]'s.
+    pub(crate) async fn publish_needs_you(&self, change: NeedsYouChange) {
+        let data = serde_json::to_value(&change).expect("invariant: a change of Needs you encodes");
+        self.send(
+            &NEEDS_YOU_CHANGED,
+            None,
+            data,
+            Some(Fold::NeedsYou(Box::new(change))),
+        )
+        .await;
     }
 
     async fn send(
@@ -172,14 +235,14 @@ impl Events {
         event: &'static Event,
         scope: Option<String>,
         data: Value,
-        axes: Option<RunAxes>,
+        fold: Option<Fold>,
     ) {
         let (accepted, acceptance) = oneshot::channel();
         let publish = Publish {
             event,
             scope,
             data,
-            axes,
+            fold,
             accepted,
         };
         if self.commands.send(Command::Publish(publish)).await.is_ok() {
@@ -360,7 +423,7 @@ struct Stream {
     /// any position from it to `last`.
     floor: u64,
     retained: VecDeque<Arc<EventEnvelope>>,
-    runs: BTreeMap<RunId, RunAxes>,
+    snapshot: Snapshot,
     subscriptions: BTreeMap<u64, Queue>,
     next_subscription: u64,
 }
@@ -388,7 +451,7 @@ impl Stream {
                 } => {
                     if let Some(queue) = self.subscriptions.get_mut(&subscription) {
                         queue.waiting = Some((most, answer));
-                        serve(queue, &mut self.last, &self.runs);
+                        serve(queue, &mut self.last, &self.snapshot);
                     }
                 }
                 Command::Unsubscribe(subscription) => {
@@ -404,7 +467,7 @@ impl Stream {
             event,
             scope,
             data,
-            axes,
+            fold,
             accepted,
         } = publish;
         let opted_in = event.name == SYSTEM_INFO.name;
@@ -421,8 +484,8 @@ impl Stream {
         };
         match event.class {
             EventClass::Lossless => {
-                if let Some(axes) = axes {
-                    self.runs.insert(axes.run_id.clone(), axes);
+                if let Some(fold) = fold {
+                    self.snapshot.fold(fold);
                 }
                 let envelope = Arc::new(envelope);
                 self.retained.push_back(Arc::clone(&envelope));
@@ -445,7 +508,7 @@ impl Stream {
                         continue;
                     }
                     queue.lossless.push_back(Arc::clone(&envelope));
-                    serve(queue, &mut self.last, &self.runs);
+                    serve(queue, &mut self.last, &self.snapshot);
                 }
             }
             EventClass::Telemetry => {
@@ -466,7 +529,7 @@ impl Stream {
                             ..envelope.clone()
                         },
                     );
-                    serve(queue, &mut self.last, &self.runs);
+                    serve(queue, &mut self.last, &self.snapshot);
                 }
             }
         }
@@ -517,16 +580,14 @@ fn next_position(last: &mut u64) -> Position {
 
 /// Answers the queue's waiting take, if any, once it has an event; a queue
 /// behind first takes `events.resync`, at the next position, with the axes
-/// of every Run in `runs`.
-fn serve(queue: &mut Queue, last: &mut u64, runs: &BTreeMap<RunId, RunAxes>) {
+/// of every Run and every item of "Needs you" in `snapshot`.
+fn serve(queue: &mut Queue, last: &mut u64, snapshot: &Snapshot) {
     if queue.is_empty() {
         return;
     }
     if let Some((most, answer)) = queue.waiting.take() {
         if queue.behind {
-            let resync = Resync {
-                runs: runs.values().cloned().collect(),
-            };
+            let resync = snapshot.resync();
             queue.lossless.push_back(Arc::new(EventEnvelope {
                 position: next_position(last),
                 event: RESYNC.name.to_owned(),

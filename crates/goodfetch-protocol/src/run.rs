@@ -1205,6 +1205,9 @@ pub struct RunIndexRow {
     pub presence: Presence,
     /// The program's own status line, once it set one (RT-15).
     pub progress_message: Option<String>,
+    /// Why it stopped, once it stopped: "Needs you" lists a Run stopped by
+    /// storage from it (ADR 0122).
+    pub stop_reason: Option<StopReason>,
 }
 
 /// Where the engine that owns a live Run is reached (ADR 0031).

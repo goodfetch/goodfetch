@@ -329,6 +329,35 @@ export type MainContent = "found" | "none";
  */
 export type MarkdownContent = "main";
 /**
+ * What `needs_you.changed` carries: one change of the list.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NeedsYouChange".
+ */
+export type NeedsYouChange =
+  | {
+      change: "listed";
+      item: NeedsYouItem;
+    }
+  | {
+      change: "removed";
+      /**
+       * The item's ID.
+       */
+      id: string;
+      /**
+       * Why.
+       */
+      reason: "resolved" | "dismissed";
+    };
+/**
+ * Why an item left the list.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NeedsYouRemoval".
+ */
+export type NeedsYouRemoval = "resolved" | "dismissed";
+/**
  * Where a Session's login comes from (ADR 0056): exactly one kind.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2814,6 +2843,162 @@ export interface PageResponse {
   url: string;
 }
 /**
+ * The item.
+ */
+export interface NeedsYouItem {
+  /**
+   * The catalog operations a person may answer it with, such as
+   * `needs_you.dismiss`; empty when only something outside the engine,
+   * such as freeing space, resolves it.
+   */
+  actions: string[];
+  /**
+   * Its kind's own fields, which the kind's value in the catalog names:
+   * for `storage_level`, `level` and `folder`; for
+   * `run_stopped_by_storage`, `folder`.
+   */
+  details?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Its ID, which names this one occurrence for good: a Run stopped
+   * again by storage after a resume is another item.
+   */
+  id: string;
+  /**
+   * What it is, a value of a type both Products share, such as
+   * `storage_level`; a Client shows a kind it does not know by its
+   * summary.
+   */
+  kind: string;
+  /**
+   * The Run it is about, if any.
+   */
+  run?: RunId | null;
+  /**
+   * The Schedule it is about, if any.
+   */
+  schedule?: string | null;
+  /**
+   * A point in time in UTC, as RFC 3339.
+   */
+  since: string;
+  /**
+   * What waits, in the engine's English, which a Client shows for a kind
+   * it has no words of its own for.
+   */
+  summary: string;
+}
+/**
+ * What `needs_you.dismiss` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NeedsYouDismissParams".
+ */
+export interface NeedsYouDismissParams {
+  /**
+   * The item's ID.
+   */
+  item: string;
+}
+/**
+ * What `needs_you.dismiss` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NeedsYouDismissed".
+ */
+export interface NeedsYouDismissed {
+  /**
+   * Whether it hid the item: false when the list no longer holds it, or
+   * its source does not let a person dismiss it.
+   */
+  dismissed: boolean;
+}
+/**
+ * One thing waiting for a person.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NeedsYouItem".
+ */
+export interface NeedsYouItem1 {
+  /**
+   * The catalog operations a person may answer it with, such as
+   * `needs_you.dismiss`; empty when only something outside the engine,
+   * such as freeing space, resolves it.
+   */
+  actions: string[];
+  /**
+   * Its kind's own fields, which the kind's value in the catalog names:
+   * for `storage_level`, `level` and `folder`; for
+   * `run_stopped_by_storage`, `folder`.
+   */
+  details?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Its ID, which names this one occurrence for good: a Run stopped
+   * again by storage after a resume is another item.
+   */
+  id: string;
+  /**
+   * What it is, a value of a type both Products share, such as
+   * `storage_level`; a Client shows a kind it does not know by its
+   * summary.
+   */
+  kind: string;
+  /**
+   * The Run it is about, if any.
+   */
+  run?: RunId | null;
+  /**
+   * The Schedule it is about, if any.
+   */
+  schedule?: string | null;
+  /**
+   * A point in time in UTC, as RFC 3339.
+   */
+  since: string;
+  /**
+   * What waits, in the engine's English, which a Client shows for a kind
+   * it has no words of its own for.
+   */
+  summary: string;
+}
+/**
+ * What `needs_you.list` answers: one page of the items, the longest
+ * waiting first.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NeedsYouList".
+ */
+export interface NeedsYouList {
+  /**
+   * The items, by `since`, then by ID.
+   */
+  items: NeedsYouItem1[];
+  /**
+   * Where the next page starts, as the next call's `after`; absent on
+   * the last page.
+   */
+  next?: string | null;
+}
+/**
+ * What `needs_you.list` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NeedsYouListParams".
+ */
+export interface NeedsYouListParams {
+  /**
+   * The `next` of the page read before: the list goes on after it.
+   */
+  after?: string | null;
+  /**
+   * Only the items of these kinds; every kind when absent.
+   */
+  kinds?: string[] | null;
+}
+/**
  * What `run.new_page` takes: the Run whose default Session opens the page.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -3573,6 +3758,10 @@ export interface ResponseBodyParams {
  * via the `definition` "Resync".
  */
 export interface Resync {
+  /**
+   * Every item of "Needs you", by `since`, then by ID.
+   */
+  needs_you: NeedsYouItem1[];
   /**
    * The axes of each Run the engine knows, live or ended.
    */

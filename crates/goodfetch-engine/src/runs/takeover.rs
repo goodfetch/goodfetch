@@ -120,6 +120,7 @@ impl TakeOver {
             owner: None,
             presence: Presence::Present,
             progress_message: recorded.progress_message.clone(),
+            stop_reason: report.stop_reason.clone(),
         };
         let index = self.index.clone();
         let version = self.version.clone();

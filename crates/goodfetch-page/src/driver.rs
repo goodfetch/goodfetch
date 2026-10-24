@@ -28,6 +28,7 @@ mod carry;
 mod encoding;
 mod ending;
 mod functions;
+mod gestures;
 mod identity;
 
 mod navigation;

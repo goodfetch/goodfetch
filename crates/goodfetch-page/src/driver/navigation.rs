@@ -115,6 +115,8 @@ pub(super) struct Navigation {
     loaded: BTreeSet<LoaderId>,
     /// The download the main frame began, its URL and suggested name.
     download: Option<(String, String)>,
+    /// The URL the main frame was last asked to navigate to in its own tab.
+    requested: Option<String>,
     /// Whether the main frame stopped loading.
     stopped: bool,
     crashed: bool,
@@ -138,6 +140,7 @@ impl Navigation {
             content_loaded: BTreeSet::new(),
             loaded: BTreeSet::new(),
             download: None,
+            requested: None,
             stopped: false,
             crashed: false,
         }
@@ -155,6 +158,12 @@ impl Navigation {
                         | FrameStartedNavigatingNavigationType::HistorySameDocument
                 );
                 self.started.push((started.loader_id, within));
+            }
+        } else if let Some(requested) = event.read::<page::FrameRequestedNavigationEvent>() {
+            if requested.frame_id == self.frame
+                && requested.disposition == page::ClientNavigationDisposition::CurrentTab
+            {
+                self.requested = Some(requested.url);
             }
         } else if let Some(sent) = event.read::<network::RequestWillBeSentEvent>() {
             if sent.frame_id.as_ref() == Some(&self.frame)
@@ -222,6 +231,32 @@ impl Navigation {
     /// Whether the page's renderer crashed.
     pub(super) fn crashed(&self) -> bool {
         self.crashed
+    }
+
+    /// The URL the main frame was asked to navigate to in its own tab, as a
+    /// gesture's input asks it to when it follows a link or submits a form.
+    pub(super) fn requested(&self) -> Option<&str> {
+        self.requested.as_deref()
+    }
+
+    /// Whether the navigation the main frame was asked for reached a
+    /// document that committed, or ended without one: within its document,
+    /// as a download, cancelled, with the main frame stopped loading, or
+    /// with its renderer crashed. One the browser failed otherwise ends once
+    /// its error page committed under its loader.
+    pub(super) fn requested_ended(&self) -> bool {
+        self.crashed
+            || self.within_document
+            || self.download.is_some()
+            || self.stopped
+            || self.started.iter().any(|(loader, within)| {
+                !within
+                    && (self.committed.contains(loader)
+                        || self
+                            .failed
+                            .get(loader)
+                            .is_some_and(|error| error == ABORTED))
+            })
     }
 
     /// How the `expected` navigation ended, once it did: where it arrived,

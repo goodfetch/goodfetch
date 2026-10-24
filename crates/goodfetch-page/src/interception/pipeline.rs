@@ -425,11 +425,17 @@ impl PageContext {
         }
     }
 
+    /// Whether `paused` is a request, or a response, of the document of
+    /// the page's main frame: a service worker has none.
+    fn main_document(&self, paused: &fetch::RequestPausedEvent) -> bool {
+        self.sender.page_id().is_some()
+            && paused.resource_type == network::ResourceType::Document
+            && &paused.frame_id == self.driver.main_frame()
+    }
+
     /// Runs one paused request through the pipeline.
     async fn intercept(&self, paused: fetch::RequestPausedEvent) {
-        let navigation = self.sender.page_id().is_some()
-            && paused.resource_type == network::ResourceType::Document
-            && &paused.frame_id == self.driver.main_frame();
+        let navigation = self.main_document(&paused);
         let mut held = Held {
             paused,
             overrides: Overrides::default(),
@@ -575,20 +581,7 @@ impl PageContext {
 
     /// The response a `fetch` got, its body read.
     async fn fetched(&self, paused: &fetch::RequestPausedEvent) -> Result<Reply, CallError> {
-        let body = self
-            .driver
-            .command(&fetch::GetResponseBodyParams {
-                request_id: paused.request_id.clone(),
-            })
-            .await
-            .map(|read| {
-                if read.base64_encoded {
-                    read.body
-                } else {
-                    BASE64.encode(read.body.as_bytes())
-                }
-            })
-            .unwrap_or_default();
+        let body = BASE64.encode(&self.body(&paused.request_id).await);
         let headers = paused
             .response_headers
             .iter()
@@ -1041,9 +1034,7 @@ impl PageContext {
     /// carrying the refusal, which the navigation waiting on it raises, or
     /// else the Run trace records.
     async fn refuse_redirect(&self, paused: &fetch::RequestPausedEvent, refused: &Refused) {
-        let navigation = self.sender.page_id().is_some()
-            && paused.resource_type == network::ResourceType::Document
-            && &paused.frame_id == self.driver.main_frame();
+        let navigation = self.main_document(paused);
         if let Some(network_id) = &paused.network_id {
             self.refusals
                 .leave(network_id, refused.failure(), !navigation);
@@ -1063,9 +1054,7 @@ impl PageContext {
     /// the navigation call waiting on it raising the refusal; any other
     /// response goes on as it came.
     async fn responded(&self, paused: &fetch::RequestPausedEvent) {
-        let document = self.sender.page_id().is_some()
-            && paused.resource_type == network::ResourceType::Document
-            && &paused.frame_id == self.driver.main_frame();
+        let document = self.main_document(paused);
         let carried = lock(&self.carried)
             .remove(&paused.request_id)
             .and_then(|page| page.upgrade());
@@ -1163,22 +1152,29 @@ impl PageContext {
     }
 
     /// The body of the response paused at `id`, after any content coding;
-    /// empty when the browser gives none.
+    /// empty, and logged why, when the browser gives none or one that does
+    /// not decode.
     async fn body(&self, id: &fetch::RequestId) -> Vec<u8> {
-        let Ok(read) = self
+        let read = match self
             .driver
             .command(&fetch::GetResponseBodyParams {
                 request_id: id.clone(),
             })
             .await
-        else {
-            return Vec::new();
+        {
+            Ok(read) => read,
+            Err(failure) => {
+                tracing::debug!(%failure, "the browser gave no body of a paused response");
+                return Vec::new();
+            }
         };
-        if read.base64_encoded {
-            BASE64.decode(read.body.as_bytes()).unwrap_or_default()
-        } else {
-            read.body.into_bytes()
+        if !read.base64_encoded {
+            return read.body.into_bytes();
         }
+        BASE64.decode(read.body.as_bytes()).unwrap_or_else(|error| {
+            tracing::warn!(%error, "the browser gave a paused response's body in Base64 that does not decode");
+            Vec::new()
+        })
     }
 
     /// Fails `held`, which step 4 blocked, as `BlockedByClient`, as a

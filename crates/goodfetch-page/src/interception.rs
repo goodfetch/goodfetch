@@ -478,17 +478,7 @@ impl Interception {
             (state, lookups)
         };
         let events = driver.events().await;
-        driver
-            .opening_command(&fetch::EnableParams {
-                patterns: Some(patterns()),
-                // An HTTP or HTTPS proxy's 407 reaches the engine, which
-                // answers it with the Session's credentials (SA-22).
-                handle_auth_requests: driver
-                    .proxy()
-                    .is_some_and(SessionProxy::answers_authentication)
-                    .then_some(true),
-            })
-            .await?;
+        pause_requests(driver).await?;
         let workers =
             match clean_up::effective(resolved, own, BROWSER_SERVICE_WORKERS.name).as_str() {
                 Some(BLOCK) => ServiceWorkers::Block,
@@ -566,16 +556,7 @@ impl Interception {
                 let log = Arc::new(RequestLog::new(run.owner().child(), run.folder()));
                 let worker = worker.with_proxy(proxy).with_value(value, run.clock());
                 let events = worker.events().await;
-                let enabled = worker
-                    .opening_command(&fetch::EnableParams {
-                        patterns: Some(patterns()),
-                        handle_auth_requests: worker
-                            .proxy()
-                            .is_some_and(SessionProxy::answers_authentication)
-                            .then_some(true),
-                    })
-                    .await;
-                if let Err(error) = enabled {
+                if let Err(error) = pause_requests(&worker).await {
                     tracing::warn!(%error, "a service worker's requests could not be paused, so it does not run");
                     return false;
                 }
@@ -840,6 +821,26 @@ impl Drop for FilesAllowed {
             *lock(&state.files) = None;
         }
     }
+}
+
+/// Pauses the requests of `driver`'s page or service worker at
+/// [`patterns`]: an HTTP or HTTPS proxy's 407 reaches the engine too, which
+/// answers it with the Session's credentials (SA-22).
+///
+/// # Errors
+///
+/// The code of opening a page when the browser refuses.
+async fn pause_requests(driver: &PageDriver) -> Result<(), CallError> {
+    driver
+        .opening_command(&fetch::EnableParams {
+            patterns: Some(patterns()),
+            handle_auth_requests: driver
+                .proxy()
+                .is_some_and(SessionProxy::answers_authentication)
+                .then_some(true),
+        })
+        .await
+        .map(drop)
 }
 
 /// What a target's requests pause at: every request before it leaves, and

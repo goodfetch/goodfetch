@@ -852,6 +852,30 @@ impl PageDriver {
         Ok(called.result.value)
     }
 
+    /// Calls `function` with `argument` in the guard's isolated world of the
+    /// page's main frame, outside any gesture's turn, as
+    /// [`read_in_frame`](Self::read_in_frame) does: the locator waits'
+    /// checks. A document gone or not there yet, or a function that throws,
+    /// answers none; a failure raises the code of the operation `operation`.
+    pub(crate) async fn read_in_page(
+        &self,
+        function: &str,
+        argument: serde_json::Value,
+        operation: &'static str,
+    ) -> Result<Option<serde_json::Value>, CallError> {
+        match self.read_in_frame(&self.frame, function, argument).await {
+            Ok(value) => Ok(value),
+            Err(Failure::Refused {
+                refusal: Refusal::ContextGone,
+                ..
+            }) => Ok(None),
+            Err(failure) => Err(self
+                .browser
+                .failed(&Call::Action { operation }, &failure)
+                .await),
+        }
+    }
+
     /// Evaluates `expression`, a page function's, in the page's main frame:
     /// in its main world, or in the page functions' isolated world, made or
     /// found by its name; its promise awaited and its value answered by

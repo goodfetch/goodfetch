@@ -13,7 +13,10 @@
 //! ambiguous raises `target_not_unique` with every match, anything else
 //! `deadline_exceeded` naming the step it waited for. The same check and
 //! arm serve the Consent prompt runner's clicks on the elements it hands
-//! the guard ([`Element`]), in any frame.
+//! the guard ([`Element`]), in any frame, and the same check, arming
+//! nothing, the locator waits (ADR 0080): a state of the locator's one
+//! element, or a count of its matches, under `timeout.wait`, outside any
+//! gesture's turn.
 
 mod check;
 mod keys;
@@ -28,6 +31,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails, Surface};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::page::waits::{Count, ElementState};
 use goodfetch_protocol::page::{TARGET_NOT_UNIQUE, TargetMatch, TargetNotUniqueDetails};
 use goodfetch_protocol::settings::SettingLimit;
 use serde::Deserialize;
@@ -139,7 +143,13 @@ pub(crate) async fn act(
         let remaining = end.saturating_duration_since(clock.now());
         if remaining.is_zero() {
             let elapsed = clock.now() - started;
-            return Err(at_deadline(&request, last, elapsed));
+            let asked = Asked {
+                operation: request.operation,
+                selector: request.selector,
+                surface: request.surface,
+                limit: request.window.limit,
+            };
+            return Err(at_deadline(asked, last, elapsed));
         }
         let argument = check::argument(
             Target::Selector(request.selector),
@@ -156,7 +166,7 @@ pub(crate) async fn act(
             Err(Unanswered::Failed(error)) => return Err(error),
         };
         match seen {
-            Seen::Ready { x, y } => match &request.action {
+            Seen::Ready { x, y, .. } => match &request.action {
                 Action::Click => {
                     turn.click(x.unwrap_or_default(), y.unwrap_or_default())
                         .await?;
@@ -251,6 +261,7 @@ pub(crate) async fn check_element(
         Ok(Seen::Ready {
             x: Some(x),
             y: Some(y),
+            ..
         }) => Readiness::Ready { x, y },
         Ok(Seen::Waiting { .. }) => Readiness::Waiting,
         _ => Readiness::Gone,
@@ -310,12 +321,120 @@ fn unreadable(value: &serde_json::Value, error: &serde_json::Error) -> CallError
     )
 }
 
-/// The error of an action whose deadline passed with `last` its last
-/// observation.
-fn at_deadline(request: &Request<'_>, last: Seen, elapsed: Duration) -> CallError {
+/// What a locator wait waits for.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Awaited {
+    /// Its one element, or none, in this state.
+    State(ElementState),
+    /// Its matches, as many as this count allows.
+    Count(Count),
+}
+
+/// One locator wait: what it waits for, and for whom.
+pub(crate) struct Wait<'a> {
+    /// The operation, such as `locator.wait_for`.
+    pub(crate) operation: &'static str,
+    /// The locator's CSS selector.
+    pub(crate) selector: &'a str,
+    /// What it waits for.
+    pub(crate) awaited: Awaited,
+    /// How long it may wait: `timeout.wait`.
+    pub(crate) window: Window,
+    /// The Client's surface, in whose language its errors show targets.
+    pub(crate) surface: Surface,
+}
+
+/// Waits on `page` until the matches of `wait`'s locator are as it waits
+/// for, checking them in the guard's world once a frame, outside any
+/// gesture's turn, timed by `clock`; answers how many matched for a count.
+///
+/// # Errors
+///
+/// `target_not_unique` or `deadline_exceeded` at the deadline,
+/// `invalid_params` for a selector the page does not parse, and the
+/// browser's failures as their codes.
+///
+/// # Cancel safety
+///
+/// Dropping the future leaves nothing behind in the page.
+pub(crate) async fn wait(
+    page: &PageDriver,
+    wait: Wait<'_>,
+    clock: &Clock,
+) -> Result<Option<u64>, CallError> {
+    let started = clock.now();
+    let end = started + wait.window.duration;
+    let (state, bounds) = match wait.awaited {
+        Awaited::State(state) => (state_name(state), (None, None)),
+        Awaited::Count(count) => ("count", (count.min, count.max)),
+    };
+    let mut last = Seen::Waiting {
+        step: state.to_owned(),
+        observed: "the page was not checked yet".to_owned(),
+        matches: Vec::new(),
+    };
+    loop {
+        let remaining = end.saturating_duration_since(clock.now());
+        if remaining.is_zero() {
+            let asked = Asked {
+                operation: wait.operation,
+                selector: wait.selector,
+                surface: wait.surface,
+                limit: wait.window.limit,
+            };
+            return Err(at_deadline(asked, last, clock.now() - started));
+        }
+        let argument = check::wait_argument(wait.selector, state, bounds, remaining.min(SLICE));
+        let Some(value) = page.read_in_page(CHECK, argument, wait.operation).await? else {
+            // The document went, or is not yet: checked again in the next.
+            clock.sleep(remaining.min(RECHECK)).await;
+            continue;
+        };
+        match Seen::read(&value).map_err(|error| unreadable(&value, &error))? {
+            Seen::Ready { count, .. } => return Ok(count),
+            Seen::Invalid { message } => {
+                return Err(CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    format!(
+                        "`{}` is no CSS selector the page parses: {message}",
+                        wait.selector
+                    ),
+                ));
+            }
+            waiting @ Seen::Waiting { .. } => last = waiting,
+        }
+    }
+}
+
+/// How long a locator wait leaves a document that is not there yet before
+/// it checks again.
+const RECHECK: Duration = Duration::from_millis(20);
+
+/// The name the check takes for `state`.
+fn state_name(state: ElementState) -> &'static str {
+    match state {
+        ElementState::Attached => "attached",
+        ElementState::Detached => "detached",
+        ElementState::Visible => "visible",
+        ElementState::Hidden => "hidden",
+    }
+}
+
+/// What a call at its deadline asked: its operation, its locator's
+/// selector, the Client's surface and the setting whose time passed.
+struct Asked<'a> {
+    operation: &'static str,
+    selector: &'a str,
+    surface: Surface,
+    limit: SettingLimit,
+}
+
+/// The error of an action or a locator wait whose deadline passed with
+/// `last` its last observation.
+fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
     let elapsed = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
-    let target = target::render(request.surface, request.selector, None);
-    let limit = request.window.limit.clone();
+    let target = target::render(asked.surface, asked.selector, None);
+    let limit = asked.limit;
     let (step, observed, matches) = match last {
         Seen::Waiting {
             step,
@@ -334,7 +453,7 @@ fn at_deadline(request: &Request<'_>, last: Seen, elapsed: Duration) -> CallErro
             .enumerate()
             .map(|(index, element)| TargetMatch {
                 element,
-                locator: target::render(request.surface, request.selector, Some(index)),
+                locator: target::render(asked.surface, asked.selector, Some(index)),
             })
             .collect();
         let listed = matches
@@ -346,7 +465,7 @@ fn at_deadline(request: &Request<'_>, last: Seen, elapsed: Duration) -> CallErro
             &TARGET_NOT_UNIQUE,
             format!(
                 "`{}` on {target}: {} elements still matched when `{}` ({} ms, {}) passed: {listed}. Make the locator match one element, or pick one with `nth()`.",
-                request.operation,
+                asked.operation,
                 matches.len(),
                 limit.key,
                 limit.value,
@@ -364,12 +483,13 @@ fn at_deadline(request: &Request<'_>, last: Seen, elapsed: Duration) -> CallErro
         &DEADLINE_EXCEEDED,
         format!(
             "`{}` on {target}: `{}` ({} ms, {}) passed while it waited for its target to be {}: {observed}.",
-            request.operation,
+            asked.operation,
             limit.key,
             limit.value,
             limit.layer.as_str(),
             match step.as_str() {
                 "receives_events" => "receiving the event",
+                "count" => "matched as often as its count allows",
                 other => other,
             },
         ),

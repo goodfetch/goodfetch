@@ -1,8 +1,9 @@
 //! A page's formats read once extraction-side removal ran (ADR 0047): the
-//! elements its Session's cosmetic rules match go from its serialized
-//! document, shadow roots included, before the extractor reads it; what
-//! went, and the share of the main content's text it took, is a Provenance
-//! entry, flagged above a fifth.
+//! elements its Session's cosmetic rules match, and the prompts the Consent
+//! prompt runner hid (ADR 0048), go from its serialized document, shadow
+//! roots included, before the extractor reads it; what went, and the share
+//! of the main content's text it took, is a Provenance entry, flagged above
+//! a fifth.
 
 use goodfetch_clean_up_rules::removal::{self, Removed, Share};
 use goodfetch_extractor::{Context, Document};
@@ -31,7 +32,8 @@ impl Removal {
             "url": self.url,
             "removed": self.removed.iter().map(|element| json!({
                 "rule": element.rule,
-                "list": element.list.name(),
+                // A prompt the Consent prompt runner hid names no list.
+                "list": element.list.map_or("consent", |list| list.name()),
                 "in_shadow_root": element.in_shadow_root,
                 "text": element.text,
                 "links": element.links,
@@ -45,30 +47,40 @@ impl Removal {
 }
 
 /// The formats `request` names, read from `document` once the cosmetic
-/// rules `cosmetic` hold removed what they match, and what removal took;
-/// none when it took nothing.
+/// rules `cosmetic` hold, and the runner's rules of the selectors `hidden`,
+/// removed what they match, and what removal took; none when it took
+/// nothing.
 pub(super) fn read(
     document: &SerializedDocument,
     request: FormatsRequest,
     cosmetic: Option<&Cosmetic>,
+    hidden: &[String],
 ) -> (PageFormats, Option<Removal>) {
     let of = |html| Document {
         html,
         url: &document.url,
         base_url: &document.base_url,
     };
-    let Some(cosmetic) = cosmetic else {
+    if cosmetic.is_none() && hidden.is_empty() {
         return (
             goodfetch_extractor::formats(&of(&document.html), &request, &Context::default()),
             None,
         );
+    }
+    let removal = match cosmetic {
+        Some(cosmetic) => removal::remove(
+            &document.html,
+            &document.url,
+            &cosmetic.lists,
+            &cosmetic.choices,
+        ),
+        None => removal::Removal {
+            html: document.html.clone(),
+            removed: Vec::new(),
+            removed_text: 0,
+        },
     };
-    let removal = removal::remove(
-        &document.html,
-        &document.url,
-        &cosmetic.lists,
-        &cosmetic.choices,
-    );
+    let removal = removal::remove_selected(removal, hidden);
     let formats = goodfetch_extractor::formats(&of(&removal.html), &request, &Context::default());
     if removal.removed.is_empty() {
         return (formats, None);

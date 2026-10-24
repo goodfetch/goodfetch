@@ -133,8 +133,8 @@ impl Sessions {
             .start(page.clone(), driver.clone(), &run, driver.events());
         let pages = std::slice::from_ref(&page);
         let started = self.hold((&page, session), &driver, &run, &open.settings, refusals);
-        let hiding = match started.await {
-            Ok(hiding) => hiding,
+        let (hiding, sheets) = match started.await {
+            Ok(started) => started,
             Err(error) => {
                 self.events.close(pages);
                 self.dialogs.close(pages);
@@ -160,6 +160,7 @@ impl Sessions {
             life: PageLife::new(page.clone()),
             action_timeout,
             hiding,
+            sheets,
             page_check: Declared::of(&open.run, &open.settings).map(Arc::new),
             _admission: Arc::new(admission),
             in_browser: Arc::new(in_browser),
@@ -186,7 +187,8 @@ impl Sessions {
     /// with the Session's own `settings`, under the interception, live
     /// hiding and the Consent prompt runner, each of its out-of-process
     /// frames and dedicated workers held by them before it runs; answers
-    /// its live hiding.
+    /// its live hiding and the documents' hiding sheets it shares with the
+    /// runner.
     async fn hold(
         &self,
         (page, session): (&PageId, &SessionId),
@@ -194,7 +196,7 @@ impl Sessions {
         run: &Run,
         settings: &Values,
         refusals: Refusals,
-    ) -> Result<Option<Arc<PageHiding>>, CallError> {
+    ) -> Result<(Option<Arc<PageHiding>>, Arc<Sheets>), CallError> {
         let held = self
             .interception
             .start(page, session, driver, run, settings, refusals)
@@ -212,7 +214,7 @@ impl Sessions {
         driver
             .follow_children(run, vec![held.children, consent])
             .await?;
-        Ok(hiding)
+        Ok((hiding, sheets))
     }
 
     /// What the Session `session` does with a popup one of its pages

@@ -806,7 +806,6 @@ impl Pages {
         {
             return Err(blocked::blocked(block, &response, received));
         }
-        let first_request = response.request_id.clone();
         let judged =
             recovery::judge(&arrival::judging(&page, page_id, destination), &response).await;
         let first = blocking_off::FirstLoad {
@@ -814,29 +813,15 @@ impl Pages {
             wait_until,
             response,
             judged,
-            blocked_before,
+            block,
+            touched,
         };
         let navigated = self
             .unless_blocking_broke_it(page_id, &page, first, events)
             .await?;
-        // A document loaded once more with blocking off is judged for its
-        // Block cause too.
-        if let Some(again) = &navigated.response
-            && again.request_id != first_request
-        {
-            page_events.judged(&again.request_id);
-            let received = page_events
-                .answered_at(&again.request_id)
-                .unwrap_or_else(|| page.clock.wall());
-            if let Some(block) =
-                blocked::block_of(&page.driver, self.blocks.as_ref(), again, operation).await?
-            {
-                return Err(blocked::blocked(block, again, received));
-            }
-        }
-        // A consent wall the runner found before the navigation answered
-        // is the navigation's (ADR 0048).
-        self.consent_wall(page_id)?;
+        // A consent wall the runner found on the navigation's document is
+        // the navigation's, once the runner judged it (ADR 0048).
+        self.consent_verdict(page_id, &page, true).await?;
         Ok(navigated)
     }
 
@@ -1021,9 +1006,32 @@ impl Pages {
         if let Some(failure) = self.left_failure(page_id) {
             return Err(failure);
         }
-        self.consent_wall(page_id)?;
+        self.consent_verdict(page_id, &page, false).await?;
         self.judge_unjudged(&page, page_id, None).await?;
         Ok(page)
+    }
+
+    /// Raises the consent wall the Consent prompt runner left in the main
+    /// document of `page`, the page `page_id`, once, after waiting, within
+    /// the page's action deadline, for the verdict on a prompt the runner's
+    /// first pass there found (ADR 0048): a call that `navigated` asks the
+    /// runner first whether it found one, as its report may still be on its
+    /// way.
+    async fn consent_verdict(
+        &self,
+        page_id: &PageId,
+        page: &OpenPage,
+        navigated: bool,
+    ) -> Result<(), CallError> {
+        let walls = self.sessions.consent_walls();
+        if navigated && crate::consent::first_pass_found(&page.driver).await {
+            walls.detected(page_id);
+        }
+        let (_, limit) = &page.action_timeout;
+        if !walls.verdict(page_id, *limit, page.clock).await {
+            tracing::debug!(page_id = %page_id.0, "the Consent prompt runner gave no verdict on a prompt it found within the action deadline");
+        }
+        self.consent_wall(page_id)
     }
 
     /// Raises the consent wall the Consent prompt runner left in the
@@ -1097,7 +1105,7 @@ impl Pages {
             let (formats, _) = served
                 .run
                 .owner()
-                .blocking(move || clean_up::read(&document, request, None))
+                .blocking(move || clean_up::read(&document, request, None, &[]))
                 .await;
             return Ok(formats);
         }
@@ -1109,10 +1117,11 @@ impl Pages {
             .await?;
         let request = params.formats;
         let cosmetic = self.interception.cosmetic(&params.page_id);
+        let hidden = page.sheets.runner_hidden();
         let (formats, removed) = page
             .run
             .owner()
-            .blocking(move || clean_up::read(&document, request, cosmetic.as_ref()))
+            .blocking(move || clean_up::read(&document, request, cosmetic.as_ref(), &hidden))
             .await;
         if let Some(removed) = removed {
             trace::provenance(&page.run, &removed.entry(&params.page_id, &page.session)).await;

@@ -42,6 +42,10 @@
 //!   never-block entry keeps: once it runs, it clears the challenge in
 //!   place, putting the page behind it, with its `#content`, in the
 //!   challenge's stead.
+//! - `/cross-site`: an article that frames `/framed` of another site,
+//!   `clean-up-frame.test`, which the browser loads in a process of its own:
+//!   the frame's own script and photo, which load, and the same ad and
+//!   tracker as `/ads`, which a blocker blocks.
 
 use hyper::{Method, StatusCode};
 
@@ -49,6 +53,9 @@ use crate::exchange::{Reply, Request};
 
 /// The host name the pages are served on.
 pub(crate) const HOST: &str = "clean-up.test";
+
+/// The host name of `/cross-site`'s frame, another site.
+pub(crate) const FRAME_HOST: &str = "clean-up-frame.test";
 
 /// A transparent 1×1 GIF, every image's body.
 const GIF: &[u8] = &[
@@ -266,6 +273,44 @@ const LISTED_CHALLENGE: &str = "<!DOCTYPE html>
 /// `/js/fingerprint2.min.js`: clears `/listed-challenge` in place.
 const CLEARING_SCRIPT: &[u8] = b"document.title = \"The page behind the challenge\";\ndocument.getElementById(\"challenge\").outerHTML = \"<main id='content'><h1>The page behind the challenge</h1><p>Its text, shown once the challenge cleared.</p></main>\";\n";
 
+/// `/cross-site`: an article framing `/framed` of [`FRAME_HOST`], on the
+/// port it was served from.
+const CROSS_SITE: &str = "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+<meta charset=\"utf-8\">
+<title>An article with another site's frame</title>
+</head>
+<body>
+<main>
+<h1>An article with another site's frame</h1>
+<p>The article's text, above another site's frame.</p>
+<iframe title=\"Another site's frame\" width=\"300\" height=\"100\"></iframe>
+<script>
+document.querySelector(\"iframe\").src = `http://clean-up-frame.test:${location.port}/framed`;
+</script>
+</main>
+</body>
+</html>
+";
+
+/// `/framed` of [`FRAME_HOST`]: its own script and photo, an ad and a
+/// tracker.
+const FRAMED: &str = "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+<meta charset=\"utf-8\">
+<title>Another site's frame</title>
+<script src=\"/js/site.js\"></script>
+<script src=\"/js/adobe-analytics.js\"></script>
+</head>
+<body>
+<img src=\"/img/photo.gif\" alt=\"The frame's photo\" width=\"1\" height=\"1\">
+<img src=\"/img/top-ad-sidebar.gif\" alt=\"\" width=\"1\" height=\"1\">
+</body>
+</html>
+";
+
 /// A live-hiding page with its report sent to `report`.
 fn reporting(page: &str, report: &str) -> String {
     page.replace("REPORT_SCRIPT", &REPORT.replace("REPORT", report))
@@ -277,14 +322,18 @@ fn reporting(page: &str, report: &str) -> String {
     reason = "the pages name their own subresources, all in lowercase"
 )]
 pub(crate) fn respond(name: &str, request: &Request<'_>) -> Option<Reply> {
-    if name != HOST {
+    if name != HOST && name != FRAME_HOST {
         return None;
     }
     if request.method != Method::GET {
         return Some(Reply::not_found());
     }
     let path = request.path.split('?').next().unwrap_or_default();
+    if name == FRAME_HOST && path == "/framed" {
+        return Some(Reply::html(FRAMED.to_owned()));
+    }
     Some(match path {
+        "/cross-site" => Reply::html(CROSS_SITE.to_owned()),
         "/ads" => Reply::html(ADS.to_owned()),
         "/challenge" => Reply::html(CHALLENGE.to_owned()),
         "/stand-in" => Reply::html(STAND_IN.to_owned()),

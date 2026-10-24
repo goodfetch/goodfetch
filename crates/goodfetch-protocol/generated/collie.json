@@ -11152,10 +11152,10 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "configuration",
       "clearable": false,
       "default": "ghcr.io/goodfetch/clean-up-rules",
-      "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Operator policy can lock it.",
+      "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
       "name": "clean_up.channel",
       "product": "collie",
       "products": [
@@ -11171,13 +11171,32 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": 30000,
+      "description": "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
+      "name": "clean_up.fetch_timeout",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": false,
       "default": {
         "ads": "https://easylist.to/easylist/easylist.txt",
         "annoyances": "https://secure.fanboy.co.nz/fanboy-annoyance.txt",
         "trackers": "https://easylist.to/easylist/easyprivacy.txt",
         "unbreak": "https://raw.githubusercontent.com/brave/adblock-lists/master/brave-unbreak.txt"
       },
-      "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Operator policy can lock it.",
+      "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
       "name": "clean_up.lists",
       "product": "collie",
       "products": [
@@ -11197,7 +11216,7 @@
       "authority": "every",
       "clearable": false,
       "default": "release",
-      "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+      "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
       "name": "clean_up.update",
       "product": "collie",
       "products": [

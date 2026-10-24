@@ -210,6 +210,9 @@ pub(crate) struct OpenPage {
     pub(crate) clock: Clock,
     /// Its live hiding, when it hides anything.
     pub(crate) hiding: Option<Arc<PageHiding>>,
+    /// Its documents' hiding sheets, which the Consent prompt runner writes
+    /// into too.
+    pub(crate) sheets: Arc<crate::hiding::Sheets>,
     /// Its Session's Page check, when it declares one.
     pub(crate) page_check: Option<Arc<Declared>>,
     /// Its admission of the governor's `browser_page` kind, given back once

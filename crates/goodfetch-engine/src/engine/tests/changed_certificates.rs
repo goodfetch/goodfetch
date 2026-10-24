@@ -93,7 +93,7 @@ fn changing_engine(env: &TestEnv) -> Engine {
 /// answer, the caller's own, takes the item off, resolved, and goes to the
 /// Audit log.
 ///
-/// Covers: story:12-28, operation:needs_you.list, event:needs_you.changed, error:certificate_changed
+/// Covers: story:12-28, operation:needs_you.list, event:needs_you.changed
 #[rstest]
 /// Covers: operation:certs.accept
 #[case::accepted("certs.accept", "certificate_change_accepted")]

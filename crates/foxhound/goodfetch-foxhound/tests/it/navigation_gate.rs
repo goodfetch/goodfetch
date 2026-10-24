@@ -7,9 +7,15 @@
 //! where the site's robots.txt, read through the copy the user's runs
 //! share, disallows it for `goodfetch-foxhound`.
 #![expect(
+    clippy::disallowed_methods,
+    reason = "the handler, the test's own code, waits in real time for the popup the browser navigates"
+)]
+#![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
+
+use std::time::{Duration, Instant};
 
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Value, json};
@@ -127,5 +133,150 @@ fn a_handlers_goto_robots_txt_disallows_is_refused_before_it_leaves() {
             0,
         ),
         "{answers:?}"
+    );
+}
+
+/// The navigation test whose page links to `/b` with `#next`.
+const HISTORY: &str = "2.navigation.test";
+
+/// The fetch edge pages: redirects and a script's redirect.
+const FETCH_EDGE: &str = "fetch-edge.test";
+
+/// The access family's host, whose popup page opens a popup with `#open`.
+const POPUP_HOST: &str = "1.access.test";
+
+/// The delay between starts the gate's cases set: long enough that two
+/// requests of one domain sent without it would arrive closer.
+const DELAY_MILLISECONDS: u64 = 1_000;
+
+/// Each request `host` received for one of `targets`, its target and
+/// arrival time in microseconds, in arrival order.
+fn arrivals(proving_ground: &ProvingGround, host: &str, targets: &[&str]) -> Vec<(String, u64)> {
+    let mut arrivals: Vec<(String, u64)> = proving_ground.observations().unwrap()["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| request["host"] == host)
+        .filter_map(|request| {
+            let target = request["target"].as_str()?;
+            targets.contains(&target).then(|| {
+                (
+                    target.to_owned(),
+                    request["timing"]["arrived_microseconds"].as_u64().unwrap(),
+                )
+            })
+        })
+        .collect();
+    arrivals.sort_by_key(|(_, at)| *at);
+    arrivals
+}
+
+/// The targets of `arrivals` that came less than the delay after the one
+/// before them.
+fn too_soon(arrivals: &[(String, u64)]) -> Vec<String> {
+    // The Proving ground stamps an arrival a little after the engine sent it.
+    let least = DELAY_MILLISECONDS * 1_000 * 9 / 10;
+    arrivals
+        .windows(2)
+        .filter(|pair| pair[1].1 - pair[0].1 < least)
+        .map(|pair| pair[1].0.clone())
+        .collect()
+}
+
+/// A URL matcher for a page's waits: the glob `pattern`.
+fn glob(pattern: &str) -> Value {
+    json!({ "kind": "glob", "pattern": pattern })
+}
+
+/// A handler's `goto`, a click that navigates, a `page.request`, each
+/// redirect hop, a script's redirect and a popup's navigation each take a
+/// permit of their domain's Politeness: under `politeness.domain.delay`,
+/// every one of them, and the robots.txt read for their host, reaches the
+/// site at least the delay after the one before it there.
+///
+/// Covers: story:5-134, story:5-112, story:5-113, setting:politeness.domain.delay, operation:page.goto, operation:locator.click, operation:page.request, operation:page.wait_for_url
+#[test]
+fn every_navigation_of_a_handlers_pages_takes_a_permit_of_its_domain() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let more = json!({ "politeness": { "domain": { "delay": DELAY_MILLISECONDS } } });
+
+    let mut failed = Vec::new();
+    let report = crawl_with(
+        &mut engine,
+        "permits",
+        &[json!({ "url": proving_ground.url(ROBOTS_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            let page_id = new_page(inside, handle);
+            let url = |host: &str, path: &str| json!({ "url": proving_ground.url(host, path) });
+            let click =
+                |selector: &str| json!({ "locator": { "page_id": page_id, "selector": selector } });
+            let steps = [
+                ("page.goto", url(HISTORY, "/")),
+                ("locator.click", click("#next")),
+                ("page.wait_for_url", json!({ "url": glob("**/b") })),
+                ("page.request", url(HISTORY, "/c")),
+                ("page.goto", url(FETCH_EDGE, "/redirect/hops/2")),
+                ("page.goto", url(FETCH_EDGE, "/refresh/script")),
+                ("page.wait_for_url", json!({ "url": glob("**/target") })),
+                ("page.goto", url(POPUP_HOST, "/popup")),
+                ("locator.click", click("#open")),
+            ];
+            for (method, mut params) in steps {
+                if method != "locator.click" {
+                    params["page_id"] = json!(page_id);
+                }
+                let answer = inside.call(method, &params);
+                if answer.get("result").is_none() {
+                    failed.push(answer);
+                }
+            }
+            // The popup navigates on its own, once its permit comes: the
+            // handler answers once it did, while its lease still holds.
+            let until = Instant::now() + Duration::from_secs(10);
+            while requested(&proving_ground, POPUP_HOST, "/popup/opened") == 0
+                && Instant::now() < until
+            {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+
+    let history = arrivals(&proving_ground, HISTORY, &["/robots.txt", "/", "/b", "/c"]);
+    let edge = arrivals(
+        &proving_ground,
+        FETCH_EDGE,
+        &[
+            "/robots.txt",
+            "/redirect/hops/2",
+            "/redirect/hops/1",
+            "/redirect/hops/0",
+            "/refresh/script",
+            "/target",
+        ],
+    );
+    let popup = arrivals(
+        &proving_ground,
+        POPUP_HOST,
+        &["/robots.txt", "/popup", "/popup/opened"],
+    );
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            failed,
+            (history.len(), edge.len(), popup.len()),
+            (too_soon(&history), too_soon(&edge), too_soon(&popup)),
+        ),
+        (
+            &json!("finished"),
+            Vec::<Value>::new(),
+            (4, 6, 3),
+            (Vec::new(), Vec::new(), Vec::new()),
+        ),
+        "{history:?} {edge:?} {popup:?}"
     );
 }

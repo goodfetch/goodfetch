@@ -93,7 +93,7 @@ pub(super) struct PageContext {
     responses: Mutex<BTreeMap<fetch::RequestId, oneshot::Sender<fetch::RequestPausedEvent>>>,
     /// The URL of the main frame's document last sent on: the source the
     /// Filter lists judge a request without a `Referer` by.
-    document: Mutex<String>,
+    document: Mutex<Arc<str>>,
     /// The requests the Session's proxy credentials were given for.
     authenticated: Mutex<Authenticated>,
     /// The permit the page's navigation gate gave the main frame's
@@ -170,7 +170,7 @@ impl PageContext {
             observing,
             run,
             responses: Mutex::new(BTreeMap::new()),
-            document: Mutex::new(String::new()),
+            document: Mutex::new(Arc::from("")),
             authenticated: Mutex::new(Authenticated::default()),
             permit: Mutex::new(None),
             proxy_permit: Mutex::new(None),
@@ -193,7 +193,7 @@ impl PageContext {
             },
         };
         Self {
-            document: Mutex::new(url),
+            document: Mutex::new(Arc::from(url)),
             iframe: true,
             ..Self::new(
                 driver,
@@ -700,10 +700,16 @@ impl PageContext {
     /// it, or else the Run trace records it.
     async fn send_on(&self, held: &Held, fetch: bool) -> Result<(), CallError> {
         let id = &held.paused.request_id;
-        let source = if held.navigation {
-            held.url().to_owned()
+        // Borrowed from the request where it can be, so no request
+        // allocates its source.
+        let document;
+        let source: &str = if held.navigation {
+            held.url()
+        } else if let Some(referer) = referer(&held.paused.request.headers) {
+            referer
         } else {
-            referer(&held.paused.request.headers).unwrap_or_else(|| lock(&self.document).clone())
+            document = Arc::clone(&*lock(&self.document));
+            &document
         };
         let paused = steps::Paused {
             id,
@@ -711,14 +717,14 @@ impl PageContext {
             method: held.method(),
             overrides: &held.overrides,
             kind: steps::kind(held.paused.resource_type, held.navigation),
-            source_url: &source,
+            source_url: source,
             egress: self.egress_kind(held),
         };
         // Step 4 without the Filter lists while the page loads once more
         // with blocking off, or for a document on a domain its Run learned
         // blocking off for (ADR 0047).
         let without_lists;
-        let blocking = if self.state.lists_off(&source) {
+        let blocking = if self.state.lists_off(source) {
             without_lists = self.blocking.without_lists();
             &without_lists
         } else {
@@ -776,7 +782,7 @@ impl PageContext {
             }
         };
         if held.navigation {
-            held.url().clone_into(&mut lock(&self.document));
+            *lock(&self.document) = Arc::from(held.url());
         }
         if let Err(failure) = self.driver.command(&command).await {
             tracing::debug!(?failure, "a paused request went before it was sent on");
@@ -1259,11 +1265,11 @@ const BLOCKED_BY_CLIENT: &str = "net::ERR_BLOCKED_BY_CLIENT";
 
 /// The URL in `headers`' `Referer`, which names the document that sent the
 /// request.
-fn referer(headers: &network::Headers) -> Option<String> {
+fn referer(headers: &network::Headers) -> Option<&str> {
     headers
         .iter()
         .find(|(name, _)| name.eq_ignore_ascii_case("referer"))
-        .and_then(|(_, value)| value.as_str().map(str::to_owned))
+        .and_then(|(_, value)| value.as_str())
 }
 
 /// The browser's network error for `reason`.

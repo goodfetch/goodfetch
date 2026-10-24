@@ -299,6 +299,15 @@ fn identity(env: &TestEnv) -> age::x25519::Identity {
 /// Plants `value` in the encrypted local file `name`, encrypted to
 /// `identity` as `age -r` encrypts it.
 fn encrypt(env: &TestEnv, name: &str, value: &str, identity: &age::x25519::Identity) {
+    std::fs::write(
+        secret_files(env).join(format!("{name}.age")),
+        encrypted(value, identity),
+    )
+    .unwrap();
+}
+
+/// `value` encrypted to `identity`, as an encrypted local file holds it.
+fn encrypted(value: &str, identity: &age::x25519::Identity) -> Vec<u8> {
     use std::io::Write as _;
     let recipient = identity.to_public();
     let encryptor =
@@ -308,7 +317,89 @@ fn encrypt(env: &TestEnv, name: &str, value: &str, identity: &age::x25519::Ident
     let mut writer = encryptor.wrap_output(&mut encrypted).unwrap();
     writer.write_all(value.as_bytes()).unwrap();
     writer.finish().unwrap();
-    std::fs::write(secret_files(env).join(format!("{name}.age")), encrypted).unwrap();
+    encrypted
+}
+
+/// How long the encrypted local file of the waiting Run's proxy holds back
+/// its value: far longer than another Run's navigation takes.
+#[cfg(unix)]
+const HELD_SECRET: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// A Session opening on a proxy whose password's Secret has not resolved
+/// yet holds up no other Run's calls: while one Run's first `run.new_page`
+/// waits on the encrypted local file of its `proxy.password`, a named pipe
+/// that gives its value only later, another Run's page goes on.
+/// Covers: operation:run.new_page, operation:page.goto, setting:proxy.password
+#[cfg(unix)]
+#[test]
+fn a_session_waiting_on_its_proxys_secret_holds_up_no_other_runs_page() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let env = TestEnv::new();
+    let proving_ground = goodfetch_test_support::ProvingGround::start(&env, 697).unwrap();
+    let cache = goodfetch_test_support::browser_cache(&env).unwrap();
+    let mut engine = crate::page::started(&env, &cache, &proving_ground, "going-on");
+    let page = crate::page::opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "going-on" }),
+    ));
+    let identity = identity(&env);
+    let pipe = secret_files(&env).join("proxy-password.age");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&pipe)
+        .status()
+        .unwrap();
+    let released = Arc::new(AtomicBool::new(false));
+    let value = encrypted("proxy-password", &identity);
+    let writer = {
+        let released = Arc::clone(&released);
+        std::thread::spawn(move || {
+            std::thread::sleep(HELD_SECRET);
+            released.store(true, Ordering::SeqCst);
+            std::fs::write(pipe, value).unwrap();
+        })
+    };
+    let started = call(
+        &mut engine,
+        3,
+        "run.start",
+        &json!({ "run_id": "waiting", "settings": { "proxy": {
+            "server": "http://127.0.0.1:3128",
+            "username": "user",
+            "password": "secretfile:proxy-password",
+        } } }),
+    );
+    engine.send(&json!({ "jsonrpc": "2.0", "id": 4, "method": "run.new_page", "params": { "run_id": "waiting" } }));
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    engine.send(
+        &json!({ "jsonrpc": "2.0", "id": 5, "method": "page.goto", "params": {
+        "page_id": page.page_id,
+        "url": proving_ground.url("catalog.test", "/catalog/1"),
+    } }),
+    );
+    let went = loop {
+        let message = engine.next().unwrap();
+        if message["id"] == json!(5) {
+            break message;
+        }
+    };
+    let held_up = released.load(Ordering::SeqCst);
+    writer.join().unwrap();
+    let _ = engine.finish();
+
+    assert_eq!(
+        (
+            made.success(),
+            started.get("result").is_some(),
+            &went["result"]["response"]["status"],
+            held_up,
+        ),
+        (true, true, &json!(200), false),
+        "{went}"
+    );
 }
 
 /// The Audit log's entries in `env`'s home, as kind and details.

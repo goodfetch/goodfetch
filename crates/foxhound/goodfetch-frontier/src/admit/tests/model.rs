@@ -31,6 +31,8 @@ use crate::identity::{self, Declared, Hop};
 use crate::scope::{self, Scope};
 use crate::{Candidate, admit};
 
+use super::every_host;
+
 /// The crawl's own table of the test: each request added, by its ID.
 const REQUESTS: RunStateTables = RunStateTables {
     name: "model-requests",
@@ -303,14 +305,20 @@ fn admit_seed(connection: &Connection, asked: Asked) -> rusqlite::Result<Enqueue
             key: key.as_deref(),
         },
     };
-    admit(connection, &Scope::read(connection)?, candidate, |url| {
-        connection.query_row(
-            "INSERT INTO requests (id, url)
+    admit(
+        connection,
+        &Scope::read(connection)?,
+        &every_host(),
+        candidate,
+        |url| {
+            connection.query_row(
+                "INSERT INTO requests (id, url)
              SELECT coalesce(max(id), 0) + 1, ?1 FROM requests RETURNING id",
-            [url.as_str()],
-            |row| Ok(row.get::<_, i64>(0)?.to_string()),
-        )
-    })
+                [url.as_str()],
+                |row| Ok(row.get::<_, i64>(0)?.to_string()),
+            )
+        },
+    )
 }
 
 /// The requests the file holds, and its visited set's count of identities

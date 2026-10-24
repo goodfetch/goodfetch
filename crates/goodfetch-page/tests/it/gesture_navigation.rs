@@ -29,9 +29,11 @@ fn path_of(url: &Value) -> Option<String> {
 /// going back at once returns to the page the action left. The gate holds
 /// that navigation a while before admitting it, as a crawl's politeness
 /// delay does, so that it commits well after the input was sent.
-/// Covers: operation:locator.click, operation:locator.press, operation:page.go_back
+/// Covers: operation:page.go_back
 #[rstest]
+/// Covers: operation:locator.click
 #[case::a_click("locator.click", json!({}))]
+/// Covers: operation:locator.press
 #[case::enter_pressed("locator.press", json!({ "key": "Enter" }))]
 fn an_action_answers_once_the_navigation_it_started_committed(
     #[case] operation: &str,

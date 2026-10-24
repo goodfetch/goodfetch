@@ -8,6 +8,30 @@
 /** The millionths a price Limit counts its currency in (ADR 0041). */
 const MILLIONTHS = 1_000_000;
 
+/**
+ * The amount of a Limit a person typed in `text`, as `formatAmount` takes
+ * it: a whole count when `currency` is none, else the currency's units with
+ * at most six decimals after a `.` or a `,`, in millionths; none for any
+ * other text or an amount past what a number holds exactly.
+ */
+export function parseAmount(text: string, currency: string | null | undefined): number | undefined {
+  const typed = text.trim();
+  if (currency === undefined || currency === null) {
+    return /^\d+$/u.test(typed) ? exact(Number(typed)) : undefined;
+  }
+  const parts = /^(?<units>\d+)(?:[.,](?<fraction>\d{1,6}))?$/u.exec(typed)?.groups;
+  if (parts?.["units"] === undefined) {
+    return undefined;
+  }
+  const fraction = (parts["fraction"] ?? "").padEnd(6, "0");
+  return exact(Number(parts["units"]) * MILLIONTHS + Number(fraction));
+}
+
+/** `amount` when a number holds it exactly. */
+function exact(amount: number): number | undefined {
+  return Number.isSafeInteger(amount) ? amount : undefined;
+}
+
 /** `count`, grouped as `locales` group digits. */
 export function formatCount(count: number, locales?: Intl.LocalesArgument): string {
   return new Intl.NumberFormat(locales).format(count);

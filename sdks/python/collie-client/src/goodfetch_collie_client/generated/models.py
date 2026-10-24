@@ -2401,6 +2401,11 @@ class Unready(StrEnum):
     Its Resource governor is at its last resort: memory stayed critical
     at the floor past `governor.last_resort_after` (ADR 0040).
     """
+    storage_critical = "storage_critical"
+    """
+    The filesystem holding its run state is at the `critical` storage
+    level, where a new Run's start is refused (ADR 0122).
+    """
 
 
 class UrlMatcher1(BaseModel):
@@ -3440,7 +3445,8 @@ class NeedsYouItem(BaseModel):
     """
     Its kind's own fields, which the kind's value in the catalog names:
     for `storage_level`, `level` and `folder`; for
-    `run_stopped_by_storage`, `folder`.
+    `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
+    `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`.
     """
     id: str
     """

@@ -119,7 +119,8 @@ export type DaemonEndpoint =
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "Unready".
  */
-export type Unready = "draining" | "run_state_not_writable" | "browsers_missing" | "governor_last_resort";
+export type Unready =
+  "draining" | "run_state_not_writable" | "browsers_missing" | "governor_last_resort" | "storage_critical";
 /**
  * One dialog a handler answers, which `dialog.*` names.
  *
@@ -2923,7 +2924,8 @@ export interface NeedsYouItem {
   /**
    * Its kind's own fields, which the kind's value in the catalog names:
    * for `storage_level`, `level` and `folder`; for
-   * `run_stopped_by_storage`, `folder`.
+   * `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
+   * `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`.
    */
   details?: {
     [k: string]: unknown;
@@ -2998,7 +3000,8 @@ export interface NeedsYouItem1 {
   /**
    * Its kind's own fields, which the kind's value in the catalog names:
    * for `storage_level`, `level` and `folder`; for
-   * `run_stopped_by_storage`, `folder`.
+   * `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
+   * `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`.
    */
   details?: {
     [k: string]: unknown;

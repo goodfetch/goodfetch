@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_engine::client::Client;
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::run::RunId;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
@@ -28,8 +29,21 @@ pub(crate) struct Server {
 /// the sign that a seed was added to it.
 struct Live {
     run: Run,
+    egress: Arc<Policy>,
     joining: mpsc::UnboundedSender<Server>,
     seeded: Arc<Notify>,
+}
+
+/// What a seed added to a live crawl, or a handler's enqueue, reaches:
+/// its Run, the domain policy its Frontier judges each URL by, and what
+/// tells its delivery that seeds were added.
+pub(crate) struct LiveCrawl {
+    /// The crawl's Run.
+    pub(crate) run: Run,
+    /// The Run's domain policy.
+    pub(crate) egress: Arc<Policy>,
+    /// Notified once seeds were added.
+    pub(crate) seeded: Arc<Notify>,
 }
 
 /// A crawl opened to Connections that join it and to seeds added to it.
@@ -45,15 +59,17 @@ pub(crate) struct Opened {
 pub(crate) struct Crawls(Arc<Mutex<BTreeMap<RunId, Live>>>);
 
 impl Crawls {
-    /// Opens the crawl `run` to Connections that join it and to seeds
-    /// added to it, and answers where each arrives.
-    pub(crate) async fn open(&self, run: &Run) -> Opened {
+    /// Opens the crawl `run`, under its domain policy `egress`, to
+    /// Connections that join it and to seeds added to it, and answers where
+    /// each arrives.
+    pub(crate) async fn open(&self, run: &Run, egress: Policy) -> Opened {
         let (joining, joined) = mpsc::unbounded_channel();
         let seeded = Arc::new(Notify::new());
         self.0.lock().await.insert(
             run.id().clone(),
             Live {
                 run: run.clone(),
+                egress: Arc::new(egress),
                 joining,
                 seeded: Arc::clone(&seeded),
             },
@@ -61,19 +77,13 @@ impl Crawls {
         Opened { joined, seeded }
     }
 
-    /// The live crawl `run_id`'s Run, if this engine runs it.
-    pub(crate) async fn run(&self, run_id: &RunId) -> Option<Run> {
-        self.0.lock().await.get(run_id).map(|live| live.run.clone())
-    }
-
-    /// The live crawl `run_id`'s Run, if this engine runs it, and what
-    /// tells its delivery that seeds were added.
-    pub(crate) async fn seeding(&self, run_id: &RunId) -> Option<(Run, Arc<Notify>)> {
-        self.0
-            .lock()
-            .await
-            .get(run_id)
-            .map(|live| (live.run.clone(), Arc::clone(&live.seeded)))
+    /// What adds to the live crawl `run_id`, if this engine runs it.
+    pub(crate) async fn live(&self, run_id: &RunId) -> Option<LiveCrawl> {
+        self.0.lock().await.get(run_id).map(|live| LiveCrawl {
+            run: live.run.clone(),
+            egress: Arc::clone(&live.egress),
+            seeded: Arc::clone(&live.seeded),
+        })
     }
 
     /// Closes the crawl `run_id`: no Connection joins it again.

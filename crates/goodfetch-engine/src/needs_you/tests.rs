@@ -27,6 +27,7 @@ use super::{Answering, Changes, NeedsYou, NeedsYouSource, Primitives, SourceCont
 use crate::clock::Clock;
 use crate::events::{Events, EventsOptions, Subscription};
 use crate::governor::StorageSample;
+use crate::ledger::Ledger;
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// A source the test fills: what it holds now, which a person may dismiss
@@ -97,6 +98,7 @@ async fn started(index: &Path, sources: Vec<NeedsYouSource>) -> Started {
         storage: watch::channel(Arc::new(StorageSample::default())).1,
         run_index: index.to_owned(),
         version: ProductVersion::parse("1.0.0").unwrap(),
+        ledger: Ledger::at(index.with_file_name("usage.sqlite"), None),
         owner: Arc::new(owner.child()),
     };
     let needs_you = NeedsYou::start(&sources, context, events, &owner);

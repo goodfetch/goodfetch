@@ -31,6 +31,7 @@ use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
 use crate::governor::{Governor, System};
 use crate::home::{Home, RunStateLocation, major_name};
+use crate::ledger::Ledger;
 use crate::log::LogEvents;
 use crate::metrics::Metrics;
 use crate::needs_you::{NeedsYou, NeedsYouSource, SourceContext};
@@ -349,6 +350,10 @@ impl Engine {
                     .home
                     .run_index(&self.identity().product_version),
                 version: self.identity().product_version.clone(),
+                ledger: Ledger::at(
+                    dependencies.home.usage_ledger(),
+                    dependencies.run_state.vfs.clone(),
+                ),
                 owner: Arc::new(owner.child()),
             },
             events.clone(),

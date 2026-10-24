@@ -185,6 +185,9 @@ pub struct StoredLimit {
     pub must_understand: bool,
     /// Who set it, as written.
     pub set_by: String,
+    /// When it was set last, as written: added, raised or rewritten by its
+    /// managed Operator policy.
+    pub set_at: String,
     /// The major of the managed Operator policy whose row it is.
     pub managed_major: Option<String>,
 }
@@ -926,7 +929,7 @@ fn counted(connection: &Connection, limit: LimitId, key: &str) -> rusqlite::Resu
 
 fn stored_limits(connection: &Connection) -> rusqlite::Result<Vec<StoredLimit>> {
     let mut statement = connection.prepare(
-        "SELECT limit_id, scope_kind, scope_id, usage_kind, currency, period, time_zone, amount, must_understand, set_by, managed_major
+        "SELECT limit_id, scope_kind, scope_id, usage_kind, currency, period, time_zone, amount, must_understand, set_by, managed_major, set_at
          FROM limits ORDER BY limit_id",
     )?;
     let rows = statement.query_map([], |row| {
@@ -944,6 +947,7 @@ fn stored_limits(connection: &Connection) -> rusqlite::Result<Vec<StoredLimit>> 
             must_understand: row.get(8)?,
             set_by: row.get(9)?,
             managed_major: row.get(10)?,
+            set_at: row.get(11)?,
         })
     })?;
     rows.collect()

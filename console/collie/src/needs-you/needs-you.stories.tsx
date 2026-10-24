@@ -1,7 +1,10 @@
 // Each state of "Needs you" (TESTING.md, Components): reading the list,
 // nothing waiting, a filesystem at the low storage level, one at the
 // critical level beside the run it stopped, a kind this build has no
-// renderer for, the Console read-only, and the engine's refusal.
+// renderer for, the Console read-only, and the engine's refusal; runs
+// stopped by a Limit, an SDK script's and a Recipe's priced one, and what a
+// person's raise left: a run waiting for its script, with its resume
+// command, and one resumed in the Daemon.
 import type { NeedsYouItem } from "@goodfetch/collie-client/generated";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NeedsYouView } from "./needs-you.tsx";
@@ -33,10 +36,49 @@ const stopped: NeedsYouItem = {
   details: { folder: `${FOLDER}/1/runs/nightly` },
 };
 
+const byLimit: NeedsYouItem = {
+  id: "run_stopped_by_limit:capped:2026-10-24T09:10:00Z",
+  kind: "run_stopped_by_limit",
+  since: "2026-10-24T09:10:00Z",
+  run: "capped",
+  summary: "The Run capped stopped: a Limit on requests has nothing left.",
+  actions: ["usage.raise", "needs_you.dismiss"],
+  details: {
+    limit: {
+      scope: { kind: "install", id: "" },
+      usage_kind: "requests",
+      period: { every: "month", time_zone: "Europe/Paris" },
+      resets_at: "2026-10-31T23:00:00Z",
+    },
+    amount: 1000,
+    needs: "collie",
+  },
+};
+
+const recipeByPrice: NeedsYouItem = {
+  id: "run_stopped_by_limit:nightly-prices:2026-10-24T09:20:00Z",
+  kind: "run_stopped_by_limit",
+  since: "2026-10-24T09:20:00Z",
+  run: "nightly-prices",
+  summary:
+    "The Run nightly-prices of the Recipe shop-prices stopped: a Limit on proxy_bytes has nothing left.",
+  actions: ["usage.raise", "run.resume", "needs_you.dismiss"],
+  details: {
+    limit: {
+      scope: { kind: "daemon", id: "1" },
+      usage_kind: "proxy_bytes",
+      currency: "USD",
+    },
+    amount: 5_000_000,
+    needs: "collie",
+    recipe: "shop-prices",
+  },
+};
+
 const meta: Meta<typeof NeedsYouView> = {
   title: "Needs you",
   component: NeedsYouView,
-  args: { onDismiss: (): void => {} },
+  args: { onDismiss: (): void => {}, onRaise: (): void => {}, onCopy: (): void => {} },
 };
 
 export default meta;
@@ -79,6 +121,27 @@ export const UnknownKind: Story = {
 /** The Console has no Connection: the list stays, and dismissing is disabled. */
 export const ReadOnly: Story = {
   args: { state: { kind: "listed", items: [critical, stopped] }, readOnly: true },
+};
+
+/** Runs stopped by a Limit: an SDK script's on the install's monthly Limit, and a Recipe's on a Daemon's price Limit with no period. */
+export const StoppedByLimit: Story = {
+  args: { state: { kind: "listed", items: [byLimit, recipeByPrice] } },
+};
+
+/** A person raised the Limits: the SDK script's run waits for its script, its resume command copied, and the Recipe's run resumes in the Daemon. */
+export const LimitRaised: Story = {
+  args: {
+    state: { kind: "listed", items: [] },
+    raised: [
+      {
+        kind: "waiting_for_script",
+        run: "capped",
+        command: "goodfetch-collie run resume capped",
+      },
+      { kind: "resumed", run: "nightly-prices" },
+    ],
+    copied: "copied",
+  },
 };
 
 /** The engine refused the list. */

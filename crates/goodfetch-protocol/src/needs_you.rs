@@ -30,6 +30,11 @@ pub const STORAGE_LEVEL: &str = "storage_level";
 /// resumes once space is freed (ADR 0122).
 pub const RUN_STOPPED_BY_STORAGE: &str = "run_stopped_by_storage";
 
+/// The kind of a Run stopped by a Limit that still holds it, which a
+/// person raises (ADRs 0031 and 0041): raising it resumes a Recipe's Run in
+/// the Daemon, and leaves an SDK script's Run waiting for its script.
+pub const RUN_STOPPED_BY_LIMIT: &str = "run_stopped_by_limit";
+
 /// How many items one `needs_you.list` page holds at most.
 pub const PAGE: usize = 100;
 
@@ -67,7 +72,8 @@ pub struct NeedsYouItem {
     pub actions: Vec<String>,
     /// Its kind's own fields, which the kind's value in the catalog names:
     /// for `storage_level`, `level` and `folder`; for
-    /// `run_stopped_by_storage`, `folder`.
+    /// `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
+    /// `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`.
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub details: Map<String, Value>,
@@ -216,6 +222,12 @@ pub const ENTRIES: Entries = Entries {
             shared_type: SharedType::NeedsYouKind,
             name: RUN_STOPPED_BY_STORAGE,
             description: "A Run stopped by storage, resumable once space is freed by a start with its Run ID (ADR 0122); `details` give the `folder` whose filesystem filled. It leaves the list once the Run runs again, or when a person dismisses it.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::NeedsYouKind,
+            name: RUN_STOPPED_BY_LIMIT,
+            description: "A Run stopped by a Limit that still holds it (ADR 0041): the Limit's period has not started again since the stop, and it was not set again since then with something left. `details` give the `limit` as `limit_reached` names it, the `amount` it allows now, the Product the Run `needs` and, for a Recipe's Run, its `recipe`. Its actions offer `usage.raise`, a person's answer, and for a Recipe's Run `run.resume`, which resumes it in the Daemon once the Limit is raised; an SDK script's Run then waits for its script, which resumes it by its Run ID (ADR 0031). It leaves the list once a person raises the Limit or its period starts again, once the Run runs again, or when a person dismisses it.",
             arrived_in: ARRIVED_IN,
         },
     ],

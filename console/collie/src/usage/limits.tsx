@@ -80,7 +80,7 @@ const UNDERSTANDING: Readonly<Record<`${boolean}-${LimitStanding}`, MessageDescr
 };
 
 /** The scope a Limit is on: its kind's name and which one. */
-function Scope({ scope }: { readonly scope: LimitScope }): ReactNode {
+export function Scope({ scope }: { readonly scope: LimitScope }): ReactNode {
   const id = scope.id;
   switch (scope.kind) {
     case "install":
@@ -121,7 +121,11 @@ function Scope({ scope }: { readonly scope: LimitScope }): ReactNode {
 }
 
 /** The Usage kind a Limit caps, in its currency for a price Limit. */
-function UsageKind({ row }: { readonly row: LimitRow }): ReactNode {
+export function UsageKind({
+  row,
+}: {
+  readonly row: Pick<LimitRow, "usageKind" | "currency">;
+}): ReactNode {
   const kind = row.usageKind;
   const currency = row.currency;
   if (currency === undefined || currency === null) {
@@ -168,7 +172,7 @@ const EVERY_UNTIL: Readonly<
 };
 
 /** A Limit's period in its time zone, and when it starts again. */
-function PeriodOf({
+export function PeriodOf({
   period,
   resetsAt,
 }: {

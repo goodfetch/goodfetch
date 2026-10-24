@@ -625,12 +625,12 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
         return false;
       }
     };
-    const detected = nodes.some(
+    const found = nodes.some(
       (node) =>
         (selectors ?? []).some((union) => ruleDetects(node, union)) ||
         heuristics.checkHeuristicPatterns(textOf(node).slice(0, 10000)).patterns.length > 0,
     );
-    if (detected) pass();
+    if (found) pass();
   };
   const watch = () => {
     new MutationObserver((records) => {

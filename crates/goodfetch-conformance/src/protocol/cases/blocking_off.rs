@@ -7,19 +7,22 @@
 //! script renders passes on the retry, so the lists are off for its domain
 //! from then on; a page that fails for another reason is retried once and
 //! still raises `page_check_failed`, leaving the lists on; and a challenge
-//! whose check script a list blocks clears on the retry. Each is judged by
+//! whose check script a list blocks clears on the retry; a retry whose load
+//! fails is recorded all the same. Each is judged by
 //! the Proving ground's own record of the requests it received, by the
 //! Errors the engine answers and by the Run's Provenance log, which names
 //! each retry, why it ran and whether blocking was learned off, and each
 //! page later loaded with blocking off.
 
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
+use goodfetch_protocol::page::route::{PAGE_ROUTE, ROUTE_ABORT, ROUTE_CONTINUE};
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
-use goodfetch_protocol::page::{PAGE_CHECK_FAILED, PageOpened};
+use goodfetch_protocol::page::{NAVIGATION_FAILED, PAGE_CHECK_FAILED, PageOpened};
 use serde_json::{Value, json};
 
 use super::clean_up::{AD, ANNOYANCE, HOST, TRACKER, counts, finish, provenance, received, visit};
 use super::navigation::{answered, call};
+use super::routes::{Act, Routes, glob, goto};
 use super::{Checks, Site, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::EngineTarget;
@@ -40,6 +43,7 @@ const CLEARING_SCRIPT: &str = "/js/fingerprint2.min.js";
 pub(crate) enum Case {
     LearnedOff,
     NotLearnedOff,
+    RetryFailed,
     Challenge,
 }
 
@@ -52,6 +56,9 @@ impl Case {
             }
             "a-page-failing-its-page-check-for-another-reason-is-retried-once-and-raises-page-check-failed" => {
                 Self::NotLearnedOff
+            }
+            "a-retry-with-blocking-off-whose-load-fails-is-recorded-in-provenance" => {
+                Self::RetryFailed
             }
             "a-challenge-the-filter-lists-blocked-a-request-of-is-retried-once-with-blocking-off" => {
                 Self::Challenge
@@ -71,6 +78,7 @@ impl Case {
         match self {
             Self::LearnedOff => learned_off(connection, target, site, checks),
             Self::NotLearnedOff => not_learned_off(connection, target, site, checks),
+            Self::RetryFailed => retry_failed(connection, target, site, checks),
             Self::Challenge => challenge(connection, target, site, checks),
         }
     }
@@ -185,6 +193,59 @@ fn learned_off(
         blocking_off(target, run_id, "/ads")
             .iter()
             .any(|entry| names(entry, &other, "learned", None)),
+    );
+    Ok(())
+}
+
+/// `/ads` fails a Page check expecting `#content`, so it is loaded once
+/// more with blocking off, and a route aborts that second load: the `goto`
+/// raises the load's failure, `navigation_failed`, and Provenance still
+/// records the retry, blocking not learned off.
+fn retry_failed(
+    connection: &mut Connection,
+    target: &EngineTarget,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-blocking-off-retry-failed";
+    start_run(connection, site, run_id, &json!({}), checks)?;
+    let Some(checked) = open_in_session(connection, run_id, &expects_content(), checks)? else {
+        return finish(connection, run_id).map(drop);
+    };
+    let mut loads = 0;
+    let mut routes = Routes::new(move |_| {
+        loads += 1;
+        let act = if loads == 1 {
+            Act::Call(ROUTE_CONTINUE.name, json!({}))
+        } else {
+            Act::Call(ROUTE_ABORT.name, json!({}))
+        };
+        vec![act, Act::End]
+    });
+    Routes::route(
+        connection,
+        PAGE_ROUTE.name,
+        &json!({ "page_id": checked.page_id, "url": glob("**/ads?retry=fails") }),
+    )?;
+    let url = site.named_url(HOST, "/ads?retry=fails").unwrap_or_default();
+    let answer = goto(&mut routes, connection, &checked, &url)?;
+    checks.check(
+        format!(
+            "the `goto` whose retry with blocking off is aborted raises `{}`",
+            NAVIGATION_FAILED.name
+        ),
+        answer["error"]["data"]["code"] == json!(NAVIGATION_FAILED.name),
+    );
+    checks.check(
+        "the route saw the document's two loads",
+        routes.handled.len() == 2,
+    );
+    finish(connection, run_id)?;
+    checks.check(
+        "Provenance records the failed retry with blocking off, blocking not learned off",
+        blocking_off(target, run_id, "/ads?retry=fails")
+            .iter()
+            .any(|entry| names(entry, &checked, "page_check_failed", Some(false))),
     );
     Ok(())
 }

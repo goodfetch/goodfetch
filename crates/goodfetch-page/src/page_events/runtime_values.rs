@@ -5,6 +5,8 @@ use goodfetch_cdp::generated::runtime;
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::events::{ConsoleLocation, ConsoleMessage, WebError};
 
+use crate::page_functions::error_message;
+
 /// A console call as Playwright's `ConsoleMessage`.
 pub(super) fn console_message(
     page_id: &PageId,
@@ -75,12 +77,7 @@ pub(super) fn web_error(page_id: &PageId, details: &runtime::ExceptionDetails) -
         let name = thrown
             .and_then(|thrown| thrown.class_name.clone())
             .unwrap_or_else(|| "Error".to_owned());
-        let first = description.lines().next().unwrap_or_default();
-        let message = first
-            .strip_prefix(&format!("{name}: "))
-            .or_else(|| (first == name).then_some(""))
-            .unwrap_or(first)
-            .to_owned();
+        let message = error_message(Some(&name), &description);
         return WebError {
             page_id: page_id.clone(),
             name,

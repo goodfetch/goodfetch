@@ -90,7 +90,13 @@ fn a_crawl_no_seed_of_which_reached_a_handler_did_nothing() {
             &report["result"]["lifecycle"],
             &report["result"]["nothing_done"],
         ),
-        (&json!("finished"), &json!({ "reason": "no_seed_handled" }))
+        (
+            &json!("finished"),
+            &json!({
+                "reason": "no_seed_handled",
+                "seeds": [{ "reason": "unsupported_scheme", "count": 1 }],
+            })
+        )
     );
 }
 

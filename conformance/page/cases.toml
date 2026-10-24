@@ -329,6 +329,10 @@ covers = ["story:5-94"]
 id = "a-request-a-route-sends-on-passes-the-filter-lists"
 covers = ["story:5-42", "story:5-94", "operation:page.route", "operation:route.continue"]
 
+[[capability.case]]
+id = "requests-of-another-sites-frame-pass-the-filter-lists-and-block-resources"
+covers = ["story:5-94", "setting:browser.block_resources"]
+
 [[capability]]
 name = "clean_up.never_block"
 
@@ -342,6 +346,10 @@ name = "clean_up.blocking_off"
 [[capability.case]]
 id = "a-page-whose-content-a-listed-script-renders-passes-its-retry-with-blocking-off-which-is-learned-off"
 covers = ["story:5-99", "setting:session.page_check", "operation:run.new_session", "operation:session.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-retry-with-blocking-off-whose-load-fails-is-recorded-in-provenance"
+covers = ["story:5-99", "setting:session.page_check", "operation:page.route", "error:navigation_failed"]
 
 [[capability.case]]
 id = "a-page-failing-its-page-check-for-another-reason-is-retried-once-and-raises-page-check-failed"
@@ -440,6 +448,10 @@ name = "clean_up.consent_walls"
 [[capability.case]]
 id = "a-notice-is-hidden-and-a-wall-raises-blocked-with-consent-required-and-is-never-answered"
 covers = ["story:5-101", "error:blocked", "operation:page.evaluate"]
+
+[[capability.case]]
+id = "a-walls-navigation-raises-it-before-any-call-reads-the-page-even-one-a-filter-list-would-hide"
+covers = ["story:5-101", "error:blocked", "operation:page.goto"]
 
 [[capability.case]]
 id = "with-consent-handling-off-the-wall-test-still-raises-blocked"
@@ -584,6 +596,14 @@ covers = ["story:5-43", "error:pattern_unsupported", "operation:page.route", "op
 [[capability.case]]
 id = "each-wait-ends-at-timeout-wait-naming-what-it-waited-for"
 covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+
+[[capability.case]]
+id = "a-waits-own-timeout-is-its-deadline-at-the-run-layer-and-null-is-none"
+covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+
+[[capability.case]]
+id = "a-wait-in-flight-when-its-page-closes-raises-call-cancelled-naming-the-page"
+covers = ["story:5-19", "error:call_cancelled", "operation:page.close", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
 
 [[capability]]
 name = "robots_txt"

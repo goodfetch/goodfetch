@@ -189,6 +189,11 @@ class AxisReason(BaseModel):
     What it is, such as `stopped` or `failed`; a reason this reader does
     not know is kept as it is.
     """
+    count: Annotated[int | None, Field(ge=0)] = None
+    """
+    How many it counts, when it counts some: the URLs a bound refused,
+    the pages left at a Block cause, or the requests a stop left.
+    """
     message: str
     """What it says, for people."""
 
@@ -1026,18 +1031,6 @@ class NotAddedReason(StrEnum):
     (ADR 0005): a path pattern whose pages brought no new page and no
     URL outside it, which leaves a finished Run `unverified`.
     """
-
-
-class NothingDone2(BaseModel):
-    """
-    No seed reached a handler: each was refused when added or skipped
-    when fetched.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    reason: Literal["no_seed_handled"]
 
 
 class NothingDone3(BaseModel):
@@ -1952,6 +1945,21 @@ class SeedBatch(BaseModel):
     """The seeds, in order."""
 
 
+class SeedsKept(BaseModel):
+    """How many seeds one reason kept from a handler."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """How many seeds it kept."""
+    reason: str
+    """
+    The reason: an enqueue's not-added reason, a skip reason, an Error
+    code or a Block cause.
+    """
+
+
 class SessionClosed(BaseModel):
     """What `session.close` answers once the Session is closed."""
 
@@ -2554,6 +2562,12 @@ class WaitForExchangeParams(BaseModel):
     )
     page_id: PageId
     """The page."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
     url: UrlMatcher | None = None
     """The URLs it waits for."""
 
@@ -2568,6 +2582,12 @@ class WaitForLoadStateParams(BaseModel):
     """The page."""
     state: LoadState | None = None
     """The state; `load` when absent."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
 
 
 class WaitForRequestFinishedParams(BaseModel):
@@ -2581,6 +2601,12 @@ class WaitForRequestFinishedParams(BaseModel):
     )
     page_id: PageId
     """The page."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
     url: UrlMatcher | None = None
     """The URLs it waits for."""
 
@@ -2596,6 +2622,12 @@ class WaitForUrlParams(BaseModel):
     )
     page_id: PageId
     """The page."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
     url: UrlMatcher
     """The URL it waits for."""
     wait_until: LoadState | None = None
@@ -3516,6 +3548,12 @@ class LocatorWaitForParams(BaseModel):
     """The locator."""
     state: ElementState | None = None
     """The state; `visible` when absent."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
 
 
 class LogEvent(BaseModel):
@@ -3657,6 +3695,24 @@ class NothingDone1(BaseModel):
     ended_at: PointInTime
     """When it ended."""
     reason: Literal["already_ended"]
+
+
+class NothingDone2(BaseModel):
+    """
+    No seed reached a handler: each was refused when added or ended
+    before its handler ran, counted by why.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reason: Literal["no_seed_handled"]
+    seeds: list[SeedsKept] | None = None
+    """
+    How many seeds each reason kept from a handler: the reason an
+    enqueue answered, or how the request ended, by its skip reason,
+    Error code or Block cause, in the order of the reasons.
+    """
 
 
 class NothingDone(RootModel[NothingDone1 | NothingDone2 | NothingDone3]):
@@ -4397,6 +4453,12 @@ class WaitForCountParams(BaseModel):
     """The count."""
     locator: Locator
     """The locator."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
 
 
 class WaitForFunctionParams(BaseModel):
@@ -4421,6 +4483,12 @@ class WaitForFunctionParams(BaseModel):
     """
     The milliseconds between two checks, at least 1; absent, about one
     frame's, 16.
+    """
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
     """
     world: World | None = None
     """Where it runs; the main world when absent."""

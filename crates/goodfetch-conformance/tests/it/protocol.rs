@@ -8,7 +8,8 @@
 use std::path::Path;
 
 use goodfetch_conformance::{
-    EngineMode, EngineTarget, ProtocolSuite, ProtocolSuiteError, ProvingGround, run_protocol_suite,
+    EngineMode, EngineTarget, ProtocolSuite, ProtocolSuiteError, ProvingGround, SuiteError,
+    run_protocol_suite,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::journey::FeatureId;
@@ -618,8 +619,12 @@ fn a_capability_the_suite_does_not_declare_is_refused() {
         .with_capabilities(&["engine.info", "engine.speed"])
         .unwrap_err();
 
-    assert_eq!(
-        refused.to_string(),
-        "the suite `protocol` declares no capability `engine.speed`"
+    assert!(
+        matches!(
+            &refused,
+            SuiteError::UnknownCapability { suite, capability }
+                if suite == "protocol" && capability == "engine.speed"
+        ),
+        "{refused:?}"
     );
 }

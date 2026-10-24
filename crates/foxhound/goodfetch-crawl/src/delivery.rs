@@ -63,27 +63,27 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::run_state::RunStateError;
-use goodfetch_engine::runs::{ChargeError, CompletenessReason, Ending, Run};
+use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{FetchTiers, HttpTier, RobotsTxtFetch};
-use goodfetch_frontier::{Bounds, completeness_reasons, learned_completeness_reasons};
+use goodfetch_frontier::Bounds;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
-    RESPONSE_UNAVAILABLE, WORK_ITEM_RETRIED,
+    WORK_ITEM_RETRIED,
 };
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::run::{
-    AxisReason, EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, StopReason,
+    EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, StopReason,
 };
 use goodfetch_protocol::usage::REQUESTS;
 use goodfetch_session_pool::{PoolSettings, SessionPool};
-use rusqlite::Connection;
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
+use crate::completeness;
 use crate::lease::{CommitError, Leases};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
@@ -557,7 +557,7 @@ async fn drained(
         .boolean(CRAWL_KEEP_ALIVE.name)
         .expect("invariant: `crawl.keep_alive` resolves to a boolean");
     if !keeps_alive || run.is_let_finish() {
-        let ending = match run.state().read(short_of_scope).await {
+        let ending = match run.state().read(completeness::short_of_scope).await {
             Ok(reasons) => Ending::Finished(reasons),
             Err(error) => {
                 tracing::error!(%error, run_id = %run.id(), "what cut the crawl could not be read");
@@ -570,31 +570,6 @@ async fn drained(
     progress::show_waits(run, &[], resolved, run.clock().now(), Room::None);
     progress::show_idle(run, true);
     waited(run, admission, servers, arrivals, true).await
-}
-
-/// Why the finished crawl of the run file `connection` holds does not
-/// cover its scope: what its bounds and caps refused (ADRs 0093 and 0120),
-/// what its learned traps refused and its listings paged only by an offset
-/// (ADR 0005) and, when requests `failed` with `response_unavailable`, that (ADR
-/// 0118), in the order of their codes.
-fn short_of_scope(connection: &Connection) -> rusqlite::Result<Vec<CompletenessReason>> {
-    let mut reasons = completeness_reasons(connection)?;
-    reasons.extend(learned_completeness_reasons(connection)?);
-    if work_items::any_failed_with(connection, RESPONSE_UNAVAILABLE.name)? {
-        reasons.push(CompletenessReason::incomplete(unavailable_reason()));
-    }
-    reasons.sort_by(|one, other| one.reason.code.cmp(&other.reason.code));
-    Ok(reasons)
-}
-
-/// Why a crawl that ends with requests `failed` with
-/// `response_unavailable` is `incomplete` (ADR 0118).
-fn unavailable_reason() -> AxisReason {
-    AxisReason {
-        code: RESPONSE_UNAVAILABLE.name.to_owned(),
-        message: "A site asked to wait longer than `politeness.retry_after.max` allows, so some of its requests failed with `response_unavailable`; `retryFailed()` re-admits them.".to_owned(),
-        call_id: None,
-    }
 }
 
 /// Waits, with nothing to deliver now, until the Run stops at once, is

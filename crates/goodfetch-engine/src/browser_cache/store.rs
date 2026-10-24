@@ -51,7 +51,6 @@ pub(super) fn is_segment(segment: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'+'))
 }
 
-/// The folder of `id`'s entry.
 /// Writes `files`, each a relative path with its bytes, under `folder`.
 ///
 /// # Errors
@@ -74,6 +73,7 @@ pub(super) fn write_files(folder: &Path, files: &[(String, Vec<u8>)]) -> io::Res
     Ok(())
 }
 
+/// The folder of `id`'s entry.
 pub(super) fn entry_folder(root: &Path, id: &ArtifactId) -> PathBuf {
     root.join(id.kind.as_str()).join(&id.name).join(&id.build)
 }

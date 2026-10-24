@@ -42,6 +42,7 @@ fn refused(name: &str, count: u64) -> Value {
     json!({
         "code": name,
         "message": format!("`{name}` refused {count} {urls} the crawl would otherwise have admitted."),
+        "count": count,
     })
 }
 

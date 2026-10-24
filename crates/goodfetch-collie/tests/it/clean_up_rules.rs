@@ -30,6 +30,7 @@ use goodfetch_protocol::page::PageOpened;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
+use sha2::Digest as _;
 
 use self::stand_in::{StandIn, channel, manifest_path};
 use crate::attached::{Attached, hello};
@@ -165,20 +166,6 @@ const SEED: u64 = 714;
 const AD: &str = "/img/top-ad-sidebar.gif";
 const TRACKER: &str = "/js/adobe-analytics.js";
 
-/// The daily channel's tag this engine pulls: its release line and the
-/// manifest format's line, each `0.y` minor counting as a major.
-fn channel_tag() -> String {
-    let mut product = env!("CARGO_PKG_VERSION").split('.');
-    let (major, minor) = (product.next().unwrap(), product.next().unwrap());
-    let format = CLEAN_UP_RULES.version;
-    let format_line = if format.major == 0 {
-        format!("0.{}", format.minor)
-    } else {
-        format.major.to_string()
-    };
-    format!("{major}.{minor}-format-{format_line}")
-}
-
 /// The files of a version of the Clean-up rules from `source`, published
 /// at `published_at` and expiring at `expires_at`, whose EasyList holds
 /// `ads` and EasyPrivacy `trackers`, and its digest by the Browser cache's
@@ -233,14 +220,25 @@ fn days_from_now(days: i64) -> jiff::Timestamp {
 }
 
 /// Writes `env`'s user configuration so that the stand-in's authority is
-/// trusted for its hosts.
-fn trust(env: &TestEnv, stand_in: &StandIn) {
+/// trusted for its hosts, followed by `sources`, the configuration that
+/// names the Clean-up rules' sources, which only configuration sets.
+fn configure(env: &TestEnv, stand_in: &StandIn, sources: &str) {
     let authority = env.folder().join("stand-in authority.pem");
     stand_in.write_authority(&authority);
     let file = format!("'{}'", authority.display());
     env.user_configuration(&format!(
-        "[settings.tls.trusted_cas]\n\"{REGISTRY}\" = [{file}]\n\"{LISTS}\" = [{file}]\n"
+        "[settings.tls.trusted_cas]\n\"{REGISTRY}\" = [{file}]\n\"{LISTS}\" = [{file}]\n{sources}"
     ));
+}
+
+/// The path the stand-in channel serves the blob of `name`, one of `files`,
+/// at.
+fn blob_path(files: &[(&str, Vec<u8>)], name: &str) -> String {
+    let (_, bytes) = files.iter().find(|(file, _)| *file == name).unwrap();
+    format!(
+        "/v2/goodfetch/clean-up-rules/blobs/sha256:{:x}",
+        sha2::Sha256::digest(bytes)
+    )
 }
 
 /// The Run settings that map the stand-in's hosts, and the Proving
@@ -345,21 +343,20 @@ fn held(home: &Path, run_id: &str) -> Vec<(Value, Value, Value)> {
         .collect()
 }
 
-/// Two Runs started on different days' daily versions, in two homes, each
-/// hold to their own, and a Run resumed from its Checkpoint in the other
-/// home fetches its version by digest and blocks exactly what it blocked
-/// before, by the Proving ground's record of the requests it received.
-/// Covers: story:5-97, setting:clean_up.update, setting:clean_up.channel, operation:run.resume, format:clean-up-rules
+/// A Run pinned by `clean_up.version` to a daily version holds to it, a
+/// Run pinned to another day's version in another home to its own, and a
+/// Run resumed from its Checkpoint in that other home fetches its version
+/// by digest and blocks exactly what it blocked before, by the Proving
+/// ground's record of the requests it received.
+/// Covers: story:5-97, setting:clean_up.version, setting:clean_up.channel, operation:run.resume, format:clean-up-rules
 #[cfg(unix)]
 #[test]
-fn runs_on_two_days_daily_versions_keep_their_own_and_a_resume_in_another_home_blocks_the_same() {
+fn runs_pinned_to_two_days_versions_keep_their_own_and_a_resume_in_another_home_blocks_the_same() {
     let (first_home, second_home) = (TestEnv::new(), TestEnv::new());
     let proving_ground = ProvingGround::start(&first_home, SEED).unwrap();
     let stand_in = StandIn::start(&[REGISTRY, LISTS]);
-    trust(&first_home, &stand_in);
-    trust(&second_home, &stand_in);
-    let daily = json!({ "update": "daily", "channel": channel(&stand_in.origin(REGISTRY)) });
-    let run_settings = settings(Some(&proving_ground), daily);
+    configure(&first_home, &stand_in, &channel_configuration(&stand_in));
+    configure(&second_home, &stand_in, &channel_configuration(&stand_in));
     let (first_day, first_files) = version(
         "daily",
         days_from_now(-1),
@@ -374,15 +371,17 @@ fn runs_on_two_days_daily_versions_keep_their_own_and_a_resume_in_another_home_b
         "",
         &format!("{TRACKER}\n"),
     );
+    stand_in.publish("first", &first_day, &first_files);
+    stand_in.publish("second", &second_day, &second_files);
+    let pinned = |digest: &str| settings(Some(&proving_ground), json!({ "version": digest }));
 
-    stand_in.publish(&channel_tag(), &first_day, &first_files);
     let first_cache = browser_cache(&first_home).unwrap();
     let mut first = engine_with_browser(&first_home, &first_cache);
     result(call(
         &mut first,
         1,
         "run.start",
-        &json!({ "run_id": "first", "settings": run_settings }),
+        &json!({ "run_id": "first", "settings": pinned(&first_day) }),
     ));
     let first_before = loads(&mut first, 2, &proving_ground, "first");
     result(call(
@@ -399,21 +398,20 @@ fn runs_on_two_days_daily_versions_keep_their_own_and_a_resume_in_another_home_b
         .join("first")
         .join("checkpoint.sqlite");
 
-    stand_in.publish(&channel_tag(), &second_day, &second_files);
     let second_cache = browser_cache(&second_home).unwrap();
     let mut second = engine_with_browser(&second_home, &second_cache);
     result(call(
         &mut second,
         1,
         "run.start",
-        &json!({ "run_id": "second", "settings": run_settings }),
+        &json!({ "run_id": "second", "settings": pinned(&second_day) }),
     ));
     let second_loads = loads(&mut second, 2, &proving_ground, "second");
     result(call(
         &mut second,
         4,
         "run.resume",
-        &json!({ "run_id": "first", "checkpoint": checkpoint, "settings": run_settings }),
+        &json!({ "run_id": "first", "checkpoint": checkpoint, "settings": pinned(&first_day) }),
     ));
     let first_after = loads(&mut second, 5, &proving_ground, "first");
     result(call(
@@ -440,9 +438,13 @@ fn runs_on_two_days_daily_versions_keep_their_own_and_a_resume_in_another_home_b
                 recorded_digest(second_home.home(), "first"),
                 recorded_digest(second_home.home(), "second"),
             ),
+            // Fetched by its digest's tag at the start, and by the resume in
+            // the home that lacked it.
             stand_in
                 .asked()
-                .contains(&manifest_path(&first_day.replacen(':', "-", 1))),
+                .iter()
+                .filter(|path| **path == manifest_path(&first_day.replacen(':', "-", 1)))
+                .count(),
         ),
         (
             ((false, true), (false, true), (true, false)),
@@ -450,9 +452,25 @@ fn runs_on_two_days_daily_versions_keep_their_own_and_a_resume_in_another_home_b
             vec![(json!("daily"), json!(first_day), json!(true))],
             vec![(json!("daily"), json!(second_day), json!(false))],
             (Some(first_day.clone()), Some(second_day.clone())),
-            true,
+            2,
         )
     );
+}
+
+/// The user configuration that names the stand-in's daily channel.
+fn channel_configuration(stand_in: &StandIn) -> String {
+    format!(
+        "[settings.clean_up]\nchannel = \"{}\"\n",
+        channel(&stand_in.origin(REGISTRY))
+    )
+}
+
+/// The user configuration that names the stand-in's four Filter lists.
+fn lists_configuration(stand_in: &StandIn) -> String {
+    let origin = stand_in.origin(LISTS);
+    format!(
+        "[settings.clean_up.lists]\nads = \"https://{origin}/easylist.txt\"\ntrackers = \"https://{origin}/easyprivacy.txt\"\nannoyances = \"https://{origin}/fanboy-annoyance.txt\"\nunbreak = \"https://{origin}/brave-unbreak.txt\"\n"
+    )
 }
 
 /// `clean_up.update = upstream` fetches the Filter lists from the URLs
@@ -465,7 +483,7 @@ fn upstream_lists_are_fetched_from_their_urls_without_their_cookie_sections() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let stand_in = StandIn::start(&[REGISTRY, LISTS]);
-    trust(&env, &stand_in);
+    configure(&env, &stand_in, &lists_configuration(&stand_in));
     stand_in.serve(
         "/easylist.txt",
         format!(
@@ -480,16 +498,6 @@ fn upstream_lists_are_fetched_from_their_urls_without_their_cookie_sections() {
     ] {
         stand_in.serve(list, b"[Adblock Plus 2.0]\n! Expires: 4 days\n".to_vec());
     }
-    let origin = stand_in.origin(LISTS);
-    let upstream = json!({
-        "update": "upstream",
-        "lists": {
-            "ads": format!("https://{origin}/easylist.txt"),
-            "trackers": format!("https://{origin}/easyprivacy.txt"),
-            "annoyances": format!("https://{origin}/fanboy-annoyance.txt"),
-            "unbreak": format!("https://{origin}/brave-unbreak.txt"),
-        },
-    });
     let cache = browser_cache(&env).unwrap();
     let mut engine = engine_with_browser(&env, &cache);
 
@@ -497,7 +505,10 @@ fn upstream_lists_are_fetched_from_their_urls_without_their_cookie_sections() {
         &mut engine,
         1,
         "run.start",
-        &json!({ "run_id": "upstream", "settings": settings(Some(&proving_ground), upstream) }),
+        &json!({
+            "run_id": "upstream",
+            "settings": settings(Some(&proving_ground), json!({ "update": "upstream" })),
+        }),
     ));
     let loaded = loads(&mut engine, 2, &proving_ground, "upstream");
     result(call(
@@ -531,10 +542,10 @@ fn upstream_lists_are_fetched_from_their_urls_without_their_cookie_sections() {
 fn a_run_pinned_to_a_version_older_than_14_days_holds_to_it_with_a_stale_warning() {
     let env = TestEnv::new();
     let stand_in = StandIn::start(&[REGISTRY, LISTS]);
-    trust(&env, &stand_in);
+    configure(&env, &stand_in, &channel_configuration(&stand_in));
     let (old, files) = version("daily", days_from_now(-20), days_from_now(-6), "", "");
     stand_in.publish("an-old-tag", &old, &files);
-    let pinned = json!({ "version": old, "channel": channel(&stand_in.origin(REGISTRY)) });
+    let pinned = json!({ "version": old });
 
     let report = start_and_finish(&env, "pinned", &Value::Object(settings(None, pinned)));
 
@@ -555,36 +566,293 @@ fn a_run_pinned_to_a_version_older_than_14_days_holds_to_it_with_a_stale_warning
     );
 }
 
-/// When the daily channel's newest version is past its expiry, a new Run
-/// holds to the embedded part instead, and its Run report and Provenance
-/// say so.
-/// Covers: story:5-97, setting:clean_up.update, setting:clean_up.channel
+/// Starts the Run `run_id` with `settings` on a new Attached engine of
+/// `env`, and answers `run.start`'s whole answer.
+fn start(env: &TestEnv, run_id: &str, settings: &Value) -> Value {
+    let mut engine = Attached::start(env);
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+    let answer = call(
+        &mut engine,
+        1,
+        "run.start",
+        &json!({ "run_id": run_id, "settings": settings }),
+    );
+    let _ = engine.finish();
+    answer
+}
+
+/// The Error code of `answer`, and its `failure`, when it failed.
+fn refused(answer: &Value) -> (Value, Value) {
+    let data = &answer["error"]["data"];
+    (data["code"].clone(), data["failure"].clone())
+}
+
+/// `clean_up.update = daily` is refused when the Run starts, as
+/// `capability_unavailable` naming the setting, until the engine checks the
+/// channel's signature; and `filter_lists.page_scriptlets` and
+/// `filter_lists.extra`, which no code reads yet, are refused too, never
+/// ignored.
+/// Covers: story:5-97, setting:clean_up.update, setting:filter_lists.page_scriptlets, setting:filter_lists.extra, error:capability_unavailable
 #[test]
-fn an_expired_daily_version_falls_back_to_the_embedded_part_with_a_warning() {
+fn what_the_engine_cannot_do_yet_is_refused_when_the_run_starts() {
     let env = TestEnv::new();
-    let stand_in = StandIn::start(&[REGISTRY, LISTS]);
-    trust(&env, &stand_in);
-    let (expired, files) = version("daily", days_from_now(-15), days_from_now(-1), "", "");
-    stand_in.publish(&channel_tag(), &expired, &files);
-    let daily = json!({ "update": "daily", "channel": channel(&stand_in.origin(REGISTRY)) });
-
-    let report = start_and_finish(&env, "expired", &Value::Object(settings(None, daily)));
-
-    let entries = rules_provenance(env.home(), "expired");
-    assert_eq!(
+    let asked = [
+        ("daily", json!({ "clean_up": { "update": "daily" } })),
         (
-            recorded_digest(env.home(), "expired"),
-            held(env.home(), "expired"),
-            warning_codes(&report).contains(&"clean_up_rules_fallback".to_owned()),
-            entries
-                .first()
-                .and_then(|entry| entry["fallback"].as_str())
-                .is_some_and(|why| why.contains("past its expiry")),
+            "scriptlets",
+            json!({ "filter_lists": { "page_scriptlets": true } }),
         ),
         (
-            Some(EMBEDDED.to_owned()),
-            vec![(json!("embedded"), json!(EMBEDDED), json!(false))],
+            "extra",
+            json!({ "filter_lists": { "extra": ["https://lists.test/extra.txt"] } }),
+        ),
+    ];
+
+    let answers: Vec<(Value, Value)> = asked
+        .iter()
+        .map(|(run_id, settings)| {
+            let answer = start(&env, run_id, settings);
+            let data = &answer["error"]["data"];
+            (data["code"].clone(), data["key"].clone())
+        })
+        .collect();
+
+    assert_eq!(
+        answers,
+        vec![
+            (json!("capability_unavailable"), json!("clean_up.update")),
+            (
+                json!("capability_unavailable"),
+                json!("filter_lists.page_scriptlets")
+            ),
+            (json!("capability_unavailable"), json!("filter_lists.extra")),
+        ]
+    );
+}
+
+/// The Clean-up rules' sources are set only by Operator policy and user
+/// and project configuration: a run's `clean_up.channel` or
+/// `clean_up.lists` is `setting_locked`, so a Recipe or an agent cannot
+/// point the engine's fetches at another host.
+/// Covers: setting:clean_up.channel, setting:clean_up.lists, error:setting_locked
+#[test]
+fn a_runs_own_clean_up_sources_are_setting_locked() {
+    let env = TestEnv::new();
+
+    let answers: Vec<Value> = [
+        json!({ "clean_up": { "channel": "elsewhere.test/rules" } }),
+        json!({ "clean_up": { "lists": { "ads": "https://elsewhere.test/ads.txt" } } }),
+    ]
+    .iter()
+    .enumerate()
+    .map(|(index, settings)| {
+        start(&env, &format!("locked-{index}"), settings)["error"]["data"]["code"].clone()
+    })
+    .collect();
+
+    assert_eq!(
+        answers,
+        vec![json!("setting_locked"), json!("setting_locked")]
+    );
+}
+
+/// A `clean_up.version` the engine cannot have refuses the start, and no
+/// Run, and no version, is recorded: a value that is no digest is
+/// `setting_invalid`; one the channel does not serve, one whose file is
+/// not the bytes its digest names, one the channel serves as files of
+/// another digest, and one `egress.offline` keeps from being fetched are
+/// the Browser cache's download refusals.
+/// Covers: story:5-97, setting:clean_up.version, setting:clean_up.channel, error:setting_invalid, error:artifact_download_failed, error:artifact_unavailable_offline
+#[test]
+fn a_pinned_version_the_engine_cannot_have_refuses_the_start() {
+    let env = TestEnv::new();
+    let stand_in = StandIn::start(&[REGISTRY, LISTS]);
+    configure(&env, &stand_in, &channel_configuration(&stand_in));
+    let (absent, _) = version(
+        "daily",
+        days_from_now(-1),
+        days_from_now(13),
+        "/absent\n",
+        "",
+    );
+    let (tampered, tampered_files) = version(
+        "daily",
+        days_from_now(-1),
+        days_from_now(13),
+        "/tampered\n",
+        "",
+    );
+    stand_in.publish("tampered", &tampered, &tampered_files);
+    stand_in.serve(
+        &blob_path(&tampered_files, "easylist.txt"),
+        b"[Adblock Plus 2.0]\n/swapped\n".to_vec(),
+    );
+    let (named, _) = version(
+        "daily",
+        days_from_now(-1),
+        days_from_now(13),
+        "/named\n",
+        "",
+    );
+    let (served, served_files) = version(
+        "daily",
+        days_from_now(-1),
+        days_from_now(13),
+        "/served\n",
+        "",
+    );
+    stand_in.publish("served", &served, &served_files);
+    stand_in.serve(
+        &manifest_path(&named.replacen(':', "-", 1)),
+        stand_in.served(&manifest_path("served")).unwrap(),
+    );
+    let pinned = |digest: &str| Value::Object(settings(None, json!({ "version": digest })));
+    let mut offline = settings(None, json!({ "version": absent }));
+    offline.insert("egress".to_owned(), json!({ "offline": true }));
+
+    let answers = [
+        ("malformed", pinned("sha256:not-hex")),
+        ("absent", pinned(&absent)),
+        ("tampered", pinned(&tampered)),
+        ("other", pinned(&named)),
+        ("offline", Value::Object(offline)),
+    ]
+    .map(|(run_id, settings)| {
+        let answer = start(&env, run_id, &settings);
+        (refused(&answer), run_folder(env.home(), run_id).exists())
+    });
+
+    assert_eq!(
+        answers,
+        [
+            ((json!("setting_invalid"), Value::Null), false),
+            (
+                (json!("artifact_download_failed"), json!("http_status")),
+                false
+            ),
+            (
+                (json!("artifact_download_failed"), json!("digest_mismatch")),
+                false
+            ),
+            (
+                (json!("artifact_download_failed"), json!("digest_mismatch")),
+                false
+            ),
+            ((json!("artifact_unavailable_offline"), Value::Null), false),
+        ]
+    );
+}
+
+/// The reasons the Clean-up rules entries of `run_id`'s Provenance give for
+/// a fallback.
+fn fallback_reasons(home: &Path, run_id: &str) -> Vec<Value> {
+    rules_provenance(home, run_id)
+        .iter()
+        .map(|entry| entry["fallback"]["reason"].clone())
+        .collect()
+}
+
+/// When the Filter lists' authors refuse them, or do not answer within
+/// `clean_up.fetch_timeout`, a new Run holds to the embedded part instead,
+/// at once, and its Run report and Provenance say why.
+/// Covers: story:5-97, setting:clean_up.update, setting:clean_up.lists, setting:clean_up.fetch_timeout
+#[test]
+fn upstream_lists_refused_or_stalled_fall_back_to_the_embedded_part_with_a_warning() {
+    let env = TestEnv::new();
+    let stand_in = StandIn::start(&[REGISTRY, LISTS]);
+    configure(&env, &stand_in, &lists_configuration(&stand_in));
+    let upstream = json!({ "update": "upstream", "fetch_timeout": 1000 });
+
+    let refused = start_and_finish(
+        &env,
+        "refused",
+        &Value::Object(settings(None, upstream.clone())),
+    );
+    stand_in.stall("/easylist.txt");
+    let started = std::time::Instant::now();
+    let stalled = start_and_finish(&env, "stalled", &Value::Object(settings(None, upstream)));
+    let waited = started.elapsed();
+
+    assert_eq!(
+        (
+            [refused, stalled].map(|report| {
+                warning_codes(&report).contains(&"clean_up_rules_fallback".to_owned())
+            }),
+            [
+                recorded_digest(env.home(), "refused"),
+                recorded_digest(env.home(), "stalled"),
+            ],
+            [
+                fallback_reasons(env.home(), "refused"),
+                fallback_reasons(env.home(), "stalled"),
+            ],
+            waited < std::time::Duration::from_secs(20),
+        ),
+        (
+            [true, true],
+            [Some(EMBEDDED.to_owned()), Some(EMBEDDED.to_owned())],
+            [vec![json!("refused")], vec![json!("timed_out")]],
             true,
+        )
+    );
+}
+
+/// A Run whose version's files go from the Browser cache before its first
+/// page loads blocks with the embedded part, and Provenance and the Run
+/// report say so, naming the version it recorded.
+/// Covers: story:5-97, setting:clean_up.version, format:clean-up-rules
+#[cfg(unix)]
+#[test]
+fn a_version_whose_files_went_before_the_first_page_falls_back_with_a_warning() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let stand_in = StandIn::start(&[REGISTRY, LISTS]);
+    configure(&env, &stand_in, &channel_configuration(&stand_in));
+    let (pinned, files) = version("daily", days_from_now(-1), days_from_now(13), "", "");
+    stand_in.publish("pinned", &pinned, &files);
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = engine_with_browser(&env, &cache);
+    result(call(
+        &mut engine,
+        1,
+        "run.start",
+        &json!({
+            "run_id": "gone",
+            "settings": settings(Some(&proving_ground), json!({ "version": pinned })),
+        }),
+    ));
+    std::fs::remove_dir_all(cache.join("clean_up_rules")).unwrap();
+
+    let loaded = loads(&mut engine, 2, &proving_ground, "gone");
+    let report = result(call(
+        &mut engine,
+        4,
+        "run.finish",
+        &json!({ "run_id": "gone" }),
+    ));
+    let _ = engine.finish();
+
+    let entries = rules_provenance(env.home(), "gone");
+    assert_eq!(
+        (
+            loaded,
+            entries
+                .iter()
+                .map(|entry| (
+                    entry["digest"].clone(),
+                    entry["fallback"]["reason"].clone(),
+                    entry["recorded"].clone(),
+                ))
+                .collect::<Vec<_>>(),
+            warning_codes(&report).contains(&"clean_up_rules_fallback".to_owned()),
+        ),
+        (
+            (false, false),
+            vec![
+                (json!(pinned), Value::Null, Value::Null),
+                (json!(EMBEDDED), json!("not_loaded"), json!(pinned)),
+            ],
             true,
         )
     );

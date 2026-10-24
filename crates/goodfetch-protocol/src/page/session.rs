@@ -28,7 +28,7 @@ pub struct NewSessionParams {
     /// and 0092).
     #[serde(
         default,
-        deserialize_with = "present",
+        deserialize_with = "super::present",
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -44,20 +44,6 @@ pub struct NewSessionParams {
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub settings: Map<String, Value>,
-}
-
-/// A field that is present, `null` included, as `Some`; one left out stays
-/// `None` through `#[serde(default)]`.
-#[expect(
-    clippy::option_option,
-    reason = "a setting's three states (ADR 0083): left out inherits, `null` clears, a value sets"
-)]
-fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 /// What `run.new_session` answers: the Session it opened.

@@ -20,8 +20,8 @@ pub(crate) struct Compressed {
 include!(concat!(env!("OUT_DIR"), "/embedded.rs"));
 
 /// The embedded Filter lists, loaded: EasyList, EasyPrivacy and Fanboy
-/// Annoyance, each with Brave's unbreak list, without the consent-vendor
-/// entries held back until the Consent prompt runner is done.
+/// Annoyance, each with Brave's unbreak list; the consent vendors' entries
+/// stay in, each joining the never-block list (#717).
 pub struct FilterLists {
     pub(crate) ads: Engine,
     pub(crate) trackers: Engine,

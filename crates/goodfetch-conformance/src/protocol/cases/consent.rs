@@ -17,7 +17,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use goodfetch_protocol::page::{PAGE_GOTO, PageOpened};
+use goodfetch_protocol::page::{PAGE_FORMATS, PAGE_GOTO, PageOpened};
 use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
 
@@ -67,6 +67,7 @@ pub(crate) enum Case {
     Worlds,
     Off,
     Walls,
+    WallsAtOnce,
     WallsOff,
     Accepted,
     WallSettings,
@@ -96,6 +97,9 @@ impl Case {
                 Self::Walls
             }
             "with-consent-handling-off-the-wall-test-still-raises-blocked" => Self::WallsOff,
+            "a-walls-navigation-raises-it-before-any-call-reads-the-page-even-one-a-filter-list-would-hide" => {
+                Self::WallsAtOnce
+            }
             "on-a-domain-in-consent-domains-the-wall-is-accepted-and-provenance-records-the-acceptance" => {
                 Self::Accepted
             }
@@ -127,6 +131,7 @@ impl Case {
             Self::Worlds => worlds(connection, home, site, checks),
             Self::Off => off(connection, home, site, checks),
             Self::Walls => walls::walls(connection, home, site, checks),
+            Self::WallsAtOnce => walls::walls_at_once(connection, site, checks),
             Self::WallsOff => walls::walls_off(connection, home, site, checks),
             Self::Accepted => walls::accepted(connection, home, site, checks),
             Self::WallSettings => walls::settings(connection, site, checks),
@@ -361,6 +366,17 @@ fn notice(
     checks.check(
         "nothing answered the notice",
         count(site, "/consent/answered", &[("vendor", "notice")]) == 0,
+    );
+    let formats = call(
+        connection,
+        PAGE_FORMATS.name,
+        &json!(page.page_id),
+        &json!({ "formats": { "markdown": true } }),
+    )?;
+    let markdown = formats["result"]["markdown"].as_str().unwrap_or_default();
+    checks.check(
+        "the hidden notice's text is absent from the page's Markdown, and its own text is there",
+        !markdown.contains("This website uses cookies") && markdown.contains("The article's text"),
     );
     finish(connection, run_id)?;
     let made = trace(home, run_id, "cdp-commands.jsonl")

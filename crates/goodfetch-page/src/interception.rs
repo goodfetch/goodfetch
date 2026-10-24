@@ -575,8 +575,8 @@ impl Interception {
             run.clone(),
         );
         Arc::new(move |child: &Child| {
-            let frame =
-                (child.kind == ChildKind::Frame).then(|| page.on_child(child.session.clone()));
+            let frame = (child.kind == ChildKind::Frame)
+                .then(|| (page.on_child(child.session.clone()), child.url.clone()));
             let (page_id, state, answers, run) = (
                 page_id.clone(),
                 Arc::clone(&state),
@@ -585,7 +585,7 @@ impl Interception {
             );
             let (policy, blocking, lookups) = (policy.clone(), blocking.clone(), lookups.clone());
             Box::pin(async move {
-                let Some(frame) = frame else {
+                let Some((frame, url)) = frame else {
                     return true;
                 };
                 let events = frame.events();
@@ -618,7 +618,8 @@ impl Interception {
                         Refusals::default(),
                         run.clone(),
                     )
-                    .with_lookups(lookups),
+                    .with_lookups(lookups)
+                    .with_document(&url),
                 );
                 run.spawn(pipeline::dispatch(events, context));
                 true

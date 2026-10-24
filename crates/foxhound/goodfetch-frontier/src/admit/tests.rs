@@ -375,6 +375,7 @@ fn reason(name: &str, completeness: Completeness, count: u64) -> CompletenessRea
             message: format!(
                 "`{name}` refused {count} {urls} the crawl would otherwise have admitted."
             ),
+            count: Some(count),
             call_id: None,
         },
     }
@@ -522,11 +523,12 @@ fn a_path_budget_refuses_past_its_count_and_only_the_first_matching_entry_counts
         frontier.enqueue("/about?shop=1", 1),
     ];
 
-    let refused = |message: &str| CompletenessReason {
+    let refused = |message: &str, count: u64| CompletenessReason {
         completeness: Completeness::Incomplete,
         reason: AxisReason {
             code: "crawl.path_budgets".to_owned(),
             message: message.to_owned(),
+            count: Some(count),
             call_id: None,
         },
     };
@@ -548,10 +550,12 @@ fn a_path_budget_refuses_past_its_count_and_only_the_first_matching_entry_counts
             ],
             vec![
                 refused(
-                    "`crawl.path_budgets`'s entry `/shop?*` refused 1 URL past its 2 requests the crawl would otherwise have admitted."
+                    "`crawl.path_budgets`'s entry `/shop?*` refused 1 URL past its 2 requests the crawl would otherwise have admitted.",
+                    1,
                 ),
                 refused(
-                    "`crawl.path_budgets`'s entry `/shop**` refused 2 URLs past its 1 request the crawl would otherwise have admitted."
+                    "`crawl.path_budgets`'s entry `/shop**` refused 2 URLs past its 1 request the crawl would otherwise have admitted.",
+                    2,
                 ),
             ]
         )

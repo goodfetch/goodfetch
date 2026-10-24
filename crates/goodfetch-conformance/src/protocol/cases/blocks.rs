@@ -558,9 +558,11 @@ fn meets_blocks(
 
 /// The access-policy shelves whose second page answers `402`, `403` and a
 /// challenge served with `200`, walked over plain HTTP by a program's
-/// Session from the first page to the third: each page answers, and the third loads on the same
-/// Session at once, which the Run's one browser context shows, with nothing
-/// written to Politeness's domain limits.
+/// Session from the first page to the third: whatever the second page
+/// raises or answers (its Block cause is the other cases'), the third loads
+/// on the same Session at once, which the Run's one browser context shows,
+/// with nothing written to Politeness's domain limits (#711's third
+/// criterion).
 fn access_policy(
     connection: &mut Connection,
     target: &EngineTarget,
@@ -577,7 +579,7 @@ fn access_policy(
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };
-    for (task, second) in shelves.into_iter().zip([402, 403, 200]) {
+    for task in shelves {
         let mut statuses = Vec::new();
         for number in 1..=3 {
             let host = format!("{}.access-policy.test", &task["access-policy/".len()..]);
@@ -588,8 +590,10 @@ fn access_policy(
             statuses.push(went["result"]["response"]["status"].clone());
         }
         checks.check(
-            format!("`{task}`'s three pages answer on the same page, its second with {second}"),
-            statuses == vec![json!(200), json!(second), json!(200)],
+            format!(
+                "`{task}`'s first page answers, and its third on the same page after its second"
+            ),
+            statuses.first() == Some(&json!(200)) && statuses.last() == Some(&json!(200)),
         );
     }
     finish_run(connection, run_id)?;

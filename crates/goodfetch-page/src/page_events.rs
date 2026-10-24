@@ -366,7 +366,11 @@ impl PageEvents {
             refusals,
             wait,
             clock: run.clock(),
-            log: Arc::new(RequestLog::new(run.owner().child(), run.folder())),
+            log: Arc::new(RequestLog::new(
+                run.owner().child(),
+                run.folder(),
+                run.secrets().mask().clone(),
+            )),
             state: Mutex::new(State {
                 url: "about:blank".to_owned(),
                 ..State::default()

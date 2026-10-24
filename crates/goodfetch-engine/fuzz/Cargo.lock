@@ -942,6 +942,7 @@ name = "goodfetch-engine"
 version = "0.0.0"
 dependencies = [
  "age",
+ "aho-corasick",
  "apple-native-keyring-store",
  "bindgen",
  "brotli-decompressor",

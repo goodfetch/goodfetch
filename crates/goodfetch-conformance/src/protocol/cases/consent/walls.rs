@@ -11,10 +11,13 @@
 //! refused. A run that widens `consent.domains` is refused with
 //! `setting_locked`, and `consent.on_wall: ask` is `capability_unavailable`
 //! until the Human pause can take a person's answer.
+//! A domain whose consent wall a Run left is offered in "Needs you" for
+//! `consent.domains` (ticket #859).
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::needs_you::{CONSENT_WALL, NEEDS_YOU_ALLOW_CONSENT_DOMAIN, NEEDS_YOU_LIST};
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::{BLOCKED, BlockedDetails, PAGE_GOTO, PageOpened, RUN_NEW_PAGE};
 use goodfetch_protocol::run::RUN_START;
@@ -306,6 +309,84 @@ fn accepted_on(
         ("/vendor/onetrust", "onetrust", "reject"),
         checks,
     )?;
+    finish(connection, run_id)
+}
+
+/// How long "Needs you" may take to list a wall's domain: the Run index's
+/// write, then its source's next read at a storage sample.
+const OFFER_WAIT: Duration = Duration::from_secs(20);
+
+/// The `consent_wall` item of `domain` in "Needs you" once it names the
+/// Run `run_id` as the last to meet the wall, or as it is listed when the
+/// wait ends: an earlier case's Run may have met the same wall.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the synchronous harness polls the engine on its own thread, outside any async worker"
+)]
+fn listed_wall(
+    connection: &mut Connection,
+    domain: &str,
+    run_id: &str,
+) -> Result<Option<Value>, Gone> {
+    let started = Instant::now();
+    loop {
+        let id = connection.request(NEEDS_YOU_LIST.name, &json!({ "kinds": [CONSENT_WALL] }))?;
+        let answer = connection.answer(id)?.message;
+        let found = answer["result"]["items"].as_array().and_then(|items| {
+            items
+                .iter()
+                .find(|item| item["details"]["domain"] == json!(domain))
+                .cloned()
+        });
+        let named = found
+            .as_ref()
+            .is_some_and(|item| item["run"] == json!(run_id));
+        if named || started.elapsed() > OFFER_WAIT {
+            return Ok(found);
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// A consent wall a Run left, raised as `blocked`, has "Needs you" list its
+/// domain as a `consent_wall` item offered for `consent.domains`, naming
+/// the Run.
+pub(super) fn offered(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-consent-offered";
+    let Some(page) = open(connection, site, run_id, &json!({}), checks)? else {
+        return finish(connection, run_id);
+    };
+    let url = site.named_url(HOST, "/wall").unwrap_or_default();
+    let went = call(
+        connection,
+        PAGE_GOTO.name,
+        &json!(page.page_id),
+        &json!({ "url": url }),
+    )?;
+    if !walled(&went, "/wall") {
+        // The runner's verdict came after the navigation: the next call
+        // raises it.
+        read_title(connection, &page)?;
+    }
+    let item = listed_wall(connection, HOST, run_id)?;
+    checks.check(
+        format!(
+            "\"Needs you\" lists {HOST}, whose consent wall the Run left, as a `consent_wall` item"
+        ),
+        item.is_some(),
+    );
+    checks.check(
+        "the item offers the domain for `consent.domains` and names the Run",
+        item.as_ref().is_some_and(|item| {
+            item["actions"].as_array().is_some_and(|actions| {
+                actions.contains(&json!(NEEDS_YOU_ALLOW_CONSENT_DOMAIN.name))
+            }) && item["run"] == json!(run_id)
+        }),
+    );
     finish(connection, run_id)
 }
 

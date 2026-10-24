@@ -2,7 +2,8 @@
 //! fixed scenario against Collie's engine over the in-memory network, on the
 //! test `Clock` and a fixed `Entropy` seed, in a home of its own (a Run that
 //! finishes with a progress message and one that is aborted, both tagged,
-//! on an Attached engine, with a "Needs you" item a person dismisses, then a
+//! on an Attached engine, the first meeting a consent wall, with a "Needs
+//! you" item a person dismisses, then a
 //! Run a Daemon owns while the Daemon is killed, whose row names the
 //! Daemon's endpoint), and writes the Run index it leaves, as SQL text, into
 //! the folder given as the only argument, as `run-index.sql`. `xtask compat
@@ -27,11 +28,15 @@ use goodfetch_engine::ops::Ops;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
-use goodfetch_engine::{Channel, Contribution, Dependencies, Engine, Identity};
-use goodfetch_protocol::catalog::Product;
+use goodfetch_engine::{
+    CallContext, CallError, Channel, Contribution, Dependencies, Engine, Handler, Identity,
+};
+use goodfetch_protocol::catalog::{
+    Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
+};
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::needs_you::NeedsYouItem;
-use goodfetch_protocol::run::PointInTime;
+use goodfetch_protocol::run::{PointInTime, RunId};
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
@@ -54,6 +59,11 @@ fn scenario() -> Vec<Value> {
             "run.set_progress_message",
             json!({ "run_id": "finished-run", "message": "Read 3 of 3 pages" }),
         ),
+        call(
+            30,
+            "compat.consent_wall",
+            json!({ "run_id": "finished-run", "domain": "walled.example" }),
+        ),
         call(3, "run.finish", json!({ "run_id": "finished-run" })),
         call(
             4,
@@ -63,6 +73,37 @@ fn scenario() -> Vec<Value> {
         call(5, "run.abort", json!({ "run_id": "aborted-run" })),
         call(6, "needs_you.dismiss", json!({ "item": WAITING })),
     ]
+}
+
+/// Records that a Run met a consent wall on a domain, as the page crate
+/// does when its Consent prompt runner leaves one.
+const CONSENT_WALL: Operation = Operation {
+    name: "compat.consent_wall",
+    description: "Records that a Run met a consent wall on a domain.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<Value>,
+    result: schema_of::<Value>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
+async fn consent_wall(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default())
+        .expect("invariant: the scenario names a valid Run ID");
+    let run = context
+        .runs()
+        .live(run_id)
+        .await
+        .expect("invariant: the scenario's Run is live");
+    run.record_consent_wall(params["domain"].as_str().unwrap_or_default().to_owned())
+        .await
+        .expect("invariant: the corpus's Run index is written");
+    Ok(json!({}))
 }
 
 /// The ID of the corpus's "Needs you" item, which a person dismisses.
@@ -187,6 +228,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         identity,
         &goodfetch_collie::composition().with(
             Contribution::new("compat-run-index")
+                .with_handler(Handler::new(&CONSENT_WALL, consent_wall))
                 .with_needs_you_source(NeedsYouSource::new(Waiting)),
         ),
     )?;

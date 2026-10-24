@@ -287,10 +287,13 @@ async fn attach(browser: Browser, attached: target::AttachedToTargetEvent, run: 
     hold_then_run(browser, attached, run, choice).await;
 }
 
-/// The worker `attached` waits for the engine: a headless browser's worker
-/// takes the identity its pages show; a site's worker is handed to its
-/// Session's interception under `choice`'s `allow`, and closed when the
-/// interception could not hold it or `choice` blocks it; then it runs.
+/// The worker `attached` waits for the engine: a site's worker is handed
+/// to its Session's interception under `choice`'s `allow`, and closed when
+/// the interception could not hold it or `choice` blocks it; then a
+/// headless browser's worker takes the identity its pages show, and runs.
+/// The identity comes after the interception: a shared worker given its
+/// user agent before the interception paused its requests sent them past
+/// it.
 async fn hold_then_run(
     browser: Browser,
     attached: target::AttachedToTargetEvent,
@@ -298,13 +301,6 @@ async fn hold_then_run(
     choice: Option<ServiceWorkers>,
 ) {
     let session = TargetSession(attached.session_id);
-    if let Some(identity) = &browser.identity
-        && let Err(failure) = browser
-            .try_send(Some(&session), &identity.worker_command())
-            .await
-    {
-        tracing::debug!(%failure, "a service worker went before it took its browser's identity");
-    }
     let info = attached.target_info;
     let of_a_site = info.url.starts_with("http://") || info.url.starts_with("https://");
     let choice = choice.filter(|_| of_a_site);
@@ -338,6 +334,13 @@ async fn hold_then_run(
             tracing::debug!(%failure, "a worker that may not run went first");
         }
         return;
+    }
+    if let Some(identity) = &browser.identity
+        && let Err(failure) = browser
+            .try_send(Some(&session), &identity.worker_command())
+            .await
+    {
+        tracing::debug!(%failure, "a service worker went before it took its browser's identity");
     }
     if attached.waiting_for_debugger
         && let Err(failure) = browser

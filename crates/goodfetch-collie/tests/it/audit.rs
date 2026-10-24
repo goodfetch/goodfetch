@@ -18,6 +18,9 @@ use goodfetch_engine::home::Home;
 use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_test_support::{Canaries, SecretKind, TestEnv, cli};
+use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
+use opentelemetry_proto::tonic::common::v1::any_value::Value as AnyValue;
+use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -385,4 +388,78 @@ fn with_audit_retention_unset_an_engine_prunes_nothing() {
             ]
         )
     );
+}
+
+/// Each OpenTelemetry event of the exports `requests`: its event name, its
+/// body, and its attributes `goodfetch.audit.sequence`, `.kind` and `.hash`.
+fn events_of(requests: impl Iterator<Item = ExportLogsServiceRequest>) -> Vec<Value> {
+    let text = |value: &Option<AnyValue>| match value {
+        Some(AnyValue::StringValue(text)) => json!(text),
+        Some(AnyValue::IntValue(number)) => json!(number),
+        _ => Value::Null,
+    };
+    requests
+        .flat_map(|request| request.resource_logs)
+        .flat_map(|resource| resource.scope_logs)
+        .flat_map(|scope| scope.log_records)
+        .map(|record| {
+            let attribute = |key: &str| {
+                record
+                    .attributes
+                    .iter()
+                    .find(|attribute| attribute.key == key)
+                    .map_or(Value::Null, |attribute| {
+                        text(
+                            &attribute
+                                .value
+                                .as_ref()
+                                .and_then(|value| value.value.clone()),
+                        )
+                    })
+            };
+            let body = text(&record.body.as_ref().and_then(|body| body.value.clone()));
+            json!([
+                record.event_name,
+                body.as_str()
+                    .map_or(Value::Null, |body| serde_json::from_str(body).unwrap()),
+                attribute("goodfetch.audit.sequence"),
+                attribute("goodfetch.audit.kind"),
+                attribute("goodfetch.audit.hash"),
+            ])
+        })
+        .collect()
+}
+
+/// With `otlp.logs_endpoint` naming a collector, each new entry the engine
+/// appends reaches it as an OpenTelemetry event, the exported line as its
+/// body, only while `audit.otlp` is on; the entry is in the log either way.
+/// Covers: story:4-71, setting:audit.otlp, setting:otlp.logs_endpoint, command:audit.export, operation:audit.export
+#[rstest]
+#[case::with_audit_otlp_on(true)]
+#[case::with_audit_otlp_off(false)]
+fn each_new_entry_reaches_the_otlp_collector_as_an_event_only_while_audit_otlp_is_on(
+    #[case] on: bool,
+) {
+    let env = TestEnv::new();
+    let (endpoint, exports, _) = crate::log::collector_of::<ExportLogsServiceRequest>("/v1/logs");
+    env.user_configuration(&key_by_reference(&format!(
+        "otlp.logs_endpoint = \"{endpoint}\"\naudit.otlp = {on}\n"
+    )));
+
+    let lifecycle = recorded_by_a_run(&env);
+
+    let events = events_of(exports.try_iter());
+    let line: Value = serde_json::from_str(exported(&env).trim()).unwrap();
+    let expected = if on {
+        vec![json!([
+            "goodfetch.audit",
+            line,
+            1,
+            "secret_reference_used",
+            line["hash"]
+        ])]
+    } else {
+        vec![]
+    };
+    assert_eq!((lifecycle, events), (json!("finished"), expected));
 }

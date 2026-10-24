@@ -22,6 +22,7 @@
 //! blocking policy.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::audit::{
@@ -113,6 +114,27 @@ pub struct Origin {
     pub run_id: Option<RunId>,
 }
 
+/// Where the engine also sends each entry it appends, its hash with it,
+/// once the store holds it: the Audit log's OpenTelemetry events, which an
+/// executable whose `audit.otlp` is on installs (ADR 0016). Sending never
+/// blocks the append, and an entry it fails to send stays in the store.
+#[derive(Clone)]
+pub struct AuditEvents(Arc<dyn Fn(&ExportedAuditEntry) + Send + Sync>);
+
+impl AuditEvents {
+    /// Events that `send` sends, called with each new entry on the thread
+    /// that appended it.
+    pub fn new(send: impl Fn(&ExportedAuditEntry) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(send))
+    }
+}
+
+impl std::fmt::Debug for AuditEvents {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("AuditEvents")
+    }
+}
+
 /// The head file's content: the last sequence and its hash.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Head {
@@ -129,6 +151,7 @@ pub struct AuditLog {
     head: PathBuf,
     vfs: Option<String>,
     retained_under: Option<(SettingsFiles, Product)>,
+    events: Option<AuditEvents>,
 }
 
 impl AuditLog {
@@ -140,7 +163,15 @@ impl AuditLog {
             head: home.audit_log_head(),
             vfs,
             retained_under: None,
+            events: None,
         }
+    }
+
+    /// The same, each entry it appends also sent to `events`.
+    #[must_use]
+    pub fn sending_to(mut self, events: Option<AuditEvents>) -> Self {
+        self.events = events;
+        self
     }
 
     /// The same, each append first pruning what the `audit.retention` of
@@ -201,8 +232,7 @@ impl AuditLog {
         };
         let hash = self.append(&transaction, &previous, &entry)?;
         transaction.commit().map_err(|error| failed(&error))?;
-        self.write_head(&Head { sequence, hash })?;
-        Ok(entry)
+        self.appended(entry, hash)
     }
 
     /// Prunes the entries older than `retention` at `now`, which `layer`
@@ -274,8 +304,7 @@ impl AuditLog {
         };
         let hash = self.append(&transaction, &previous, &pruned)?;
         transaction.commit().map_err(|error| failed(&error))?;
-        self.write_head(&Head { sequence, hash })?;
-        Ok(Some(pruned))
+        self.appended(pruned, hash).map(Some)
     }
 
     /// The `audit.retention` the machine's layers set now, with the layer
@@ -300,6 +329,23 @@ impl AuditLog {
             Duration::from_millis(retention.value.as_u64()?),
             retention.layer,
         ))
+    }
+
+    /// Writes the head file after `entry`, committed with `hash`, sends it
+    /// to the events, and answers it.
+    fn appended(&self, entry: AuditEntry, hash: String) -> Result<AuditEntry, AuditError> {
+        self.write_head(&Head {
+            sequence: entry.sequence,
+            hash: hash.clone(),
+        })?;
+        match &self.events {
+            Some(events) => {
+                let exported = ExportedAuditEntry { entry, hash };
+                (events.0)(&exported);
+                Ok(exported.entry)
+            }
+            None => Ok(entry),
+        }
     }
 
     /// The sequence the next entry takes and the hash it chains to.

@@ -22,6 +22,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::admission::Gates;
 use crate::attached::{ParentWatch, PrivateFiles, relay};
+use crate::audit::AuditEvents;
 use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError, ConsoleBuild};
 use crate::console;
@@ -71,6 +72,7 @@ pub struct Engine {
     console: Option<&'static ConsoleBuild>,
     metrics: Metrics,
     system: Option<System>,
+    audit_events: Option<AuditEvents>,
 }
 
 /// What an engine runs on, which `main` builds once (the system versions)
@@ -120,6 +122,7 @@ impl Engine {
             console: composition.console(),
             metrics: Metrics::none(),
             system: None,
+            audit_events: None,
         })
     }
 
@@ -149,6 +152,14 @@ impl Engine {
             handlers: self.dispatch.handlers.clone(),
             log_events: Some(log_events),
         });
+        self
+    }
+
+    /// The same, its Audit log also sending each entry it appends to
+    /// `events`, the OpenTelemetry events of `audit.otlp` (ADR 0016).
+    #[must_use]
+    pub fn with_audit_events(mut self, events: AuditEvents) -> Self {
+        self.audit_events = Some(events);
         self
     }
 
@@ -368,6 +379,7 @@ impl Engine {
             RunsSetup {
                 keychain: dependencies.keychain,
                 settings,
+                audit_events: self.audit_events.clone(),
                 product: self.identity().product,
                 reached_at,
                 forwarder,

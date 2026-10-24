@@ -105,7 +105,7 @@ pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
 use crate::admission::{Admission, Gates};
-use crate::audit::AuditLog;
+use crate::audit::{AuditEvents, AuditLog};
 use crate::body;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
 use crate::client::Client;
@@ -190,6 +190,8 @@ pub(crate) struct RunsSetup {
     pub(crate) events: Events,
     /// The engine's settings, which each Run resolves its own under.
     pub(crate) settings: Settings,
+    /// Where the Audit log also sends each entry it appends.
+    pub(crate) audit_events: Option<AuditEvents>,
     /// The engine's Product, which a Run must not need more than for the
     /// engine to take its writer role (ADR 0098).
     pub(crate) product: Product,
@@ -1854,7 +1856,8 @@ impl Runs {
             },
             Arc::new(
                 AuditLog::of(&setup.home, setup.ledger_vfs.clone())
-                    .retained_under(setup.settings.files().clone(), setup.settings.product()),
+                    .retained_under(setup.settings.files().clone(), setup.settings.product())
+                    .sending_to(setup.audit_events.clone()),
             ),
             Arc::clone(&readers),
             setup.clock,

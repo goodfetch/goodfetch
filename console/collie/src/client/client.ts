@@ -156,7 +156,7 @@ export interface ConsoleClient {
   call<Name extends keyof ConsoleOperations>(
     operation: Name,
     params: ConsoleOperations[Name]["params"],
-    options?: CallOptions | undefined,
+    options?: CallOptions,
   ): Promise<ConsoleOperations[Name]["result"]>;
   /** Subscribes to `stream`, after `after` when given, else from now. */
   subscribe(stream: StreamName, options?: { readonly after?: LastRead | undefined }): Subscription;

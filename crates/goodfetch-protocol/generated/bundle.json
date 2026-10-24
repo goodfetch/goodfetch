@@ -5538,6 +5538,16 @@
           ],
           "arrived_in": "0.1",
           "description": "The state; `visible` when absent."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -12391,6 +12401,16 @@
           "$ref": "#/$defs/Locator",
           "arrived_in": "0.1",
           "description": "The locator."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -12411,6 +12431,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "anyOf": [
@@ -12462,6 +12492,16 @@
             "null"
           ]
         },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "world": {
           "anyOf": [
             {
@@ -12505,6 +12545,16 @@
           ],
           "arrived_in": "0.1",
           "description": "The state; `load` when absent."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -12524,6 +12574,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "anyOf": [
@@ -12555,6 +12615,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "$ref": "#/$defs/UrlMatcher",

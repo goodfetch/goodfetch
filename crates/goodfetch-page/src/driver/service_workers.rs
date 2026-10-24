@@ -266,9 +266,9 @@ async fn follow(mut events: Subscription, browser: Browser, run: Run) {
                 run.spawn(super::popups::attach(browser.clone(), attached));
             }
         } else if let Some(detached) = event.read::<target::DetachedFromTargetEvent>() {
-            if let Some(gone) =
-                lock(&browser.service_workers.attached).remove(&TargetSession(detached.session_id))
-            {
+            let detached = TargetSession(detached.session_id);
+            browser.popups.forget(&detached);
+            if let Some(gone) = lock(&browser.service_workers.attached).remove(&detached) {
                 gone.cancel();
             }
         } else if let Some(paused) = event.read::<fetch::RequestPausedEvent>() {

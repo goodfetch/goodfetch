@@ -276,6 +276,16 @@ pub struct WaitForRequestFinishedParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: Option<UrlMatcher>,
+    /// How long the wait may take, in milliseconds, at least 1: absent for
+    /// `timeout.wait`, `null` for none, though an enclosing timeout still
+    /// applies (ADR 0080).
+    #[serde(
+        default,
+        deserialize_with = "super::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub timeout: Option<Option<u64>>,
 }
 
 /// What `body_unavailable` details.
@@ -443,7 +453,7 @@ pub const PAGE_ON: Operation = Operation {
         &PAGE_DOWNLOAD,
         &PAGE_CRASH,
         &PAGE_CLOSE,
-        &super::tabs::PAGE_POPUP,
+        &super::session_pages::PAGE_POPUP,
     ],
     cancellable: true,
     stability: Stability::Experimental,
@@ -470,7 +480,7 @@ pub const RESPONSE_BODY: Operation = Operation {
 /// `page.wait_for_request_finished`.
 pub const PAGE_WAIT_FOR_REQUEST_FINISHED: Operation = Operation {
     name: "page.wait_for_request_finished",
-    description: "Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+    description: "Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
     class: OperationClass::Read,
     kind: OperationKind::Waiter,
     reach: Reach::AllSurfaces,

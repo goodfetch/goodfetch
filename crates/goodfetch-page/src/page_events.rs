@@ -37,7 +37,7 @@
 //! answered by the next matching request sent, a response waiter by the
 //! next matching response, a redirect's included, and the page's document
 //! (`document`) answers the URL and load state waits. Each waits at most
-//! the Run's `timeout.wait`.
+//! its call's own `timeout`, else the Run's `timeout.wait`.
 //!
 //! Size: one page's event reader and the state its calls read, kept whole
 //! so each event changes that state in one place, under one lock.
@@ -73,17 +73,19 @@ use goodfetch_protocol::page::{
     BodyHandle, PageId, PageResponse, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
 };
 use tokio::sync::{Notify, oneshot, watch};
+use tokio_util::sync::CancellationToken;
 
 mod document;
 mod latest;
 mod runtime_values;
 mod waiters;
 
+pub(crate) use self::document::WaitDeadline;
 use self::document::{Document, InFlight, UrlWaiter};
 use self::latest::Latest;
 use self::runtime_values::{console_message, web_error};
 use self::waiters::{Armed, answer_armed};
-use crate::driver::{PageDriver, response_of};
+use crate::driver::{Child, ChildKind, OnChild, PageDriver, response_of};
 use crate::page_value::{Kept, ObservedResponse, Observer};
 use crate::url_pattern::UrlPattern;
 
@@ -383,6 +385,39 @@ impl PageEvents {
         Self { shared }
     }
 
+    /// What the page's events do with each of its out-of-process frames,
+    /// which `driver::follow_children` hands over: each one's network is
+    /// read from before it runs, so its requests count in the page's
+    /// `networkidle` and reach its waiters and events, and a document
+    /// request the page started ends when the frame finishes it, on the
+    /// frame's own session.
+    pub(crate) fn frames(&self) -> OnChild {
+        let shared = Arc::clone(&self.shared);
+        Arc::new(move |child: &Child| {
+            let shared = Arc::clone(&shared);
+            let (kind, session, gone) = (child.kind, child.session.clone(), child.gone.clone());
+            Box::pin(async move {
+                if kind != ChildKind::Frame {
+                    return true;
+                }
+                let events = shared.driver.events_on(&session);
+                match shared
+                    .driver
+                    .command_on(&session, &network::EnableParams::default())
+                    .await
+                {
+                    Ok(_) => shared
+                        .run
+                        .spawn(read_frame(events, gone, Arc::clone(&shared))),
+                    Err(failure) => {
+                        tracing::debug!(%failure, "an out-of-process frame went before its network was read");
+                    }
+                }
+                true
+            })
+        })
+    }
+
     /// Marks the document whose request the browser names `request_id` as
     /// judged, by the call that waited for its navigation.
     pub(crate) fn judged(&self, request_id: &str) {
@@ -507,25 +542,26 @@ impl PageEvents {
 
     /// Arms a waiter for the next request whose URL `pattern` matches, any
     /// when none, to finish; it answers the request and its response,
-    /// whose body it kept, unless the Run's `timeout.wait` passes first;
+    /// whose body it kept, unless `deadline` passes first;
     /// its errors are spelled for `surface`.
     pub(crate) fn wait_for_request_finished(
         &self,
         pattern: Option<UrlPattern>,
         surface: Surface,
+        deadline: WaitDeadline,
     ) -> impl Future<Output = Result<PageExchange, CallError>> + use<> {
         let (answer, answered) = oneshot::channel();
-        lock(&self.shared.state).waiters.push(Waiter {
+        let mut state = lock(&self.shared.state);
+        // Those whose call went go now, not at the next finished request.
+        state.waiters.retain(|waiter| !waiter.answer.is_closed());
+        state.waiters.push(Waiter {
             pattern,
             surface,
             answer,
         });
-        let (deadline, clock) = (self.shared.wait.clone(), self.shared.clock);
+        drop(state);
         async move {
-            match deadline
-                .within(&clock, "finished request", answered)
-                .await?
-            {
+            match deadline.within("finished request", answered).await? {
                 Ok(answer) => answer,
                 Err(_) => Err(gone()),
             }
@@ -772,6 +808,31 @@ async fn read(mut subscription: Subscription, shared: Arc<Shared>) {
     shared.gone.send_replace(true);
     shared.changed.notify_waiters();
 }
+
+/// Reads the network events of one of the page's out-of-process frames
+/// until its target goes (`gone`), as the page's own: a document request
+/// the page started and the frame finished ends there.
+async fn read_frame(mut subscription: Subscription, gone: CancellationToken, shared: Arc<Shared>) {
+    while let Some(event) = gone
+        .run_until_cancelled(subscription.next())
+        .await
+        .flatten()
+    {
+        if !event.method.starts_with(NETWORK) {
+            continue;
+        }
+        let published = take_in(&shared, &event);
+        for (event, data) in published {
+            shared
+                .events
+                .publish(event, Some(&shared.page_id.0), &data)
+                .await;
+        }
+    }
+}
+
+/// The prefix of the `Network` domain's events.
+const NETWORK: &str = "Network.";
 
 /// One event a page's event publishes: its catalog entry and its data.
 type Published = (&'static Event, serde_json::Value);

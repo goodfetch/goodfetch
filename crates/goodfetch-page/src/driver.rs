@@ -71,7 +71,7 @@ use self::functions::{evaluation, page_function_world};
 pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
 use self::permit_waits::PermitWaits;
-pub(crate) use self::popups::OnPopup;
+pub(crate) use self::popups::{OnPopup, PopupHandler};
 pub(crate) use self::service_workers::{OnWorker, ServiceWorkers};
 use crate::borrowed::CdpUrl;
 use crate::errors::{
@@ -676,17 +676,7 @@ impl<B: Connect> SessionDriver<B> {
             self.opened.lock().await.push(created.target_id.clone());
         }
         let prepared = async {
-            let attached = browser
-                .send(
-                    None,
-                    &target::AttachToTargetParams {
-                        target_id: created.target_id.clone(),
-                        flatten: Some(true),
-                    },
-                    &opening,
-                )
-                .await?;
-            let session = TargetSession(attached.session_id);
+            let session = browser.attach_own(&created.target_id, &opening).await?;
             prepare(&browser, &session).await.map(|()| session)
         };
         // A target the page never became is closed, so no tab is left

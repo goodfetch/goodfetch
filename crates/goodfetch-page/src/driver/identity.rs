@@ -118,17 +118,7 @@ pub(super) async fn read(browser: &Browser, user_agent: &str) -> Result<Identity
             &opening,
         )
         .await?;
-    let attached = browser
-        .send(
-            None,
-            &target::AttachToTargetParams {
-                target_id: created.target_id.clone(),
-                flatten: Some(true),
-            },
-            &opening,
-        )
-        .await?;
-    let session = TargetSession(attached.session_id);
+    let session = browser.attach_own(&created.target_id, &opening).await?;
     let hints = hints_of(browser, &session).await;
     // The page is the engine's own; a failure to close it leaves a blank
     // tab no Session sees, so the identity stands.

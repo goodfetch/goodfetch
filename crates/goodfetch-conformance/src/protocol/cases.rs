@@ -17,6 +17,7 @@ mod consent;
 mod delivery;
 mod dialogs;
 mod events;
+mod exchange;
 mod fetch_edge;
 mod fetch_tiers;
 mod formats;

@@ -58,14 +58,14 @@ impl Event {
         if self.method != E::METHOD {
             return None;
         }
-        serde_json::from_value(self.params.clone()).ok()
+        E::deserialize(&self.params).ok()
     }
 }
 
 /// The events of one session, from when it was subscribed.
 #[derive(Debug)]
 pub struct Subscription {
-    events: mpsc::Receiver<Event>,
+    events: mpsc::Receiver<Arc<Event>>,
 }
 
 impl Subscription {
@@ -74,7 +74,7 @@ impl Subscription {
     /// # Cancel safety
     ///
     /// Dropping the future loses no event.
-    pub async fn next(&mut self) -> Option<Event> {
+    pub async fn next(&mut self) -> Option<Arc<Event>> {
         self.events.recv().await
     }
 }
@@ -91,7 +91,7 @@ struct Request {
 #[derive(Debug, Default)]
 struct Subscribers {
     /// Each subscription's session and the sender of its events.
-    list: Vec<(Option<SessionId>, mpsc::Sender<Event>)>,
+    list: Vec<(Option<SessionId>, mpsc::Sender<Arc<Event>>)>,
     /// Whether the connection ended, so a new subscription ends at once.
     ended: bool,
 }
@@ -318,7 +318,7 @@ where
 /// its session, never waiting for one: a subscription its holder dropped
 /// leaves, and one that fell [`EVENTS`] behind ends.
 fn dispatch(bytes: &[u8], pending: &mut BTreeMap<u64, Pending>, subscribers: &Shared) {
-    let Ok(message) = serde_json::from_slice::<Value>(bytes) else {
+    let Ok(mut message) = serde_json::from_slice::<Value>(bytes) else {
         tracing::warn!("the browser sent a message that is not JSON");
         return;
     };
@@ -328,22 +328,24 @@ fn dispatch(bytes: &[u8], pending: &mut BTreeMap<u64, Pending>, subscribers: &Sh
         };
         let answered = match message.get("error") {
             Some(error) => Err(Failure::refused(method, error)),
-            None => Ok(message.get("result").cloned().unwrap_or(Value::Null)),
+            None => Ok(message.get_mut("result").map_or(Value::Null, Value::take)),
         };
         let _ = answer.send(answered);
         return;
     }
-    let Some(method) = message.get("method").and_then(Value::as_str) else {
+    // The message's own strings and params are taken, never copied: every
+    // subscriber shares the one event.
+    let Some(Value::String(method)) = message.get_mut("method").map(Value::take) else {
         return;
     };
-    let session = message
-        .get("sessionId")
-        .and_then(Value::as_str)
-        .map(|session| SessionId(session.to_owned()));
-    let event = Event {
-        method: method.to_owned(),
-        params: message.get("params").cloned().unwrap_or(Value::Null),
+    let session = match message.get_mut("sessionId").map(Value::take) {
+        Some(Value::String(session)) => Some(SessionId(session)),
+        _ => None,
     };
+    let event = Arc::new(Event {
+        method,
+        params: message.get_mut("params").map_or(Value::Null, Value::take),
+    });
     lock(subscribers).list.retain(|(subscribed, events)| {
         if events.is_closed() {
             return false;
@@ -351,7 +353,7 @@ fn dispatch(bytes: &[u8], pending: &mut BTreeMap<u64, Pending>, subscribers: &Sh
         if *subscribed != session {
             return true;
         }
-        match events.try_send(event.clone()) {
+        match events.try_send(Arc::clone(&event)) {
             Ok(()) => true,
             Err(mpsc::error::TrySendError::Closed(_)) => false,
             Err(mpsc::error::TrySendError::Full(_)) => {

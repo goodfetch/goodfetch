@@ -278,8 +278,8 @@ fn events_reach_the_subscribers_of_their_session_only() {
                 .send(&json!({ "method": "Target.targetCreated", "params": {} }))
                 .await;
             let methods = (
-                on_page.next().await.unwrap().method,
-                on_browser.next().await.unwrap().method,
+                on_page.next().await.unwrap().method.clone(),
+                on_browser.next().await.unwrap().method.clone(),
             );
             drop(connection);
             methods

@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use serde_json::json;
 
 use super::{Framer, FramingError, frame};
@@ -6,7 +7,10 @@ use super::{Framer, FramingError, frame};
 fn messages_split_across_reads_and_joined_in_one_read_come_out_whole() {
     let mut framer = Framer::default();
     framer.push(b"{\"id\":1}\0{\"id\"");
-    assert_eq!(framer.next_frame(), Ok(Some(b"{\"id\":1}".to_vec())));
+    assert_eq!(
+        framer.next_frame(),
+        Ok(Some(Bytes::from_static(b"{\"id\":1}")))
+    );
     assert_eq!(framer.next_frame(), Ok(None));
     framer.push(b":2}\0{\"id\":3}\0");
     assert_eq!(
@@ -17,8 +21,8 @@ fn messages_split_across_reads_and_joined_in_one_read_come_out_whole() {
             framer.has_partial()
         ),
         (
-            Ok(Some(b"{\"id\":2}".to_vec())),
-            Ok(Some(b"{\"id\":3}".to_vec())),
+            Ok(Some(Bytes::from_static(b"{\"id\":2}"))),
+            Ok(Some(Bytes::from_static(b"{\"id\":3}"))),
             Ok(None),
             false
         )

@@ -4,7 +4,8 @@
 //! the catalog. Each reads the caller's pin through `certs.list`, shows it
 //! at the terminal, and calls `certs.accept` or `certs.forget` only when
 //! the person answers yes. Under `--json`, or when stdin is no terminal, as
-//! under a script, an agent or CI, it is refused with `person_required`.
+//! under a script, an agent or CI, it is refused with `person_required`
+//! before any engine call.
 
 use std::process::ExitCode;
 
@@ -95,8 +96,8 @@ fn accept(
     json: bool,
     human: &Human,
 ) -> ExitCode {
-    if json {
-        return person_required(&CERTS_ACCEPT, true, human);
+    if json || !human.can_ask() {
+        return person_required(&CERTS_ACCEPT, json, human);
     }
     let pin = match pin_of(engine, forked(&mut dependencies), host, human) {
         Ok(pin) => pin,
@@ -147,8 +148,8 @@ fn forget(
     json: bool,
     human: &Human,
 ) -> ExitCode {
-    if json {
-        return person_required(&CERTS_FORGET, true, human);
+    if json || !human.can_ask() {
+        return person_required(&CERTS_FORGET, json, human);
     }
     let pin = match pin_of(engine, forked(&mut dependencies), host, human) {
         Ok(pin) => pin,

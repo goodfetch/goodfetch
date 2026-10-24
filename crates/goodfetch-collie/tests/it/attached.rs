@@ -304,6 +304,35 @@ fn cancel_of_a_finished_call_leaves_the_connection_answering() {
     assert_eq!(engine.finish(), (vec![], true));
 }
 
+/// How many calls [`an_id_is_free_again_once_its_call_was_answered`] sends
+/// under one id: enough that a reply written before its call left the
+/// engine's calls in flight shows up on most runs of the multi-threaded
+/// runtime.
+const REUSES: usize = 5_000;
+
+/// A call's id is free again once its answer arrived (JSON-RPC 2.0): a
+/// Client that sends each call under the id of the one it just got the
+/// answer of, as the SDKs' and the tests' Clients do, gets every call
+/// answered, never refused as still in flight.
+/// Covers: story:3-1
+#[test]
+fn an_id_is_free_again_once_its_call_was_answered() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+
+    let refused: Vec<Value> = (0..REUSES)
+        .filter_map(|_| {
+            engine.send(&request(1, "engine.info"));
+            engine.next().unwrap().get("error").cloned()
+        })
+        .collect();
+
+    assert_eq!(refused, Vec::<Value>::new());
+    assert_eq!(engine.finish(), (vec![], true));
+}
+
 /// Covers: story:3-7
 #[test]
 fn a_failure_carries_its_error_code_and_retryable_flag_under_its_json_rpc_class() {

@@ -78,7 +78,12 @@ pub(crate) enum Seen {
     },
     /// A text action's target is ready and has the focus, its text
     /// selected for `fill`.
-    Focused,
+    Focused {
+        /// For `fill`, whether the target is an input whose value a
+        /// person picks rather than types, which the guard sets.
+        #[serde(default)]
+        set_value: bool,
+    },
     /// A locator wait's matches are in the state it waits for.
     Ready {
         /// For `count`, how many elements matched.

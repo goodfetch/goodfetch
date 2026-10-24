@@ -38,21 +38,9 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     "track",
     "wbr",
   ];
-  const FILLABLE = [
-    "",
-    "email",
-    "number",
-    "password",
-    "search",
-    "tel",
-    "text",
-    "url",
-    "date",
-    "datetime-local",
-    "month",
-    "time",
-    "week",
-  ];
+  const FILLABLE = ["", "email", "number", "password", "search", "tel", "text", "url"];
+  // The inputs whose value a person picks rather than types: `fill` sets it.
+  const PICKED = ["color", "date", "datetime-local", "month", "range", "time", "week"];
   const clip = (text, length) => (text.length > length ? `${text.slice(0, length - 1)}…` : text);
   const describe = (element) => {
     if (!element) return "nothing";
@@ -94,7 +82,10 @@ async function check({ selector, handle, action, events, slice, min, max }) {
   const editable = (element) => {
     if (element.isContentEditable) return true;
     if (element.localName === "textarea") return !element.readOnly;
-    if (element.localName === "input") return FILLABLE.includes(element.type) && !element.readOnly;
+    if (element.localName === "input")
+      return (
+        (FILLABLE.includes(element.type) || PICKED.includes(element.type)) && !element.readOnly
+      );
     return false;
   };
   const moving = (element) =>
@@ -156,6 +147,10 @@ async function check({ selector, handle, action, events, slice, min, max }) {
       return waiting("editable", `${describe(element)} is not editable`);
     if (action !== "pointer") {
       element.focus();
+      if (action === "fill" && element.localName === "input" && PICKED.includes(element.type)) {
+        world[Symbol.for("goodfetch.guard.fill")] = element;
+        return { state: "focused", set_value: true };
+      }
       if (action === "fill") {
         if (element.isContentEditable) {
           const range = document.createRange();

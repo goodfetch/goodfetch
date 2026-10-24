@@ -167,7 +167,7 @@ class AsyncCollieOperations:
         return Acted.model_construct(**_fields(await self._caller.call("locator.click", params)))
 
     async def locator_fill(self, params: FillParams) -> Acted:
-        """Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.
+        """Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -688,7 +688,7 @@ class CollieOperations:
         return Acted.model_construct(**_fields(self._caller.call("locator.click", params)))
 
     def locator_fill(self, params: FillParams) -> Acted:
-        """Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes.
+        """Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """

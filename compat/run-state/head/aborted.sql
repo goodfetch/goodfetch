@@ -61,8 +61,10 @@ CREATE TABLE learned_rules (
             host TEXT NOT NULL,
             path TEXT NOT NULL,
             parameter TEXT NOT NULL,
+            form TEXT NOT NULL,
             evidence TEXT NOT NULL,
-            UNIQUE (kind, host, path, parameter)
+            contradiction TEXT,
+            UNIQUE (kind, host, path, parameter, form)
         ) STRICT;
 CREATE TABLE outcomes (
             position INTEGER NOT NULL PRIMARY KEY,
@@ -92,6 +94,13 @@ CREATE TABLE records (
             data TEXT NOT NULL,
             PRIMARY KEY (dataset, number)
         ) STRICT;
+CREATE TABLE rules_canonicals (
+            host TEXT NOT NULL,
+            form TEXT NOT NULL,
+            url TEXT NOT NULL,
+            canonical TEXT NOT NULL,
+            PRIMARY KEY (host, form, url)
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE rules_offset_values (
             host TEXT NOT NULL,
             path TEXT NOT NULL,
@@ -123,10 +132,11 @@ CREATE TABLE rules_pages (
 CREATE TABLE rules_pairs (
             host TEXT NOT NULL,
             parameter TEXT NOT NULL,
+            form TEXT NOT NULL,
             one TEXT NOT NULL,
             other TEXT NOT NULL,
             matching INTEGER NOT NULL,
-            UNIQUE (host, parameter, one, other)
+            UNIQUE (host, parameter, form, one, other)
         ) STRICT;
 CREATE TABLE rules_patterns (
             host TEXT NOT NULL,
@@ -173,7 +183,7 @@ CREATE TABLE run (
         nothing_done TEXT,
         report TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('aborted','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run","origin":"settings"}]',7,NULL,'sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9',0,NULL,NULL,'{"run_id":"aborted","lifecycle":"stopped","stop_reason":{"kind":"abort","by":"client"},"verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: aborted by its Client."}],"started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":0,"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":985,"set_by":"client"}]},"weakened":[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run","origin":"settings"}],"policy_version":"sha256:0227dc879fda140d"}');
+INSERT INTO "run" VALUES('aborted','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run","origin":"settings"}]',7,NULL,'sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9',0,NULL,NULL,'{"run_id":"aborted","lifecycle":"stopped","stop_reason":{"kind":"abort","by":"client"},"verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: aborted by its Client."}],"started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":0,"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":983,"set_by":"client"}]},"weakened":[{"key":"tls.accept_invalid_certs","value":{"intranet.test":null},"layer":"run","origin":"settings"}],"policy_version":"sha256:0227dc879fda140d"}');
 CREATE TABLE run_file_chunks (sha256 TEXT NOT NULL, offset INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sha256, offset)) STRICT;
 CREATE TABLE run_files (position INTEGER NOT NULL PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL) STRICT;
 INSERT INTO "run_files" VALUES(1,'key_value','archive','0c280d2dabe72e62b308ead79e22caa4c65190dee1ae11c102fd1aa0a86989d2',1048578);
@@ -252,6 +262,7 @@ CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (position)
             WHERE retired_because IS NULL;
 CREATE INDEX rules_pages_by_query ON rules_pages (host, path, query);
+CREATE INDEX rules_pages_by_url ON rules_pages (url);
 CREATE INDEX rules_residues_by_residue
             ON rules_residues (host, path, residue, parameter);
 CREATE INDEX scope_seeds_by_domain ON scope_seeds (domain);

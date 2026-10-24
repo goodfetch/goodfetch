@@ -143,6 +143,26 @@ class Enqueued1(BaseModel):
     """
 
 
+class EquivalentForm(StrEnum):
+    """
+    Two spellings of one host's URLs a learned `equivalent_form` merges
+    (ADR 0120), each learned on evidence: a redirect from one to the
+    other, pairs of pages of matching signatures, or pages whose
+    `rel=canonical` differs from their URL only by it.
+    """
+
+    www = "www"
+    """One leading `www.` label against the bare host, the rule's host."""
+    scheme = "scheme"
+    """`http` against `https`."""
+    trailing_slash = "trailing_slash"
+    """A path with a trailing slash against the same path without it."""
+    index_html = "index_html"
+    """A final `index.html` against its folder."""
+    index_php = "index_php"
+    """A final `index.php` against its folder."""
+
+
 class HttpBody(RootModel[str]):
     root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
     """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
@@ -167,6 +187,11 @@ class LearnedRuleKind(StrEnum):
     A path pattern is a trap: its pages brought no new page signature
     and no URL outside it, so its URLs are not added, with
     `trap_path`.
+    """
+    equivalent_form = "equivalent_form"
+    """
+    Two forms of the host's URLs serve one page, so a URL in one form
+    is a `duplicate` of an admitted one in the other.
     """
     cursor_pagination = "cursor_pagination"
     """
@@ -812,8 +837,16 @@ class LearnedRule(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    contradiction: str | None = None
+    """
+    The pair of pages that contradicted it, naming their URLs: both
+    forms fetched, neither redirected, and their page signatures
+    differ. From then on it merges nothing more; absent while it holds.
+    """
     evidence: str
     """What it was learned from, naming the URLs."""
+    form: EquivalentForm | None = None
+    """The form it merges, for an `equivalent_form`."""
     host: str
     """The host it holds on."""
     kind: LearnedRuleKind
@@ -821,7 +854,8 @@ class LearnedRule(BaseModel):
     merged: list[str]
     """
     Each URL it merged with another or refused, in the order the crawl
-    met them.
+    met them, a pending request it ended `skipped` with `duplicate`
+    included.
     """
     parameter: str | None = None
     """

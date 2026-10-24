@@ -210,6 +210,23 @@ impl Gate for DomainQueues {
         true
     }
 
+    fn withdraw(&mut self, key: &str, id: &str) {
+        if !self.ids.remove(id) {
+            return;
+        }
+        let Some(domain) = self.domains.get_mut(key) else {
+            return;
+        };
+        domain.waiting.retain(|(_, waiting)| waiting != id);
+        if domain.waiting.is_empty() {
+            domain.outside = false;
+            self.turns.retain(|turn| turn != key);
+            if domain.in_flight == 0 {
+                self.idle.insert(key.to_owned());
+            }
+        }
+    }
+
     fn ready_at(&self, now: Instant) -> Option<Instant> {
         self.turns
             .iter()

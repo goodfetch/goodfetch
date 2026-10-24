@@ -18,6 +18,18 @@
 //!   `?after=r<n>`, which pages on by cursor alone; `/list?offset=<n>` is
 //!   the same listing by offset alone, and `/pair?offset=<n>` holds two of
 //!   its pages.
+//! - `/forms/`: equivalent forms (ADR 0120), linking in order the pages
+//!   below. `/forms/slash/<k>` and `/forms/slash/<k>/`, for `k` from 1 to
+//!   3, are one guide, so two pairs teach the trailing slash's form and
+//!   the third pair's slashed URL, still pending, is merged.
+//!   `/forms/docs/<k>/index.html`, for `k` from 1 to 3, names its folder
+//!   as its `rel=canonical` and links it, so three pages teach the
+//!   `index.html` form. `/forms/news/<k>`, for `k` from 1 to 3, each name
+//!   `/forms/` as their canonical, as a mis-templated site does, and are
+//!   three pages all the same. `/forms/split/<k>`, for `k` from 1 to 3,
+//!   reads otherwise on `www.learning.test` than on `learning.test`; the
+//!   index links the first two on both hosts, and each of those links the
+//!   next.
 //! - `/`: the home page, which links nothing.
 
 use std::fmt::Write as _;
@@ -27,6 +39,9 @@ use super::{Page, Visit, canonical_number, document};
 pub(super) const HOST: &str = "learning.test";
 /// A second host of the family, of the same registrable domain.
 pub(super) const SHOP_HOST: &str = "shop.learning.test";
+/// The `www.` host of the family's host, whose split pages read
+/// otherwise.
+pub(super) const WWW_HOST: &str = "www.learning.test";
 pub(super) const FAMILY: &str = "learning";
 
 /// The rows of a listing, and how many a page holds.
@@ -47,6 +62,9 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
             "Club",
             &article("Club", "Welcome to the club.", ""),
         ));
+    }
+    if let Some(form) = path.strip_prefix("/forms/") {
+        return forms(form, request.host, request.authority).unwrap_or_else(Page::not_found);
     }
     if let Some(pairs) = path.strip_prefix("/shop/").and_then(canonical_number) {
         return shop(pairs, request.parameter("n"), request.parameter("ref"))
@@ -117,6 +135,105 @@ fn shop(pairs: u64, n: Option<&str>, reference: Option<&str>) -> Option<Page> {
             &links,
         ),
     )))
+}
+
+/// How many pages each part of `/forms/` holds.
+const FORM_PAGES: u64 = 3;
+
+/// The page at `/forms/<form>` on `host`, reached at `authority`.
+fn forms(form: &str, host: &str, authority: &str) -> Option<Page> {
+    if form.is_empty() {
+        let bare = authority.strip_prefix("www.").unwrap_or(authority);
+        let mut links = String::new();
+        for page in 1..=FORM_PAGES {
+            links.push_str(&link(&format!("/forms/slash/{page}"), "Guide"));
+            links.push_str(&link(&format!("/forms/slash/{page}/"), "Guide"));
+        }
+        for page in 1..=FORM_PAGES {
+            links.push_str(&link(&format!("/forms/docs/{page}/index.html"), "Docs"));
+        }
+        for page in 1..=FORM_PAGES {
+            links.push_str(&link(&format!("/forms/news/{page}"), "News"));
+        }
+        for page in 1..FORM_PAGES {
+            links.push_str(&link(&format!("http://{bare}/forms/split/{page}"), "Split"));
+            links.push_str(&link(
+                &format!("http://www.{bare}/forms/split/{page}"),
+                "Split",
+            ));
+        }
+        return Some(Page::ok(document(
+            "Forms",
+            &article("Forms", "Every form of the club's pages.", &links),
+        )));
+    }
+    let (part, rest) = form.split_once('/')?;
+    match part {
+        "slash" => {
+            let page = canonical_number(rest.strip_suffix('/').unwrap_or(rest))?;
+            (1..=FORM_PAGES).contains(&page).then(|| {
+                let heading = format!("Guide {page}");
+                Page::ok(document(
+                    &heading,
+                    &article(&heading, &format!("Guide {page} to the club."), ""),
+                ))
+            })
+        }
+        "docs" => {
+            let (page, file) = rest.split_once('/')?;
+            let page = canonical_number(page).filter(|page| (1..=FORM_PAGES).contains(page))?;
+            let folder = format!("/forms/docs/{page}/");
+            (file.is_empty() || file == "index.html").then(|| {
+                let heading = format!("Docs {page}");
+                Page::ok(canonical(
+                    &document(
+                        &heading,
+                        &article(&heading, "The club's docs.", &link(&folder, "This folder")),
+                    ),
+                    &folder,
+                ))
+            })
+        }
+        "news" => {
+            let page = canonical_number(rest).filter(|page| (1..=FORM_PAGES).contains(page))?;
+            let heading = format!("News {page}");
+            Some(Page::ok(canonical(
+                &document(
+                    &heading,
+                    &article(&heading, &format!("The club's news, number {page}."), ""),
+                ),
+                "/forms/",
+            )))
+        }
+        "split" => {
+            let page = canonical_number(rest).filter(|page| (1..=FORM_PAGES).contains(page))?;
+            let side = if host.starts_with("www.") {
+                "the www site"
+            } else {
+                "the bare site"
+            };
+            let links = if page < FORM_PAGES {
+                link(&format!("/forms/split/{}", page + 1), "Next")
+            } else {
+                String::new()
+            };
+            let heading = format!("Split {page}");
+            Some(Page::ok(document(
+                &heading,
+                &article(&heading, &format!("Page {page} of {side}."), &links),
+            )))
+        }
+        _ => None,
+    }
+}
+
+/// `html` with a `<link rel="canonical">` to `href` at the end of its head.
+fn canonical(html: &str, href: &str) -> String {
+    html.replacen(
+        "</head>",
+        &format!("<link rel=\"canonical\" href=\"{href}\"></head>"),
+        1,
+    )
 }
 
 /// A month of the calendar under `prefix`, which ends at the month `last`

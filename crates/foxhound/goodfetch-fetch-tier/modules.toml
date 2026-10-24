@@ -1,9 +1,10 @@
 # Which of goodfetch-fetch-tier's top-level modules may import which (ADR 0126).
 [modules]
+canonical = []
 decoding = []
 driver = ["decoding"]
 hedging = []
 http_profile = []
 redundant = ["driver", "hedging"]
-tiers = ["driver", "redundant", "transports"]
+tiers = ["canonical", "driver", "redundant", "transports"]
 transports = ["driver", "http_profile"]

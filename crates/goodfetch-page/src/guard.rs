@@ -441,6 +441,15 @@ fn unreadable(value: &serde_json::Value, error: &serde_json::Error) -> CallError
     )
 }
 
+/// What a locator wait reached.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Waited {
+    /// Its element's state.
+    State,
+    /// A count its matches' number is within: that number.
+    Count(u64),
+}
+
 /// What a locator wait waits for.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Awaited {
@@ -458,15 +467,17 @@ pub(crate) struct Wait<'a> {
     pub(crate) selector: &'a str,
     /// What it waits for.
     pub(crate) awaited: Awaited,
-    /// How long it may wait: `timeout.wait`.
-    pub(crate) window: Window,
+    /// How long it may wait: its call's own `timeout`, else
+    /// `timeout.wait`; none for a call whose `timeout` is `null`.
+    pub(crate) window: Option<Window>,
     /// The Client's surface, in whose language its errors show targets.
     pub(crate) surface: Surface,
 }
 
 /// Waits on `page` until the matches of `wait`'s locator are as it waits
 /// for, checking them in the guard's world once a frame, outside any
-/// gesture's turn, timed by `clock`; answers how many matched for a count.
+/// gesture's turn, timed by `clock`; answers what it reached, for a count
+/// how many matched.
 ///
 /// # Errors
 ///
@@ -481,37 +492,50 @@ pub(crate) async fn wait(
     page: &PageDriver,
     wait: Wait<'_>,
     clock: &Clock,
-) -> Result<Option<u64>, CallError> {
+) -> Result<Waited, CallError> {
     let started = clock.now();
-    let end = started + wait.window.duration;
+    let end = wait.window.as_ref().map(|window| started + window.duration);
     let (state, bounds) = match wait.awaited {
         Awaited::State(state) => (state_name(state), (None, None)),
-        Awaited::Count(count) => ("count", (count.min, count.max)),
+        Awaited::Count(count) => ("count".to_owned(), (count.min, count.max)),
     };
     let mut last = Seen::Waiting {
-        step: state.to_owned(),
+        step: state.clone(),
         observed: "the page was not checked yet".to_owned(),
         matches: Vec::new(),
     };
     loop {
-        let remaining = end.saturating_duration_since(clock.now());
-        if remaining.is_zero() {
+        let remaining = end.map_or(SLICE, |end| end.saturating_duration_since(clock.now()));
+        if remaining.is_zero()
+            && let Some(window) = wait.window
+        {
             let asked = Asked {
                 operation: wait.operation,
                 selector: wait.selector,
                 surface: wait.surface,
-                limit: wait.window.limit,
+                limit: window.limit,
             };
             return Err(at_deadline(asked, last, clock.now() - started));
         }
-        let argument = check::wait_argument(wait.selector, state, bounds, remaining.min(SLICE));
+        let argument = check::wait_argument(wait.selector, &state, bounds, remaining.min(SLICE));
         let Some(value) = page.read_in_page(CHECK, argument, wait.operation).await? else {
             // The document went, or is not yet: checked again in the next.
             clock.sleep(remaining.min(RECHECK)).await;
             continue;
         };
         match Seen::read(&value).map_err(|error| unreadable(&value, &error))? {
-            Seen::Ready { count } => return Ok(count),
+            Seen::Ready { count } => {
+                return match (wait.awaited, count) {
+                    (Awaited::State(_), _) => Ok(Waited::State),
+                    (Awaited::Count(_), Some(count)) => Ok(Waited::Count(count)),
+                    (Awaited::Count(_), None) => Err(CallError::protocol(
+                        ProtocolFailure::InternalError,
+                        format!(
+                            "the guard's script answered {value} to a count wait, with no count"
+                        ),
+                    )),
+                };
+            }
             Seen::Armed { .. } | Seen::Focused { .. } => return Err(mismatched(&value)),
             Seen::Invalid { message } => return Err(unparsed(wait.selector, &message)),
             waiting @ Seen::Waiting { .. } => last = waiting,
@@ -523,14 +547,12 @@ pub(crate) async fn wait(
 /// it checks again.
 const RECHECK: Duration = Duration::from_millis(20);
 
-/// The name the check takes for `state`.
-fn state_name(state: ElementState) -> &'static str {
-    match state {
-        ElementState::Attached => "attached",
-        ElementState::Detached => "detached",
-        ElementState::Visible => "visible",
-        ElementState::Hidden => "hidden",
-    }
+/// The name the check takes for `state`: its name on the wire.
+fn state_name(state: ElementState) -> String {
+    serde_json::to_value(state)
+        .ok()
+        .and_then(|name| name.as_str().map(str::to_owned))
+        .expect("invariant: an element state serializes as its name")
 }
 
 /// What a call at its deadline asked: its operation, its locator's

@@ -591,6 +591,16 @@
           "description": "What it is, such as `stopped` or `failed`; a reason this reader does\nnot know is kept as it is.",
           "type": "string"
         },
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many it counts, when it counts some: the URLs a bound refused,\nthe pages left at a Block cause, or the requests a stop left.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "message": {
           "arrived_in": "0.1",
           "description": "What it says, for people.",
@@ -5557,6 +5567,16 @@
           ],
           "arrived_in": "0.1",
           "description": "The state; `visible` when absent."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -6326,11 +6346,19 @@
           "type": "object"
         },
         {
-          "description": "No seed reached a handler: each was refused when added or skipped\nwhen fetched.",
+          "description": "No seed reached a handler: each was refused when added or ended\nbefore its handler ran, counted by why.",
           "properties": {
             "reason": {
               "const": "no_seed_handled",
               "type": "string"
+            },
+            "seeds": {
+              "arrived_in": "0.1",
+              "description": "How many seeds each reason kept from a handler: the reason an\nenqueue answered, or how the request ended, by its skip reason,\nError code or Block cause, in the order of the reasons.",
+              "items": {
+                "$ref": "#/$defs/SeedsKept"
+              },
+              "type": "array"
             }
           },
           "required": [
@@ -10508,6 +10536,28 @@
       "minItems": 1,
       "type": "array"
     },
+    "SeedsKept": {
+      "description": "How many seeds one reason kept from a handler.",
+      "properties": {
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many seeds it kept.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "The reason: an enqueue's not-added reason, a skip reason, an Error\ncode or a Block cause.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "count"
+      ],
+      "type": "object"
+    },
     "ServiceManager": {
       "description": "The OS's service manager a Daemon is installed with (ADR 0024).",
       "oneOf": [
@@ -12410,6 +12460,16 @@
           "$ref": "#/$defs/Locator",
           "arrived_in": "0.1",
           "description": "The locator."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -12430,6 +12490,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "anyOf": [
@@ -12481,6 +12551,16 @@
             "null"
           ]
         },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "world": {
           "anyOf": [
             {
@@ -12524,6 +12604,16 @@
           ],
           "arrived_in": "0.1",
           "description": "The state; `load` when absent."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -12543,6 +12633,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "anyOf": [
@@ -12574,6 +12674,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "$ref": "#/$defs/UrlMatcher",

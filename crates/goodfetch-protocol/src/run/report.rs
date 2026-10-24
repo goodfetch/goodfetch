@@ -124,6 +124,11 @@ pub struct AxisReason {
     /// What it says, for people.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub message: String,
+    /// How many it counts, when it counts some: the URLs a bound refused,
+    /// the pages left at a Block cause, or the requests a stop left.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub count: Option<u64>,
     /// The AI task it is about, by its `callId`, when it is about one (ADR
     /// 0100).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -413,11 +418,30 @@ pub enum NothingDone {
         #[schemars(extend("arrived_in" = "0.1"))]
         ended_at: PointInTime,
     },
-    /// No seed reached a handler: each was refused when added or skipped
-    /// when fetched.
-    NoSeedHandled,
+    /// No seed reached a handler: each was refused when added or ended
+    /// before its handler ran, counted by why.
+    NoSeedHandled {
+        /// How many seeds each reason kept from a handler: the reason an
+        /// enqueue answered, or how the request ended, by its skip reason,
+        /// Error code or Block cause, in the order of the reasons.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        seeds: Vec<SeedsKept>,
+    },
     /// A resume or a retry found nothing left.
     NothingPending,
+}
+
+/// How many seeds one reason kept from a handler.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SeedsKept {
+    /// The reason: an enqueue's not-added reason, a skip reason, an Error
+    /// code or a Block cause.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reason: String,
+    /// How many seeds it kept.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub count: u64,
 }
 
 /// An Effect a Run left uncertain (ADR 0106), until a person reconciles it.

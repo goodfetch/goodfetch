@@ -16,7 +16,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::request::PAGE_REQUEST;
-use goodfetch_protocol::page::tabs::SESSION_PAGES;
+use goodfetch_protocol::page::session_pages::SESSION_PAGES;
 use goodfetch_protocol::page::waits::{PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_URL};
 use goodfetch_protocol::page::{BLOCKED, BlockedDetails, LOCATOR_CLICK, PAGE_GOTO, PageOpened};
 use serde_json::{Value, json};

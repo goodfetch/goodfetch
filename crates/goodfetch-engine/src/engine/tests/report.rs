@@ -210,6 +210,7 @@ impl ReportPart for Seeded {
         report.verdict_reasons.push(AxisReason {
             code: "uncertain_effects".to_owned(),
             message: "An Effect is uncertain.".to_owned(),
+            count: None,
             call_id: None,
         });
         report

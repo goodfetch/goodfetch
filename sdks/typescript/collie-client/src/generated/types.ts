@@ -552,6 +552,12 @@ export type NothingDone =
     }
   | {
       reason: "no_seed_handled";
+      /**
+       * How many seeds each reason kept from a handler: the reason an
+       * enqueue answered, or how the request ended, by its skip reason,
+       * Error code or Block cause, in the order of the reasons.
+       */
+      seeds?: SeedsKept[];
     }
   | {
       reason: "nothing_pending";
@@ -1149,6 +1155,11 @@ export interface AxisReason {
    * not know is kept as it is.
    */
   code: string;
+  /**
+   * How many it counts, when it counts some: the URLs a bound refused,
+   * the pages left at a Block cause, or the requests a stop left.
+   */
+  count?: number | null;
   /**
    * What it says, for people.
    */
@@ -2902,6 +2913,12 @@ export interface LocatorWaitForParams {
    * The state; `visible` when absent.
    */
   state?: ElementState | null;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
 }
 /**
  * The locator.
@@ -3323,6 +3340,23 @@ export interface LimitScope3 {
    * The scope's kind.
    */
   kind: string;
+}
+/**
+ * How many seeds one reason kept from a handler.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SeedsKept".
+ */
+export interface SeedsKept {
+  /**
+   * How many seeds it kept.
+   */
+  count: number;
+  /**
+   * The reason: an enqueue's not-added reason, a skip reason, an Error
+   * code or a Block cause.
+   */
+  reason: string;
 }
 /**
  * What `page.body` takes: the body to read.
@@ -5711,6 +5745,12 @@ export interface UsageSetParams {
 export interface WaitForCountParams {
   count: Count1;
   locator: Locator5;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
 }
 /**
  * The count.
@@ -5752,6 +5792,12 @@ export interface WaitForExchangeParams {
    */
   page_id: string;
   /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
+  /**
    * The URLs it waits for.
    */
   url?: UrlMatcher | null;
@@ -5785,6 +5831,12 @@ export interface WaitForFunctionParams {
    */
   polling_interval?: number | null;
   /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
+  /**
    * Where it runs; the main world when absent.
    */
   world?: World | null;
@@ -5804,6 +5856,12 @@ export interface WaitForLoadStateParams {
    * The state; `load` when absent.
    */
   state?: LoadState | null;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
 }
 /**
  * What `page.wait_for_request_finished` takes: the page, and the URLs of
@@ -5817,6 +5875,12 @@ export interface WaitForRequestFinishedParams {
    * A page of a Run, named by the engine when it opens it.
    */
   page_id: string;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
   /**
    * The URLs it waits for.
    */
@@ -5834,6 +5898,12 @@ export interface WaitForUrlParams {
    * A page of a Run, named by the engine when it opens it.
    */
   page_id: string;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
   /**
    * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
    * one, or a regular expression in the `regex` crate's syntax. A predicate

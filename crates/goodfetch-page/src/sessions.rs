@@ -42,7 +42,7 @@ mod ends;
 mod life;
 mod lifecycle;
 mod memory;
-mod tabs;
+mod session_pages;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -89,6 +89,7 @@ use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
 use crate::interception::{Interception, SESSION_KEYS};
 use crate::page_events;
+use crate::page_functions::{FrameScripts, Injections};
 use crate::page_value::{HandlerPages, PageValue};
 use crate::pool::{InBrowser, Placement, Pool, Seat};
 use crate::proxy::{Opening, SessionProxy};
@@ -129,6 +130,8 @@ pub(crate) struct Sessions {
     /// What each page carries for the Product that hands pages to
     /// handlers: its value and its response observer (ADR 0087).
     handler_pages: Arc<dyn HandlerPages>,
+    /// How many calls listen to each Session's `page` event.
+    page_listeners: session_pages::PageListeners,
 }
 
 #[derive(Default)]
@@ -168,8 +171,6 @@ struct Session {
     life: SessionLife,
     /// Its one proxy, if it has one.
     proxy: Option<Arc<SessionProxy>>,
-    /// How many calls listen to its `page` event.
-    page_listeners: tabs::PageListeners,
     /// On a Borrowed browser, set once its Provenance records that it is
     /// held to the policy by interception alone; none elsewhere.
     interception_only: Option<OnceCell<()>>,
@@ -177,6 +178,12 @@ struct Session {
     /// proxy that did not open: raised by each page it is asked for, while
     /// the Run's other Sessions go on.
     reopen_failed: Option<CallError>,
+    /// On a Borrowed browser, the main frames of every page it held, whose
+    /// popups alone are its own; none elsewhere, where its browser context
+    /// holds only its pages.
+    held_frames: Option<session_pages::HeldFrames>,
+    /// Its marks of main-world injections in Provenance, each once.
+    injections: Injections,
 }
 
 /// A fresh Session a program opened, in a browser the engine launched.
@@ -215,6 +222,10 @@ pub(crate) struct OpenPage {
     pub(crate) sheets: Arc<crate::hiding::Sheets>,
     /// Its Session's Page check, when it declares one.
     pub(crate) page_check: Option<Arc<Declared>>,
+    /// Its init scripts as its out-of-process iframes take them.
+    pub(crate) frame_scripts: FrameScripts,
+    /// Its Session's marks of main-world injections in Provenance.
+    pub(crate) injections: Injections,
     /// Its admission of the governor's `browser_page` kind, given back once
     /// the page leaves and no call holds it.
     _admission: Arc<Permit>,
@@ -320,6 +331,7 @@ impl Sessions {
             events,
             dialogs,
             handler_pages,
+            page_listeners: session_pages::PageListeners::default(),
         }
     }
 
@@ -366,9 +378,12 @@ impl Sessions {
             settings: settings.clone(),
             life: life.clone(),
             proxy,
-            page_listeners: tabs::PageListeners::default(),
             interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
             reopen_failed: None,
+            held_frames: borrowed
+                .as_ref()
+                .map(|_| session_pages::HeldFrames::default()),
+            injections: Injections::default(),
         });
         self.state
             .lock()
@@ -465,9 +480,10 @@ impl Sessions {
                     SessionState::Open,
                 ),
                 proxy,
-                page_listeners: tabs::PageListeners::default(),
                 interception_only: borrowed.map(|_| OnceCell::new()),
                 reopen_failed: None,
+                held_frames: borrowed.map(|_| session_pages::HeldFrames::default()),
+                injections: Injections::default(),
             }),
         );
         self.open_in_interception(&session, run, borrowed.is_some());
@@ -498,7 +514,7 @@ impl Sessions {
         let driver = driver.with_value(value, run.clock());
         let open_session = Arc::clone(&open);
         let page = self
-            .adopt(tabs::Adopting {
+            .adopt(session_pages::Adopting {
                 observer: self.handler_pages.observer(run.id(), session),
                 open,
                 driver,
@@ -816,9 +832,12 @@ impl Sessions {
                 settings,
                 life: SessionLife::new(session, attributes, SessionState::Open),
                 proxy,
-                page_listeners: tabs::PageListeners::default(),
                 interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
                 reopen_failed,
+                held_frames: borrowed
+                    .as_ref()
+                    .map(|_| session_pages::HeldFrames::default()),
+                injections: Injections::default(),
             });
         }
         let mut state = self.state.lock().await;

@@ -18,11 +18,14 @@ use std::time::SystemTime;
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::retry_after::{self, RetryAfter};
-use goodfetch_protocol::page::{BLOCKED, BlockedDetails, PageResponse};
+use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::page::{BLOCKED, BlockedDetails, PageId, PageResponse};
 use serde_json::json;
 
 use crate::blocks::{Block, BlockClassifier};
+use crate::consent::Walls;
 use crate::driver::PageDriver;
+use crate::page_events::PageEvents;
 
 /// What the page's document is read for: which of the markers asked for
 /// its serialization holds, lowercase.
@@ -70,6 +73,29 @@ pub(super) async fn block_of(
     // The markers found, each on a line of its own, read as the document
     // reads for a classifier that looks for markers alone.
     Ok(blocks.classify(response, &holding.join("\n")))
+}
+
+/// `blocked` with `consent_required` for the consent wall the Consent
+/// prompt runner left on the page `page_id`, whose events are `events`,
+/// taken so it is raised once; none when it left none in the document the
+/// main frame holds now (ADR 0048).
+pub(super) fn consent_wall(
+    walls: &Walls,
+    page_id: &PageId,
+    events: &PageEvents,
+) -> Option<CallError> {
+    let wall = walls.take(page_id)?;
+    let (loader, response, received) = events.document()?;
+    (loader == wall.loader).then(|| {
+        blocked(
+            Block {
+                cause: BlockCause::ConsentRequired,
+                rule: wall.rule,
+            },
+            &response,
+            received,
+        )
+    })
 }
 
 /// `blocked` for `block` on the document `response` answered, received at

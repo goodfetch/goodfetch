@@ -10,8 +10,14 @@
 // 2. else autoconsent's `reject` heuristics, called here in every frame, the
 //    top one included: a prompt they find with a refusal button is refused;
 // 3. a prompt without one goes to the Decision provider (none yet);
-// 4. else it is hidden when it leaves the content readable, and left for the
-//    wall test otherwise.
+// 4. else the wall test: a prompt that leaves the content readable and asks
+//    for no payment is hidden; any other in the top frame is a consent wall,
+//    which the engine has accepted where a person approved its domain
+//    (`consent.domains`) and otherwise reports as `consent_required`.
+//
+// With the engine's answering off (`consent.handling: false`) the runner only
+// looks: autoconsent detects without acting, nothing is clicked or hidden, and
+// each prompt is reported left, but the wall test still runs.
 //
 // Its overrides live in this world alone, so no page sees them: the
 // `HTMLElement.prototype.click` override sends the clicks coded vendors make
@@ -47,12 +53,14 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
       named(rule[steps]).every((snippet) => ["isolated", "main"].includes(worlds[snippet])),
     );
   const kept = { v: rules.v, s: rules.s, r: rules.r.filter(runs) };
-  const CONFIG = {
+  // Whether the engine answers prompts, which `start` sets.
+  let answering = true;
+  const config = () => ({
     enabled: true,
-    autoAction: "optOut",
+    autoAction: answering ? "optOut" : null,
     disabledCmps: [],
-    enablePrehide: true,
-    enableCosmeticRules: true,
+    enablePrehide: answering,
+    enableCosmeticRules: answering,
     enableGeneratedRules: true,
     detectRetries: 20,
     isMainWorld: false,
@@ -72,7 +80,7 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
       messages: false,
       waits: false,
     },
-  };
+  });
 
   // Reporting through the binding the engine added to this world, by name.
   let binding = null;
@@ -323,7 +331,8 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
         }
         case "popupFound":
           found = true;
-          acting = true;
+          if (answering) acting = true;
+          else report({ action: "left", rule: message.cmp });
           break;
         case "optOutResult":
           acting = false;
@@ -352,7 +361,7 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
     instance.domActions = new (guarded(instance.domActions.constructor, generation))(instance);
     void instance.receiveMessageCallback({
       type: "initResp",
-      config: CONFIG,
+      config: config(),
       rules: { autoconsent: [], compact: kept },
     });
     // A vendor detected without its prompt showing falls back too.
@@ -484,6 +493,12 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
       area(centre.getBoundingClientRect()) >= 0.9 * viewport
     );
   };
+  // A prompt offers payment instead of a refusal when one of its buttons asks
+  // for a subscription or a payment.
+  const PAYING =
+    /subscri|abonn|\bpay\b|\bpaid\b|bezahl|payer|pagar|pagare|zahlen|\bpur\b|[€$£]\s?\d|\d\s?[€$£]/i;
+  const paying = (buttons) =>
+    buttons.some((button) => button.regexClassification !== "accept" && PAYING.test(button.text));
   const gone = async (element) => {
     for (let waited = 0; waited < 2000; waited += 100) {
       if (!element.isConnected || !visible(element)) return true;
@@ -509,6 +524,10 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
         .map((element) => ({ element, text: element.innerText || element.value || "" }));
       heuristics.classifyButtons(buttons);
       const refusal = buttons.find((button) => button.regexClassification === "reject");
+      if (!answering && refusal !== undefined) {
+        report({ action: "left", rule: "heuristic" });
+        return;
+      }
       if (refusal !== undefined) {
         const landed = await trusted(refusal.element);
         if (landed) {
@@ -518,15 +537,34 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
         report({ action: "failed", rule: "heuristic" });
       }
       // No refusal: the Decision provider is asked when the Run has one; then
-      // a prompt that leaves the content readable is hidden, any other left
-      // for the wall test.
+      // the wall test. A framed prompt's cover is not measured from its frame,
+      // so it is left.
       const light = lightOf(prompt);
-      if (top && readable(light)) {
-        await hide(light, `${selectorOf(light)} { display: none !important; }`);
-        report({ action: "hidden", rule: "heuristic" });
-      } else {
+      if (!top) {
         report({ action: "left", rule: "heuristic" });
+        return;
       }
+      const pays = paying(buttons);
+      if (!pays && readable(light)) {
+        if (answering) {
+          await hide(light, `${selectorOf(light)} { display: none !important; }`);
+          report({ action: "hidden", rule: "heuristic" });
+        } else {
+          report({ action: "left", rule: "heuristic" });
+        }
+        return;
+      }
+      // A consent wall: accepted only where the engine says a person approved
+      // its domain, else `consent_required`.
+      const reason = pays ? "pays" : "covers";
+      if ((await request({ kind: "wall", reason })) === "accept") {
+        const acceptance = buttons.find((button) => button.regexClassification === "accept");
+        if (acceptance !== undefined && (await trusted(acceptance.element))) {
+          report({ action: "accepted", rule: "heuristic", reason, verified: await gone(prompt) });
+          return;
+        }
+      }
+      report({ action: "wall", rule: "heuristic", reason });
     } finally {
       acting = false;
     }
@@ -576,10 +614,12 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
   };
   let running = false;
   world[KEY] = {
-    // Starts the runner, reporting through the binding `name`.
-    start(name) {
+    // Starts the runner, reporting through the binding `name`, answering
+    // prompts unless `answers` is false.
+    start(name, answers) {
       if (running) return "started";
       running = true;
+      answering = answers !== false;
       binding = world[name];
       for (const text of queued.splice(0)) binding(text);
       begin();

@@ -256,6 +256,12 @@ impl Sessions {
         }
     }
 
+    /// The consent walls the pages' Consent prompt runners left for each
+    /// page's next call.
+    pub(crate) fn consent_walls(&self) -> &crate::consent::Walls {
+        self.consent.walls()
+    }
+
     /// Opens a Session of the live Run `params` names, from its own source,
     /// else the Run's, under its own settings: its browser context is made
     /// now, launching the Run's browser when no Session has.

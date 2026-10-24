@@ -24,15 +24,24 @@
 //!   and `Runtime.callFunctionOn`;
 //! - sets its part of the document's hiding sheet, the one live hiding
 //!   writes too ([`Sheets`]), which no `document.styleSheets` lists;
-//! - records what it did with each prompt in the Run trace.
+//! - answers whether a consent wall is accepted: only on a domain a person
+//!   approved in `consent.domains`, and never while the answering is off;
+//! - records what it did with each prompt in the Run trace's Provenance,
+//!   an acceptance with its domain and the approval it came from, and
+//!   keeps a wall left in the page's main frame for the page's next call,
+//!   which raises it as `blocked` with `consent_required` (`walls`).
 //!
-//! The Decision provider (area 9's) and the wall test (A05-24) are not
-//! here yet: a prompt with no refusal is hidden when it leaves the content
-//! readable and left otherwise. Firefox and `WebKit`'s route is A05-45's.
+//! With `consent.handling` off the runner still starts, to run the wall
+//! test, but only looks: it clicks, hides and runs nothing. A prompt with
+//! no refusal that leaves the content readable and asks for no payment is
+//! hidden; any other in the top frame is a consent wall. The Decision
+//! provider (area 9's) is not here yet, nor `consent.on_wall: ask`, which
+//! needs the Human pause to take a person's answer (A05-38) and opens no
+//! page meanwhile. Firefox and `WebKit`'s route is A05-45's.
 
 mod frames;
-mod log;
 mod messages;
+mod walls;
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -46,16 +55,21 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::page::PageId;
-use goodfetch_protocol::settings::CONSENT_HANDLING;
+use goodfetch_protocol::settings::{
+    CAPABILITY_UNAVAILABLE, CONSENT_DOMAINS, CONSENT_HANDLING, CONSENT_ON_WALL,
+    CapabilityUnavailableDetails,
+};
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, OnceCell};
 
 use self::frames::{Frame, Frames};
-use self::log::ConsentLog;
-use self::messages::{ANSWER, BINDING, Message, RESTART, START};
+use self::messages::{ANSWER, Action, BINDING, Message, Outcome, RESTART, START};
+pub(crate) use self::walls::Walls;
+use self::walls::{Approval, Wall};
 use crate::driver::{GUARD_WORLD, PageDriver};
 use crate::guard::{self, Element, Readiness};
 use crate::hiding::{Part, Sheets};
+use crate::trace;
 
 /// How long the runner's click may wait for its target to be ready.
 const CLICK_WINDOW: Duration = Duration::from_secs(3);
@@ -76,22 +90,31 @@ const MOVE_WAIT: Duration = Duration::from_millis(100);
 const POINTER: &str = include_str!("consent/pointer.js");
 
 /// The engine's runner bundle, decompressed on the first page that needs
-/// it, through a blocking task of that page's Run (ADR 0060), then shared.
+/// it, through a blocking task of that page's Run (ADR 0060), then shared;
+/// and the consent walls each page's runner left for its next call.
 #[derive(Clone, Default)]
 pub(crate) struct Consent {
     runner: Arc<OnceCell<Arc<Runner>>>,
+    walls: Walls,
 }
 
 impl Consent {
+    /// The consent walls the pages' runners left.
+    pub(crate) fn walls(&self) -> &Walls {
+        &self.walls
+    }
+
     /// Starts the Consent prompt runner on the page `page_id`, which
-    /// `driver` drives for `run`, unless the Run's `consent.handling` is
-    /// off: the bundle in the guard's world of every frame from the next
-    /// document on, out-of-process iframes attached as they appear, hiding
-    /// through the page's `sheets`.
+    /// `driver` drives for `run`: the bundle in the guard's world of every
+    /// frame from the next document on, out-of-process iframes attached as
+    /// they appear, hiding through the page's `sheets`; with the Run's
+    /// `consent.handling` off, only looking.
     ///
     /// # Errors
     ///
-    /// The code of opening a page when the browser refuses a command.
+    /// `capability_unavailable` for a Run whose `consent.on_wall` is
+    /// `ask`, until the Human pause takes a person's answer; the code of
+    /// opening a page when the browser refuses a command.
     pub(crate) async fn start(
         &self,
         page_id: &PageId,
@@ -99,13 +122,33 @@ impl Consent {
         run: &Run,
         sheets: &Arc<Sheets>,
     ) -> Result<(), CallError> {
-        let on = run
+        let resolved = run
             .settings()
-            .and_then(|settings| settings.resolved().value(CONSENT_HANDLING.name).as_bool())
-            .unwrap_or(true);
-        if !on {
-            return Ok(());
+            .map(goodfetch_engine::settings::RunSettings::resolved);
+        if let Some(asked) = resolved
+            .and_then(|resolved| resolved.get(CONSENT_ON_WALL.name))
+            .filter(|effective| effective.value == json!("ask"))
+        {
+            return Err(CallError::new(
+                &CAPABILITY_UNAVAILABLE,
+                format!(
+                    "`consent.on_wall` is `ask` in {}, but this engine cannot yet pause for a person's answer to a consent wall: set it to `report`, which raises `blocked` with `consent_required`.",
+                    asked.layer.as_str()
+                ),
+                &CapabilityUnavailableDetails {
+                    key: CONSENT_ON_WALL.name.to_owned(),
+                    layer: asked.layer,
+                    kind: "ask".to_owned(),
+                    fix: "`consent.on_wall: report`".to_owned(),
+                },
+            ));
         }
+        let answering = resolved
+            .and_then(|resolved| resolved.value(CONSENT_HANDLING.name).as_bool())
+            .unwrap_or(true);
+        let approval = resolved
+            .and_then(|resolved| resolved.get(CONSENT_DOMAINS.name))
+            .and_then(|effective| Approval::of(&effective.value, effective.layer));
         let runner = self
             .runner
             .get_or_init(|| async {
@@ -125,7 +168,10 @@ impl Consent {
                 driver.main_frame().clone(),
             )),
             sheets: Arc::clone(sheets),
-            log: ConsentLog::new(run.owner().child(), run.folder(), page_id.clone()),
+            page_id: page_id.clone(),
+            answering,
+            approval,
+            walls: self.walls.clone(),
         });
         let session = driver.session().clone();
         let events = driver.events_on(&session).await;
@@ -144,8 +190,8 @@ impl Consent {
     }
 }
 
-/// One page's runner: its driver, its frames, its hiding sheets and its
-/// log.
+/// One page's runner: its driver, its frames, its hiding sheets, whether
+/// it answers, who approved accepting a wall, and the walls it leaves.
 struct Shared {
     driver: PageDriver,
     run: Run,
@@ -153,7 +199,10 @@ struct Shared {
     runner: Arc<Runner>,
     frames: Mutex<Frames>,
     sheets: Arc<Sheets>,
-    log: ConsentLog,
+    page_id: PageId,
+    answering: bool,
+    approval: Option<Approval>,
+    walls: Walls,
 }
 
 /// Puts the bundle on every new document of `session`'s target and has its
@@ -195,6 +244,10 @@ async fn listen(shared: Arc<Shared>, session: TargetSession, mut events: Subscri
     while let Some(event) = events.next().await {
         react(&shared, &session, &event).await;
     }
+    // The page's own target is gone: so is any wall it left.
+    if session == *shared.driver.session() {
+        shared.walls.take(&shared.page_id);
+    }
 }
 
 /// Listens to the iframe target `session` as a task of its own, boxed, as
@@ -221,10 +274,16 @@ async fn react(shared: &Arc<Shared>, session: &TargetSession, event: &goodfetch_
         shared
             .sheets
             .navigated(session, &navigated.frame.id, &navigated.frame.loader_id);
+        // A new document in the page's main frame leaves the last one's
+        // wall behind.
+        if *session == *shared.driver.session() && navigated.frame.parent_id.is_none() {
+            shared.walls.take(&shared.page_id);
+        }
         let shared = Arc::clone(shared);
         let session = session.clone();
         shared.run.clone().spawn(async move {
-            begin(&shared, &session, navigated.frame.id).await;
+            let frame = navigated.frame;
+            begin(&shared, &session, frame.id, frame.loader_id).await;
         });
     } else if let Some(moved) = event.read::<page::NavigatedWithinDocumentEvent>() {
         let context = shared.frames.lock().await.context(session, &moved.frame_id);
@@ -302,7 +361,12 @@ async fn attach(
 
 /// Starts the runner in the guard's world of `frame`'s new document on
 /// `session`, once its binding is there.
-async fn begin(shared: &Shared, session: &TargetSession, frame: page::FrameId) {
+async fn begin(
+    shared: &Shared,
+    session: &TargetSession,
+    frame: page::FrameId,
+    loader: goodfetch_cdp::generated::network::LoaderId,
+) {
     let driver = &shared.driver;
     let made = driver
         .command_on(
@@ -317,7 +381,11 @@ async fn begin(shared: &Shared, session: &TargetSession, frame: page::FrameId) {
         .await;
     let Ok(made) = made else { return };
     let context = made.execution_context_id;
-    shared.frames.lock().await.document(session, frame, context);
+    shared
+        .frames
+        .lock()
+        .await
+        .document(session, frame, context, loader);
     let bound = driver
         .command_on(
             session,
@@ -331,9 +399,8 @@ async fn begin(shared: &Shared, session: &TargetSession, frame: page::FrameId) {
     if bound.is_err() {
         return;
     }
-    if let Ok(Value::String(started)) = driver
-        .call_in(session, context, START, json!(BINDING))
-        .await
+    let options = json!({ "binding": BINDING, "answering": shared.answering });
+    if let Ok(Value::String(started)) = driver.call_in(session, context, START, options).await
         && started == "absent"
     {
         tracing::debug!("a document's guard world never ran the Consent prompt runner's bundle");
@@ -359,11 +426,10 @@ async fn answer(shared: &Shared, frame: &Frame, message: Message) {
             }
             (id, json!(true))
         }
+        Message::Wall { id, .. } => (id, json!(wall_answer(shared, frame).await)),
         Message::Outcome(outcome) => {
             tracing::debug!(action = ?outcome.action, rule = %outcome.rule, "Consent prompt");
-            if let Err(error) = shared.log.record(&outcome).await {
-                tracing::warn!(%error, "the Run trace's Consent prompt log was not written");
-            }
+            recorded(shared, frame, &outcome).await;
             return;
         }
     };
@@ -376,6 +442,89 @@ async fn answer(shared: &Shared, frame: &Frame, message: Message) {
             json!({ "id": id, "value": value }),
         )
         .await;
+}
+
+/// The engine's answer to a consent wall in `frame`'s document: `accept`
+/// only while the runner answers and on a domain `consent.domains`
+/// approves, `block` otherwise.
+async fn wall_answer(shared: &Shared, frame: &Frame) -> &'static str {
+    let approved = shared.answering
+        && match &shared.approval {
+            Some(approval) => document_url(shared, frame)
+                .await
+                .is_some_and(|url| approval.covers(&url).is_some()),
+            None => false,
+        };
+    if approved { "accept" } else { "block" }
+}
+
+/// The URL of `frame`'s current document, read in its guard world.
+async fn document_url(shared: &Shared, frame: &Frame) -> Option<String> {
+    match shared
+        .driver
+        .call_in(
+            &frame.session,
+            frame.context,
+            "function url() { return location.href; }",
+            Value::Null,
+        )
+        .await
+    {
+        Ok(Value::String(url)) => Some(url),
+        _ => None,
+    }
+}
+
+/// Records `outcome`, what the runner did with a prompt of `frame`'s
+/// document, in the Run trace's Provenance: an acceptance with its domain
+/// and the approval it came from. A wall left in the page's main frame's
+/// current document is kept for the page's next call.
+async fn recorded(shared: &Shared, frame: &Frame, outcome: &Outcome) {
+    let mut entry = json!({
+        "action": "consent",
+        "page_id": shared.page_id,
+        "url": outcome.url,
+        "answer": outcome.action,
+        "rule": outcome.rule,
+    });
+    if let Some(verified) = outcome.verified {
+        entry["verified"] = json!(verified);
+    }
+    if let Some(reason) = outcome.reason {
+        entry["reason"] = json!(reason);
+    }
+    match outcome.action {
+        Action::Accepted => {
+            if let Some(approval) = &shared.approval {
+                entry["domain"] = json!(approval.covers(&outcome.url));
+                entry["approval"] = json!({ "key": CONSENT_DOMAINS.name, "layer": approval.layer });
+            }
+        }
+        Action::Wall => {
+            let rule = outcome
+                .reason
+                .unwrap_or(messages::WallReason::Covers)
+                .rule();
+            entry["cause"] = json!(goodfetch_protocol::block::BlockCause::ConsentRequired);
+            entry["block_rule"] = json!(rule);
+            let main = frame.session == *shared.driver.session()
+                && frame.id == *shared.driver.main_frame();
+            let frames = shared.frames.lock().await;
+            let current = frames.context(&frame.session, &frame.id) == Some(frame.context);
+            let loader = frames.loader(&frame.session, &frame.id);
+            drop(frames);
+            if main
+                && current
+                && let Some(loader) = loader
+            {
+                shared
+                    .walls
+                    .put(shared.page_id.clone(), Wall { loader, rule });
+            }
+        }
+        Action::Refused | Action::Hidden | Action::Left | Action::Failed => {}
+    }
+    trace::provenance(&shared.run, &entry).await;
 }
 
 /// Clicks the element `handle` of `frame`'s guard world through the guard,

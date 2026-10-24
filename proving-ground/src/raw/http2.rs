@@ -224,7 +224,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
         };
         let request = arrived.request(stream, self.requests, context);
         self.requests += 1;
-        match settle(pages.answer(&request).await).await {
+        // A filler body is past the window the server never waits beyond.
+        let answer = match settle(pages.answer(&request).await).await {
+            Answer::Filler { .. } => Answer::Refuse(Refusal::Reset(ErrorCode::InternalError)),
+            answer => answer,
+        };
+        match answer {
             Answer::Page(page) => {
                 self.page(stream, &page, page.body.len()).await?;
                 self.last_processed = stream;
@@ -301,7 +306,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
                 context.delivered(request.recorded, None, 0, End::ConnectionClosed);
                 Ok(true)
             }
-            Answer::Later(..) => unreachable!("invariant: `settle` resolves every wait"),
+            Answer::Filler { .. } | Answer::Later(..) => {
+                unreachable!("invariant: a filler is reset above, and `settle` resolves every wait")
+            }
         }
     }
 

@@ -21,6 +21,7 @@ mod identity;
 mod learn;
 mod politeness;
 mod queues;
+mod robots_txt;
 mod rules;
 mod scope;
 pub mod seeds;
@@ -37,8 +38,9 @@ pub use identity::{
     Declared, Hop, TABLES as VISITED_TABLES, fuzz_url_key, redirect_hop, redirect_reached, url_key,
 };
 pub use learn::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
-pub use politeness::{longest_wait, refuse_second_copies};
+pub use politeness::{longest_wait, refuse_second_copies, started_again};
 pub use queues::DomainQueues;
+pub use robots_txt::SharedRobotsTxt;
 pub use rules::{
     TABLES as RULES_TABLES, completeness_reasons as learned_completeness_reasons, learned_rules,
 };
@@ -63,5 +65,6 @@ pub fn contribution() -> Contribution {
         .with_run_state_tables(bounds::TABLES)
         .with_run_state_tables(rules::TABLES)
         .with_politeness_tables(politeness::TABLES)
+        .with_politeness_tables(robots_txt::TABLES)
         .with_admission_gates(Arc::new(queues::DomainGates))
 }

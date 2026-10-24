@@ -438,7 +438,7 @@ prefix = "user-configuration"
 [[area]]
 number = 3
 kind = "setting"
-prefix = "network."
+prefix = "network.resolve"
 
 [[area]]
 number = 3
@@ -492,6 +492,30 @@ prefix = "egress."
 number = 4
 kind = "setting"
 prefix = "secrets."
+
+# Area 4's limits on what the engine reads (#644, SC-05): its three keys
+# and the Error code past them.
+[[area]]
+number = 4
+kind = "setting"
+prefix = "network.max_"
+
+[[area]]
+number = 4
+kind = "error"
+prefix = "response_limit_exceeded"
+
+# Area 4's hostile input (#644, ADR 0067): a header value or a path the
+# engine refuses.
+[[area]]
+number = 4
+kind = "error"
+prefix = "header_value_invalid"
+
+[[area]]
+number = 4
+kind = "error"
+prefix = "path_unsafe"
 
 # Area 4's egress policy (#620): the Error code a refused request fails with.
 [[area]]

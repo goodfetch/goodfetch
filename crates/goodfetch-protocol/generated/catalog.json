@@ -312,6 +312,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "header_value_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A bug in Goodfetch: an object such as a Session or a page received an event its state cannot receive. Report it with the object, the state and the event its details carry.",
       "exit_code": null,
       "group": "internal",
@@ -492,6 +502,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A name or path from outside input would leave the folder the engine writes it in, or is no safe file name on Linux, macOS or Windows: a `..` or `.` part, an absolute, drive, UNC, verbatim or device path, a name Windows reserves for a device, an alternate data stream, a character Windows forbids or a control character, a trailing dot or space, a part longer than 255 bytes, an empty part or a name that is not in Unicode's composed form. It is refused on every OS alike. The details name it and its hazard.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "path_unsafe",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program.",
       "exit_code": null,
       "group": "program",
@@ -547,6 +567,16 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "resources_exhausted",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A body or JSON the engine read from outside passed one of its limits, so the engine stopped reading it: more decoded bytes than `network.max_body_size`, more decoded bytes per received byte than `network.max_decompression_ratio` once past 1 MiB, or JSON nested deeper than `network.max_json_depth`. The details name the URL, the setting and its value; raise the setting for a site you trust.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "response_limit_exceeded",
       "product": "collie",
       "retryable": false
     },
@@ -4931,6 +4961,60 @@
           "file",
           "none"
         ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 67108864,
+      "description": "The most decoded bytes of one body the engine itself reads: a page `request`'s response, a kept response, an Operator-configured endpoint's reply. Never a download, which the disk governor bounds. 64 MiB (67108864) by default; set for a connection or a Run. A longer body fails the call with `response_limit_exceeded`.",
+      "name": "network.max_body_size",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 100,
+      "description": "The most decoded bytes per received byte of a body the engine reads, once its decoded bytes pass 1 MiB, so a decompression bomb is stopped as it expands. 100 by default; set for a connection or a Run. A body past it fails the call with `response_limit_exceeded`.",
+      "name": "network.max_decompression_ratio",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 128,
+      "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside. 128 by default, and at most 1024 whatever it says; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+      "name": "network.max_json_depth",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
       },
       "weakens": false
     },

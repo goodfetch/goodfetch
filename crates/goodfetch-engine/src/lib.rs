@@ -59,6 +59,7 @@ pub mod politeness;
 mod product;
 pub mod response_limits;
 pub mod retry_after;
+pub mod robots_txt;
 pub mod rpc;
 pub mod rule_sources;
 pub mod run;

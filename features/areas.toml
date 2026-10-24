@@ -561,6 +561,12 @@ number = 4
 kind = "format"
 prefix = "audit-log"
 
+# Area 4's Audit log settings (#613): `audit.retention` and `audit.otlp`.
+[[area]]
+number = 4
+kind = "setting"
+prefix = "audit."
+
 # Area 4's known-certificates store (#628): `certs.list`, Collie's `certs
 # list` and the store's format.
 [[area]]
@@ -620,7 +626,18 @@ prefix = "session.pool."
 [[area]]
 number = 5
 kind = "setting"
-prefix = "fetch."
+prefix = "fetch.tier"
+
+# The HTTP tier's hedged requests and coalescing (RT-20, #238).
+[[area]]
+number = 3
+kind = "setting"
+prefix = "fetch.hedge."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "fetch.coalesce"
 
 [[area]]
 number = 5

@@ -137,6 +137,74 @@ fn a_handlers_goto_robots_txt_disallows_is_refused_before_it_leaves() {
     );
 }
 
+/// A `page.request` robots.txt disallows answers no response and raises
+/// `site_preferences_refused` with `robots_txt`; a click on a link it
+/// disallows leaves the page on its document; neither reaches the site.
+///
+/// Covers: story:5-134, error:site_preferences_refused, operation:page.request, operation:locator.click, operation:page.evaluate
+#[test]
+fn a_disallowed_request_answers_nothing_and_a_disallowed_click_leaves_the_page() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let requested_url = proving_ground.url(ROBOTS_HOST, "/private/catalog/3");
+
+    let mut answers = Vec::new();
+    let report = crawl_with(
+        &mut engine,
+        "refusals",
+        &[json!({ "url": proving_ground.url(ROBOTS_HOST, "/catalog/2"), "label": "page" })],
+        &settings(&proving_ground, &json!({})),
+        &mut |inside, handle| {
+            let page_id = new_page(inside, handle);
+            let page = proving_ground.url(ROBOTS_HOST, "/catalog/1");
+            inside.call("page.goto", &json!({ "page_id": page_id, "url": page }));
+            answers.push(inside.call(
+                "page.request",
+                &json!({ "page_id": page_id, "url": requested_url }),
+            ));
+            answers.push(inside.call(
+                "locator.click",
+                &json!({ "locator": { "page_id": page_id, "selector": "a.next" } }),
+            ));
+            // A navigation the click started would have left by now.
+            std::thread::sleep(Duration::from_secs(3));
+            answers.push(inside.call(
+                "page.evaluate",
+                &json!({ "page_id": page_id, "function": "() => location.pathname" }),
+            ));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            refusal(&answers[0]),
+            answers[0].get("result").is_none(),
+            answers[1].get("result").is_some(),
+            &answers[2]["result"]["value"],
+            requested(&proving_ground, ROBOTS_HOST, "/private/catalog/3"),
+            requested(&proving_ground, ROBOTS_HOST, "/private/catalog/2"),
+        ),
+        (
+            &json!("finished"),
+            (
+                json!("site_preferences_refused"),
+                json!("robots_txt"),
+                json!(requested_url)
+            ),
+            true,
+            true,
+            &json!("/catalog/1"),
+            0,
+            0,
+        ),
+        "{answers:?}"
+    );
+}
+
 /// The navigation test whose page links to `/b` with `#next`.
 const HISTORY: &str = "2.navigation.test";
 

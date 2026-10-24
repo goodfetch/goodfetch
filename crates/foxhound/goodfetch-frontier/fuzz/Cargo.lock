@@ -139,6 +139,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloc-no-stdlib"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2fb6cfd47bf496ff64095c20eaba0c201404ee38714d4142fcfa1dc334fcc7a"
+
+[[package]]
+name = "alloc-stdlib"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5c1865780388bfa186411ab5f247819487fc4864c6e9c3106611fa347586e1"
+dependencies = [
+ "alloc-no-stdlib",
+]
+
+[[package]]
 name = "apple-native-keyring-store"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -284,6 +299,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
 dependencies = [
  "hybrid-array 0.4.15",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "6.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28a996bd762f99a48a3aebaa662ff203cc4fb388706eff2e88e7cb459d013a62"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
 ]
 
 [[package]]
@@ -1125,6 +1150,7 @@ dependencies = [
  "age",
  "apple-native-keyring-store",
  "bindgen",
+ "brotli-decompressor",
  "chacha20 0.10.2",
  "chacha20poly1305",
  "data-encoding",
@@ -1139,6 +1165,7 @@ dependencies = [
  "httpdate",
  "hyper",
  "hyper-util",
+ "icu_normalizer",
  "jiff",
  "keyring-core",
  "libc",
@@ -1170,6 +1197,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "zbus",
  "zip",
+ "zstd",
 ]
 
 [[package]]
@@ -1197,6 +1225,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
+ "tracing",
  "url",
 ]
 

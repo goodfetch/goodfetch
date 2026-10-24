@@ -28,6 +28,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -345,6 +346,63 @@ impl RunCopies {
             cell.get_or_init(|| async move { Arc::new(fetch().await) })
                 .await,
         )
+    }
+}
+
+/// What one fetch of an origin's robots.txt was answered, as a copy keeps
+/// it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Answer {
+    /// A response with its status and the first [`MAX_SIZE`] bytes of its
+    /// body, after its redirects.
+    Response {
+        /// Its status.
+        status: u16,
+        /// Its body.
+        body: Vec<u8>,
+    },
+    /// No response, or a body cut short, for the reason given.
+    Unreachable(String),
+}
+
+impl Answer {
+    /// What it gives (RFC 9309 §2.3.1).
+    pub fn fetched(&self) -> Fetched {
+        match self {
+            Self::Response { status, body } => Fetched::of_response(*status, body),
+            Self::Unreachable(reason) => Fetched::Unreachable(reason.clone()),
+        }
+    }
+
+    /// Whether it applies as it is, a `2xx` file or a `4xx` other than
+    /// `429` read as no rules, rather than leaving the last copy applying
+    /// (ADR 0086).
+    pub fn usable(&self) -> bool {
+        matches!(self, Self::Response { status, .. }
+            if (200..=299).contains(status) || ((400..=499).contains(status) && *status != 429))
+    }
+}
+
+/// A fetch of an origin's robots.txt, not started until a copy polls it.
+pub type Fetch<'a> = Pin<Box<dyn Future<Output = Answer> + Send + 'a>>;
+
+/// What a copy of an origin's robots.txt answers.
+pub type Copied<'a> = Pin<Box<dyn Future<Output = Arc<Fetched>> + Send + 'a>>;
+
+/// Where a Run reads the robots.txt files of its origins: its own copies
+/// ([`RunCopies`]) or, on a crawl's Run, the copy Foxhound shares across
+/// the user's runs (ADR 0086).
+pub trait Copies: Send + Sync + fmt::Debug {
+    /// The robots.txt at `location` as it applies now, sending `fetch` only
+    /// when the copy holds none to use.
+    fn copy<'a>(&'a self, location: &'a Url, fetch: Fetch<'a>) -> Copied<'a>;
+}
+
+impl Copies for RunCopies {
+    fn copy<'a>(&'a self, location: &'a Url, fetch: Fetch<'a>) -> Copied<'a> {
+        Box::pin(RunCopies::copy(self, location, || async move {
+            fetch.await.fetched()
+        }))
     }
 }
 

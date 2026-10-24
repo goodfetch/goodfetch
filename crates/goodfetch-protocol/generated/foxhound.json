@@ -2556,6 +2556,36 @@
         }
       ]
     },
+    "EquivalentForm": {
+      "description": "Two spellings of one host's URLs a learned `equivalent_form` merges\n(ADR 0120), each learned on evidence: a redirect from one to the\nother, pairs of pages of matching signatures, or pages whose\n`rel=canonical` differs from their URL only by it.",
+      "oneOf": [
+        {
+          "const": "www",
+          "description": "One leading `www.` label against the bare host, the rule's host.",
+          "type": "string"
+        },
+        {
+          "const": "scheme",
+          "description": "`http` against `https`.",
+          "type": "string"
+        },
+        {
+          "const": "trailing_slash",
+          "description": "A path with a trailing slash against the same path without it.",
+          "type": "string"
+        },
+        {
+          "const": "index_html",
+          "description": "A final `index.html` against its folder.",
+          "type": "string"
+        },
+        {
+          "const": "index_php",
+          "description": "A final `index.php` against its folder.",
+          "type": "string"
+        }
+      ]
+    },
     "ErrorData": {
       "additionalProperties": true,
       "description": "What a failure's `data` holds: its Error code, whether the same call may\nsucceed when made again, and the code's own details.",
@@ -3374,10 +3404,30 @@
     "LearnedRule": {
       "description": "A URL rule the Frontier learned from the pages it fetched (ADRs 0005\nand 0120), on one host and so never across a registrable domain, with\nits evidence and every URL it merged, so each merge can be audited.",
       "properties": {
+        "contradiction": {
+          "arrived_in": "0.1",
+          "description": "The pair of pages that contradicted it, naming their URLs: both\nforms fetched, neither redirected, and their page signatures\ndiffer. From then on it merges nothing more; absent while it holds.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "evidence": {
           "arrived_in": "0.1",
           "description": "What it was learned from, naming the URLs.",
           "type": "string"
+        },
+        "form": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EquivalentForm"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The form it merges, for an `equivalent_form`."
         },
         "host": {
           "arrived_in": "0.1",
@@ -3391,7 +3441,7 @@
         },
         "merged": {
           "arrived_in": "0.1",
-          "description": "Each URL it merged with another or refused, in the order the crawl\nmet them.",
+          "description": "Each URL it merged with another or refused, in the order the crawl\nmet them, a pending request it ended `skipped` with `duplicate`\nincluded.",
           "items": {
             "type": "string"
           },
@@ -3433,6 +3483,11 @@
         {
           "const": "trap_path",
           "description": "A path pattern is a trap: its pages brought no new page signature\nand no URL outside it, so its URLs are not added, with\n`trap_path`.",
+          "type": "string"
+        },
+        {
+          "const": "equivalent_form",
+          "description": "Two forms of the host's URLs serve one page, so a URL in one form\nis a `duplicate` of an admitted one in the other.",
           "type": "string"
         },
         {
@@ -4251,6 +4306,11 @@
         {
           "const": "max_segment_repeats",
           "description": "A segment of its URL's path repeats more than\n`crawl.max_segment_repeats`.",
+          "type": "string"
+        },
+        {
+          "const": "path_budget",
+          "description": "The first entry of `crawl.path_budgets` whose pattern its URL's path\nand query match already counted that entry's `max_requests`.",
           "type": "string"
         },
         {
@@ -10016,6 +10076,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "header_value_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A bug in Goodfetch: an object such as a Session or a page received an event its state cannot receive. Report it with the object, the state and the event its details carry.",
       "exit_code": null,
       "group": "internal",
@@ -10196,6 +10266,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A name or path from outside input would leave the folder the engine writes it in, or is no safe file name on Linux, macOS or Windows: a `..` or `.` part, an absolute, drive, UNC, verbatim or device path, a name Windows reserves for a device, an alternate data stream, a character Windows forbids or a control character, a trailing dot or space, a part longer than 255 bytes, an empty part or a name that is not in Unicode's composed form. It is refused on every OS alike. The details name it and its hazard.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "path_unsafe",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program.",
       "exit_code": null,
       "group": "program",
@@ -10251,6 +10331,16 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "resources_exhausted",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A body or JSON the engine read from outside passed one of its limits, so the engine stopped reading it: more decoded bytes than `network.max_body_size`, more decoded bytes per received byte than `network.max_decompression_ratio` once past 1 MiB, or JSON nested deeper than `network.max_json_depth`. The details name the URL, the setting and its value; raise the setting for a site you trust.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "response_limit_exceeded",
       "product": "collie",
       "retryable": false
     },
@@ -11589,7 +11679,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `out_of_scope`, `unsupported_scheme`, `invalid_url`, `max_depth`, `max_requests` or a URL cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
+      "description": "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `out_of_scope`, `unsupported_scheme`, `invalid_url`, `max_depth`, `max_requests`, `path_budget` or a URL cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
       "events": [],
       "kind": "round_trip",
       "name": "crawl_request.enqueue",
@@ -13734,6 +13824,41 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": [],
+      "description": "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
+      "name": "crawl.path_budgets",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "max_requests": {
+              "description": "How many requests whose URL the pattern matches first the crawl admits.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pattern": {
+              "description": "A glob read as Playwright reads one, such as `/shop?*`, matched in the engine against a URL's path and query.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern",
+            "max_requests"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": false,
       "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
       "name": "crawl.retry.handler_failed",
@@ -14600,6 +14725,60 @@
           "file",
           "none"
         ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 67108864,
+      "description": "The most decoded bytes of one body the engine itself reads: a page `request`'s response, a kept response, an Operator-configured endpoint's reply. Never a download, which the disk governor bounds. 64 MiB (67108864) by default; set for a connection or a Run. A longer body fails the call with `response_limit_exceeded`.",
+      "name": "network.max_body_size",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 100,
+      "description": "The most decoded bytes per received byte of a body the engine reads, once its decoded bytes pass 1 MiB, so a decompression bomb is stopped as it expands. 100 by default; set for a connection or a Run. A body past it fails the call with `response_limit_exceeded`.",
+      "name": "network.max_decompression_ratio",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 128,
+      "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside. 128 by default, and at most 1024 whatever it says; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+      "name": "network.max_json_depth",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
       },
       "weakens": false
     },

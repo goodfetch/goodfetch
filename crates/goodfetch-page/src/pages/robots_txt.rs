@@ -11,7 +11,8 @@
 //! `page.request` sends (the browser-fetch tier), never through the copy
 //! Foxhound shares.
 
-use goodfetch_engine::robots_txt::{self, Fetched, Judgment, RobotsTxt};
+use goodfetch_engine::response_limits::Limits;
+use goodfetch_engine::robots_txt::{self, Answer, Fetched, Judgment, RobotsTxt};
 use goodfetch_protocol::page::{PageId, SessionId};
 use serde_json::{Value, json};
 use url::Url;
@@ -49,12 +50,18 @@ pub(super) fn read(
     let session = page.session.clone();
     let value = page.driver.value().clone();
     let run = page.run.clone();
+    let limits = run
+        .settings()
+        .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
     page.run.spawn(async move {
         let fetched = run
             .robots_txt()
-            .copy(&location, || {
-                fetch(&sessions, &steps, &session, &value, &location)
-            })
+            .copy(
+                &location,
+                Box::pin(fetch(
+                    &sessions, &steps, &session, &value, &location, limits,
+                )),
+            )
             .await;
         let reading = Reading {
             page_id: &page_id,
@@ -67,17 +74,19 @@ pub(super) fn read(
 }
 
 /// Fetches `location` from a page of the Session `session` the engine
-/// opens for it and closes after, as `page.request` sends a request.
+/// opens for it and closes after, as `page.request` sends a request, its
+/// body under the Run's `limits` (SC-05).
 async fn fetch(
     sessions: &Sessions,
     steps: &EngineRequests,
     session: &SessionId,
     value: &PageValue,
     location: &Url,
-) -> Fetched {
+    limits: Limits,
+) -> Answer {
     let (driver, in_browser) = match sessions.engine_page(session, value).await {
         Ok(opened) => opened,
-        Err(error) => return Fetched::Unreachable(error.message().to_owned()),
+        Err(error) => return Answer::Unreachable(error.message().to_owned()),
     };
     let request = browser_fetch::Request {
         url: location.as_str(),
@@ -86,16 +95,20 @@ async fn fetch(
         post_data: None,
         max_redirects: REDIRECTS,
         option: "robots.txt",
+        limits,
     };
     let fetched = browser_fetch::send(&driver, steps, &request).await;
     driver.close().await;
     drop(in_browser);
     match fetched {
         Ok(fetched) => match fetched.body {
-            Body::Whole(bytes) => Fetched::of_response(fetched.response.status, &bytes),
-            Body::Cut { .. } => Fetched::Unreachable("its body was cut".to_owned()),
+            Body::Whole(bytes) => Answer::Response {
+                status: fetched.response.status,
+                body: bytes.iter().copied().take(robots_txt::MAX_SIZE).collect(),
+            },
+            Body::Cut { .. } => Answer::Unreachable("its body was cut".to_owned()),
         },
-        Err(error) => Fetched::Unreachable(error.message().to_owned()),
+        Err(error) => Answer::Unreachable(error.message().to_owned()),
     }
 }
 

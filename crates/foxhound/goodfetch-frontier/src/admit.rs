@@ -17,8 +17,8 @@
 //! 0093 and 0120); both read the host as the WHATWG parser leaves it, the
 //! scope alone ignoring one leading `www.`. One the crawl would otherwise
 //! admit is then measured against its bounds, `crawl.max_depth` (seeds at depth 0) and
-//! `crawl.max_requests`, and the caps on a URL's shape, each refusal
-//! counted by its setting. The learned rules join behind this one
+//! `crawl.max_requests`, and `crawl.path_budgets`, then the caps on a URL's
+//! shape, each refusal counted by its setting or its path budget. The learned rules join behind this one
 //! interface: a candidate that differs from an admitted request only by
 //! parameters learned to have no effect is a `duplicate` merged by them,
 //! one under a closed trap is not added with `trap_path`, and an offset
@@ -127,22 +127,24 @@ pub fn admit(
         Seen::Visited(_) => return Ok(not_added(NotAddedReason::Duplicate)),
         Seen::Merged { rules, .. } => {
             for rule in rules {
-                rules::merged(connection, rule, &url)?;
+                rules::merged(connection, rule, url.as_str())?;
             }
             return Ok(not_added(NotAddedReason::Duplicate));
         }
     }
     let key = keyed(&url);
     if let Some((reason, rule)) = rules::refuses(connection, &key)? {
-        rules::merged(connection, rule, &url)?;
+        rules::merged(connection, rule, url.as_str())?;
         return Ok(not_added(reason));
     }
-    if let Some(reason) = Bounds::read(connection)?.refuses(connection, &url, depth.into())? {
-        count_refused(connection, reason)?;
+    let bounds = Bounds::read(connection)?;
+    let budget = bounds.budget_of(&url);
+    if let Some(reason) = bounds.refuses(connection, &url, depth.into(), budget)? {
+        count_refused(connection, reason, budget)?;
         return Ok(not_added(reason));
     }
     let id = add(&url)?;
-    count_admitted(connection)?;
+    count_admitted(connection, budget)?;
     visit_all(connection, &identities, &id)?;
     rules::admitted(connection, &key, from.map(keyed).as_ref())?;
     if narrowing.is_none() {

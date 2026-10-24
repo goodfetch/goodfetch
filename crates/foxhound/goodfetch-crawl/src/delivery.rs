@@ -46,10 +46,18 @@
 //! more and waits for the Run to stop or a Connection to join. Each attempt
 //! counts in `goodfetch.work_item.leased` until it ends, and each retry in
 //! `goodfetch.work_item.retried`, on the meter the Run hands out (ADR 0050).
+//! A pending work item a rule the Frontier learned later merged leaves its
+//! domain's queue, and one the gate already took gives its turn back
+//! unsent.
+//!
+//! Size: one delivery loop, the admission, leases, attempts and settling it
+//! drives, kept whole so every work item's way from pending to its ending
+//! passes through one loop.
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
-use goodfetch_engine::admission::{Admission, SecondCopies, Waiting, Wakes};
+use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
 use goodfetch_engine::client::Client;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::governor::Permit;
@@ -321,12 +329,12 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
 }
 
 /// Drives a resumed crawl (ADRs 0002 and 0102), its bounds recorded again
-/// from its settings: each attempt its committed
-/// state shows in flight, whose engine stopped without settling it, counts
-/// as `handler_lost` against `crawl.retry.max` and is retried or failed,
-/// then delivery goes on from the committed state, so the work since that
-/// state is redone. Its domain policy is read again from its settings; one
-/// that cannot be read admits no seed or enqueue.
+/// from its settings (an unreadable path budget fails it): each attempt its
+/// committed state shows in flight, whose engine stopped without settling
+/// it, counts as `handler_lost` against `crawl.retry.max` and is retried or
+/// failed, then delivery goes on from the committed state, so the work
+/// since that state is redone. Its domain policy is read again from its
+/// settings; one that cannot be read admits no seed or enqueue.
 ///
 /// # Cancel safety
 ///
@@ -630,7 +638,7 @@ async fn settled(
     admission: &mut Admission,
     (pool, in_flight): (&mut SessionPool, &SharedInFlight),
     servers: &mut [Serving],
-    attempt: Attempt,
+    mut attempt: Attempt,
 ) {
     in_flight
         .lock()
@@ -642,6 +650,7 @@ async fn settled(
         server.gone = true;
     }
     let waiting = attempt.leased.waiting.clone();
+    let merged = std::mem::take(&mut attempt.merged);
     let domain = domain_ending(&attempt.answer, run.clock().now(), run.clock().wall());
     let resolved = settings.at_admission().await;
     pool.settle(
@@ -672,6 +681,16 @@ async fn settled(
     if retried {
         count_retry(run);
         admission.enqueue(waiting);
+    }
+    let mut keys = BTreeSet::new();
+    for (id, key) in merged {
+        admission.withdraw(&key, &id);
+        keys.insert(key);
+    }
+    for key in keys {
+        if let Err(error) = fill(run, admission, Some(key)).await {
+            tracing::warn!(%error, run_id = %run.id(), "a queue a learned rule thinned was not filled again");
+        }
     }
     if let Err(error) = key_new(run, admission).await {
         tracing::warn!(%error, run_id = %run.id(), "the requests a handler enqueued were not keyed yet");
@@ -798,6 +817,7 @@ async fn admit(
 ) -> Result<Vec<Leased>, ChargeError> {
     let now = run.clock().now();
     let mut ids = Vec::new();
+    let mut keys = Vec::new();
     let mut drained = Vec::new();
     let mut refused = Vec::new();
     while ids.len() < room {
@@ -817,13 +837,15 @@ async fn admit(
             Err(error) => return Err(error),
         }
         if admitted.drained {
-            drained.push(admitted.key);
+            drained.push(admitted.key.clone());
         }
         ids.push(admitted.id);
+        keys.push(admitted.key);
     }
     if !refused.is_empty() {
         end_unsent(run, admission, refused).await?;
     }
+    let asked = ids.clone();
     let leased = if ids.is_empty() {
         Vec::new()
     } else {
@@ -831,6 +853,13 @@ async fn admit(
             .write(move |connection| work_items::lease(connection, &ids))
             .await?
     };
+    // A work item a rule learned later merged after the gate took it is
+    // no longer pending: it gives its domain's turn back unsent.
+    for (id, key) in asked.iter().zip(&keys) {
+        if !leased.iter().any(|leased| leased.crawl_request.id == *id) {
+            admission.ended(id, key, now, Ended::Done).await;
+        }
+    }
     for key in drained {
         fill(run, admission, Some(key)).await?;
     }

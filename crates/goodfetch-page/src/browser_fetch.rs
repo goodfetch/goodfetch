@@ -17,6 +17,14 @@
 //! connection ending early), or a content coding that failed to decode
 //! (ADR 0118's note on the pinned Chromium's signals). The Set-Cookie
 //! headers it carries are the browser's to keep, in the Session's context.
+//!
+//! The body is judged by the Run's limits on what the engine reads (SC-05):
+//! one whose `Content-Length` is past `network.max_body_size`, with no
+//! content coding, is refused before it is read; any other once it is,
+//! by its decoded bytes against the size, and against the bytes it took on
+//! the wire under `network.max_decompression_ratio`. Each refusal is
+//! `response_limit_exceeded`. The browser decodes the body, so the engine
+//! holds at most what the browser hands over.
 
 use std::collections::BTreeMap;
 
@@ -24,6 +32,7 @@ use data_encoding::BASE64;
 use goodfetch_cdp::Subscription;
 use goodfetch_cdp::generated::{emulation, fetch, network, page};
 use goodfetch_engine::CallError;
+use goodfetch_engine::response_limits::Limits;
 use goodfetch_protocol::page::{
     PageResponse, RedirectLimit, TOO_MANY_REDIRECTS, TooManyRedirectsDetails,
 };
@@ -41,6 +50,24 @@ const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
 /// renders it or turns it into a download.
 const SHOWN_AS_TEXT: [&str; 2] = ["content-type", "content-disposition"];
 
+/// The `Content-Length` `response` declared.
+fn declared_length(response: &PageResponse) -> Option<u64> {
+    response
+        .headers
+        .get("content-length")
+        .and_then(|length| length.trim().parse().ok())
+}
+
+/// The browser's count of a body's encoded bytes, when it counted any.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "CDP counts bytes in a double; a count is whole and far below 2^53"
+)]
+fn encoded_bytes(encoded: f64) -> Option<u64> {
+    (encoded.is_finite() && encoded >= 1.0).then_some(encoded as u64)
+}
+
 /// One request, as its caller gives it.
 pub(crate) struct Request<'a> {
     pub(crate) url: &'a str,
@@ -55,6 +82,8 @@ pub(crate) struct Request<'a> {
     /// The option that set that count, in the caller's spelling, which
     /// `too_many_redirects` names.
     pub(crate) option: &'a str,
+    /// The Run's limits on the body.
+    pub(crate) limits: Limits,
 }
 
 /// The response a request got, and its body.
@@ -195,7 +224,8 @@ impl<'a> Load<'a> {
                         self.authenticate(required).await;
                     } else if let Some(finished) = event.read::<network::LoadingFinishedEvent>() {
                         if self.ours(&finished.request_id) && let Some((response, bytes)) = self.answered.take() {
-                            return Ok(Fetched { response, body: Body::Whole(bytes) });
+                            return self.within_limits(&response, &bytes, finished.encoded_data_length)
+                                .map(|()| Fetched { response, body: Body::Whole(bytes) });
                         }
                     } else if let Some(failed) = event.read::<network::LoadingFailedEvent>()
                         && self.ours(&failed.request_id)
@@ -359,6 +389,11 @@ impl<'a> Load<'a> {
             .await;
             return None;
         }
+        if let Err(exceeded) = self.declared_within_limits(&response) {
+            self.fail(&paused.request_id, network::ErrorReason::Aborted)
+                .await;
+            return Some(Err(exceeded));
+        }
         let bytes = match self
             .driver
             .command(&fetch::GetResponseBodyParams {
@@ -463,6 +498,44 @@ impl<'a> Load<'a> {
                     .unwrap_or_else(|| network_error(url, error)))
             }
         }
+    }
+
+    /// Refuses a body its `Content-Length` declares past
+    /// `network.max_body_size`, with no content coding, so the browser's
+    /// copy of it is never read.
+    fn declared_within_limits(&self, response: &PageResponse) -> Result<(), CallError> {
+        let coded = response
+            .headers
+            .get("content-encoding")
+            .is_some_and(|coding| !coding.trim().eq_ignore_ascii_case("identity"));
+        match declared_length(response) {
+            Some(length) if !coded => self
+                .request
+                .limits
+                .judge_decoded(&response.url, length, None)
+                .map_err(|exceeded| exceeded.error()),
+            _ => Ok(()),
+        }
+    }
+
+    /// Judges `bytes`, the body of `response` the browser decoded, by the
+    /// Run's limits: its size, and its ratio to what it took on the wire,
+    /// its `Content-Length` when it declared one, else the browser's count
+    /// of encoded bytes, `encoded` (which a body read at the response stage
+    /// may leave at 0: no ratio is judged then).
+    fn within_limits(
+        &self,
+        response: &PageResponse,
+        bytes: &[u8],
+        encoded: f64,
+    ) -> Result<(), CallError> {
+        let decoded = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        let counted = encoded_bytes(encoded);
+        let received = declared_length(response).or(counted);
+        self.request
+            .limits
+            .judge_decoded(&response.url, decoded, received)
+            .map_err(|exceeded| exceeded.error())
     }
 
     /// `too_many_redirects` for the load's chain, past its count.

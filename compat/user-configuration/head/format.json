@@ -323,6 +323,29 @@
                 ],
                 "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
               },
+              "path_budgets": {
+                "description": "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_requests": {
+                      "description": "How many requests whose URL the pattern matches first the crawl admits.",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "pattern": {
+                      "description": "A glob read as Playwright reads one, such as `/shop?*`, matched in the engine against a URL's path and query.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pattern",
+                    "max_requests"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "retry": {
                 "additionalProperties": false,
                 "properties": {
@@ -707,6 +730,21 @@
           "network": {
             "additionalProperties": false,
             "properties": {
+              "max_body_size": {
+                "description": "The most decoded bytes of one body the engine itself reads: a page `request`'s response, a kept response, an Operator-configured endpoint's reply. Never a download, which the disk governor bounds. 64 MiB (67108864) by default; set for a connection or a Run. A longer body fails the call with `response_limit_exceeded`.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "max_decompression_ratio": {
+                "description": "The most decoded bytes per received byte of a body the engine reads, once its decoded bytes pass 1 MiB, so a decompression bomb is stopped as it expands. 100 by default; set for a connection or a Run. A body past it fails the call with `response_limit_exceeded`.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "max_json_depth": {
+                "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside. 128 by default, and at most 1024 whatever it says; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "resolve": {
                 "additionalProperties": {
                   "items": {

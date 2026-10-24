@@ -7,10 +7,13 @@
 //! one sent as a `POST` with a body under a declared key and one
 //! `crawl.max_segment_repeats` refuses, under a scope of every host
 //! narrowed by an `include` and an `exclude` pattern and under a depth and
-//! a request bound, and nine more seeds on `list.test`, three pairs of
-//! items with and without `ref` and three offsets of one listing, whose
-//! pages the writer's own contribution hands the Frontier, which learns
-//! that `ref` has no effect and merges a seed it admits then,
+//! a request bound, and eleven more seeds on `list.test`, three pairs of
+//! items with and without `ref`, three offsets of one listing and a guide
+//! with and without its trailing slash, whose pages the writer's own
+//! contribution hands the Frontier, which learns that `ref` has no effect
+//! and merges a seed it admits then, counts item 1's `rel=canonical`, and
+//! learns the guide's trailing slash from its redirect until its two pages
+//! differ and stop the rule,
 //! whose handler enqueues a `forefront` request on another domain from the
 //! first, pushes Records for the first, the `POST` and that request and
 //! fails on the second, whose first byte never came, so its
@@ -105,11 +108,16 @@ fn scenario() -> Vec<Value> {
                     { "url": "https://list.test/rows?offset=0", "label": "listed" },
                     { "url": "https://list.test/rows?offset=20", "label": "listed" },
                     { "url": "https://list.test/rows?offset=40", "label": "listed" },
+                    { "url": "https://shop.test/pages/1", "label": "home" },
+                    { "url": "https://shop.test/pages/2", "label": "home" },
+                    { "url": "https://list.test/guide", "label": "listed" },
+                    { "url": "https://list.test/guide/", "label": "listed" },
                 ],
                 "settings": { "crawl": {
                     "scope": { "strategy": "all", "include": ["**/sale"], "exclude": ["**/admin/**"] },
                     "max_depth": 3,
                     "max_requests": 100,
+                    "path_budgets": [{ "pattern": "/pages/*", "max_requests": 1 }],
                 } },
             }),
         ),
@@ -231,6 +239,12 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                     .query_pairs()
                     .find(|(name, _)| name == "n")
                     .map_or(0, |(_, value)| value.bytes().next().unwrap_or(0));
+                // Item 1 names its `http` URL as its canonical, evidence
+                // short of the `scheme` form.
+                let canonical = (url.query() == Some("n=1"))
+                    .then(|| goodfetch_frontier::Url::parse("http://list.test/items?n=1"))
+                    .transpose()
+                    .expect("a canonical parses");
                 goodfetch_frontier::learn(
                     connection,
                     PageSeen {
@@ -239,7 +253,46 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                         method: &get,
                         body: None,
                         signature: [item; 32],
+                        canonical: canonical.as_ref(),
                     },
+                    &mut Unended,
+                )?;
+            }
+            // The guide redirects to its slashed URL, which teaches the
+            // trailing slash's form, and then both URLs serve pages that
+            // differ, which stops it.
+            let mut statement = connection.prepare(
+                "SELECT id, url FROM work_items WHERE url LIKE 'https://list.test/guide%' ORDER BY position",
+            )?;
+            let guides = statement
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let urls: Vec<goodfetch_frontier::Url> = guides
+                .iter()
+                .map(|(_, url)| goodfetch_frontier::Url::parse(url).expect("a seed's URL parses"))
+                .collect();
+            goodfetch_frontier::learn_redirect(
+                connection,
+                goodfetch_frontier::Redirect {
+                    from: &urls[0],
+                    to: &urls[1],
+                    method: &get,
+                    body: None,
+                },
+                &mut Unended,
+            )?;
+            for (index, ((crawl_request, _), url)) in guides.iter().zip(&urls).enumerate() {
+                goodfetch_frontier::learn(
+                    connection,
+                    PageSeen {
+                        crawl_request,
+                        url,
+                        method: &get,
+                        body: None,
+                        signature: [u8::try_from(index).expect("two guides") + b'g'; 32],
+                        canonical: None,
+                    },
+                    &mut Unended,
                 )?;
             }
             let merged = goodfetch_frontier::admit(
@@ -266,6 +319,20 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
         .await
         .expect("the pages are learned from");
     Ok(json!({ "learned": true }))
+}
+
+/// The writer's crawl ends no request a rule it hands the Frontier
+/// merges: its requests stay as the crawl left them.
+struct Unended;
+
+impl goodfetch_frontier::EndMerged for Unended {
+    fn end_merged(
+        &mut self,
+        _: &rusqlite::Connection,
+        _: &std::collections::BTreeSet<String>,
+    ) -> rusqlite::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
 }
 
 fn bound() -> Contribution {

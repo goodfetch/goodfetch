@@ -62,6 +62,9 @@ use crate::clock::Clock;
 use crate::dns::{Dns, IpFamily, LookupError, Route, family_of};
 use crate::egress::{self, EndpointPolicy, Judgment, Refused};
 use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
+use crate::response_limits::{
+    BodyFailure, Decoding, JsonFailure, LimitExceeded, Limits, parse_json,
+};
 use crate::run_trace::RequestLog;
 use crate::tls::{
     self, CertificateChanged, CertificateExceptions, CertificateInvalid, ClientCertificateFailure,
@@ -585,6 +588,21 @@ pub enum Failure {
     Proxy(ProxyFailure),
 }
 
+/// Why a body was not read whole.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum BodyError {
+    /// It passed one of the limits on what the engine reads:
+    /// `response_limit_exceeded`.
+    Limit(LimitExceeded),
+    /// It is no stream of the content codings its `Content-Encoding` lists.
+    Decoding,
+    /// It is no JSON.
+    Json,
+    /// The connection broke before its end.
+    Failed(Failure),
+}
+
 /// A request's body: none for a GET, its bytes for an endpoint's POST.
 pub(crate) trait RequestBody:
     hyper::body::Body<Data = Bytes, Error: Into<Box<dyn std::error::Error + Send + Sync>>>
@@ -643,6 +661,61 @@ impl Response {
     /// Provenance carries: the kind and the certificate's hash.
     pub fn exception(&self) -> Option<&ExceptionUsed> {
         self.exception.as_ref()
+    }
+
+    /// The whole body, decoded under its `Content-Encoding` and `limits`
+    /// as it arrives (SC-05): it stops reading once a limit is passed, so
+    /// the engine holds no more of it than the limit. `url` is the URL it
+    /// answers, which a refusal names.
+    ///
+    /// # Errors
+    ///
+    /// [`BodyError::Limit`], `response_limit_exceeded`, past a limit;
+    /// [`BodyError::Decoding`] for a body that is no stream of its codings;
+    /// [`BodyError::Failed`] when the connection broke.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses what it read.
+    pub async fn body(&mut self, url: &str, limits: &Limits) -> Result<Vec<u8>, BodyError> {
+        let codings: Vec<&str> = self
+            .headers
+            .get_all(hyper::header::CONTENT_ENCODING)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .collect();
+        let mut decoding = Decoding::new(url, codings.into_iter(), *limits);
+        let refused = |failure| match failure {
+            BodyFailure::Limit(exceeded) => BodyError::Limit(exceeded),
+            BodyFailure::Decoding => BodyError::Decoding,
+        };
+        while let Some(bytes) = self.chunk().await.map_err(BodyError::Failed)? {
+            decoding.push(&bytes).map_err(refused)?;
+        }
+        decoding.finish().map_err(refused)
+    }
+
+    /// The body read as [`Self::body`] reads it, then parsed as JSON once
+    /// found within `network.max_json_depth` ([`parse_json`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::body`] says, [`BodyError::Limit`] for JSON nested past
+    /// the depth, and [`BodyError::Json`] for a body that is no JSON.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses what it read.
+    pub async fn json(
+        &mut self,
+        url: &str,
+        limits: &Limits,
+    ) -> Result<serde_json::Value, BodyError> {
+        let body = self.body(url, limits).await?;
+        parse_json(url, &body, limits).map_err(|failure| match failure {
+            JsonFailure::Limit(exceeded) => BodyError::Limit(exceeded),
+            JsonFailure::Malformed => BodyError::Json,
+        })
     }
 
     /// The body's next bytes; `None` once it ended.

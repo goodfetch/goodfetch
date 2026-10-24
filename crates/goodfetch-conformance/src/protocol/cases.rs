@@ -6,8 +6,9 @@
 //! `proxies`' and `proxy_limits`', its events and bodies cases `events`'s, its `page.request`
 //! cases `page_request`'s, its dialog cases `dialogs`', its popup cases
 //! `popups`', its page function cases `page_functions`', its Page check
-//! cases `page_check`'s, its robots.txt reading cases `robots_txt`'s and
-//! the reset gate's cases `reset`'s.
+//! cases `page_check`'s, its robots.txt reading cases `robots_txt`'s, its
+//! hostile-input cases `hostile_input`'s and the reset gate's cases
+//! `reset`'s.
 
 mod blocking_off;
 mod blocks;
@@ -20,6 +21,7 @@ mod fetch_edge;
 mod fetch_tiers;
 mod formats;
 mod guard;
+mod hostile_input;
 mod launch;
 mod navigation;
 mod page_check;
@@ -108,7 +110,7 @@ pub(crate) enum Case {
     Reset(reset::Case),
     /// A service worker case.
     ServiceWorker(service_workers::Case),
-    /// A `page.request` case.
+    /// A `page.request` case, the hostile-input cases among them.
     PageRequest(page_request::Case),
     /// A fetch tier case, Foxhound's.
     FetchTier(fetch_tiers::Case),

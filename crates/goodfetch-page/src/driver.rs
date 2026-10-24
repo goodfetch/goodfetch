@@ -650,8 +650,10 @@ pub(crate) struct PageDriver {
     /// the browser cancelled is known to be superseded.
     started: Arc<watch::Sender<u64>>,
     /// The page's input order (ADR 0085): a gesture holds it from its first
-    /// command to its last, and waiters take it in arrival order. It keeps
-    /// the guard's world in the current document, once one was made.
+    /// command to its last, and waiters take it in arrival order, as Tokio
+    /// grants its lock (`STYLE.md`'s one exception to holding a lock across
+    /// `.await`). It keeps the guard's world in the current document, once
+    /// one was made.
     turn: Arc<Mutex<Option<runtime::ExecutionContextId>>>,
     /// The page's pointer, held from a check that arms the guard's listener
     /// to its disarm, so no two gestures interleave (`targets`).

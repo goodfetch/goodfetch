@@ -22,11 +22,7 @@ daemon = ["clock", "composition", "events", "home", "metrics", "ops", "people", 
 deadline = ["clock", "composition", "runs", "settings"]
 dns = ["clock", "composition"]
 egress = ["composition", "settings"]
-<<<<<<< HEAD
-engine = ["admission", "attached", "audit", "clock", "composition", "console", "controls", "daemon", "entropy", "events", "forward", "governor", "home", "ledger", "log", "mask", "metrics", "needs_you", "people", "politeness", "product", "rpc", "run_state", "runs", "secrets", "settings", "tasks", "transition", "transport"]
-=======
-engine = ["admission", "attached", "audit", "clock", "composition", "console", "controls", "daemon", "entropy", "events", "forward", "governor", "home", "known_certificates", "ledger", "log", "metrics", "needs_you", "people", "politeness", "product", "rpc", "run_state", "runs", "secrets", "settings", "tasks", "transition", "transport"]
->>>>>>> origin/milestone/m1-core
+engine = ["admission", "attached", "audit", "clock", "composition", "console", "controls", "daemon", "entropy", "events", "forward", "governor", "home", "known_certificates", "ledger", "log", "mask", "metrics", "needs_you", "people", "politeness", "product", "rpc", "run_state", "runs", "secrets", "settings", "tasks", "transition", "transport"]
 entropy = []
 events = ["tasks"]
 executables = ["composition"]

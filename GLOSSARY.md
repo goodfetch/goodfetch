@@ -40,6 +40,10 @@ _Avoid_: platform, Goodfetch (for the hosted service)
 The web interface for operating a Product, served locally by its engine or by Goodfetch Cloud.
 _Avoid_: dashboard, inspector, app
 
+**Needs you**:
+The Console's one list of everything waiting for a person across every run in the Run index and the stores beside it, each item of a kind whose source, a domain crate's value, fills it, and gone once resolved or dismissed.
+_Avoid_: inbox, to-do list, attention list
+
 **Content origin**:
 The Console's second origin, which shows a run's scraped HTML, screenshots, DOM snapshots and page bodies only to an address the Console signed for that one file, valid 5 minutes, carrying no cookie, under a sandbox policy that runs no script.
 _Avoid_: preview domain, sandbox origin, file server

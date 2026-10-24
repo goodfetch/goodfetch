@@ -3,6 +3,8 @@
 //! Run starts and when one of its axes changes, each row pointing at the
 //! Run's own state, from which it can be rebuilt, naming the engine that
 //! owns the Run while it is live, and saying whether its state is there.
+//! Beside the Runs it keeps the items of "Needs you" a person dismissed,
+//! so every engine of the major hides them (spec #592).
 //! Several engines write it, each through its own short-lived connection;
 //! WAL and a busy timeout let them take turns. Its calls block: callers run
 //! them under their owner's blocking policy.
@@ -12,12 +14,15 @@
 //! checks in its own transaction: an engine that finds it raised past
 //! itself stops using the index with the version refusal.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::Duration;
 
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::formats::RUN_INDEX;
-use goodfetch_protocol::run::{Completeness, PointInTime, Presence, RunId, RunIndexRow, Verdict};
+use goodfetch_protocol::run::{
+    Completeness, Lifecycle, PointInTime, Presence, RunId, RunIndexRow, Verdict,
+};
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension as _, Row, Transaction, TransactionBehavior,
 };
@@ -43,11 +48,16 @@ const SCHEMA: &[&str] = &[
         ended_at TEXT,
         owner TEXT,
         presence TEXT NOT NULL,
-        progress_message TEXT
+        progress_message TEXT,
+        stop_reason TEXT
+    ) STRICT",
+    "CREATE TABLE IF NOT EXISTS needs_you_dismissed (
+        item TEXT NOT NULL PRIMARY KEY,
+        dismissed_at TEXT NOT NULL
     ) STRICT",
 ];
 
-const COLUMNS: &str = "run_id, location, kind, needs, tags, lifecycle, verdict, completeness, started_at, ended_at, owner, presence, progress_message";
+const COLUMNS: &str = "run_id, location, kind, needs, tags, lifecycle, verdict, completeness, started_at, ended_at, owner, presence, progress_message, stop_reason";
 
 fn failed(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
     RunStateError::Sqlite {
@@ -155,13 +165,13 @@ fn insert(connection: &Connection, row: &RunIndexRow) -> rusqlite::Result<()> {
     connection.execute(
         &format!(
             "INSERT INTO runs ({COLUMNS})
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
              ON CONFLICT (run_id) DO UPDATE SET
                 location = excluded.location, kind = excluded.kind, needs = excluded.needs,
                 tags = excluded.tags, lifecycle = excluded.lifecycle, verdict = excluded.verdict,
                 completeness = excluded.completeness, started_at = excluded.started_at,
                 ended_at = excluded.ended_at, owner = excluded.owner, presence = excluded.presence,
-                progress_message = excluded.progress_message"
+                progress_message = excluded.progress_message, stop_reason = excluded.stop_reason"
         ),
         (
             row.run_id.as_str(),
@@ -179,6 +189,9 @@ fn insert(connection: &Connection, row: &RunIndexRow) -> rusqlite::Result<()> {
                 .map(|owner| serde_json::to_string(owner).expect("invariant: an endpoint encodes")),
             row.presence.as_str(),
             row.progress_message.as_deref(),
+            row.stop_reason.as_ref().map(|reason| {
+                serde_json::to_string(reason).expect("invariant: a stop reason encodes")
+            }),
         ),
     )?;
     Ok(())
@@ -216,6 +229,13 @@ fn row_of(row: &Row<'_>) -> rusqlite::Result<RunIndexRow> {
             .transpose()?,
         presence: parsed(&row.get::<_, String>(11)?)?,
         progress_message: row.get(12)?,
+        stop_reason: row
+            .get::<_, Option<String>>(13)?
+            .map(|reason| {
+                serde_json::from_str(&reason)
+                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
+            })
+            .transpose()?,
     })
 }
 
@@ -343,6 +363,98 @@ pub(crate) fn erase(
         ));
     }
     Ok(listed)
+}
+
+/// The rows of the Runs a storage stop left stopped in the Run index at
+/// `path` (ADR 0122), present, in Run ID order: "Needs you" lists them.
+/// An index not made yet lists none, and is not made.
+///
+/// # Errors
+///
+/// As [`read`].
+pub(crate) fn stopped_by_storage(
+    path: &Path,
+    engine: &ProductVersion,
+) -> Result<Vec<RunIndexRow>, RunStateError> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    in_transaction(path, &opener(engine), false, |transaction| {
+        let mut statement = transaction.prepare(&format!(
+            "SELECT {COLUMNS} FROM runs
+             WHERE lifecycle = ?1 AND presence = ?2
+               AND json_extract(stop_reason, '$.kind') = 'resources'
+               AND json_extract(stop_reason, '$.resource') = 'storage'
+             ORDER BY run_id"
+        ))?;
+        statement
+            .query_map(
+                (Lifecycle::Stopped.as_str(), Presence::Present.as_str()),
+                row_of,
+            )
+            .and_then(Iterator::collect)
+    })
+}
+
+/// The items of "Needs you" a person dismissed, as the Run index at `path`
+/// keeps them, so that every engine of the major hides them. An index not
+/// made yet keeps none, and is not made.
+///
+/// # Errors
+///
+/// As [`read`].
+pub(crate) fn dismissed(
+    path: &Path,
+    engine: &ProductVersion,
+) -> Result<BTreeSet<String>, RunStateError> {
+    if !path.exists() {
+        return Ok(BTreeSet::new());
+    }
+    in_transaction(path, &opener(engine), false, |transaction| {
+        let mut statement = transaction.prepare("SELECT item FROM needs_you_dismissed")?;
+        statement
+            .query_map([], |row| row.get(0))
+            .and_then(Iterator::collect)
+    })
+}
+
+/// Records that a person dismissed the item `item` of "Needs you" at `at`.
+///
+/// # Errors
+///
+/// As [`write`].
+pub(crate) fn dismiss(
+    path: &Path,
+    engine: &ProductVersion,
+    item: &str,
+    at: &PointInTime,
+) -> Result<(), RunStateError> {
+    in_transaction(path, &opener(engine), true, |transaction| {
+        transaction.execute(
+            "INSERT INTO needs_you_dismissed (item, dismissed_at) VALUES (?1, ?2)
+             ON CONFLICT (item) DO NOTHING",
+            (item, at.as_str()),
+        )?;
+        Ok(())
+    })
+}
+
+/// Forgets the dismissals of `items`, which no source lists any longer.
+///
+/// # Errors
+///
+/// As [`write`].
+pub(crate) fn forget_dismissed(
+    path: &Path,
+    engine: &ProductVersion,
+    items: &[String],
+) -> Result<(), RunStateError> {
+    in_transaction(path, &opener(engine), true, |transaction| {
+        for item in items {
+            transaction.execute("DELETE FROM needs_you_dismissed WHERE item = ?1", [item])?;
+        }
+        Ok(())
+    })
 }
 
 /// A row whose presence is `presence`, and that names no owner unless its

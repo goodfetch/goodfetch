@@ -60,6 +60,16 @@ received (ADR 0079).
 - `token`: Every run a Connection holding a named token starts.
 """
 
+NeedsYouKind: TypeAlias = Literal["run_stopped_by_storage", "storage_level"] | str
+"""A `needs_you_kind`, a type both Products share (ADR 0095).
+
+Collie's values below; a value this package does not know is kept as
+received (ADR 0079).
+
+- `run_stopped_by_storage`: A Run stopped by storage, resumable once space is freed by a start with its Run ID (ADR 0122); `details` give the `folder` whose filesystem filled. It leaves the list once the Run runs again, or when a person dismisses it.
+- `storage_level`: A filesystem a Run writes to is at the `low` or `critical` storage level (ADR 0122); `details` give its `level` and a `folder` on it. It leaves the list at the first sample that finds the space again.
+"""
+
 RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_fallback", "clean_up_rules_stale", "cpu_throttled", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "storage_low"] | str
 """A `run_warning_code`, a type both Products share (ADR 0095).
 

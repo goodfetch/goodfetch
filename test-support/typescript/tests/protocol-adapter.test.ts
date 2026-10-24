@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect } from "vitest";
 import { test, type ProcessRecord } from "@goodfetch/test-support";
+import type { NeedsYouItem } from "@goodfetch/collie-client/generated";
 import {
   createProtocolAdapter,
   failure,
@@ -131,6 +132,23 @@ class TinyClient {
 /** A Run's axes as `run.axes_changed` reports them. */
 function axes(run_id: string, lifecycle: "running" | "finished") {
   return { event: "run.axes_changed", data: { run_id, lifecycle } } as const;
+}
+
+/** A "Needs you" item `id` listed, waiting since `since`. */
+function listed(
+  id: string,
+  since: string,
+): {
+  readonly event: "needs_you.changed";
+  readonly data: { change: "listed"; item: NeedsYouItem };
+} {
+  return {
+    event: "needs_you.changed",
+    data: {
+      change: "listed",
+      item: { id, kind: "storage_level", since, summary: `${id} waits`, actions: [] },
+    },
+  };
 }
 
 describe("createProtocolAdapter", () => {
@@ -356,10 +374,35 @@ describe("ProtocolAdapter events", () => {
       {
         position: 3,
         event: "events.resync",
-        data: { runs: [{ run_id: "one", lifecycle: "finished" }] },
+        data: { runs: [{ run_id: "one", lifecycle: "finished" }], needs_you: [] },
       },
       { position: 4, event: "run.axes_changed", data: { run_id: "two", lifecycle: "running" } },
     ]);
+  });
+
+  test("a resync gives every item of Needs you its changes left listed, the longest waiting first", async () => {
+    const adapter = createProtocolAdapter();
+    const first = new TinyClient(adapter.transport);
+    const instance = await first.hello(0);
+    adapter.push(listed("later", "2026-10-24T11:00:00Z"), 1);
+    adapter.push(listed("gone", "2026-10-24T09:00:00Z"), 2);
+    adapter.push(listed("earlier", "2026-10-24T10:00:00Z"), 3);
+    adapter.push(
+      { event: "needs_you.changed", data: { change: "removed", id: "gone", reason: "resolved" } },
+      4,
+    );
+    adapter.forgetPositions();
+
+    first.subscribe(1, { after: { engine_instance: instance, position: 1 } }, 10);
+
+    const [resync] = await first.eventsUntil(1, 1);
+    expect(resync?.["data"]).toEqual({
+      runs: [],
+      needs_you: [
+        listed("earlier", "2026-10-24T10:00:00Z").data.item,
+        listed("later", "2026-10-24T11:00:00Z").data.item,
+      ],
+    });
   });
 
   test("after restart(), a position of the previous engine instance restarts from events.resync", async () => {
@@ -384,7 +427,7 @@ describe("ProtocolAdapter events", () => {
         {
           position: 2,
           event: "events.resync",
-          data: { runs: [{ run_id: "three", lifecycle: "running" }] },
+          data: { runs: [{ run_id: "three", lifecycle: "running" }], needs_you: [] },
         },
       ],
     });

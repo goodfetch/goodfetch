@@ -138,6 +138,8 @@ export interface ServedOptions {
   toolManifest: string | undefined;
   /** The executable that runs the test's Daemon in place of the manifest's of `product`, for a skew run (ADR 0066); the manifest's when unset. */
   engine: string | undefined;
+  /** The size in bytes of a filesystem of its own the test's folder is on, a tmpfs on Linux (ADR 0122); the machine's disk when unset. */
+  sizeCapped: number | undefined;
 }
 
 /** What a served test's worker shares between its tests. */
@@ -175,6 +177,7 @@ export const test: TestType<
   consoleServer: [executableConsole, { option: true }],
   toolManifest: [process.env["GOODFETCH_TEST_TOOLS"], { option: true }],
   engine: [undefined, { option: true }],
+  sizeCapped: [undefined, { option: true }],
   oidcProvider: [
     // oxlint-disable-next-line no-empty-pattern -- Playwright reads a fixture's dependencies from its first parameter's pattern; this one has none.
     async ({}, use) => {
@@ -185,7 +188,16 @@ export const test: TestType<
     { scope: "worker" },
   ],
   daemon: async (
-    { context, product, provingGroundSeed, consoleServer, toolManifest, engine, oidcProvider },
+    {
+      context,
+      product,
+      provingGroundSeed,
+      consoleServer,
+      toolManifest,
+      engine,
+      oidcProvider,
+      sizeCapped,
+    },
     use,
     testInfo,
   ) => {
@@ -207,6 +219,7 @@ export const test: TestType<
         provingGroundSeed: provingGroundSeed ?? undefined,
         consoleServer,
         oidc: oidcProvider,
+        sizeCapped,
       });
       await use(started.daemon);
       try {

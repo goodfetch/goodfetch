@@ -32,6 +32,7 @@ use crate::admission::Gates;
 use crate::client::Client;
 use crate::events::{Credits, Events};
 use crate::log::ConnectionLog;
+use crate::needs_you::NeedsYouSource;
 use crate::people::SignInDriver;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
@@ -479,6 +480,7 @@ pub struct Contribution {
     report_parts: Vec<Arc<dyn ReportPart>>,
     progress_parts: Vec<Arc<dyn ProgressPart>>,
     clean_up_versions: Option<Arc<dyn CleanUpVersions>>,
+    needs_you_sources: Vec<NeedsYouSource>,
 }
 
 impl Contribution {
@@ -494,6 +496,7 @@ impl Contribution {
             report_parts: Vec::new(),
             progress_parts: Vec::new(),
             clean_up_versions: None,
+            needs_you_sources: Vec::new(),
         }
     }
 
@@ -557,6 +560,15 @@ impl Contribution {
     #[must_use]
     pub fn with_clean_up_versions(mut self, versions: Arc<dyn CleanUpVersions>) -> Self {
         self.clean_up_versions = Some(versions);
+        self
+    }
+
+    /// The same, adding `source` to "Needs you" (spec #592): its items join
+    /// the one list, whatever their kind, without the engine naming it
+    /// (ADR 0087).
+    #[must_use]
+    pub fn with_needs_you_source(mut self, source: NeedsYouSource) -> Self {
+        self.needs_you_sources.push(source);
         self
     }
 
@@ -722,6 +734,14 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.progress_parts.iter().cloned())
+            .collect()
+    }
+
+    /// Every contribution's sources of "Needs you", in order.
+    pub(crate) fn needs_you_sources(&self) -> Vec<NeedsYouSource> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.needs_you_sources.iter().cloned())
             .collect()
     }
 

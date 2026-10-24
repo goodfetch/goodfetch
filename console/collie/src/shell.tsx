@@ -1,6 +1,7 @@
 // The Console's shell (ADR 0090): its side menu, with a link to each
-// screen of Collie's build, and the screen of the route the page opened
-// at. Its first screen, at `/`, names the Product, "Goodfetch Collie", then
+// screen of Collie's build, "Needs you" counting what waits for a person
+// as the list changes (ADR 0031), and the screen of the route the page
+// opened at. Its first screen, at `/`, names the Product, "Goodfetch Collie", then
 // calls it "Collie", says which engine its Client reached, by Product and
 // version, or that the page is not signed in, and lists each run's
 // lifecycle as the event stream reports it, a resync replacing the list
@@ -14,10 +15,13 @@ import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import type { RunAxes } from "@goodfetch/collie-client/generated";
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { ConsoleClient, StreamItem } from "#client/client.ts";
 import { EngineSettings } from "#engine-settings/engine-settings.tsx";
-import { ENGINE_SETTINGS } from "#routes.ts";
+import { formatCount } from "#format.ts";
+import { NeedsYouStore, READING, type NeedsYouState } from "#needs-you/needs-you-store.ts";
+import { NeedsYou } from "#needs-you/needs-you.tsx";
+import { ENGINE_SETTINGS, NEEDS_YOU } from "#routes.ts";
 
 /** What the shell shows the Console's link to its engine with. */
 export interface ShellProps {
@@ -27,21 +31,63 @@ export interface ShellProps {
   readonly route: string;
 }
 
-/** A screen of Collie's build: its route, its name, and what it shows over a Client. */
+/** What a screen shows over: the Console's Client, the shell's "Needs you" and whether the page is read-only. */
+interface ScreenContext {
+  readonly client: ConsoleClient;
+  readonly needsYou: ShellNeedsYou;
+  readonly readOnly: boolean;
+}
+
+/** A screen of Collie's build: its route, its name, and what it shows. */
 interface Screen {
   readonly route: string;
   readonly name: MessageDescriptor;
-  readonly content: (client: ConsoleClient) => ReactNode;
+  readonly content: (context: ScreenContext) => ReactNode;
 }
 
 /** Collie's screens, in the side menu's order. */
 const SCREENS: readonly Screen[] = [
   {
+    route: NEEDS_YOU,
+    name: msg`Needs you`,
+    content: ({ needsYou, readOnly }) => (
+      <NeedsYou state={needsYou.state} readOnly={readOnly} dismiss={needsYou.dismiss} />
+    ),
+  },
+  {
     route: ENGINE_SETTINGS,
     name: msg`Engine & settings`,
-    content: (client) => <EngineSettings client={client} />,
+    content: ({ client }) => <EngineSettings client={client} />,
   },
 ];
+
+/** "Needs you" as the shell holds it: the list now, and how to dismiss an item. */
+interface ShellNeedsYou {
+  readonly state: NeedsYouState;
+  readonly dismiss: (id: string) => Promise<boolean>;
+}
+
+/** "Needs you" over `client`, kept current while the shell shows. */
+function useNeedsYou(client: ConsoleClient | undefined): ShellNeedsYou {
+  const store = useMemo(
+    () => (client === undefined ? undefined : new NeedsYouStore(client)),
+    [client],
+  );
+  useEffect(() => store?.start(), [store]);
+  const state = useSyncExternalStore(
+    (changed) => store?.watch(changed) ?? (() => {}),
+    () => store?.snapshot() ?? READING,
+  );
+  return {
+    state,
+    dismiss: async (id) => (store === undefined ? false : store.dismiss(id)),
+  };
+}
+
+/** How many items wait in `state`; none before the list's first answer. */
+function countOf(state: NeedsYouState): number {
+  return state.kind === "listed" ? state.items.length : 0;
+}
 
 /** Whether the page is read-only: its Client has no Connection now, after one it had or one it failed to open. */
 function useReadOnly(client: ConsoleClient | undefined): boolean {
@@ -216,6 +262,8 @@ export function Shell({ client, route }: ShellProps): ReactNode {
     document.title = title;
   }, [title]);
   const readOnly = useReadOnly(client);
+  const needsYou = useNeedsYou(client);
+  const waiting = countOf(needsYou.state);
   return (
     <div className="min-h-svh">
       {readOnly ? <ReadOnlyBanner /> : null}
@@ -227,6 +275,11 @@ export function Shell({ client, route }: ShellProps): ReactNode {
           {SCREENS.map((candidate) => (
             <MenuLink key={candidate.route} route={candidate.route} current={candidate === screen}>
               {i18n._(candidate.name)}
+              {candidate.route === NEEDS_YOU && waiting > 0 ? (
+                <span className="ml-1.5 rounded-full bg-primary px-1.5 text-sm text-primary-foreground">
+                  {formatCount(waiting, i18n.locale)}
+                </span>
+              ) : null}
             </MenuLink>
           ))}
         </nav>
@@ -242,7 +295,7 @@ export function Shell({ client, route }: ShellProps): ReactNode {
               <NotSignedIn />
             </p>
           ) : (
-            screen.content(client)
+            screen.content({ client, needsYou, readOnly })
           )}
         </main>
       )}

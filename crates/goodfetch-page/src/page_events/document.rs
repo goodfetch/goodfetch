@@ -79,9 +79,10 @@ impl Document {
 #[derive(Clone, Copy, Debug)]
 pub(super) enum UrlReached {
     /// In the document the page shows, which a `pushState`, a
-    /// `replaceState` or a hash change moved, or which already had it.
+    /// `replaceState` or a hash change moved there.
     Here,
-    /// In the main frame's document of this generation, just committed.
+    /// In the main frame's document of this generation: just committed,
+    /// or the page's own when the waiter was armed.
     Committed(u64),
 }
 

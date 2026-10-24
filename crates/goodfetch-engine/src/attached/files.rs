@@ -9,7 +9,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
-use crate::daemon::files::new_token;
+use crate::endpoint::new_token;
 
 /// The socket's name in the folder.
 const SOCKET: &str = "engine.sock";

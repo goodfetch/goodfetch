@@ -112,6 +112,7 @@ use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
 use crate::client::Client;
 use crate::clock::Clock;
 use crate::controls::Controls;
+use crate::endpoint::Refusals;
 use crate::entropy::Entropy;
 use crate::events::Events;
 use crate::governor::{
@@ -2038,6 +2039,16 @@ impl Runs {
     /// security events.
     pub(crate) fn audit(&self) -> &AuditLog {
         self.secrets.audit()
+    }
+
+    /// Where this engine's listeners record their refusals: the user's
+    /// Audit log (`endpoint`).
+    pub(crate) fn refusals(&self) -> Refusals {
+        Refusals::new(
+            self.audit().clone(),
+            Arc::clone(&self.limits.owner),
+            self.limits.clock,
+        )
     }
 
     /// The Daemon's Connection these Runs belong to; none on an Attached

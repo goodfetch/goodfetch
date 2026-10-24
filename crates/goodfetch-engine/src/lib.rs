@@ -30,6 +30,7 @@ pub mod daemon;
 pub mod deadline;
 pub mod dns;
 pub mod egress;
+pub mod endpoint;
 mod engine;
 pub mod entropy;
 pub mod events;

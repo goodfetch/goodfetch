@@ -202,11 +202,9 @@ impl Rule {
             | Self::TokenRevoked
             | Self::TokenScopedElsewhere => true,
             Self::CsrfTokenMissing | Self::SignInRevoked | Self::SignInRateExceeded => sign_ins,
-            Self::TokenInQueryString => http || websocket,
+            Self::TokenInQueryString | Self::OriginMissing => http || websocket,
             Self::HostForeign | Self::OriginForeign => http || websocket || signed,
-            Self::ProbesAnswerStatusOnly => http,
-            Self::OriginMissing => websocket || http,
-            Self::OriginMissingWithoutHeaderToken => http,
+            Self::ProbesAnswerStatusOnly | Self::OriginMissingWithoutHeaderToken => http,
             Self::HelloNotFirst => !http && !signed,
             Self::TokenForAnotherFile => signed,
         }

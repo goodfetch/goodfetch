@@ -29,8 +29,8 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::Metric;
 use goodfetch_protocol::entries::MODULES;
 use goodfetch_test_support::{
-    AuditUnreadable, DaemonEndpoint, Endpoint, EndpointRunner, Listener, ListenerKind, Rule,
-    TestEnv, browser_cache, cli,
+    Canaries, DaemonEndpoint, Endpoint, EndpointRunner, Listener, ListenerKind, TestEnv,
+    browser_cache, cli,
 };
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use prost::Message as _;
@@ -39,6 +39,7 @@ use serde_json::{Value, json};
 
 use crate::daemon::validate;
 use crate::daemon_run::{ANY_PORT, Foreground, opened, token};
+use crate::endpoint::{audit_verifier, provision_ops_token};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -106,40 +107,31 @@ pub(crate) fn get(address: SocketAddr, path: &str, token: Option<&str>) -> (u16,
     (status, answer.body_mut().read_to_string().unwrap())
 }
 
-/// The endpoint table's ops listener column, each refusal checked in the
-/// Daemon's log until the Audit log records it (area 4); the token of the
-/// Daemon's own socket stands for another listener's.
+/// The endpoint table's ops listener column, each refusal found in the
+/// Audit log: the ops token the operator replaced before this launch is
+/// revoked, and the Daemon's own protocol token, which has no read scope on
+/// `/metrics`, is both another listener's and scoped elsewhere.
 ///
-/// Covers: story:3-101, story:13-44, command:daemon.run, setting:ops.address
+/// Covers: story:3-101, story:13-44, command:daemon.run, setting:ops.address, story:4-21, story:4-24, story:4-29, story:4-90
 #[test]
 fn the_ops_listener_passes_its_endpoint_table_rows() {
     let env = TestEnv::new();
+    let mut canaries = Canaries::new(env.seed());
+    let revoked = provision_ops_token(&env, &mut canaries);
+    let (mut earlier, _) = with_ops(&env, Browsers::Installed);
+    earlier.terminate();
+    let current = provision_ops_token(&env, &mut canaries);
     let (mut daemon, address) = with_ops(&env, Browsers::Installed);
     let listener = Listener::new(
         ListenerKind::OpsListener,
         Endpoint::Http { address },
-        ops_token(&env),
+        current,
     )
-    .with_other_listener_token(token(&env));
-    let mut seen: BTreeMap<&str, usize> = BTreeMap::new();
-    let verifier = |_: ListenerKind, rule: Rule| {
-        let reason = match rule {
-            Rule::TokenMissing | Rule::TokenInQueryString => "token_missing",
-            Rule::TokenWrong | Rule::TokenFromAnotherListener => "token_wrong",
-            Rule::HostForeign => "host_foreign",
-            Rule::OriginForeign => "origin_foreign",
-            _ => return Err(AuditUnreadable::new("no refusal reason for this rule")),
-        };
-        let count = seen.entry(reason).or_default();
-        *count += 1;
-        Ok(daemon.holds(*count, |record| {
-            record["target"] == json!("goodfetch::rpc::refusal")
-                && record["fields"]["listener"] == json!("ops_listener")
-                && record["fields"]["reason"] == json!(reason)
-        }))
-    };
+    .with_other_listener_token(token(&env))
+    .with_revoked_token(revoked)
+    .with_scoped_elsewhere_token(token(&env));
 
-    let ran = EndpointRunner::new(verifier).run(&listener);
+    let ran = EndpointRunner::new(audit_verifier(&env, "ops_listener")).run(&listener);
 
     daemon.terminate();
     assert_eq!(ran, Ok(()));

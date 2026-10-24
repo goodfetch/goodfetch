@@ -84,6 +84,8 @@ pulldown-cmark = { version = "0.13.4", default-features = false }
 zstd = { version = "0.14.0", default-features = false }
 # The OS generator that seeds `Entropy` in production (ADR 0059).
 getrandom = { version = "0.3.4", default-features = false }
+# Endpoint tokens compared in constant time (ADR 0017).
+subtle = { version = "2.6.1", default-features = false }
 # The Feature scanner expands an rstest `#[files]` glob as rstest does
 # (xtask).
 glob = { version = "0.3.4", default-features = false }

@@ -1081,7 +1081,10 @@ impl PageContext {
             self.refuse_redirect(paused, &refused).await;
             return;
         }
+        // A response that never came (an error-stage pause) has no document
+        // to judge.
         if (document || carried.is_some())
+            && paused.response_status_code.is_some()
             && self
                 .refused_document(paused, status, carried.as_deref())
                 .await
@@ -1140,6 +1143,8 @@ impl PageContext {
                 "the navigation gate refused a document no call waited on: the page is left blank"
             );
             refusals.refuse_navigation(&paused.request.url, error.clone());
+            // The Run trace holds the Error code no reply carries (ADR 0072).
+            self.run.record_outcome(error.code());
         }
         self.fulfill(
             &paused.request_id,

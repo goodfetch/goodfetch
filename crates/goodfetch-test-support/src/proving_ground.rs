@@ -33,6 +33,9 @@ pub const PROVING_GROUND_DEADLINE: Duration = Duration::from_secs(30);
 /// The file name of the certificate authority, in its instance's folder.
 const CERTIFICATE_AUTHORITY_FILE: &str = "certificate-authority.pem";
 
+/// The file name of the client certificate, beside the authority's.
+const CLIENT_CERTIFICATE_FILE: &str = "client-certificate.pem";
+
 /// A started Proving ground, as a test and `goodfetch-test-env`'s
 /// description see it.
 #[derive(
@@ -225,6 +228,27 @@ impl ProvingGround {
             .map_err(|error| ProvingGroundError::Observations(error.to_string()))
     }
 
+    /// The client certificate its hosts that require mutual TLS accept,
+    /// from `GET /client-certificate` and `GET /client-key`: the
+    /// certificate written beside the certificate authority's file, the key
+    /// as PEM.
+    pub fn client_certificate(&self) -> Result<ClientCertificate, ProvingGroundError> {
+        let read = |path: &str| {
+            ureq::get(format!("http://{}{path}", self.address))
+                .call()
+                .and_then(|mut response| response.body_mut().read_to_string())
+                .map_err(|error| ProvingGroundError::ClientCertificate(error.to_string()))
+        };
+        let (certificate, key) = (read("/client-certificate")?, read("/client-key")?);
+        let file = self.description.ca.with_file_name(CLIENT_CERTIFICATE_FILE);
+        std::fs::write(&file, certificate)
+            .map_err(|error| ProvingGroundError::ClientCertificate(error.to_string()))?;
+        Ok(ClientCertificate {
+            certificate: file,
+            key,
+        })
+    }
+
     /// The start URL of the task `id` of its task list, such as
     /// `actionability/2`.
     pub fn start_url(&self, id: &str) -> Result<String, ProvingGroundError> {
@@ -298,4 +322,18 @@ pub enum ProvingGroundError {
     /// Its task list or its oracle gave no answer.
     #[error("the Proving ground's oracle: {0}")]
     Oracle(String),
+    /// Its client certificate could not be read or written.
+    #[error("the Proving ground's client certificate: {0}")]
+    ClientCertificate(String),
+}
+
+/// The client certificate the Proving ground's hosts that require mutual
+/// TLS accept: its file, and its private key as PEM, which a test hands
+/// the engine through a Secret reference.
+#[derive(Clone, Debug)]
+pub struct ClientCertificate {
+    /// The certificate's PEM file, in the test's folder.
+    pub certificate: PathBuf,
+    /// Its PKCS #8 private key, as PEM.
+    pub key: String,
 }

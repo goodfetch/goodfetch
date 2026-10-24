@@ -150,8 +150,8 @@ pub use protocol_fuzz::{
     ProtocolTransport, SchemaUnreadable, TransportFailure,
 };
 pub use proving_ground::{
-    PROVING_GROUND_DEADLINE, ProvingGround, ProvingGroundDescription, ProvingGroundError,
-    ProvingGroundFixtures, ProxyCredentials,
+    ClientCertificate, PROVING_GROUND_DEADLINE, ProvingGround, ProvingGroundDescription,
+    ProvingGroundError, ProvingGroundFixtures, ProxyCredentials,
 };
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};

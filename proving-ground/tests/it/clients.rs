@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rustls::pki_types::pem::PemObject as _;
-use rustls::pki_types::{CertificateDer, ServerName};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 
 /// A client configuration that trusts only `authority` (PEM) and offers
@@ -36,6 +36,30 @@ pub(crate) fn trusting(authority: &str, alpn: &[&str]) -> Arc<ClientConfig> {
             .with_root_certificates(roots)
             .with_no_client_auth();
     config.alpn_protocols = alpn.iter().map(|name| name.as_bytes().to_vec()).collect();
+    Arc::new(config)
+}
+
+/// As [`trusting`], for a client that presents `certificate` (PEM) with
+/// its private `key` (PEM) when a server asks for one.
+pub(crate) fn presenting(authority: &str, certificate: &str, key: &str) -> Arc<ClientConfig> {
+    let mut roots = RootCertStore::empty();
+    for anchor in CertificateDer::pem_slice_iter(authority.as_bytes()) {
+        roots
+            .add(anchor.expect("a PEM certificate"))
+            .expect("a root certificate");
+    }
+    let chain = CertificateDer::pem_slice_iter(certificate.as_bytes())
+        .collect::<Result<Vec<_>, _>>()
+        .expect("a PEM client certificate");
+    let key = PrivateKeyDer::from_pem_slice(key.as_bytes()).expect("a PEM private key");
+    let mut config =
+        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .expect("the default versions")
+            .with_root_certificates(roots)
+            .with_client_auth_cert(chain, key)
+            .expect("the key signs");
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
     Arc::new(config)
 }
 

@@ -30,11 +30,12 @@ use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa,
     Issuer, KeyIdMethod, KeyUsagePurpose, PublicKeyData, SerialNumber, SignatureAlgorithm,
 };
-use rustls::ServerConfig;
 use rustls::crypto::ring;
-use rustls::pki_types::{DnsName, PrivateKeyDer, PrivatePkcs8KeyDer};
-use rustls::server::{ClientHello, ResolvesServerCert};
+use rustls::pki_types::{CertificateDer, DnsName, PrivateKeyDer, PrivatePkcs8KeyDer};
+use rustls::server::danger::ClientCertVerifier;
+use rustls::server::{ClientHello, ResolvesServerCert, WebPkiClientVerifier};
 use rustls::sign::{CertifiedKey, SigningKey};
+use rustls::{RootCertStore, ServerConfig};
 use sha2::{Digest as _, Sha256};
 
 use crate::certificates::{Defect, MISMATCHED_NAME};
@@ -54,6 +55,11 @@ pub(crate) struct Authority {
     certificate_pem: String,
     server_config: Arc<ServerConfig>,
     http1_server_config: Arc<ServerConfig>,
+    /// The client certificate the seed's client authority signed, and its
+    /// key, as PEM.
+    client_certificate_pem: String,
+    client_key_pem: String,
+    client_certificate_server_config: Arc<ServerConfig>,
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the tests count the leaves signed")
@@ -141,22 +147,60 @@ impl Authority {
             signing_key,
             by_name,
         });
-        let config = |alpn: &[&[u8]]| -> Result<Arc<ServerConfig>> {
-            let mut config =
-                ServerConfig::builder_with_provider(Arc::new(ring::default_provider()))
-                    .with_safe_default_protocol_versions()
-                    .context("choosing the TLS versions")?
-                    .with_no_client_auth()
-                    .with_cert_resolver(Arc::clone(&leaves) as Arc<_>);
+        let ClientIdentity {
+            authority: client_authority,
+            certificate_pem: client_certificate_pem,
+            key_pem: client_key_pem,
+        } = client_identity(seed)?;
+        let mut client_roots = RootCertStore::empty();
+        client_roots
+            .add(client_authority)
+            .context("trusting the client authority")?;
+        let client_verifier = WebPkiClientVerifier::builder_with_provider(
+            Arc::new(client_roots),
+            Arc::new(ring::default_provider()),
+        )
+        .build()
+        .context("building the client certificate verifier")?;
+        let config = |alpn: &[&[u8]],
+                      clients: Option<Arc<dyn ClientCertVerifier>>|
+         -> Result<Arc<ServerConfig>> {
+            let builder = ServerConfig::builder_with_provider(Arc::new(ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .context("choosing the TLS versions")?;
+            let builder = match clients {
+                Some(verifier) => builder.with_client_cert_verifier(verifier),
+                None => builder.with_no_client_auth(),
+            };
+            let mut config = builder.with_cert_resolver(Arc::clone(&leaves) as Arc<_>);
             config.alpn_protocols = alpn.iter().map(|name| name.to_vec()).collect();
             Ok(Arc::new(config))
         };
         Ok(Self {
             certificate_pem: certificate.pem(),
-            server_config: config(&[b"h2", b"http/1.1"])?,
-            http1_server_config: config(&[b"http/1.1"])?,
+            server_config: config(&[b"h2", b"http/1.1"], None)?,
+            http1_server_config: config(&[b"http/1.1"], None)?,
+            client_certificate_pem,
+            client_key_pem,
+            client_certificate_server_config: config(&[b"h2", b"http/1.1"], Some(client_verifier))?,
             leaves,
         })
+    }
+
+    /// The client certificate the seed's client authority signed, as PEM.
+    pub(crate) fn client_certificate_pem(&self) -> &str {
+        &self.client_certificate_pem
+    }
+
+    /// The private key of that client certificate, as PKCS #8 PEM.
+    pub(crate) fn client_key_pem(&self) -> &str {
+        &self.client_key_pem
+    }
+
+    /// The TLS configuration of the host names that require a client
+    /// certificate the seed's client authority signed.
+    pub(crate) fn client_certificate_server_config(&self) -> Arc<ServerConfig> {
+        Arc::clone(&self.client_certificate_server_config)
     }
 
     /// The TLS configuration of the host names that offer HTTP/1.1 alone.
@@ -277,6 +321,57 @@ fn authority(
     Ok((certificate, Issuer::new(params, key)))
 }
 
+/// The seed's client authority and the client certificate it signed, with
+/// its key: what the host names that require mutual TLS trust, and what a
+/// test hands its client.
+struct ClientIdentity {
+    authority: CertificateDer<'static>,
+    certificate_pem: String,
+    key_pem: String,
+}
+
+/// The client certificate of `seed`, byte for byte the same on every run:
+/// valid from 2025 to 2125, for client authentication only.
+fn client_identity(seed: u64) -> Result<ClientIdentity> {
+    let (authority, issuer) = authority(
+        seed,
+        "client certificate authority",
+        &format!("Goodfetch Proving ground client authority, seed {seed}"),
+    )?;
+    let key = SeededKey::derive(seed, "client certificate");
+    let mut params = CertificateParams::default();
+    params.distinguished_name = name(&format!("Goodfetch Proving ground client, seed {seed}"));
+    params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+    params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ClientAuth];
+    params.not_before = rcgen::date_time_ymd(2025, 1, 1);
+    params.not_after = rcgen::date_time_ymd(2125, 1, 1);
+    params.serial_number = Some(serial(seed, "client certificate"));
+    params.use_authority_key_identifier_extension = true;
+    params.key_identifier_method = key_identifier(&key);
+    let certificate = params
+        .signed_by(&key, &issuer)
+        .context("signing the client certificate")?;
+    Ok(ClientIdentity {
+        authority: authority.der().clone(),
+        certificate_pem: certificate.pem(),
+        key_pem: pem("PRIVATE KEY", &key.pkcs8()?),
+    })
+}
+
+/// `der` as a PEM block labelled `label`.
+fn pem(label: &str, der: &[u8]) -> String {
+    let encoded = data_encoding::BASE64.encode(der);
+    let mut text = format!("-----BEGIN {label}-----\n");
+    for line in encoded.as_bytes().chunks(64) {
+        text.push_str(std::str::from_utf8(line).expect("invariant: base64 is ASCII"));
+        text.push('\n');
+    }
+    text.push_str("-----END ");
+    text.push_str(label);
+    text.push_str("-----\n");
+    text
+}
+
 fn name(common_name: &str) -> DistinguishedName {
     let mut name = DistinguishedName::new();
     name.push(DnType::CommonName, common_name);
@@ -372,13 +467,13 @@ mod tests {
     use rustls::client::ClientConnection;
     use rustls::crypto::ring;
     use rustls::pki_types::pem::PemObject as _;
-    use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
     use rustls::server::ServerConnection;
     use rustls::time_provider::TimeProvider;
     use rustls::{AlertDescription, CertificateError, ClientConfig, Connection, RootCertStore};
 
     use super::Authority;
-    use crate::certificates::Defect;
+    use crate::certificates::{CLIENT_CERTIFICATE_HOST, Defect};
 
     /// 2026-10-01T00:00:00Z, the authority's "now" and the client's clock.
     const NOW: Duration = Duration::from_hours(20_727 * 24);
@@ -583,6 +678,90 @@ mod tests {
             leaves.iter().all(|leaf| *leaf == leaves[0]),
             "one leaf is served"
         );
+    }
+
+    /// The client certificate and key `authority` hands a client.
+    fn client_identity(
+        authority: &Authority,
+    ) -> (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>) {
+        let chain = CertificateDer::pem_slice_iter(authority.client_certificate_pem().as_bytes())
+            .collect::<Result<Vec<_>, _>>()
+            .expect("the client certificate's PEM parses");
+        let key = PrivateKeyDer::from_pem_slice(authority.client_key_pem().as_bytes())
+            .expect("the client key's PEM parses");
+        (chain, key)
+    }
+
+    /// A handshake in memory with the host that requires a client
+    /// certificate, by a client that trusts the authority and presents
+    /// `identity`, if any: the server's verdict.
+    fn mutual_handshake(
+        authority: &Authority,
+        identity: Option<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)>,
+    ) -> Result<(), rustls::Error> {
+        let mut roots = RootCertStore::empty();
+        roots
+            .add(
+                CertificateDer::from_pem_slice(authority.certificate_pem().as_bytes())
+                    .expect("the authority's PEM parses"),
+            )
+            .expect("the authority is a trust anchor");
+        let builder =
+            ClientConfig::builder_with_details(Arc::new(ring::default_provider()), Arc::new(AtNow))
+                .with_safe_default_protocol_versions()
+                .expect("the provider offers the default versions")
+                .with_root_certificates(roots);
+        let config = match identity {
+            Some((chain, key)) => builder
+                .with_client_auth_cert(chain, key)
+                .expect("the client key signs"),
+            None => builder.with_no_client_auth(),
+        };
+        let server_name = ServerName::try_from(CLIENT_CERTIFICATE_HOST.to_owned())
+            .expect("the server name is valid");
+        let mut client = Connection::Client(
+            ClientConnection::new(Arc::new(config), server_name).expect("the client starts"),
+        );
+        let mut server = Connection::Server(
+            ServerConnection::new(authority.client_certificate_server_config())
+                .expect("the server starts"),
+        );
+        while server.is_handshaking() {
+            pass(&mut client, &mut server)?;
+            pass(&mut server, &mut client).expect("the client accepts the server's leaf");
+        }
+        Ok(())
+    }
+
+    /// The host that requires a client certificate refuses a client that
+    /// presents none, or one another seed's client authority signed, and
+    /// accepts the one its own seed's client authority signed.
+    #[test]
+    fn the_client_certificate_host_takes_only_its_seeds_client_certificate() {
+        let at = SystemTime::UNIX_EPOCH + NOW;
+        let authority =
+            Authority::new(7, [CLIENT_CERTIFICATE_HOST], at).expect("the authority is made");
+        let another_seed =
+            Authority::new(8, [CLIENT_CERTIFICATE_HOST], at).expect("the authority is made");
+
+        let none = mutual_handshake(&authority, None);
+        let foreign = mutual_handshake(&authority, Some(client_identity(&another_seed)));
+        let own = mutual_handshake(&authority, Some(client_identity(&authority)));
+
+        assert!(
+            matches!(none, Err(rustls::Error::NoCertificatesPresented)),
+            "{none:?}"
+        );
+        assert!(
+            matches!(
+                foreign,
+                Err(rustls::Error::InvalidCertificate(
+                    CertificateError::UnknownIssuer
+                ))
+            ),
+            "{foreign:?}"
+        );
+        assert_eq!(own, Ok(()));
     }
 
     #[rstest]

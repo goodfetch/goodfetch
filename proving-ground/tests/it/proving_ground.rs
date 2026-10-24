@@ -299,6 +299,15 @@ impl ProvingGround {
         self.control("/certificate-authority").body
     }
 
+    /// The client certificate the hosts that require mutual TLS accept, and
+    /// its private key, each as PEM.
+    pub(crate) fn client_identity(&self) -> (String, String) {
+        (
+            self.control("/client-certificate").body,
+            self.control("/client-key").body,
+        )
+    }
+
     /// Every request the Proving ground recorded, with its sums.
     pub(crate) fn observations(&self) -> Value {
         let answer = self.control("/observations");

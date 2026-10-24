@@ -34,6 +34,7 @@ use crate::hiding::Sheets;
 use crate::page_events::{PageEvents, Refusals};
 use crate::page_value::ResponseObserver;
 use crate::pool::InBrowser;
+use crate::recovery::Declared;
 
 /// A page being taken in by its Session.
 pub(super) struct Adopting {
@@ -178,6 +179,7 @@ impl Sessions {
             life: PageLife::new(page.clone()),
             action_timeout,
             hiding,
+            page_check: Declared::of(&open.run, &open.settings).map(Arc::new),
             _admission: Arc::new(admission),
             in_browser: Arc::new(in_browser),
         };

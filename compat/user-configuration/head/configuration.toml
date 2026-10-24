@@ -147,6 +147,7 @@ lists = { "example.test" = "example" }
 
 [settings.session]
 source = { kind = "saved_identity", name = "example" }
+page_check = { expected_page = { kind = "glob", pattern = "**/reports*" }, login_page = { kind = "css", selector = "form#login" } }
 
 [settings.session.pool]
 max_size = 4

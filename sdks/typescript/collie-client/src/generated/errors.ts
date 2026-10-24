@@ -361,6 +361,15 @@ export class LimitReachedError extends RefusedError {
 }
 
 /**
+ * The document the navigation reached is a login page, even one answered with a 200: the Session's login is lost, judged by its Page check's `login_page`, or by the built-in detector when it declares none. The page stays on the login page, the Session open with its cookies. The details name the URL, the status and what judged it.
+ */
+export class LoggedOutError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "logged_out", group: "page", retryable: false });
+  }
+}
+
+/**
  * The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting.
  */
 export class NameLookupFailedError extends UnavailableError {
@@ -411,6 +420,15 @@ export class NotADaemonError extends ProgramError {
 export class NotInProductError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "not_in_product", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The document the navigation reached is neither the expected page nor the login page of its Session's Page check, `session.page_check`, whatever its HTTP status: a page the program did not mean to reach, such as an error page or a layout the site changed. The page stays on that document. The details name its URL and status.
+ */
+export class PageCheckFailedError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_check_failed", group: "page", retryable: false });
   }
 }
 
@@ -802,12 +820,14 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   format_version_unsupported: FormatVersionUnsupportedError,
   limit_not_understood: LimitNotUnderstoodError,
   limit_reached: LimitReachedError,
+  logged_out: LoggedOutError,
   name_lookup_failed: NameLookupFailedError,
   name_not_resolved: NameNotResolvedError,
   navigation_failed: NavigationFailedError,
   navigation_interrupted: NavigationInterruptedError,
   not_a_daemon: NotADaemonError,
   not_in_product: NotInProductError,
+  page_check_failed: PageCheckFailedError,
   page_crashed: PageCrashedError,
   page_function_failed: PageFunctionFailedError,
   page_handler_failed: PageHandlerFailedError,

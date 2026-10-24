@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 
 use super::{Checks, Site, finish_run, start_run};
 use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::target::EngineTarget;
 
 /// One Session case of the page suite.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +27,8 @@ pub(crate) enum Case {
     Ended,
     /// One of a Session's proxy cases.
     Proxy(super::proxies::Case),
+    /// One of a Session's Page check cases.
+    PageCheck(super::page_check::Case),
 }
 
 impl Case {
@@ -38,14 +41,19 @@ impl Case {
                 Self::Source
             }
             "new-work-on-a-finished-run-raises-run-ended" => Self::Ended,
-            _ => return super::proxies::Case::from_id(id).map(Self::Proxy),
+            _ => {
+                return super::proxies::Case::from_id(id)
+                    .map(Self::Proxy)
+                    .or_else(|| super::page_check::Case::from_id(id).map(Self::PageCheck));
+            }
         })
     }
 
-    /// Runs the case on the open Connection against `site`.
+    /// Runs the case on the open Connection to `target` against `site`.
     pub(crate) fn run(
         self,
         connection: &mut Connection,
+        target: &EngineTarget,
         site: &Site,
         checks: &mut Checks,
     ) -> Result<(), Gone> {
@@ -55,6 +63,7 @@ impl Case {
             Self::Source => source(connection, site, checks),
             Self::Ended => ended(connection, checks),
             Self::Proxy(case) => case.run(connection, site, checks),
+            Self::PageCheck(case) => case.run(connection, target, site, checks),
         }
     }
 }

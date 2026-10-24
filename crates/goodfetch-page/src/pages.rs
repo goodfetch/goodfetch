@@ -83,6 +83,7 @@ use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, S
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Injections, Pending, Registered};
 use crate::page_value::{HandlerPages, ProgramPages};
+use crate::recovery::{self, Judging};
 use crate::sessions::{self, OpenPage, PageEvent, Sessions};
 use crate::trace;
 use crate::url_pattern::UrlPattern;
@@ -716,7 +717,26 @@ impl Pages {
             return Err(failure);
         }
         match navigated? {
-            Arrived::Document(response) => Ok(Navigated { response }),
+            Arrived::Document(response) => {
+                // Every document a Session's navigation reached is judged
+                // by its Page check (ADRs 0006 and 0092).
+                if let Some(response) = &response {
+                    let judging = Judging {
+                        run: &page.run,
+                        session: &page.session,
+                        page_id,
+                        driver: &page.driver,
+                        declared: page.page_check.as_deref(),
+                        requested: match destination {
+                            Destination::Url(url) => Some(url),
+                            Destination::Reload | Destination::Back | Destination::Forward => None,
+                        },
+                        operation: destination.operation(),
+                    };
+                    recovery::judge(&judging, response).await?;
+                }
+                Ok(Navigated { response })
+            }
             Arrived::Download {
                 url,
                 suggested_filename,

@@ -27,6 +27,7 @@ mod pages;
 mod pool;
 mod proxy;
 mod proxy_provider;
+mod recovery;
 pub mod robots_txt;
 mod sessions;
 mod trace;

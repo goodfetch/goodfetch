@@ -282,7 +282,6 @@ impl FetchTiers {
         let mut first = true;
         let fetched = follow(hop, &tier.following, &gate, &clock, |hop| {
             let lead = std::mem::replace(&mut first, false);
-            let clock = clock.clone();
             async move {
                 if lead {
                     tier.redundant

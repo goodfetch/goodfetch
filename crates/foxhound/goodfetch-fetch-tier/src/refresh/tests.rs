@@ -14,6 +14,10 @@ fn document() -> Url {
     Url::parse("http://site.test/stub/page").unwrap()
 }
 
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "each case of the tables expects an `Option`, and writes a refresh in one call"
+)]
 fn refresh(seconds: u64, url: &str) -> Option<Refresh> {
     Some(Refresh {
         delay: Duration::from_secs(seconds),

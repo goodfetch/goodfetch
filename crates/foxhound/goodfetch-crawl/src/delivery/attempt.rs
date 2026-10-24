@@ -71,8 +71,9 @@ pub(super) enum Answer {
     /// The handler answered.
     Handled(CrawlRequestHandled),
     /// A hop of its document's redirect chain ended it `skipped`, its
-    /// handler never asked (ADRs 0118 and 0120).
-    Skipped { reason: SkipReason, message: String },
+    /// handler never asked (ADRs 0118 and 0120). It carries no message: an
+    /// outcome's message is the handler's or a Hook's own text.
+    Skipped { reason: SkipReason },
     /// The handler failed, or answered no result.
     Failed {
         code: String,
@@ -323,10 +324,10 @@ pub(super) async fn attempt(
                     message: error.message().to_owned(),
                     details: error.details().cloned().unwrap_or_default(),
                 },
-                Stop::Skipped(skip) => Answer::Skipped {
-                    reason: skip.reason,
-                    message: skip.message,
-                },
+                Stop::Skipped(skip) => {
+                    tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
+                    Answer::Skipped { reason: skip.reason }
+                }
             }),
             _ = lease.ended() => Err(Answer::LeaseEnded),
             }

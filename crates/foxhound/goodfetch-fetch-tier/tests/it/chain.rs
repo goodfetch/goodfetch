@@ -10,6 +10,10 @@
     clippy::disallowed_types,
     reason = "a test gate's record, written and read in one step each, never across an `.await`"
 )]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
@@ -49,7 +53,7 @@ fn defaults() -> Following {
         max: 19,
         refresh_max_delay: Some(Duration::from_secs(100)),
         handled: BTreeSet::new(),
-        retry_after_max: Some(Duration::from_secs(900)),
+        retry_after_max: Some(Duration::from_mins(15)),
     }
 }
 
@@ -84,7 +88,9 @@ impl HopGate for Recording {
 
     fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()> {
         Box::pin(async move {
-            let wait = until.duration_since(SystemTime::now()).unwrap_or_default();
+            let wait = until
+                .duration_since(Clock::system().wall())
+                .unwrap_or_default();
             self.waits
                 .lock()
                 .unwrap()

@@ -20,7 +20,7 @@ use goodfetch_test_support::{RuntimeFile, TestEnv};
 use serde_json::{Value, json};
 
 use crate::daemon::{RawClient, StopsTheDaemon, json_of};
-use crate::daemon_run::{Foreground, free_address, opened};
+use crate::daemon_run::{ANY_PORT, Foreground, opened};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -68,8 +68,7 @@ fn started(env: &TestEnv) -> RawClient {
 fn daemon_run_writes_json_lines_to_stdout_and_no_log_file() {
     let env = TestEnv::new();
     env.user_configuration(&format!(
-        "daemon.address = \"{}\"\nlog.output = \"stdout\"\n",
-        free_address()
+        "daemon.address = \"{ANY_PORT}\"\nlog.output = \"stdout\"\n"
     ));
 
     let mut daemon = Foreground::start(&env, COLLIE, &[]);
@@ -187,8 +186,7 @@ fn on_a_full_filesystem_the_daemon_keeps_serving_and_then_says_how_many_lines_it
 
     let env = TestEnv::new();
     env.user_configuration(&format!(
-        "daemon.address = \"{}\"\nlog.output = \"file\"\nlog.level = \"trace\"\n",
-        free_address()
+        "daemon.address = \"{ANY_PORT}\"\nlog.output = \"file\"\nlog.level = \"trace\"\n"
     ));
     let logs = env.home().join("logs");
     let mut command = mounted(&env, &logs, 1 << 20, COLLIE);

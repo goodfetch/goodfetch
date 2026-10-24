@@ -1,0 +1,166 @@
+//! Politeness conformance cases for the shared robots.txt copy (spec
+//! #581's seam: the protocol against the Proving ground; ADR 0086): crawls
+//! under `fetch.tier: http` on Foxhound's executable, each in an engine of
+//! its own under one Goodfetch home, against the `access-policy` family's
+//! hosts, whose robots.txt the Proving ground counts. A crawl's Run reads
+//! each origin's robots.txt once for all its pages, from the copy the
+//! user's runs share in the Politeness file, never from a copy of its own;
+//! a run within the day sends no robots.txt request, and one after it
+//! does; and the fetch is a request of its domain, the delay between starts
+//! counted from it.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the test measures, from outside the engine's process, how long its first page waited"
+)]
+
+use std::time::{Duration, Instant};
+
+use goodfetch_test_support::{ProvingGround, TestEnv};
+use serde_json::{Value, json};
+
+use crate::crawl::Attached;
+use crate::frontier::crawl_with;
+
+/// The Proving ground's seed.
+const SEED: u64 = 877;
+
+/// The `access-policy` family's first task's host, whose robots.txt
+/// answers `200` with a file.
+const FILE_HOST: &str = "1.access-policy.test";
+
+/// A day, in milliseconds.
+const DAY: i64 = 86_400_000;
+
+/// The settings of a crawl that fetches its pages on `host` of
+/// `proving_ground`, with `more` merged in.
+fn settings(proving_ground: &ProvingGround, host: &str, more: &Value) -> Value {
+    let ip = proving_ground.address().ip().to_string();
+    let mut settings = json!({
+        "fetch": { "tier": "http" },
+        "network": { "resolve": { host: [ip] } },
+    });
+    if let (Some(settings), Some(more)) = (settings.as_object_mut(), more.as_object()) {
+        settings.extend(more.clone());
+    }
+    settings
+}
+
+/// Crawls `paths` of `host` as `run_id` in an engine of its own under
+/// `env`'s home, its handler committing nothing; answers the Run report.
+fn crawl(
+    env: &TestEnv,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    host: &str,
+    paths: &[&str],
+) -> Value {
+    let seeds: Vec<Value> = paths
+        .iter()
+        .map(|path| json!({ "url": proving_ground.url(host, path), "label": "page" }))
+        .collect();
+    let mut engine = Attached::start(env);
+    let report = crawl_with(
+        &mut engine,
+        run_id,
+        &seeds,
+        &settings(proving_ground, host, &json!({})),
+        &mut |_, _| json!({ "result": { "records": [] } }),
+    );
+    assert!(engine.finish());
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+    report
+}
+
+/// How many requests `host` received so far, for its robots.txt and for
+/// its other pages.
+fn received(proving_ground: &ProvingGround, host: &str) -> (usize, usize) {
+    let observations = proving_ground.observations().unwrap();
+    let requests: Vec<&Value> = observations["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| request["host"] == host)
+        .collect();
+    let robots = requests
+        .iter()
+        .filter(|request| request["target"] == "/robots.txt")
+        .count();
+    (robots, requests.len() - robots)
+}
+
+/// Moves every copy in the home's Politeness file a day into the past, as
+/// if it had been fetched a day earlier.
+fn age_the_copies(env: &TestEnv) {
+    let file = rusqlite::Connection::open(env.home().join("politeness.sqlite")).unwrap();
+    file.execute("UPDATE robots_txt SET fetched_at = fetched_at - ?1", [DAY])
+        .unwrap();
+}
+
+/// A crawl of two pages fetches its origin's robots.txt once; a second
+/// run, in another engine within the day, sends no robots.txt request,
+/// since it reads the copy the first left in the Politeness file rather
+/// than a copy of its own; once the copy is a day old, a third sends one.
+///
+/// Covers: story:6-241, story:6-246, setting:fetch.tier, format:politeness-file
+#[test]
+fn a_crawl_reads_robots_txt_once_a_day_from_the_copy_its_users_runs_share() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+
+    crawl(
+        &env,
+        &proving_ground,
+        "first",
+        FILE_HOST,
+        &["/catalog/1", "/catalog/2"],
+    );
+    let after_first = received(&proving_ground, FILE_HOST);
+    crawl(&env, &proving_ground, "second", FILE_HOST, &["/catalog/3"]);
+    let after_second = received(&proving_ground, FILE_HOST);
+    age_the_copies(&env);
+    crawl(&env, &proving_ground, "third", FILE_HOST, &["/catalog/1"]);
+    let after_third = received(&proving_ground, FILE_HOST);
+
+    assert_eq!(
+        (after_first, after_second, after_third),
+        ((1, 2), (1, 3), (2, 4))
+    );
+}
+
+/// The robots.txt fetch is a request of its domain: under a delay between
+/// starts of 2 s, the crawl's first page goes no sooner than 2 s after its
+/// origin's robots.txt.
+///
+/// Covers: story:6-241, setting:politeness.domain.delay
+#[test]
+fn the_robots_txt_fetch_counts_in_its_domains_politeness() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let delay = Duration::from_secs(2);
+    let more = json!({ "politeness": { "domain": { "delay": 2_000 } } });
+    let mut engine = Attached::start(&env);
+
+    let started = Instant::now();
+    let mut first_page = None;
+    let report = crawl_with(
+        &mut engine,
+        "delayed",
+        &[json!({ "url": proving_ground.url(FILE_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, FILE_HOST, &more),
+        &mut |_, _| {
+            first_page.get_or_insert_with(|| started.elapsed());
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            received(&proving_ground, FILE_HOST),
+            first_page.is_some_and(|after| after >= delay),
+        ),
+        (&json!("finished"), (1, 1), true),
+        "the first page came {first_page:?} after the start"
+    );
+}
